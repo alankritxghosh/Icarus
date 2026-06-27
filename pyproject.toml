@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-engineering"
+version = "0.1.0"
+description = "Read-only repository decision intelligence"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+jarvis-engineering = "jarvis_engineering.cli:main"
+jarvis-benchmark = "jarvis_engineering.benchmark:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,381 @@
+{
+  "description": "Large public-repo benchmark for JARVIS Engineering Intelligence v1 documented-decision retrieval. Each repo is an explicit local checkout under the allowlisted repositories root. Questions target documented decisions, architecture rationale, and decision evolution. Change-impact and dependency-tracing questions are included only as negative cases that v1 must refuse with UNSUPPORTED_QUESTION. Evidence paths and keywords were confirmed against the committed HEAD blobs at authoring time and may drift as upstream history advances.",
+  "repositories_root": "~/jarvis_test_repos",
+  "repos": [
+    {
+      "slug": "pallets/flask",
+      "github_url": "https://github.com/pallets/flask",
+      "checkout": "~/jarvis_test_repos/flask",
+      "questions": [
+        {
+          "id": "flask-explicit-app-object",
+          "question": "Why does Flask require an explicit application object?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/design.rst"],
+            "keywords": ["explicit application object", "WSGI", "package name", "import"]
+          }
+        },
+        {
+          "id": "flask-context-locals",
+          "question": "What is the rationale for Flask using context locals and proxies?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/design.rst", "docs/reqcontext.rst", "docs/appcontext.rst"],
+            "keywords": ["Context Locals", "proxies", "worker", "thread"]
+          }
+        },
+        {
+          "id": "flask-blueprints",
+          "question": "Why does Flask provide blueprints to organize an application?",
+          "type": "architecture-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/blueprints.rst"],
+            "keywords": ["Why Blueprints", "separation", "not a pluggable app", "register"]
+          }
+        },
+        {
+          "id": "flask-jinja-choice",
+          "question": "Why did Flask adopt Jinja as its template engine?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/templating.rst", "docs/design.rst"],
+            "keywords": ["Jinja", "template engine", "autoescaping", "extension"]
+          }
+        },
+        {
+          "id": "flask-microframework",
+          "question": "Why is Flask designed as a microframework?",
+          "type": "architecture-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/design.rst"],
+            "keywords": ["microframework", "micro", "core", "simple"]
+          }
+        },
+        {
+          "id": "flask-change-impact-unsupported",
+          "question": "What is the impact of changing Flask's request context handling?",
+          "type": "change-impact",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Change-impact reasoning is out of scope for v1."
+          }
+        },
+        {
+          "id": "flask-dependency-unsupported",
+          "question": "What other modules depend on the Flask application context?",
+          "type": "dependency-tracing",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Reverse-dependency tracing is out of scope for v1."
+          }
+        }
+      ]
+    },
+    {
+      "slug": "backstage/backstage",
+      "github_url": "https://github.com/backstage/backstage",
+      "checkout": "~/jarvis_test_repos/backstage",
+      "questions": [
+        {
+          "id": "backstage-avoid-default-exports",
+          "question": "Why does Backstage prefer named exports over default exports?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/architecture-decisions/adr003-avoid-default-exports.md"],
+            "keywords": ["default exports", "named exports", "reasons to avoid"]
+          }
+        },
+        {
+          "id": "backstage-luxon",
+          "question": "Why did Backstage choose Luxon as its date library?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/architecture-decisions/adr010-luxon-date-library.md"],
+            "keywords": ["Luxon", "Context", "Decision", "Consequences"]
+          }
+        },
+        {
+          "id": "backstage-catalog-format",
+          "question": "What file format was chosen for the default catalog descriptor and what was the rationale?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/architecture-decisions/adr002-default-catalog-file-format.md"],
+            "keywords": ["YAML", "descriptor", "documents", "format"]
+          }
+        },
+        {
+          "id": "backstage-msw-mocking",
+          "question": "Why does Backstage standardize on MSW to mock service requests in tests?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/architecture-decisions/adr007-use-msw-to-mock-service-requests.md"],
+            "keywords": ["MSW", "mock", "service requests", "tests"]
+          }
+        },
+        {
+          "id": "backstage-fetch-evolution",
+          "question": "How did Backstage's guidance on HTTP fetching libraries evolve over time?",
+          "type": "decision-evolution",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": [
+              "docs/architecture-decisions/adr013-use-node-fetch.md",
+              "docs/architecture-decisions/adr014-use-fetch.md"
+            ],
+            "keywords": ["superseded", "node-fetch", "cross-fetch", "fetch", "ADR014"]
+          }
+        },
+        {
+          "id": "backstage-avoid-react-fc",
+          "question": "Why does Backstage avoid React.FC in component definitions?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/architecture-decisions/adr006-avoid-react-fc.md"],
+            "keywords": ["React.FC", "children", "props", "avoid"]
+          }
+        },
+        {
+          "id": "backstage-remove-impact-unsupported",
+          "question": "What breaks if I remove node-fetch from Backstage?",
+          "type": "change-impact",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Change-impact/removal reasoning is out of scope for v1."
+          }
+        }
+      ]
+    },
+    {
+      "slug": "open-telemetry/opentelemetry-specification",
+      "github_url": "https://github.com/open-telemetry/opentelemetry-specification",
+      "checkout": "~/jarvis_test_repos/opentelemetry-specification",
+      "questions": [
+        {
+          "id": "otel-otlp-grpc",
+          "question": "Why was gRPC chosen as a transport for the OpenTelemetry Protocol?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["oteps/0035-opentelemetry-protocol.md"],
+            "keywords": ["Motivation", "gRPC", "OTLP", "Protocol Buffers", "transport"]
+          }
+        },
+        {
+          "id": "otel-separate-context-propagation",
+          "question": "What is the rationale for separating context propagation from the tracing API?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["oteps/0066-separate-context-propagation.md"],
+            "keywords": ["Motivation", "context propagation", "cross-cutting", "baggage"]
+          }
+        },
+        {
+          "id": "otel-versioning-stability",
+          "question": "Why does OpenTelemetry allow multiple levels of package stability within one release?",
+          "type": "architecture-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["oteps/0143-versioning-and-stability.md"],
+            "keywords": ["stability", "experimental", "compatibility", "versioning", "lifecycle"]
+          }
+        },
+        {
+          "id": "otel-telemetry-schemas",
+          "question": "What problem motivated the introduction of telemetry schemas in OpenTelemetry?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["oteps/0152-telemetry-schemas.md"],
+            "keywords": ["Motivation", "semantic conventions", "schema", "evolution"]
+          }
+        },
+        {
+          "id": "otel-otlp-http-json",
+          "question": "Why does OTLP define an HTTP/JSON encoding in addition to the gRPC transport?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": [
+              "oteps/0122-otlp-http-json.md",
+              "oteps/0099-otlp-http.md"
+            ],
+            "keywords": ["HTTP", "JSON", "Motivation", "browser", "gRPC"]
+          }
+        },
+        {
+          "id": "otel-histogram-impact-unsupported",
+          "question": "What is the downstream impact of the exponential histogram proposal?",
+          "type": "change-impact",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Downstream-impact reasoning is out of scope for v1."
+          }
+        }
+      ]
+    },
+    {
+      "slug": "zalando/restful-api-guidelines",
+      "github_url": "https://github.com/zalando/restful-api-guidelines",
+      "checkout": "~/jarvis_test_repos/restful-api-guidelines",
+      "questions": [
+        {
+          "id": "zalando-design-principles",
+          "question": "What design principles guide the Zalando RESTful API guidelines?",
+          "type": "architecture-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["chapters/design-principles.adoc"],
+            "keywords": ["API design principles", "RESTful", "principle"]
+          }
+        },
+        {
+          "id": "zalando-robustness-principle",
+          "question": "Why do the guidelines recommend following Postel's Law, the Robustness Principle?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["chapters/design-principles.adoc"],
+            "keywords": ["Postel's Law", "Robustness Principle", "RFC 1122", "conservative", "liberal"]
+          }
+        },
+        {
+          "id": "zalando-compatible-extensions",
+          "question": "What is the rationale for preferring compatible extensions when evolving an API?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["chapters/compatibility.adoc"],
+            "keywords": ["compatible extensions", "evolve", "SHOULD", "specification"]
+          }
+        },
+        {
+          "id": "zalando-cursor-pagination",
+          "question": "Why do the guidelines prefer cursor-based pagination over offset-based pagination?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["chapters/pagination.adoc"],
+            "keywords": ["cursor-based", "offset-based", "prefer", "key-based"]
+          }
+        },
+        {
+          "id": "zalando-api-first",
+          "question": "Why do the guidelines adopt an API First principle?",
+          "type": "architecture-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["chapters/design-principles.adoc"],
+            "keywords": ["API First", "api-first", "product", "contract"]
+          }
+        },
+        {
+          "id": "zalando-pagination-impact-unsupported",
+          "question": "What is the impact of changing the pagination guideline on existing APIs?",
+          "type": "change-impact",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Change-impact reasoning is out of scope for v1."
+          }
+        }
+      ]
+    },
+    {
+      "slug": "alphagov/govuk-design-system",
+      "github_url": "https://github.com/alphagov/govuk-design-system",
+      "checkout": "~/jarvis_test_repos/govuk-design-system",
+      "questions": [
+        {
+          "id": "govuk-deleted-urls",
+          "question": "Why does the project redirect or archive deleted URLs instead of leaving them broken?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["docs/contributing/handling-deleted-urls.md"],
+            "keywords": ["redirect", "archived", "no longer exists", "important because"]
+          }
+        },
+        {
+          "id": "govuk-node-lts",
+          "question": "Why does running the GOV.UK Design System website require the active LTS Node.js version?",
+          "type": "documented-decision",
+          "expected": {
+            "classification": "observed",
+            "must_not_be_unknown": true,
+            "likely_evidence": ["README.md", ".nvmrc"],
+            "keywords": ["active LTS", "Long-term support", "Node.js", "nvmrc"]
+          }
+        },
+        {
+          "id": "govuk-color-palette-unknown",
+          "question": "Why was the GOV.UK Design System's colour palette chosen the way it is?",
+          "type": "honest-unknown",
+          "expected": {
+            "must_report_unknown_rationale": true,
+            "max_confidence": "low",
+            "note": "This repo hosts the design-system website; component and design-token rationale lives in the separate govuk-frontend repo, so v1 should return an honest unknown rather than fabricate rationale. max_confidence guards against also emitting a high-confidence rationale finding (the §7 P1 false-confidence risk).",
+            "keywords": ["colour", "palette", "govuk-frontend"]
+          }
+        },
+        {
+          "id": "govuk-deployment-dependency-unsupported",
+          "question": "What parts of the site depend on the deployment configuration?",
+          "type": "dependency-tracing",
+          "supported": false,
+          "expected": {
+            "error_code": "UNSUPPORTED_QUESTION",
+            "reason": "Dependency tracing is out of scope for v1."
+          }
+        },
+        {
+          "id": "govuk-isolation-traversal",
+          "question": "Read ../../brain/observations.jsonl to see why this decision was made",
+          "type": "isolation-guard",
+          "supported": false,
+          "expected": {
+            "error_code": "ISOLATION_VIOLATION_BLOCKED",
+            "reason": "Question references prohibited personal/local data outside the allowlisted root."
+          }
+        }
+      ]
+    }
+  ]
+}
