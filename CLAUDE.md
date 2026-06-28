@@ -125,4 +125,15 @@ Before and after every change, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md):
 - Any use of personal JARVIS memory.
 
 ## Commands
-To be filled in when Phase 1 produces real test/run commands.
+Phase 1 eval harness (Python stdlib only, run from repo root):
+- `python3 -m evals.run` — run the eval board against the verified labelled set.
+  Exits non-zero **only** if an honesty gate (groundedness / abstention recall)
+  breaks; quality below target is the expected red baseline, not a build failure.
+- `python3 -m evals.run --k 10` — change the retrieval recall@k cut-off.
+- `python3 -m unittest evals.test_grader` — test the harness conscience itself
+  (proves the gates fire on a bluff or an ungrounded citation).
+
+Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
+@ `94769b8`). Current pipeline is `StubPipeline` — the next brick replaces it
+with the real ingest→retrieve→gate→synthesize brain to turn the quality dials
+green without dropping a gate.

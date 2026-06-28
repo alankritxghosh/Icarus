@@ -1,0 +1,117 @@
+{
+  "_status": "VERIFIED — signed off by Alankrit 2026-06-28. All 10 labels accepted, q05 kept as a PR-beats-docs case.",
+  "corpus": {
+    "repo": "simonw/llm",
+    "commit": "94769b8b076cde9392059d76bd766453cf900180",
+    "commit_date": "2026-06-21",
+    "rationale_sources": ["pr_descriptions", "linked_issues", "commits", "code"],
+    "note": "Line-numbered code citations are valid only at this commit; pin the same SHA at ingest."
+  },
+  "questions": [
+    {
+      "id": "q01",
+      "label": "answerable",
+      "question": "Why did llm implement the OpenAI Responses API as a new model class instead of modifying the existing chat completions class?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1435", "why": "The existing chat completion class had to be left alone because other plugins import it; so a new Responses class was added, with a chat_completions boolean option to dispatch back to the old implementation.", "also_in_docs": false}
+      ],
+      "notes": "Strong PR-only design rationale — docs/changelog do not explain the 'other plugins import it' reason."
+    },
+    {
+      "id": "q02",
+      "label": "answerable",
+      "question": "Why does .prompt() accept an options= dict when **kwargs already worked, and why is the **kwargs form no longer documented?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1432", "why": "The maintainer wants to eventually migrate options to an options={...} form; options= was added now as a documented alternative, while the older **kwargs form is kept for backwards-compatibility but deliberately left undocumented to steer migration.", "also_in_docs": false}
+      ],
+      "notes": "The 'undocument kwargs to steer migration' intent is PR-only."
+    },
+    {
+      "id": "q03",
+      "label": "answerable",
+      "question": "What concrete use case drove the PauseChain primitive in llm?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1482", "why": "Needed for Datasette Agent: to pause a tool call mid-chain in order to ask for human confirmation, in a way that survives a server restart.", "also_in_docs": false}
+      ],
+      "notes": "PR-only motivation."
+    },
+    {
+      "id": "q04",
+      "label": "answerable",
+      "question": "Why were async tool calls to missing/unregistered tools changed to produce error results instead of being silently dropped?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1483", "why": "A silently-dropped call left an assistant tool_call with no matching result, which OpenAI and Anthropic reject. It matters more since chain resume landed: a pending call whose tool is no longer registered would otherwise never resolve.", "also_in_docs": false}
+      ],
+      "notes": "PR-only."
+    },
+    {
+      "id": "q05",
+      "label": "answerable",
+      "question": "Why does llm synthesize its own tool_call_id for providers that don't supply one, rather than leaving it empty?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1481", "why": "Consumers correlating tool calls with results (or keying external state on a specific invocation) had to invent fallback matching schemes for id-less providers, and test models like llm-echo exercised different code paths than production providers.", "also_in_docs": "partial"}
+      ],
+      "notes": "REDUNDANCY FLAG: docs/python-api.md:119 gives the correlation reason. The PR-only part is the 'llm-echo test path divergence' reason. Good case for testing PR-beats-docs retrieval; grader should require the PR citation, not accept a docs-only answer."
+    },
+    {
+      "id": "q06",
+      "label": "answerable",
+      "question": "Why was a new hide_reasoning parameter added when there was already a -R/--no-reasoning option?",
+      "gold_citations": [
+        {"source": "pr", "ref": "1442", "why": "-R/--no-reasoning was misleadingly named: it only suppressed display of reasoning text, did not turn reasoning off, and was not passed through to models. Since #1435 the default OpenAI plugin requests reasoning summaries, so hide_reasoning is passed through on the Prompt so plugins can opt not to request visible reasoning tokens.", "also_in_docs": false}
+      ],
+      "notes": "Spot-checked: changelog records WHAT changed (rename + new kwarg, lines 32/36) but NOT the motivation. The 'misleadingly named / didn't disable reasoning' why is PR-only — another PR-beats-docs case. Spare if ever needed: PR #1480 (why llm_tool_call is reserved/excluded from the model-facing schema)."
+    },
+    {
+      "id": "q07",
+      "label": "unanswerable",
+      "subtype": "realistic-unrecorded",
+      "question": "Why is the maximum conversation-name length set to 32 characters specifically?",
+      "searched": [
+        "code: llm/models.py:51 (CONVERSATION_NAME_LENGTH = 32) — no comment; used only to truncate display names at llm/models.py:3427-3429",
+        "docs/: no mention of the value or its rationale",
+        "gh issue/PR search 'CONVERSATION_NAME_LENGTH' — only unrelated fuzzy hits (#520, #744)",
+        "gh commit search 'CONVERSATION_NAME_LENGTH' — no hits"
+      ],
+      "correct_behavior": "I don't know — the specific value 32 was never justified anywhere.",
+      "notes": "Cleanest realistic-unrecorded: arbitrary display-truncation constant."
+    },
+    {
+      "id": "q08",
+      "label": "unanswerable",
+      "subtype": "realistic-unrecorded",
+      "question": "Why is a schema ID computed as a 16-byte blake2b digest specifically (rather than some other length)?",
+      "searched": [
+        "code: llm/utils.py:220-222 (make_schema_id, digest_size=16) — no comment",
+        "docs/schemas.md: uses schema IDs (e.g. 32-hex-char examples) but never justifies the 16-byte size",
+        "no PR/issue rationale found for the digest size"
+      ],
+      "correct_behavior": "I don't know — the existence of schema IDs is documented, but the 16-byte size choice is not.",
+      "notes": "Targets the magnitude, not the existence; record that purpose IS documented while the size is not."
+    },
+    {
+      "id": "q09",
+      "label": "unanswerable",
+      "subtype": "definitionally-unrecorded",
+      "question": "Why is the loop counter in _human_readable_size named `i` rather than something more descriptive?",
+      "searched": [
+        "code: llm/cli.py:3881-3893 — trivial local counter, no comment",
+        "no docs/PR/issue would ever record a local variable naming choice"
+      ],
+      "correct_behavior": "I don't know — trivial naming choice nobody documents.",
+      "notes": "Guaranteed-correct abstention floor."
+    },
+    {
+      "id": "q10",
+      "label": "unanswerable",
+      "subtype": "definitionally-unrecorded",
+      "question": "Why is _human_readable_size defined immediately before logs_on in cli.py rather than elsewhere in the file?",
+      "searched": [
+        "code: llm/cli.py:3881 (_human_readable_size) and llm/cli.py:3895 (logs_on)",
+        "no docs/PR/issue would ever record function ordering within a file"
+      ],
+      "correct_behavior": "I don't know — definition ordering nobody documents.",
+      "notes": "Guaranteed-correct abstention floor."
+    }
+  ]
+}
