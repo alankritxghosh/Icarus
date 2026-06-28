@@ -48,7 +48,11 @@ line beats a perfect ingest with no answer.
 
 ## The pipeline (build order within Phase 1)
 
-1. **Ingest** — pull the repo's code + PRs + review comments into a local corpus.
+1. **Ingest** — pull the repo's code + PRs + linked issues + commit messages into
+   a local corpus. (Inline **review comments** are deferred: the chosen corpus
+   repo `simonw/llm` is solo-maintained, so its "why" lives in PR descriptions,
+   linked issues, and commits, not review threads. The review-comment path is a
+   later addition once the pipeline works — it does not affect cite-or-unknown.)
 2. **Chunk** — AST / function-level for code (the cAST finding); natural chunks
    for PR text. Every chunk carries metadata: source file, line range, PR/review
    id — this is what makes citations real.
@@ -112,11 +116,26 @@ real numbers, not vibes:
 
 1. **Vector store** — which simple/local option to start with.
 2. **Which embedding model** specifically (BGE vs E5 vs nomic-class).
-3. **First corpus repo + who writes the labelled questions.** These must be *real*
-   questions with *real* recorded/unrecorded answers — the harness is only honest
-   if the labels are.
-4. **Confirm OpenRouter data settings** for the free model before any code runs
+3. **Confirm OpenRouter data settings** for the free model before any code runs
    (public repos only regardless).
+
+### Decided
+- **Corpus repo: `simonw/llm`** (public, ~2 MB, Python, LLM-CLI domain). Chosen
+  for fast thin-slice iteration and a domain the builder can judge. Rationale
+  sources = PR descriptions + linked issues + commits (review comments deferred,
+  see Ingest step above).
+- **Labelling method (evidence-first):** never invent a question and hope evidence
+  exists — read real PRs/issues, then write the question whose answer lives there.
+  - *Answerable (~6):* answer must rest on a PR/issue span we record as the gold
+    citation, **not** something also in the README (avoids the README-only trap).
+  - *Unanswerable (~4):* ~2 realistic-unrecorded (a real choice where a documented
+    search of PRs/issues/commits/code-comments finds no rationale) + ~2
+    definitionally-unrecorded (a trivial naming/ordering choice nobody documents).
+  - *Schema:* one record per question — `id`, `question`, `label`,
+    `gold_citations` (answerable), `searched` (unanswerable, proves the gap),
+    `notes`. Lands as `evals/phase1_questions.yaml` when the harness is drafted.
+  - *Roles:* Claude drafts candidates (questions + gold citations) from the real
+    repo; the builder verifies every label, especially the unanswerable ones.
 
 ## Guardrails (unchanged, restated)
 
