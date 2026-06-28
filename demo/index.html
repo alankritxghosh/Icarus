@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icarus — ask the codebase</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e8eaed; --muted:#9aa3b2; --accent:#7aa2f7; --ok:#7ee787; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:48px 20px 80px; }
+  h1 { font-size:22px; font-weight:650; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 28px; font-size:14px; }
+  form { display:flex; gap:10px; }
+  #question { flex:1; padding:12px 14px; border-radius:10px; border:1px solid var(--line);
+              background:var(--card); color:var(--fg); font-size:16px; }
+  #question:focus { outline:none; border-color:var(--accent); }
+  #ask { padding:12px 18px; border:0; border-radius:10px; background:var(--accent);
+         color:#0b0e14; font-weight:650; cursor:pointer; }
+  #ask:disabled { opacity:.5; cursor:default; }
+  #result { margin-top:28px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; }
+  .answer { white-space:pre-wrap; }
+  .label { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
+  .cites { list-style:none; padding:0; margin:14px 0 0; }
+  .cites li { margin:6px 0; }
+  .cites a, .cites span { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; }
+  .cites a { color:var(--accent); text-decoration:none; }
+  .cites a:hover { text-decoration:underline; }
+  .unknown .label { color:var(--ok); }
+  .unknown h2 { font-size:18px; margin:0 0 6px; }
+  .searched { color:var(--muted); font-size:13px; margin-top:14px; word-break:break-word; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ask the codebase</h1>
+  <p class="sub">Answers come only from what was actually written down about
+     <code>simonw/llm</code> — with citations, or an honest “no one wrote this down.”</p>
+
+  <form id="form">
+    <input id="question" name="question" autocomplete="off"
+           placeholder="Why was it built this way?" />
+    <button id="ask" type="submit">Ask</button>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<script>
+const form = document.getElementById("form");
+const input = document.getElementById("question");
+const ask = document.getElementById("ask");
+const result = document.getElementById("result");
+
+function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function renderAnswer(p){
+  const cites = p.citations.map(c =>
+    c.url ? `<li><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.ref)}</a></li>`
+          : `<li><span>${esc(c.ref)}</span></li>`).join("");
+  result.innerHTML =
+    `<div class="card"><p class="label">Answer</p>` +
+    `<div class="answer">${esc(p.answer)}</div>` +
+    (cites ? `<ul class="cites"><p class="label" style="margin-top:18px">Citations</p>${cites}</ul>` : ``) +
+    `</div>`;
+}
+
+function renderUnknown(p){
+  const searched = p.searched.length
+    ? `<div class="searched">Searched: ${p.searched.map(esc).join(", ")}</div>` : ``;
+  result.innerHTML =
+    `<div class="card unknown"><p class="label">Honest answer</p>` +
+    `<h2>No one wrote this down.</h2>` +
+    `<p class="muted">The evidence doesn’t record a reason, so Icarus won’t invent one.</p>` +
+    searched + `</div>`;
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = input.value.trim();
+  if (!question) return;
+  ask.disabled = true;
+  result.innerHTML = `<div class="card muted">Thinking…</div>`;
+  try {
+    const resp = await fetch("/ask", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({question}),
+    });
+    const p = await resp.json();
+    if (p.verdict === "answer") renderAnswer(p); else renderUnknown(p);
+  } catch (err) {
+    result.innerHTML = `<div class="card muted">Network error — is the server running?</div>`;
+  } finally {
+    ask.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

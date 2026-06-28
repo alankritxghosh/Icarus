@@ -82,5 +82,23 @@ class ServerTests(unittest.TestCase):
         cm.exception.close()
 
 
+class IndexHtmlSmokeTests(unittest.TestCase):
+    """The served page must keep the hooks the front-end contract depends on."""
+
+    def setUp(self):
+        self.html = (Path(__file__).resolve().parent / "index.html").read_text()
+
+    def test_has_question_input_and_ask_button(self):
+        self.assertIn('id="question"', self.html)
+        self.assertIn('id="ask"', self.html)
+
+    def test_posts_to_ask_and_handles_both_verdicts(self):
+        self.assertIn("/ask", self.html)
+        self.assertIn('verdict', self.html)
+
+    def test_renders_the_honest_unknown_hero(self):
+        self.assertIn("No one wrote this down", self.html)
+
+
 if __name__ == "__main__":
     unittest.main()
