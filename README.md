@@ -39,8 +39,11 @@ The previous product (JARVIS Engineering Intelligence) is archived in git: tag
 | Doc | What it answers |
 |-----|-----------------|
 | [docs/VISION.md](docs/VISION.md) | What we're building and why it's trustworthy |
+| [docs/STRATEGY.md](docs/STRATEGY.md) | How we build it as a product, and why it wins |
+| [docs/COMPETITIVE.md](docs/COMPETITIVE.md) | How the closest comparables were built — steal / avoid |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it's built — the face, the brain, and the cloud |
 | [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md) | What we build first, second, third |
+| [docs/PHASE_1_PLAN.md](docs/PHASE_1_PLAN.md) | The concrete first build — the brain in text |
 | [docs/EVALUATION.md](docs/EVALUATION.md) | How we prove Icarus isn't bluffing |
 | [docs/METRICS.md](docs/METRICS.md) | The numbers that tell us we're winning |
 | [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | How we work — one honest brick at a time |

@@ -36,9 +36,12 @@ explain how it preserves cite-or-unknown, it doesn't ship.
 ## After changing anything
 
 1. Run the evaluation harness and the test suite.
-2. Report: files changed, evals/tests run, failures, risks, and the next
+2. **Regenerate the codebase indexes** (`general_index.md`, `detailed_index.md`)
+   if you added, removed, or renamed any files, classes, or functions — a stale
+   map is a quiet liability.
+3. Report: files changed, evals/tests run, failures, risks, and the next
    recommended brick.
-3. State plainly what is proven and what is still unknown. No success claims
+4. State plainly what is proven and what is still unknown. No success claims
    without evidence.
 
 ## Scope discipline (the hard boundaries)
@@ -53,16 +56,20 @@ explain how it preserves cite-or-unknown, it doesn't ship.
 - **A credential is a responsibility.** Every new credential (GitHub first) and
   every byte that leaves the trust boundary is a deliberate, minimized decision.
 
-## Agent roles
+## One model, no roles (for now)
 
-- **Opus** — principal architect and adversarial reviewer. Product wedge,
-  architecture, privacy/security, and scope critique.
-- **Sonnet** — implementation reviewer, adversarial eval/test writer, and bounded
-  implementer when explicitly asked.
-- **Codex** — deterministic fixer, verifier, and integration worker.
+Until a basic product exists, **one model (Claude) does everything** — planning,
+implementation, review, and verification. No formal agent roles yet; they add
+ceremony a solo build doesn't need. We introduce roles only when the work
+outgrows a single thread.
 
-If role instructions conflict, prefer the narrowest safe interpretation and
-report the conflict.
+To stay coherent across a long build with one model, fight token limits,
+hallucinations, and context decay:
+
+- **The files are the memory; the chat is just the workspace.** When we decide
+  something, it goes into a doc immediately.
+- Work one brick/phase at a time so each session loads only what it needs.
+- Start a fresh chat for a new chunk of work instead of one endless thread.
 
 ## Definition of done (for any brick)
 
