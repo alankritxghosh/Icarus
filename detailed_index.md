@@ -194,3 +194,40 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
 - `evals/test_answer_correctness_eval.py` — pins the real-model proof: with the
   judge, answer correctness becomes a number > 0 while both gates stay 100%
   (skips without `OPENROUTER_API_KEY` or the corpus).
+
+## demo/links.py
+Map a `source:ref` citation to its GitHub URL. No classes.
+
+- `ref_to_url(ref, repo, commit) -> str | None` — `pr:N`→`/pull/N`,
+  `issue:N`→`/issues/N`, `code:path`→`/blob/{commit}/path`; unknown source or
+  malformed ref → None (split on the first colon only).
+
+## demo/payload.py
+Turn a pipeline `Result` into the JSON the demo page renders. No classes.
+
+- `build_payload(result, repo, commit) -> dict` — `{verdict, answer, citations:
+  [{ref,url}], searched:[refs]}`. Answers carry prose + citation URLs; the honest
+  unknown carries empty answer/citations but always the retrieved `searched` refs.
+
+## demo/server.py
+A minimal local web face over the gated brain. Stdlib `http.server` only. Module
+constants: `ROOT`, `CORPUS`, `QUESTIONS`, `INDEX_HTML`.
+
+- `make_handler(pipeline, repo, commit, html_path)` — return a
+  `BaseHTTPRequestHandler` subclass: GET `/` serves the page; POST `/ask` with
+  `{"question": …}` returns `build_payload(pipeline.answer(question), …)`; empty
+  question → 400; other paths → 404. (Quiet logging.)
+- `serve(host="127.0.0.1", port=8000)` — read repo/commit from the labelled set,
+  build the real `GatedPipeline(LexicalRetriever(corpus), corpus, OpenRouterProvider())`,
+  and run `HTTPServer`. Entry point: `python3 -m demo.server`.
+
+## demo/ test modules
+- `demo/test_links.py` — pins `ref_to_url` across pr/issue/code and bad input.
+- `demo/test_payload.py` — pins the answer and honest-unknown payload shapes
+  (citation URLs, order preserved, `searched`, url=None for unknown sources).
+- `demo/test_server.py` — pins routing against a stub pipeline (GET `/`, POST
+  `/ask` answer/unknown, 400 on missing question, 404) and smoke-checks that
+  `index.html` keeps the front-end hooks (`id="question"`, `/ask`, the hero text).
+- `demo/test_demo_live.py` — end-to-end live guard over the real pipeline: an
+  answerable question returns a cited answer with a github.com link, an
+  unrecorded one returns the honest unknown (skips without key/corpus).

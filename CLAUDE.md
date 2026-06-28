@@ -143,9 +143,18 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
 - `python3 -m unittest evals.test_judge` — test the answer-correctness judge
   (proves its verdict parser fails safe to "incorrect" on an ambiguous reply).
 
+Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
+- `OPENROUTER_API_KEY=… python3 -m demo.server` — serve the demo at
+  `http://127.0.0.1:8000`: type a question about `simonw/llm` and get a cited
+  answer (citations link to GitHub at the pinned commit) or an honest "no one
+  wrote this down". Pure packaging over `GatedPipeline` — no brain change. Needs
+  the key (the writer runs per request) and the committed corpus.
+- `python3 -m unittest demo.test_demo_live` — end-to-end live guard (cited answer
+  + honest unknown); self-skips without `OPENROUTER_API_KEY`/corpus.
+
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 @ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
 scores against). The real pipeline is `GatedPipeline` (`--pipeline gated`): on
 the labelled set the honesty gates hold at 100% while citation correctness and
-answer correctness rise off zero. Next: the minimal web demo (Brick 5) and the
-recordable demo (Brick 6).
+answer correctness rise off zero. The minimal web demo (`demo/`) is Brick 5;
+next is the recordable demo (Brick 6).
