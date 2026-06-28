@@ -12,6 +12,7 @@
       "id": "q01",
       "label": "answerable",
       "question": "Why did llm implement the OpenAI Responses API as a new model class instead of modifying the existing chat completions class?",
+      "reference_answer": "Because the existing chat completions class had to be left untouched -- other plugins import it -- so a separate Responses model class was added, with a chat_completions boolean that dispatches back to the old implementation.",
       "gold_citations": [
         {"source": "pr", "ref": "1435", "why": "The existing chat completion class had to be left alone because other plugins import it; so a new Responses class was added, with a chat_completions boolean option to dispatch back to the old implementation.", "also_in_docs": false}
       ],
@@ -21,6 +22,7 @@
       "id": "q02",
       "label": "answerable",
       "question": "Why does .prompt() accept an options= dict when **kwargs already worked, and why is the **kwargs form no longer documented?",
+      "reference_answer": "Because the maintainer intends to eventually migrate options to an options={...} form, so options= was introduced now as the documented alternative; the older **kwargs form still works for backwards-compatibility but was deliberately left undocumented to steer users toward the new form.",
       "gold_citations": [
         {"source": "pr", "ref": "1432", "why": "The maintainer wants to eventually migrate options to an options={...} form; options= was added now as a documented alternative, while the older **kwargs form is kept for backwards-compatibility but deliberately left undocumented to steer migration.", "also_in_docs": false}
       ],
@@ -30,6 +32,7 @@
       "id": "q03",
       "label": "answerable",
       "question": "What concrete use case drove the PauseChain primitive in llm?",
+      "reference_answer": "The Datasette Agent: it needed to pause a tool call mid-chain to ask for human confirmation, in a way that survives a server restart.",
       "gold_citations": [
         {"source": "pr", "ref": "1482", "why": "Needed for Datasette Agent: to pause a tool call mid-chain in order to ask for human confirmation, in a way that survives a server restart.", "also_in_docs": false}
       ],
@@ -39,6 +42,7 @@
       "id": "q04",
       "label": "answerable",
       "question": "Why were async tool calls to missing/unregistered tools changed to produce error results instead of being silently dropped?",
+      "reference_answer": "Because a silently-dropped call left an assistant tool_call with no matching result, which OpenAI and Anthropic reject; and since chain resume landed it matters more, as a pending call whose tool is no longer registered would otherwise never resolve.",
       "gold_citations": [
         {"source": "pr", "ref": "1483", "why": "A silently-dropped call left an assistant tool_call with no matching result, which OpenAI and Anthropic reject. It matters more since chain resume landed: a pending call whose tool is no longer registered would otherwise never resolve.", "also_in_docs": false}
       ],
@@ -48,6 +52,7 @@
       "id": "q05",
       "label": "answerable",
       "question": "Why does llm synthesize its own tool_call_id for providers that don't supply one, rather than leaving it empty?",
+      "reference_answer": "So consumers correlating tool calls with results (or keying external state on a specific invocation) don't have to invent fallback matching schemes for id-less providers, and so test models like llm-echo exercise the same code paths as production providers instead of diverging.",
       "gold_citations": [
         {"source": "pr", "ref": "1481", "why": "Consumers correlating tool calls with results (or keying external state on a specific invocation) had to invent fallback matching schemes for id-less providers, and test models like llm-echo exercised different code paths than production providers.", "also_in_docs": "partial"}
       ],
@@ -57,6 +62,7 @@
       "id": "q06",
       "label": "answerable",
       "question": "Why was a new hide_reasoning parameter added when there was already a -R/--no-reasoning option?",
+      "reference_answer": "Because -R/--no-reasoning was misleadingly named: it only suppressed display of reasoning text, did not actually turn reasoning off, and was not passed through to models. Since #1435 the default OpenAI plugin requests reasoning summaries, so hide_reasoning is passed through on the Prompt to let plugins opt out of requesting visible reasoning tokens.",
       "gold_citations": [
         {"source": "pr", "ref": "1442", "why": "-R/--no-reasoning was misleadingly named: it only suppressed display of reasoning text, did not turn reasoning off, and was not passed through to models. Since #1435 the default OpenAI plugin requests reasoning summaries, so hide_reasoning is passed through on the Prompt so plugins can opt not to request visible reasoning tokens.", "also_in_docs": false}
       ],
