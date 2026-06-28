@@ -11,6 +11,7 @@ until the real pipeline lands.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +20,9 @@ from .corpus import load_chunks
 from .retriever import LexicalRetriever
 from .pipeline import StubPipeline, RetrievalPipeline, GatedPipeline
 from .provider import OpenRouterProvider
+from .judge import Judge
+
+JUDGE_MODEL = "poolside/laguna-m.1:free"  # judge != writer, to avoid self-grading bias
 
 DEFAULT_SET = Path(__file__).resolve().parent / "phase1_questions.json"
 CORPUS = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
@@ -50,7 +54,10 @@ def main(argv=None) -> int:
     else:
         pipeline = StubPipeline()
         name = "StubPipeline"
-    board = grade(questions, pipeline, k=args.k)
+    # The judge is the fuzzy answer-correctness dial, never a gate. Only runs when
+    # a key is present (it needs the network); offline the board stays PENDING.
+    judge = Judge(OpenRouterProvider(model=JUDGE_MODEL)) if os.environ.get("OPENROUTER_API_KEY") else None
+    board = grade(questions, pipeline, k=args.k, judge=judge)
 
     corpus = data.get("corpus", {})
     c = board["counts"]
@@ -69,7 +76,8 @@ def main(argv=None) -> int:
     print(f"  abstention precision {_fmt(q['abstention_precision'])}")
     print(f"  retrieval recall@k   {_fmt(q['retrieval_recall_at_k'])}")
     print(f"  citation correctness {_fmt(q['citation_correctness'])}")
-    print(f"  answer correctness   {board['answer_correctness']}")
+    ac = board["answer_correctness"]
+    print(f"  answer correctness   {_fmt(ac) if isinstance(ac, float) else ac}")
 
     print(f"\nSTATUS: {board['status']}")
     print("=" * 64)
