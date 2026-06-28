@@ -27,8 +27,16 @@ def _pct(flags: List[bool], empty_value: Optional[float]) -> Optional[float]:
     return 100.0 * sum(1 for f in flags if f) / len(flags)
 
 
-def grade(questions: List[dict], pipeline: Pipeline, k: int = 5) -> Dict:
-    """Run the pipeline over every question and compute the metric board."""
+def grade(questions: List[dict], pipeline: Pipeline, k: int = 5, judge=None) -> Dict:
+    """Run the pipeline over every question and compute the metric board.
+
+    `judge` is the optional answer-correctness judge (the fuzzy, judge-later
+    quality dial -- NOT an honesty gate). When None, answer_correctness stays the
+    PENDING string and grading is unchanged. When given, it must expose
+    is_correct(question, reference, candidate) -> bool. The judge never touches
+    the deterministic gates: a wrong-but-confident answer is a quality miss, a
+    bluff is still caught by groundedness/abstention recall.
+    """
     results: Dict[str, Result] = {q["id"]: pipeline.answer(q["question"]) for q in questions}
 
     answerable = [q for q in questions if q["label"] == "answerable"]
@@ -71,6 +79,22 @@ def grade(questions: List[dict], pipeline: Pipeline, k: int = 5) -> Dict:
         empty_value=None,
     )
 
+    # Answer correctness: the fuzzy, judge-later dial. Only computed when a judge
+    # is supplied; otherwise it stays PENDING (never faked into a number). Scored
+    # over all answerable: an abstention or a wrong answer is not correct, so the
+    # judge can never reward a bluff or outrun honest, correct answering.
+    if judge is None:
+        answer_correctness = "PENDING (manual / judge-later)"
+    else:
+        answer_correctness = _pct(
+            [
+                results[q["id"]].verdict == "answer"
+                and judge.is_correct(q["question"], q["reference_answer"], results[q["id"]].answer)
+                for q in answerable
+            ],
+            empty_value=None,
+        )
+
     gates_ok = groundedness == 100.0 and abstention_recall == 100.0
     quality_met = retrieval_recall == 100.0 and citation_correctness == 100.0
 
@@ -90,7 +114,7 @@ def grade(questions: List[dict], pipeline: Pipeline, k: int = 5) -> Dict:
             "retrieval_recall_at_k": retrieval_recall,
             "citation_correctness": citation_correctness,
         },
-        "answer_correctness": "PENDING (manual / judge-later)",
+        "answer_correctness": answer_correctness,
         "gates_ok": gates_ok,
         "quality_met": quality_met,
         "status": status,
