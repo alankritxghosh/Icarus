@@ -129,10 +129,16 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   Exits non-zero **only** if an honesty gate (groundedness / abstention recall)
   breaks; quality below target is the expected red baseline, not a build failure.
 - `python3 -m evals.run --k 10` — change the retrieval recall@k cut-off.
+- `OPENROUTER_API_KEY=… python3 -m evals.run --pipeline gated` — run the board
+  against the real brain (retrieve → cite-or-abstain prompt → rented LLM writer
+  → deterministic honesty gate). Needs `OPENROUTER_API_KEY` exported (never
+  committed); public repos only while on free models.
 - `python3 -m unittest evals.test_grader` — test the harness conscience itself
   (proves the gates fire on a bluff or an ungrounded citation).
+- `python3 -m unittest evals.test_gate` — test the honesty gate's conscience
+  (proves it fails safe to abstention on every ambiguous reply).
 
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
-@ `94769b8`). Current pipeline is `StubPipeline` — the next brick replaces it
-with the real ingest→retrieve→gate→synthesize brain to turn the quality dials
-green without dropping a gate.
+@ `94769b8`). The real pipeline is `GatedPipeline` (`--pipeline gated`): on the
+labelled set the honesty gates hold at 100% while citation correctness rises off
+zero. Next dials: answer-correctness grading (Brick 4) and the web demo.

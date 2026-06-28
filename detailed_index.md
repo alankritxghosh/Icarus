@@ -50,6 +50,42 @@ BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN
     chunk refs ranked by score (desc), ties broken by ref (asc), dropping
     zero-score chunks.
 
+## evals/provider.py
+The `Provider` abstraction for the rented answer-writer (we rent the model, own
+the pipeline). Stdlib only; key from `OPENROUTER_API_KEY`. Module constant on
+`OpenRouterProvider`: `URL`.
+
+- `class Provider` — interface: `complete(self, prompt: str) -> str` (raises
+  `NotImplementedError`).
+- `class StaticProvider(Provider)` — offline test double.
+  - `__init__(self, responses)` — accept a single string or a list of strings.
+  - `complete(self, prompt: str) -> str` — return queued responses in order,
+    sticking on the last.
+- `class OpenRouterProvider(Provider)` — calls an OpenRouter chat-completions
+  model over stdlib `urllib`.
+  - `__init__(self, model: str = "cohere/north-mini-code:free", timeout: float = 60.0)`.
+  - `complete(self, prompt: str) -> str` — POST the prompt at temperature 0 and
+    return the message content; raises `RuntimeError` when the key is unset.
+
+## evals/synth.py
+Builds the strict cite-or-abstain prompt for the writer. Module constants:
+`INSTRUCTION`, `_MAX_CHUNK_CHARS`.
+
+- `build_prompt(question: str, chunks: List[Chunk]) -> str` — assemble the
+  instruction, the question, and the numbered evidence (each chunk truncated to
+  `_MAX_CHUNK_CHARS`) into one prompt asking for JSON answer-with-refs or unknown.
+
+## evals/gate.py
+The deterministic honesty gate: turns the writer's raw reply into a `Result` and
+can only ever fail safe toward abstention. Module constant: `_JSON`.
+
+- `_extract_json(raw: str)` — find the first `{...}` span and `json.loads` it,
+  returning None on no match or parse error.
+- `gate(raw: str, retrieved: List[str]) -> Result` — emit an answer ONLY if the
+  reply parses as JSON with verdict `"answer"`, a non-empty answer string, and at
+  least one citation in the retrieved set (citations filtered to that set);
+  everything else returns `Result(verdict="unknown")`.
+
 ## evals/pipeline.py
 The pipeline interface the harness calls, plus the Phase-1 baselines.
 
@@ -70,6 +106,13 @@ The pipeline interface the harness calls, plus the Phase-1 baselines.
     candidate cut-off.
   - `answer(self, question: str) -> Result` — abstain, but populate `retrieved`
     from `retriever.search(question, top_n)`.
+- `class GatedPipeline(Pipeline)` — the real brain: retrieve → writer → gate.
+  - `__init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 6)`
+    — store the retriever, a `ref -> Chunk` map, the provider, and the cut-offs.
+  - `answer(self, question: str) -> Result` — retrieve `recall_n` refs, prompt the
+    provider with the top `writer_k` chunks, run the reply through `gate`, and set
+    `retrieved` to the full list so recall@k stays measurable on any verdict
+    (local imports of `build_prompt`/`gate` avoid a circular import).
 
 ## evals/grader.py
 Deterministic grading of pipeline Results against the labelled set: the two
@@ -89,8 +132,9 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
 
 - `_fmt(value) -> str` — format a metric value as a percentage (or `n/a` when
   None).
-- `main(argv=None) -> int` — parse args (`--questions`, `--k`, `--pipeline`),
-  build the chosen pipeline, grade the board, print it, and return exit code 0
+- `main(argv=None) -> int` — parse args (`--questions`, `--k`,
+  `--pipeline {stub,retrieval,gated}`), build the chosen pipeline (`gated` wraps
+  an `OpenRouterProvider`), grade the board, print it, and return exit code 0
   only when the honesty gates hold.
 
 ## Test modules
@@ -101,9 +145,22 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
   ref-ascending tie-break, empty corpus, and zero-score dropping/truncation.
 - `evals/test_pipeline.py` — pins that `RetrievalPipeline` populates `retrieved`
   yet still abstains with no citations (gates stay intact).
+- `evals/test_provider.py` — pins `StaticProvider` queuing/sticking (single
+  string or list) and that `OpenRouterProvider` raises without an API key.
+- `evals/test_synth.py` — pins that `build_prompt` includes the question, refs,
+  and text, offers the unknown path, and truncates very long chunks.
+- `evals/test_gate.py` — pins the gate's conscience: grounded answers pass,
+  unretrieved citations are dropped, and empty/unparseable/explicit-unknown/
+  only-unretrieved replies all fail safe to abstention.
+- `evals/test_gated_pipeline.py` — pins `GatedPipeline` end to end with a
+  `StaticProvider`: grounded answer, abstention, forced-unknown bluff, and
+  `retrieved` populated for recall.
 - `evals/test_grader.py` — pins the conscience: the stub holds gates but fails
   quality; a bluff on an unanswerable breaks abstention recall; an ungrounded
   citation breaks groundedness; an oracle goes fully green.
 - `evals/test_retrieval_eval.py` — pins the real red→green against the committed
   corpus: retrieval recall@k rises above zero without dropping either gate (skips
   if the corpus is not generated).
+- `evals/test_gated_eval.py` — pins the real-model proof: the gated pipeline
+  lifts citation correctness above zero with both honesty gates at 100% (skips
+  without `OPENROUTER_API_KEY` or the corpus).

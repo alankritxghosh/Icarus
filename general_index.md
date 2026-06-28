@@ -46,24 +46,46 @@ removing, or renaming files). For class/function-level detail see
   `corpus/chunks.jsonl`. Needs `gh` + `git`.
 - `evals/retriever.py` — `LexicalRetriever`, a stdlib BM25 keyword retriever over
   corpus chunks, plus a `tokenize` helper.
+- `evals/provider.py` — the `Provider` abstraction for the rented answer-writer:
+  `OpenRouterProvider` (calls OpenRouter over stdlib `urllib`) and
+  `StaticProvider` (offline test double). Key from `OPENROUTER_API_KEY`.
+- `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt the writer
+  must answer as JSON (answer-with-refs or explicit unknown).
+- `evals/gate.py` — the deterministic honesty gate: parses the writer's reply and
+  emits an answer ONLY if it parses, claims "answer", has prose, and cites ≥1
+  retrieved ref; everything else fails safe to "unknown".
 - `evals/pipeline.py` — the `Result`/`Pipeline` contract the harness grades,
-  plus `StubPipeline` (honest red baseline) and `RetrievalPipeline` (retrieves
-  candidates but still abstains).
+  plus `StubPipeline` (honest red baseline), `RetrievalPipeline` (retrieves
+  candidates but still abstains), and `GatedPipeline` (retrieve → writer → gate
+  → Result).
 - `evals/grader.py` — deterministic grading of pipeline Results against the
   labelled set: the two honesty gates plus the quality dials.
 - `evals/run.py` — CLI entry point that runs the eval board and prints it; exits
-  non-zero only when an honesty gate breaks.
+  non-zero only when an honesty gate breaks. `--pipeline {stub,retrieval,gated}`.
 - `evals/test_corpus.py` — tests that `load_chunks` parses JSONL into `Chunk`s
   (and tolerates blank lines).
 - `evals/test_retriever.py` — tests for tokenization and BM25 ranking,
   truncation, zero-score dropping, and deterministic tie-breaking.
 - `evals/test_pipeline.py` — tests that `RetrievalPipeline` populates `retrieved`
   yet still abstains (no citations).
+- `evals/test_provider.py` — tests `StaticProvider` queuing/sticking and that
+  `OpenRouterProvider` raises without an API key (offline).
+- `evals/test_synth.py` — tests the prompt builder includes question/refs/text,
+  offers the unknown path, and truncates very long chunks.
+- `evals/test_gate.py` — tests the gate's conscience: grounded answers pass,
+  everything ambiguous (unparseable, empty, unretrieved citations) fails safe to
+  abstention; unretrieved citations are dropped.
+- `evals/test_gated_pipeline.py` — tests `GatedPipeline` end to end with a
+  `StaticProvider`: grounded answer, abstention, forced-unknown bluff, and that
+  `retrieved` is populated for recall.
 - `evals/test_grader.py` — tests the harness conscience: gates hold for an honest
   abstainer/oracle and fire for a bluffer or an ungrounded citation.
 - `evals/test_retrieval_eval.py` — end-to-end red→green: against the committed
   corpus, retrieval recall@k rises above zero without dropping a gate (skips if
   the corpus isn't generated).
+- `evals/test_gated_eval.py` — real-model proof: the gated pipeline lifts
+  citation correctness above zero with both honesty gates at 100% (skips without
+  `OPENROUTER_API_KEY` or the corpus).
 
 ## evals/ data files
 - `evals/phase1_questions.json` — the verified labelled question set (corpus
