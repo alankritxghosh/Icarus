@@ -52,3 +52,19 @@ class StubPipeline(Pipeline):
 
     def answer(self, question: str) -> Result:
         return Result(verdict="unknown")
+
+
+class RetrievalPipeline(Pipeline):
+    """Retrieves candidate evidence but does not yet answer.
+
+    Populates `retrieved` so retrieval recall@k can rise, while still abstaining
+    (verdict 'unknown', no citations) so groundedness and abstention recall stay
+    trivially at 100%. The honesty gate and the writer are the next brick.
+    """
+
+    def __init__(self, retriever, top_n: int = 20):
+        self._retriever = retriever
+        self._top_n = top_n
+
+    def answer(self, question: str) -> Result:
+        return Result(verdict="unknown", retrieved=self._retriever.search(question, self._top_n))
