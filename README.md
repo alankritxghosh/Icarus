@@ -1,106 +1,46 @@
-# JARVIS Engineering Intelligence
+# Icarus — the engineering brain a company can buy
 
-JARVIS Engineering Intelligence is a local-first system for understanding why
-software is structured the way it is.
+> Ask your codebase a question out loud, and get a straight, spoken answer —
+> with the receipts on screen, and an honest "no one wrote this down" when the
+> reason was never recorded.
 
-The first product slice is deliberately read-only. It analyzes a local checkout
-of a public GitHub repository, pins the analysis to an immutable commit, and
-produces evidence-backed findings about architecture and engineering decisions.
+Icarus is a privacy-first **engineering brain**. A company buys it, points it at
+their code on GitHub, and every engineer can hold a hotkey and ask *why* a
+decision was made, *what* something does, or *how* a part of the system works —
+and get a colleague-style answer with the exact pull request, review comment, or
+line it came from shown in a translucent overlay.
 
-It does not write code, modify repositories, or access the personal JARVIS
-memory stores.
+## The one rule (this is the whole product)
 
-## Product promise
+**Icarus only says what it can prove.** It answers from evidence it actually
+retrieved from your code and its history — never from a model's memory. When the
+answer was never written down, it says so, out loud. A brain that talks
+beautifully but can't tell when it's wrong is a liability with a great voice. We
+build the opposite.
 
-JARVIS should help an engineering team answer:
+## Version 1, in one breath
 
-- Why does this component exist?
-- What evidence supports an architectural decision?
-- Where do documentation and implementation disagree?
-- Which important questions cannot be answered from current evidence?
+- **Source:** GitHub (code + pull requests + reviews).
+- **Interface:** a macOS app — hold a hotkey, speak, hear the answer.
+- **Proof:** a translucent on-screen overlay showing the citations.
+- **Where it runs:** the app is the *face*; the heavy thinking runs in a cloud
+  space rented **privately per company** — never trained on, deleted after each
+  answer.
 
-Every material claim must cite repository evidence. Author intent is reported
-as unknown unless it is explicitly documented.
+## Status
 
-## Isolation
+**Pre-build.** This repository currently holds the planning foundation only —
+vision, architecture, build order, evaluation, and metrics. Building starts next.
+The previous product (JARVIS Engineering Intelligence) is archived in git: tag
+`jarvis-v0`, branch `archive/jarvis-v0`.
 
-This directory is a standalone project. It must never:
+## Read next
 
-- import from the sibling `brain` package;
-- read personal JSONL files;
-- scan the parent workspace or home directory;
-- share prompts, indexes, caches, credentials, or storage with personal JARVIS;
-- write to an inspected repository.
-
-The product can infer the local checkout and GitHub URL from the current Git
-repository, but it never reads personal JARVIS memory stores and still refuses
-protected paths.
-
-## Current milestone
-
-```text
-Local Git checkout
-+ engineering question
--> immutable repository identity
--> bounded evidence collection
--> observed / inferred / unknown findings
--> citations and warnings
-```
-
-Code generation, GitHub authentication, private repositories, issue ingestion,
-agent execution, and pull requests are intentionally out of scope.
-
-## Usage
-
-Install the local console command:
-
-```sh
-pip install -e .
-```
-
-Set the safety boundary once before using the CLI. This should point at the
-private workspace root that JARVIS must not inspect:
-
-```sh
-export JARVIS_PROTECTED_ROOT="/Users/alankritghosh/JARVIS "
-```
-
-Then ask from inside any allowed Git checkout:
-
-```sh
-cd /Users/alankritghosh/jarvis_test_repos/backstage
-jarvis-engineering
-```
-
-Then chat normally:
-
-```text
-JARVIS Engineering online. Ask this repo a question. Type exit or quit to leave.
-
-You > Why did Backstage choose Luxon?
-```
-
-JARVIS prints a short readable answer with evidence, limits, and warnings.
-For one-shot use, you can still ask directly:
-
-```sh
-jarvis-engineering "Why did Backstage choose Luxon?"
-```
-
-For the full machine-readable evidence packet:
-
-```sh
-jarvis-engineering "Why did Backstage choose Luxon?" --format json
-```
-
-Or point at a checkout explicitly:
-
-```sh
-jarvis-engineering /Users/alankritghosh/jarvis_test_repos/backstage "Why did Backstage choose Luxon?"
-```
-
-If a repo has no canonical GitHub origin, pass the URL:
-
-```sh
-jarvis-engineering --github-url https://github.com/example/repo "Why was this decision made?"
-```
+| Doc | What it answers |
+|-----|-----------------|
+| [docs/VISION.md](docs/VISION.md) | What we're building and why it's trustworthy |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it's built — the face, the brain, and the cloud |
+| [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md) | What we build first, second, third |
+| [docs/EVALUATION.md](docs/EVALUATION.md) | How we prove Icarus isn't bluffing |
+| [docs/METRICS.md](docs/METRICS.md) | The numbers that tell us we're winning |
+| [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | How we work — one honest brick at a time |

@@ -1,83 +1,84 @@
-# JARVIS Engineering Intelligence
+# Icarus
 
-This repository is the commercial JARVIS product, not Alankrit's personal JARVIS.
+This repository is **Icarus**, the commercial engineering-brain product. It is
+not Alankrit's personal JARVIS, and not the personal memory system under the
+parent workspace.
 
-## Product Identity
+## Product identity
 
-JARVIS Engineering Intelligence is a local-first, privacy-centric engineering intelligence system for software teams. The first product wedge is documented-decision retrieval:
+Icarus is a privacy-first **conversational engineering brain** a company can buy.
+It learns a company's codebase and the decisions around it, and lets engineers
+hold a hotkey and ask *why*, *what*, or *how* — answering out loud like a
+colleague, with citations shown in a translucent overlay, and an honest
+"no one wrote this down" when the reason was never recorded.
 
-> Ask a local Git checkout why an engineering decision was made, and get cited evidence or an honest unknown.
+Version 1: **GitHub** as the source, a **macOS app + voice (hotkey) + overlay** as
+the interface, running on a **per-company private cloud** brain.
 
-The product is not an AI coding assistant yet. It is not an autonomous engineer. It is not the personal memory system under the parent workspace.
+Read [docs/VISION.md](docs/VISION.md) for the north star.
 
-## Hard Boundaries
+## The one non-negotiable
 
-- Do not read, edit, ingest, summarize, migrate, or depend on personal JARVIS data under `../brain/`.
-- Do not mix Alankrit's personal memory context into this commercial product.
-- Do not touch files outside this repository unless the user explicitly asks.
-- Do not add model calls, vector databases, servers, UIs, agents, or integrations unless a task specifically approves that scope.
-- Do not claim the product can do dependency impact analysis, organizational reasoning, or autonomous coding until the implementation proves it.
+**Icarus cannot bluff.** It answers only from evidence it actually retrieved, and
+says "I don't know" when the answer was never written down. The honesty gate
+stays primarily **deterministic and auditable** — "I don't know" must be provable
+in code, never a black-box guess. This property never degrades, on any tier, in
+any phase. Every change must preserve it.
 
-## Current Architecture
+## Current stage
 
-- Python package under `src/jarvis_engineering`.
-- Standard library only.
-- CLI-first entry point from `pyproject.toml`.
-- Inspects an explicit local Git checkout under an allowlisted repository root.
-- Pins answers to immutable Git `HEAD`.
-- Reads committed Git blobs, not dirty working-tree contents.
-- Emits JSON reports with repository metadata, evidence, findings, warnings, and error codes.
+**Pre-build / planning.** The repository currently holds the foundation docs
+only. Building starts at Phase 1 in [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md):
+the brain in text — type a question about one GitHub repo, get a cited answer or
+an honest unknown, measured by the evaluation harness.
 
-## Current Priorities
+The previous product (JARVIS Engineering Intelligence) is archived in git: tag
+`jarvis-v0`, branch `archive/jarvis-v0`. It is reference history, not a
+dependency — do not build on it.
 
-1. Safety: commercial repo context must stay isolated from personal JARVIS.
-2. Honesty: unsupported capabilities must return unknown or unsupported, not fake analysis.
-3. Evidence quality: every material claim needs cited repository evidence.
-4. Tests before expansion: prove gaps with tests before changing source behavior.
-5. Narrow wedge: make documented engineering decisions reliable before building broader intelligence.
+## Hard boundaries
 
-## Required Workflow
+- **Personal and commercial stay isolated, always.** Do not read, edit, ingest,
+  summarize, migrate, or depend on any personal memory system (e.g. anything
+  under `../brain/`). Never mix personal context into Icarus.
+- **Do not touch files outside this repository** unless explicitly asked.
+- **Do not add model calls, vector stores, servers, UIs, agents, or integrations
+  ahead of the phase that approves them** in [docs/BUILD_ORDER.md](docs/BUILD_ORDER.md).
+- **Do not claim capabilities the evaluation harness hasn't proven** (structural
+  analysis, dependency tracing, org-wide reasoning, autonomous coding). Until
+  proven, the honest answer is "unsupported."
+- **A credential is a responsibility.** Every credential and every byte that
+  leaves the trust boundary is a deliberate, minimized decision.
 
-Before changing code:
+## Architecture in one line
 
-1. Read `docs/PROJECT_STATE.md`.
-2. Read `docs/AGENT_PROTOCOL.md`.
-3. Run `git status --short`.
-4. Identify whether the task is review, test-writing, implementation, or verification.
-5. Keep edits scoped to the requested task.
+The Mac app is the *face* (hotkey, mic, overlay); the cloud is the *brain*
+(librarian, search, AI writer, speech), rented privately per company, never
+trained on, discarded after each request. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), including what we rent vs build.
 
-After changing code:
+## Required workflow
 
-1. Run `PYTHONPATH=src python3 -m unittest discover tests -v`.
-2. Report changed files, tests run, failures, risks, and the next recommended step.
+Before changing code, and after, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
+The short version:
 
-## Agent Roles
+- **Prove the gap with a failing eval before changing the brain** (red → green).
+- **Never weaken the benchmark to pass.**
+- **Keep edits scoped to the current phase.**
+- **After changes:** run the evals/tests, then report files changed, results,
+  risks, and the next recommended brick. No success claims without evidence.
 
-- Opus: principal architect and adversarial reviewer. Use for product wedge, architecture, security, privacy, and scope critique.
-- Sonnet: implementation reviewer, adversarial test writer, and bounded implementer when explicitly asked.
-- Codex: deterministic fixer, verifier, and integration worker.
+## Out of scope for now (post-Phase-4 unless a task says otherwise)
 
-If role instructions conflict, prefer the narrowest safe interpretation and report the conflict.
-
-## Out Of Scope For The Current Brick
-
-- AI coding assistant behavior.
-- Multi-agent runtime inside the product.
-- Slack, Linear, Notion, GitHub API, or company-wide ingestion.
-- Web UI, server, API layer, or dashboard.
-- Vector database or semantic retrieval.
-- Personal JARVIS memory features.
+- Data sources beyond GitHub (Slack, Linear, Notion, org-wide ingestion).
+- Deep structural code understanding / dependency tracing.
+- Autonomous coding-agent behavior.
+- Managed multi-tenant deployment as a default.
+- Any use of personal JARVIS memory.
 
 ## Commands
 
-Run tests:
-
-```sh
-PYTHONPATH=src python3 -m unittest discover tests -v
-```
-
-Run the CLI:
-
-```sh
-PYTHONPATH=src python3 -m jarvis_engineering <github_url> <checkout> "Why was this decision made?" --repositories-root <root>
-```
+The toolchain will be defined when Phase 1 begins (the build stack — Mac app
+language, cloud service language, eval runner — is an open decision in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)). This section gets filled in with
+the real test and run commands as soon as there is code.

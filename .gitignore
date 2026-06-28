@@ -1,6 +1,25 @@
-.claude/settings.local.json
+# Editor / OS
 .DS_Store
-repositories/
+.claude/settings.local.json
+
+# Secrets & local config (never commit credentials — GitHub tokens, API keys)
+.env
+.env.*
+*.local
+
+# Python (cloud services)
 __pycache__/
-*.egg-info/
 *.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node / macOS app builds (added as those phases begin)
+node_modules/
+dist/
+build/
+
+# Eval / ingest scratch data (real repos are cloned locally, not committed)
+repositories/
+*.sqlite
+*.db
