@@ -86,6 +86,20 @@ can only ever fail safe toward abstention. Module constant: `_JSON`.
   least one citation in the retrieved set (citations filtered to that set);
   everything else returns `Result(verdict="unknown")`.
 
+## evals/judge.py
+The answer-correctness judge: the fuzzy, judge-later quality dial — NOT an honesty
+gate. Module constants: `JUDGE_INSTRUCTION`, `_MAX_CANDIDATE_CHARS`, `_JSON`.
+
+- `build_judge_prompt(question: str, reference: str, candidate: str) -> str` —
+  assemble the grading instruction with the question, reference, and (truncated)
+  candidate, asking for a JSON `correct`/`incorrect` verdict.
+- `parse_verdict(raw: str) -> bool` — True only if the reply parses as JSON with
+  verdict `"correct"`; fails safe to False (incorrect) on anything ambiguous.
+- `class Judge` — wraps a `Provider` into a judge.
+  - `__init__(self, provider)` — store the provider.
+  - `is_correct(self, question, reference, candidate) -> bool` — build the prompt,
+    call the provider, and return `parse_verdict` of the reply.
+
 ## evals/pipeline.py
 The pipeline interface the harness calls, plus the Phase-1 baselines.
 
@@ -122,20 +136,24 @@ honesty gates (groundedness, abstention recall) plus the quality dials.
   normalized as `"source:ref"`.
 - `_pct(flags: List[bool], empty_value: Optional[float]) -> Optional[float]` —
   percentage of True in `flags`, or `empty_value` when there is nothing to score.
-- `grade(questions: List[dict], pipeline: Pipeline, k: int = 5) -> Dict` — run
-  the pipeline over every question and compute the full metric board (gates,
-  quality dials, status, per-question verdicts; answer correctness left PENDING).
+- `grade(questions: List[dict], pipeline: Pipeline, k: int = 5, judge=None) -> Dict`
+  — run the pipeline over every question and compute the full metric board (gates,
+  quality dials, status, per-question verdicts). Optional `judge` (exposing
+  `is_correct(question, reference, candidate)`) turns `answer_correctness` from
+  the PENDING string into a number over the answerable (abstention/wrong = 0);
+  the judge never affects the deterministic gates.
 
 ## evals/run.py
 CLI entry point that runs and prints the Phase 1 eval board. Module constants:
-`DEFAULT_SET`, `CORPUS`.
+`DEFAULT_SET`, `CORPUS`, `JUDGE_MODEL` (`poolside/laguna-m.1:free`).
 
 - `_fmt(value) -> str` — format a metric value as a percentage (or `n/a` when
   None).
 - `main(argv=None) -> int` — parse args (`--questions`, `--k`,
   `--pipeline {stub,retrieval,gated}`), build the chosen pipeline (`gated` wraps
-  an `OpenRouterProvider`), grade the board, print it, and return exit code 0
-  only when the honesty gates hold.
+  an `OpenRouterProvider`), build a `Judge(JUDGE_MODEL)` when `OPENROUTER_API_KEY`
+  is set (else None → answer correctness stays PENDING), grade the board, print
+  it, and return exit code 0 only when the honesty gates hold.
 
 ## Test modules
 - `evals/test_corpus.py` — pins that `load_chunks` parses JSONL into `Chunk`s and
@@ -164,3 +182,15 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
 - `evals/test_gated_eval.py` — pins the real-model proof: the gated pipeline
   lifts citation correctness above zero with both honesty gates at 100% (skips
   without `OPENROUTER_API_KEY` or the corpus).
+- `evals/test_reference_answers.py` — pins that answerable questions carry a
+  non-empty `reference_answer` and unanswerable ones carry none.
+- `evals/test_judge_prompt.py` — pins that `build_judge_prompt` includes the
+  question/reference/candidate, asks for a verdict, and truncates long candidates.
+- `evals/test_judge.py` — pins `parse_verdict` (correct/incorrect, embedded JSON,
+  fail-safe to incorrect) and `Judge` over a `StaticProvider`.
+- `evals/test_answer_correctness.py` — pins that `grade(..., judge=…)` scores
+  answer correctness over the answerable (abstention/wrong = 0), stays PENDING
+  without a judge, and never breaks the gates.
+- `evals/test_answer_correctness_eval.py` — pins the real-model proof: with the
+  judge, answer correctness becomes a number > 0 while both gates stay 100%
+  (skips without `OPENROUTER_API_KEY` or the corpus).

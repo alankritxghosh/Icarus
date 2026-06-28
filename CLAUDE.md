@@ -132,13 +132,20 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
 - `OPENROUTER_API_KEY=… python3 -m evals.run --pipeline gated` — run the board
   against the real brain (retrieve → cite-or-abstain prompt → rented LLM writer
   → deterministic honesty gate). Needs `OPENROUTER_API_KEY` exported (never
-  committed); public repos only while on free models.
+  committed); public repos only while on free models. When the key is set the
+  answer-correctness judge (`poolside/laguna-m.1:free`, a different model from the
+  writer) also runs, so `answer correctness` prints as a number instead of
+  PENDING. The judge is a quality dial only — it never touches the honesty gates.
 - `python3 -m unittest evals.test_grader` — test the harness conscience itself
   (proves the gates fire on a bluff or an ungrounded citation).
 - `python3 -m unittest evals.test_gate` — test the honesty gate's conscience
   (proves it fails safe to abstention on every ambiguous reply).
+- `python3 -m unittest evals.test_judge` — test the answer-correctness judge
+  (proves its verdict parser fails safe to "incorrect" on an ambiguous reply).
 
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
-@ `94769b8`). The real pipeline is `GatedPipeline` (`--pipeline gated`): on the
-labelled set the honesty gates hold at 100% while citation correctness rises off
-zero. Next dials: answer-correctness grading (Brick 4) and the web demo.
+@ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
+scores against). The real pipeline is `GatedPipeline` (`--pipeline gated`): on
+the labelled set the honesty gates hold at 100% while citation correctness and
+answer correctness rise off zero. Next: the minimal web demo (Brick 5) and the
+recordable demo (Brick 6).
