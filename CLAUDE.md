@@ -43,15 +43,14 @@ this file points to the deep docs, it does not repeat them.
 ## Codebase map (read these first)
 Two index files give a fast map of the code so you reference real names, not
 guessed ones:
-- `general_index.md` — every file + a 1–2 line description.
+- @general_index.md — every file + a 1–2 line description (auto-loaded each
+  session).
 - `detailed_index.md` — every class/function + its docstring/description. Large;
   **read it on demand**, do not auto-import it.
 
 This index may or may not be up to date — verify before relying on it, and
 **regenerate it after any structural change** (adding/removing/renaming files or
-functions). *(These files don't exist yet; they're generated as the first
-housekeeping step of Phase 1. Once `general_index.md` exists, switch this line to
-`@general_index.md` so it auto-loads each session.)*
+functions).
 
 ## Product identity
 Icarus is a privacy-first conversational engineering brain a company can buy: it
