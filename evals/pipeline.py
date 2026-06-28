@@ -68,3 +68,31 @@ class RetrievalPipeline(Pipeline):
 
     def answer(self, question: str) -> Result:
         return Result(verdict="unknown", retrieved=self._retriever.search(question, self._top_n))
+
+
+class GatedPipeline(Pipeline):
+    """Retrieve -> writer (provider) -> deterministic honesty gate -> Result.
+
+    The writer is constrained to answer only from retrieved evidence or abstain;
+    the gate (evals/gate.py) enforces that deterministically, failing safe to
+    'unknown'. `retrieved` is always the full top-recall_n list so retrieval
+    recall@k stays measurable regardless of the verdict.
+    """
+
+    def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 6):
+        self._retriever = retriever
+        self._by_ref = {c.ref: c for c in chunks}
+        self._provider = provider
+        self._recall_n = recall_n
+        self._writer_k = writer_k
+
+    def answer(self, question: str) -> Result:
+        from .synth import build_prompt   # local imports avoid a circular import
+        from .gate import gate
+        retrieved = self._retriever.search(question, self._recall_n)
+        top = [self._by_ref[r] for r in retrieved[: self._writer_k] if r in self._by_ref]
+        if not top:
+            return Result(verdict="unknown", retrieved=retrieved)
+        result = gate(self._provider.complete(build_prompt(question, top)), retrieved)
+        result.retrieved = retrieved
+        return result
