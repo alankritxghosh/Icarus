@@ -15,9 +15,12 @@ import sys
 from pathlib import Path
 
 from .grader import grade
-from .pipeline import StubPipeline
+from .corpus import load_chunks
+from .retriever import LexicalRetriever
+from .pipeline import StubPipeline, RetrievalPipeline
 
 DEFAULT_SET = Path(__file__).resolve().parent / "phase1_questions.json"
+CORPUS = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
 
 
 def _fmt(value) -> str:
@@ -30,16 +33,24 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Icarus Phase 1 eval board")
     parser.add_argument("--questions", type=Path, default=DEFAULT_SET, help="labelled set JSON")
     parser.add_argument("--k", type=int, default=5, help="retrieval recall cut-off")
+    parser.add_argument("--pipeline", choices=["stub", "retrieval"], default="retrieval",
+                        help="which pipeline to grade")
     args = parser.parse_args(argv)
 
     data = json.loads(args.questions.read_text())
     questions = data["questions"]
-    board = grade(questions, StubPipeline(), k=args.k)
+    if args.pipeline == "retrieval":
+        pipeline = RetrievalPipeline(LexicalRetriever(load_chunks(CORPUS)))
+        name = "RetrievalPipeline"
+    else:
+        pipeline = StubPipeline()
+        name = "StubPipeline"
+    board = grade(questions, pipeline, k=args.k)
 
     corpus = data.get("corpus", {})
     c = board["counts"]
     print("=" * 64)
-    print("Icarus -- Phase 1 eval board   (pipeline: StubPipeline)")
+    print(f"Icarus -- Phase 1 eval board   (pipeline: {name})")
     print(f"corpus: {corpus.get('repo', '?')} @ {corpus.get('commit', '?')[:12]}")
     print(f"questions: {c['total']}  ({c['answerable']} answerable, {c['unanswerable']} unanswerable)")
     print("=" * 64)
