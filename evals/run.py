@@ -17,7 +17,8 @@ from pathlib import Path
 from .grader import grade
 from .corpus import load_chunks
 from .retriever import LexicalRetriever
-from .pipeline import StubPipeline, RetrievalPipeline
+from .pipeline import StubPipeline, RetrievalPipeline, GatedPipeline
+from .provider import OpenRouterProvider
 
 DEFAULT_SET = Path(__file__).resolve().parent / "phase1_questions.json"
 CORPUS = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
@@ -33,13 +34,17 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Icarus Phase 1 eval board")
     parser.add_argument("--questions", type=Path, default=DEFAULT_SET, help="labelled set JSON")
     parser.add_argument("--k", type=int, default=5, help="retrieval recall cut-off")
-    parser.add_argument("--pipeline", choices=["stub", "retrieval"], default="retrieval",
+    parser.add_argument("--pipeline", choices=["stub", "retrieval", "gated"], default="retrieval",
                         help="which pipeline to grade")
     args = parser.parse_args(argv)
 
     data = json.loads(args.questions.read_text())
     questions = data["questions"]
-    if args.pipeline == "retrieval":
+    if args.pipeline == "gated":
+        chunks = load_chunks(CORPUS)
+        pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, OpenRouterProvider())
+        name = "GatedPipeline"
+    elif args.pipeline == "retrieval":
         pipeline = RetrievalPipeline(LexicalRetriever(load_chunks(CORPUS)))
         name = "RetrievalPipeline"
     else:
