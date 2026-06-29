@@ -69,7 +69,9 @@ class Library:
             if needs_ingest:
                 with self._lock:
                     self._status, self._error = "indexing", None
-                self._ingest_fn(repo, corpus_dir)
+                # Switched repos don't share simonw/llm's `llm/` package layout,
+                # so glob the whole repo for code (the CLI keeps `llm` as default).
+                self._ingest_fn(repo, corpus_dir, code_dir=".")
             pipeline = self._build_pipeline(corpus_dir)
             meta = load_meta(Path(corpus_dir) / "meta.json") or {}
             with self._lock:

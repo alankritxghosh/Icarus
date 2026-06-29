@@ -32,8 +32,11 @@ class LibraryTests(unittest.TestCase):
             self.built.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
+        self.ingest_code_dirs = []
+
         def fake_ingest(repo, out_dir, commit=None, code_dir="llm"):
             self.ingested.append(repo)
+            self.ingest_code_dirs.append(code_dir)
             _seed_corpus(out_dir, repo)
             return {"pr": 1, "issue": 0, "code": 0}
 
@@ -52,6 +55,7 @@ class LibraryTests(unittest.TestCase):
     def test_connect_uncached_ingests_then_switches(self):
         self.lib.connect_sync("octo/new")
         self.assertEqual(self.ingested, ["octo/new"])
+        self.assertEqual(self.ingest_code_dirs, ["."])  # whole repo, not simonw/llm's `llm/`
         s = self.lib.status_snapshot()
         self.assertEqual(s["state"], "ready")
         self.assertEqual(s["repo"], "octo/new")
