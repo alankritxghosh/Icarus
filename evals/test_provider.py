@@ -2,7 +2,7 @@
 import os
 import unittest
 
-from .provider import StaticProvider, OpenRouterProvider
+from .provider import StaticProvider, OpenRouterProvider, GroqProvider
 
 
 class StaticProviderTests(unittest.TestCase):
@@ -25,6 +25,17 @@ class OpenRouterProviderTests(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["OPENROUTER_API_KEY"] = old
+
+
+class GroqProviderTests(unittest.TestCase):
+    def test_raises_without_api_key(self):
+        old = os.environ.pop("GROQ_API_KEY", None)
+        try:
+            with self.assertRaises(RuntimeError):
+                GroqProvider().complete("hi")
+        finally:
+            if old is not None:
+                os.environ["GROQ_API_KEY"] = old
 
 
 if __name__ == "__main__":
