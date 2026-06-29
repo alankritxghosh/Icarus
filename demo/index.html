@@ -5,97 +5,181 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Icarus — ask the codebase</title>
 <style>
-  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --fg:#e8eaed; --muted:#9aa3b2; --accent:#7aa2f7; --ok:#7ee787; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:48px 20px 80px; }
-  h1 { font-size:22px; font-weight:650; margin:0 0 4px; }
-  .sub { color:var(--muted); margin:0 0 28px; font-size:14px; }
-  form { display:flex; gap:10px; }
-  #question { flex:1; padding:12px 14px; border-radius:10px; border:1px solid var(--line);
-              background:var(--card); color:var(--fg); font-size:16px; }
-  #question:focus { outline:none; border-color:var(--accent); }
-  #ask { padding:12px 18px; border:0; border-radius:10px; background:var(--accent);
-         color:#0b0e14; font-weight:650; cursor:pointer; }
-  #ask:disabled { opacity:.5; cursor:default; }
-  #result { margin-top:28px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px 22px; }
-  .answer { white-space:pre-wrap; }
-  .label { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 8px; }
-  .cites { list-style:none; padding:0; margin:14px 0 0; }
-  .cites li { margin:6px 0; }
-  .cites a, .cites span { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; }
-  .cites a { color:var(--accent); text-decoration:none; }
-  .cites a:hover { text-decoration:underline; }
-  .unknown .label { color:var(--ok); }
-  .unknown h2 { font-size:18px; margin:0 0 6px; }
-  .searched { color:var(--muted); font-size:13px; margin-top:14px; word-break:break-word; }
-  .muted { color:var(--muted); }
+  :root{
+    --paper:#F7F6F2; --card:#FFFFFF; --ink:#16181D; --muted:#6B7280; --line:#16181D;
+    --hair:#E4E2DB; --accent:#2F6BFF; --grounded:#0F7B53; --unknown:#9A6B00; --danger:#B23A2E;
+    --mono:"Berkeley Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);}
+  .app{display:flex;min-height:100vh;}
+  /* sidebar */
+  .sidebar{width:240px;flex:none;border-right:1.5px solid var(--line);padding:22px 18px;display:flex;flex-direction:column;gap:22px;}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:18px;letter-spacing:.01em;}
+  .mark{display:inline-flex;align-items:flex-end;gap:2px;height:22px;}
+  .mark i{width:3px;background:var(--ink);border-radius:1px;}
+  .mark .b1{height:11px}.mark .b2{height:18px}.mark .stem{height:22px;background:var(--accent)}.mark .b4{height:14px}.mark .b5{height:8px}
+  .navlabel{font:600 11px var(--sans);letter-spacing:.10em;text-transform:uppercase;color:var(--muted);}
+  nav{display:flex;flex-direction:column;gap:4px;}
+  nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:4px;color:var(--ink);text-decoration:none;font-size:14px;border:1.5px solid transparent;}
+  nav a.active{border-color:var(--line);background:#fff;box-shadow:3px 3px 0 var(--line);}
+  nav a:hover:not(.active){background:#EFEEE8;}
+  .trust{margin-top:auto;font:600 12px var(--mono);color:var(--grounded);display:flex;align-items:center;gap:7px;border:1.5px solid var(--grounded);border-radius:4px;padding:8px 10px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--grounded);}
+  /* main */
+  .canvas{flex:1;min-width:0;padding:34px 40px 80px;max-width:920px;}
+  h1{font-size:26px;font-weight:650;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 24px;}
+  .composer{display:flex;gap:10px;margin-bottom:26px;}
+  #question{flex:1;padding:13px 15px;border:1.5px solid var(--line);border-radius:4px;background:#fff;color:var(--ink);font-size:16px;font-family:var(--sans);}
+  #question:focus{outline:none;box-shadow:3px 3px 0 var(--accent);}
+  #ask{padding:13px 22px;border:1.5px solid var(--line);border-radius:4px;background:var(--accent);color:#fff;font-weight:650;font-size:15px;cursor:pointer;box-shadow:3px 3px 0 var(--line);}
+  #ask:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--line);}
+  #ask:disabled{opacity:.5;cursor:default;}
+  .label{font:600 11px var(--sans);letter-spacing:.10em;text-transform:uppercase;margin:0 0 10px;}
+  .block{border:1.5px solid var(--line);border-radius:4px;background:var(--card);box-shadow:5px 5px 0 var(--line);padding:22px 24px;}
+  .answer-prose{font-size:18px;line-height:1.55;margin:0 0 18px;white-space:pre-wrap;}
+  .answer-prose code{font-family:var(--mono);font-size:.92em;background:#EFEEE8;padding:1px 5px;border-radius:3px;}
+  .evidence{border:1.5px solid var(--line);border-radius:4px;background:var(--paper);padding:14px 16px;}
+  .cites{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+  .chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:13px;border:1.5px solid var(--line);border-radius:4px;padding:5px 10px;background:#fff;color:var(--ink);text-decoration:none;}
+  .chip:hover{box-shadow:2px 2px 0 var(--accent);}
+  .chip .src{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;background:var(--ink);padding:1px 5px;border-radius:3px;}
+  .chip.pr .src{background:var(--accent)} .chip.issue .src{background:var(--unknown)} .chip.code .src{background:var(--grounded)}
+  .searched-line{margin-top:14px;font-size:13px;color:var(--muted);font-family:var(--mono);}
+  /* unknown hero */
+  .unknown{border:1.5px solid var(--line);border-radius:4px;background:#FBF7EC;box-shadow:5px 5px 0 var(--line);padding:30px 32px;}
+  .unknown .label{color:var(--unknown);}
+  .unknown h2{font-size:30px;font-weight:650;margin:0 0 10px;line-height:1.15;}
+  .unknown p{color:var(--muted);font-size:15px;margin:0 0 18px;max-width:520px;}
+  .searched-box{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:12px 14px;max-width:560px;}
+  .searched-box .k{font:600 11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .searched-box .v{font-family:var(--mono);font-size:13px;color:var(--ink);margin-top:6px;line-height:1.8;word-break:break-word;}
+  .actions{display:flex;gap:10px;margin-top:18px;}
+  .ghost{font:600 13px var(--sans);border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:9px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--line);}
+  .ghost:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--line);}
+  .muted{color:var(--muted);}
+  .skel{height:13px;background:#E4E2DB;border-radius:3px;margin:9px 0;}
+  .err{border-color:var(--danger);box-shadow:5px 5px 0 var(--danger);}
+  .err .label{color:var(--danger);}
+  .recent{margin-top:30px;border-top:1.5px solid var(--hair);padding-top:14px;}
+  .recent .row{display:flex;justify-content:space-between;gap:16px;font-size:13px;color:var(--muted);padding:5px 0;}
+  .tag-cited{color:var(--grounded);font-family:var(--mono);font-size:12px;}
+  .tag-unknown{color:var(--unknown);font-family:var(--mono);font-size:12px;}
 </style>
 </head>
 <body>
-<main>
-  <h1>Ask the codebase</h1>
-  <p class="sub">Answers come only from what was actually written down about
-     <code>simonw/llm</code> — with citations, or an honest “no one wrote this down.”</p>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="stem"></i><i class="b4"></i><i class="b5"></i></span>
+      Icarus
+    </div>
+    <div>
+      <div class="navlabel">ask repo</div>
+      <nav>
+        <a href="#" class="active">Home</a>
+        <a href="#">Ask by voice</a>
+        <a href="#">Decision history</a>
+        <a href="#">Unknowns</a>
+        <a href="#">Privacy boundary</a>
+      </nav>
+    </div>
+    <div class="trust"><span class="dot"></span> 0 trained on your code</div>
+  </aside>
 
-  <form id="form">
-    <input id="question" name="question" autocomplete="off"
-           placeholder="Why was it built this way?" />
-    <button id="ask" type="submit">Ask</button>
-  </form>
+  <main class="canvas">
+    <h1>Ask the codebase</h1>
+    <p class="sub" id="sub">Answers come only from what was written down — with proof, or an honest “no one wrote this down.”</p>
 
-  <div id="result"></div>
-</main>
+    <form id="form" class="composer">
+      <input id="question" name="question" autocomplete="off" placeholder="Why was it built this way?" />
+      <button id="ask" type="submit">Ask</button>
+    </form>
+
+    <section id="result"></section>
+
+    <section class="recent" id="recent">
+      <div class="navlabel" style="margin-bottom:8px;">recent</div>
+      <div class="row"><span>Why do we mock service requests with MSW instead of stubbing fetch?</span><span class="tag-cited">cited</span></div>
+      <div class="row"><span>Why is the dashboard still on the legacy adapter?</span><span class="tag-unknown">unknown</span></div>
+    </section>
+  </main>
+</div>
 
 <script>
-const form = document.getElementById("form");
-const input = document.getElementById("question");
-const ask = document.getElementById("ask");
-const result = document.getElementById("result");
+const form=document.getElementById("form");
+const input=document.getElementById("question");
+const ask=document.getElementById("ask");
+const result=document.getElementById("result");
 
-function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+function srcOf(ref){const p=(ref||"").split(":")[0];return ["pr","issue","code"].includes(p)?p:"ref";}
 
 function renderAnswer(p){
-  const cites = p.citations.map(c =>
-    c.url ? `<li><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.ref)}</a></li>`
-          : `<li><span>${esc(c.ref)}</span></li>`).join("");
-  result.innerHTML =
-    `<div class="card"><p class="label">Answer</p>` +
-    `<div class="answer">${esc(p.answer)}</div>` +
-    (cites ? `<ul class="cites"><p class="label" style="margin-top:18px">Citations</p>${cites}</ul>` : ``) +
-    `</div>`;
+  const chips=p.citations.map(c=>{
+    const s=srcOf(c.ref);
+    const inner=`<span class="src">${esc(s)}</span>${esc(c.ref)}`;
+    return c.url
+      ? `<a class="chip ${s}" href="${esc(c.url)}" target="_blank" rel="noopener">${inner}</a>`
+      : `<span class="chip ${s}">${inner}</span>`;
+  }).join("");
+  const n=p.searched.length;
+  result.innerHTML=
+    `<div class="block">
+       <p class="label" style="color:var(--grounded)">grounded answer</p>
+       <div class="answer-prose">${esc(p.answer)}</div>
+       <div class="evidence">
+         <p class="label" style="margin:0;color:var(--muted)">evidence — one glance away</p>
+         <div class="cites">${chips}</div>
+       </div>
+       <div class="searched-line">searched ${n} source${n===1?"":"s"} · all of them shown</div>
+     </div>`;
 }
 
 function renderUnknown(p){
-  const searched = p.searched.length
-    ? `<div class="searched">Searched: ${p.searched.map(esc).join(", ")}</div>` : ``;
-  result.innerHTML =
-    `<div class="card unknown"><p class="label">Honest answer</p>` +
-    `<h2>No one wrote this down.</h2>` +
-    `<p class="muted">The evidence doesn’t record a reason, so Icarus won’t invent one.</p>` +
-    searched + `</div>`;
+  const list=p.searched.length?esc(p.searched.join(" · ")):"—";
+  result.innerHTML=
+    `<div class="unknown">
+       <p class="label">honest answer</p>
+       <h2>No one wrote this down.</h2>
+       <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>
+       <div class="searched-box"><span class="k">searched</span><div class="v">${list}</div></div>
+       <div class="actions">
+         <button class="ghost" type="button">Create note</button>
+         <button class="ghost" type="button">Keep searching</button>
+       </div>
+     </div>`;
 }
 
-form.addEventListener("submit", async (e) => {
+function renderLoading(){
+  result.innerHTML=
+    `<div class="block">
+       <p class="label muted">thinking…</p>
+       <div class="skel" style="width:88%"></div>
+       <div class="skel" style="width:70%"></div>
+       <div class="skel" style="width:80%"></div>
+     </div>`;
+}
+
+function renderError(){
+  result.innerHTML=
+    `<div class="block err"><p class="label">couldn’t reach the brain</p>
+       <div class="muted">The Icarus server isn’t responding. Is <code>demo.server</code> running?</div></div>`;
+}
+
+form.addEventListener("submit",async(e)=>{
   e.preventDefault();
-  const question = input.value.trim();
-  if (!question) return;
-  ask.disabled = true;
-  result.innerHTML = `<div class="card muted">Thinking…</div>`;
-  try {
-    const resp = await fetch("/ask", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({question}),
-    });
-    const p = await resp.json();
-    if (p.verdict === "answer") renderAnswer(p); else renderUnknown(p);
-  } catch (err) {
-    result.innerHTML = `<div class="card muted">Network error — is the server running?</div>`;
-  } finally {
-    ask.disabled = false;
-  }
+  const question=input.value.trim();
+  if(!question)return;
+  ask.disabled=true; renderLoading();
+  try{
+    const resp=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});
+    const p=await resp.json();
+    if(p.verdict==="answer")renderAnswer(p); else renderUnknown(p);
+  }catch(err){renderError();}
+  finally{ask.disabled=false;}
 });
 </script>
 </body>
