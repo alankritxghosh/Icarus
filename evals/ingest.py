@@ -97,21 +97,32 @@ def fetch_code(repo, commit, code_dir):
     return chunks
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    commit = resolve_commit(args.repo, args.commit)
-    prs, issue_ids = fetch_prs(args.repo)
-    issues = fetch_issues(args.repo, issue_ids)
-    code = fetch_code(args.repo, commit, args.code_dir)
+def ingest_repo(repo, out_dir, commit=None, code_dir="llm"):
+    """Fetch a public repo and write chunks.jsonl + meta.json into out_dir.
+
+    Returns the {pr, issue, code} counts. Reusable by the CLI (default corpus)
+    and the demo's per-repo cache. Network (gh + git); public repos only."""
+    commit = resolve_commit(repo, commit)
+    prs, issue_ids = fetch_prs(repo)
+    issues = fetch_issues(repo, issue_ids)
+    code = fetch_code(repo, commit, code_dir)
     all_chunks = prs + issues + code
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    with OUT.open("w") as f:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with (out_dir / "chunks.jsonl").open("w") as f:
         for c in all_chunks:
             f.write(json.dumps(c) + "\n")
-    write_meta(META, repo=args.repo, commit=commit, code_dir=args.code_dir,
-               counts={"pr": len(prs), "issue": len(issues), "code": len(code)})
-    print(f"wrote {len(all_chunks)} chunks ({len(prs)} pr, {len(issues)} issue, {len(code)} code) "
-          f"from {args.repo}@{commit[:12]} -> {OUT}")
+    counts = {"pr": len(prs), "issue": len(issues), "code": len(code)}
+    write_meta(out_dir / "meta.json", repo=repo, commit=commit, code_dir=code_dir, counts=counts)
+    return counts
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    counts = ingest_repo(args.repo, OUT.parent, commit=args.commit, code_dir=args.code_dir)
+    total = sum(counts.values())
+    print(f"wrote {total} chunks ({counts['pr']} pr, {counts['issue']} issue, {counts['code']} code) "
+          f"from {args.repo} -> {OUT}")
 
 
 if __name__ == "__main__":
