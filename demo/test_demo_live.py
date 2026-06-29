@@ -12,15 +12,13 @@ import urllib.request
 from http.server import HTTPServer
 from pathlib import Path
 
-from evals.corpus import load_chunks
-from evals.retriever import LexicalRetriever
-from evals.provider import OpenRouterProvider
-from evals.pipeline import GatedPipeline
-from .server import make_handler, INDEX_HTML
+from . import server
+from .library import Library
 
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT.parent / "evals" / "corpus" / "chunks.jsonl"
 QUESTIONS = json.loads((ROOT.parent / "evals" / "phase1_questions.json").read_text())
+_HAS_KEY = any(os.environ.get(k) for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"))
 
 
 def _post(base, question):
@@ -30,15 +28,14 @@ def _post(base, question):
         return json.loads(resp.read())
 
 
-@unittest.skipUnless(os.environ.get("OPENROUTER_API_KEY") and CORPUS.exists(),
-                     "needs OPENROUTER_API_KEY and the corpus")
+@unittest.skipUnless(_HAS_KEY and CORPUS.exists(),
+                     "needs a provider key (GROQ/GEMINI/OPENROUTER) and the corpus")
 class DemoLiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        corpus = QUESTIONS["corpus"]
-        chunks = load_chunks(CORPUS)
-        pipe = GatedPipeline(LexicalRetriever(chunks), chunks, OpenRouterProvider())
-        handler = make_handler(pipe, corpus["repo"], corpus["commit"], str(INDEX_HTML))
+        default_repo, _ = server.resolve_provenance(server.CORPUS_META, server.QUESTIONS)
+        lib = Library(server.CORPUS_DIR, server.CACHE_ROOT, default_repo)
+        handler = server.make_handler(lib, str(server.INDEX_HTML))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.base = f"http://127.0.0.1:{cls.server.server_port}"
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)

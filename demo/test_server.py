@@ -25,6 +25,26 @@ class _StubPipeline(Pipeline):
         return Result(verdict="unknown", retrieved=["code:llm/x.py", "code:llm/y.py"])
 
 
+class _StubLibrary:
+    """Stand-in for demo.library.Library: fixed pipeline, records connects."""
+
+    def __init__(self):
+        self._pipe = _StubPipeline()
+        self.connected = []
+
+    def current_pipeline(self):
+        return self._pipe
+
+    def provenance(self):
+        return (REPO, COMMIT)
+
+    def status_snapshot(self):
+        return {"state": "ready", "repo": REPO, "commit": COMMIT, "counts": None, "error": None}
+
+    def connect_sync(self, repo):
+        self.connected.append(repo)
+
+
 def _post(url, obj):
     data = json.dumps(obj).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -38,7 +58,8 @@ class ServerTests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.html = Path(cls._tmp.name) / "index.html"
         cls.html.write_text('<html><body><input id="question"></body></html>')
-        handler = make_handler(_StubPipeline(), REPO, COMMIT, str(cls.html))
+        cls.lib = _StubLibrary()
+        handler = make_handler(cls.lib, str(cls.html))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.port = cls.server.server_port
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -68,6 +89,28 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["verdict"], "unknown")
         self.assertEqual(payload["answer"], "")
         self.assertEqual(payload["searched"], ["code:llm/x.py", "code:llm/y.py"])
+
+    def test_status_reports_active_repo(self):
+        with urllib.request.urlopen(self.base + "/status") as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(json.loads(resp.read())["repo"], REPO)
+
+    def test_connect_valid_repo_starts_switch(self):
+        import time
+        status, payload = _post(self.base + "/connect", {"repo": "octocat/hello"})
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["state"], "indexing")
+        for _ in range(50):  # the connect runs in a background thread
+            if "octocat/hello" in self.lib.connected:
+                break
+            time.sleep(0.02)
+        self.assertIn("octocat/hello", self.lib.connected)
+
+    def test_connect_bad_repo_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/connect", {"repo": "not-a-repo"})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
 
     def test_ask_missing_question_is_400(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
