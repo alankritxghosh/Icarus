@@ -47,8 +47,10 @@ removing, or renaming files). For class/function-level detail see
 - `evals/retriever.py` — `LexicalRetriever`, a stdlib BM25 keyword retriever over
   corpus chunks, plus a `tokenize` helper.
 - `evals/provider.py` — the `Provider` abstraction for the rented answer-writer:
-  `OpenRouterProvider` (calls OpenRouter over stdlib `urllib`) and
-  `StaticProvider` (offline test double). Key from `OPENROUTER_API_KEY`.
+  `GroqProvider` (default writer, Llama 3.3 70B), `GeminiProvider` (default judge,
+  flash-lite), `OpenRouterProvider`, and `StaticProvider` (offline double); plus a
+  `make_provider` factory and 429 retry/backoff. All over stdlib `urllib`; keys
+  from `GROQ_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY`.
 - `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt the writer
   must answer as JSON (answer-with-refs or explicit unknown).
 - `evals/gate.py` — the deterministic honesty gate: parses the writer's reply and
@@ -66,7 +68,8 @@ removing, or renaming files). For class/function-level detail see
   labelled set: the two honesty gates plus the quality dials. Optional `judge`
   turns `answer_correctness` from PENDING into a real number.
 - `evals/run.py` — CLI entry point that runs the eval board and prints it; exits
-  non-zero only when an honesty gate breaks. `--pipeline {stub,retrieval,gated}`.
+  non-zero only when an honesty gate breaks. `--pipeline {stub,retrieval,gated}`,
+  `--writer {groq,gemini,openrouter}`, `--judge {gemini,groq,openrouter}`.
 - `evals/test_corpus.py` — tests that `load_chunks` parses JSONL into `Chunk`s
   (and tolerates blank lines).
 - `evals/test_retriever.py` — tests for tokenization and BM25 ranking,
@@ -103,6 +106,9 @@ removing, or renaming files). For class/function-level detail see
 - `evals/test_answer_correctness_eval.py` — real-model proof: with the judge,
   answer correctness becomes a number > 0 while both gates stay 100% (skips
   without `OPENROUTER_API_KEY` or the corpus).
+- `evals/test_free_hosted_eval.py` — real-model proof on the free hosted stack
+  (Groq writer + Gemini judge): gates 100% and quality ≥ the OpenRouter baseline
+  (skips without `GROQ_API_KEY`/`GEMINI_API_KEY` or the corpus).
 
 ## evals/ data files
 - `evals/phase1_questions.json` — the verified labelled question set (corpus

@@ -52,20 +52,27 @@ BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN
 
 ## evals/provider.py
 The `Provider` abstraction for the rented answer-writer (we rent the model, own
-the pipeline). Stdlib only; key from `OPENROUTER_API_KEY`. Module constant on
-`OpenRouterProvider`: `URL`.
+the pipeline). Stdlib `urllib` only; keys from env. Module constants: `_USER_AGENT`
+(Groq's Cloudflare 403s the default urllib UA), `_RETRY_DELAY`.
 
-- `class Provider` — interface: `complete(self, prompt: str) -> str` (raises
-  `NotImplementedError`).
-- `class StaticProvider(Provider)` — offline test double.
-  - `__init__(self, responses)` — accept a single string or a list of strings.
-  - `complete(self, prompt: str) -> str` — return queued responses in order,
-    sticking on the last.
-- `class OpenRouterProvider(Provider)` — calls an OpenRouter chat-completions
-  model over stdlib `urllib`.
-  - `__init__(self, model: str = "cohere/north-mini-code:free", timeout: float = 60.0)`.
-  - `complete(self, prompt: str) -> str` — POST the prompt at temperature 0 and
-    return the message content; raises `RuntimeError` when the key is unset.
+- `_with_retry(call, retries=6, base=2.0)` — run `call()`, retrying on HTTP 429
+  with backoff; waits a Retry-After header, else Gemini's body `retryDelay`, else
+  `base*2**attempt` (capped 65s). Non-429 raises immediately.
+- `_openai_chat(url, key, model, prompt, timeout) -> str` — one OpenAI-compatible
+  chat-completions call (shared by OpenRouter + Groq), with UA + 429 retry.
+- `_parse_gemini(data) -> str` — extract text from a Gemini generateContent reply.
+- `make_provider(name) -> Provider` — factory: `groq`/`gemini`/`openrouter`;
+  raises `ValueError` on an unknown name.
+- `has_provider_key(name) -> bool` — whether that provider's env key is set.
+- `class Provider` — interface: `complete(self, prompt) -> str`.
+- `class StaticProvider(Provider)` — offline test double (queues, sticks on last).
+- `class OpenRouterProvider(Provider)` — OpenRouter chat-completions; key
+  `OPENROUTER_API_KEY`; raises `RuntimeError` when unset.
+- `class GroqProvider(Provider)` — Groq chat-completions (OpenAI-compatible),
+  default `llama-3.3-70b-versatile`; key `GROQ_API_KEY`; the default writer.
+- `class GeminiProvider(Provider)` — Google Gemini `generateContent` (REST),
+  default `gemini-2.5-flash-lite`; key `GEMINI_API_KEY` (as `?key=`); the default
+  judge. All raise `RuntimeError` when their key is unset.
 
 ## evals/synth.py
 Builds the strict cite-or-abstain prompt for the writer. Module constants:
@@ -145,15 +152,16 @@ honesty gates (groundedness, abstention recall) plus the quality dials.
 
 ## evals/run.py
 CLI entry point that runs and prints the Phase 1 eval board. Module constants:
-`DEFAULT_SET`, `CORPUS`, `JUDGE_MODEL` (`poolside/laguna-m.1:free`).
+`DEFAULT_SET`, `CORPUS`.
 
 - `_fmt(value) -> str` — format a metric value as a percentage (or `n/a` when
   None).
 - `main(argv=None) -> int` — parse args (`--questions`, `--k`,
-  `--pipeline {stub,retrieval,gated}`), build the chosen pipeline (`gated` wraps
-  an `OpenRouterProvider`), build a `Judge(JUDGE_MODEL)` when `OPENROUTER_API_KEY`
-  is set (else None → answer correctness stays PENDING), grade the board, print
-  it, and return exit code 0 only when the honesty gates hold.
+  `--pipeline {stub,retrieval,gated}`, `--writer {groq,gemini,openrouter}`,
+  `--judge {gemini,groq,openrouter}`), build the chosen pipeline (`gated` wraps
+  `make_provider(writer)`), build `Judge(make_provider(judge))` when that
+  provider's key is set (else None → answer correctness stays PENDING), grade the
+  board, print it, and return exit code 0 only when the honesty gates hold.
 
 ## Test modules
 - `evals/test_corpus.py` — pins that `load_chunks` parses JSONL into `Chunk`s and
@@ -163,8 +171,10 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
   ref-ascending tie-break, empty corpus, and zero-score dropping/truncation.
 - `evals/test_pipeline.py` — pins that `RetrievalPipeline` populates `retrieved`
   yet still abstains with no citations (gates stay intact).
-- `evals/test_provider.py` — pins `StaticProvider` queuing/sticking (single
-  string or list) and that `OpenRouterProvider` raises without an API key.
+- `evals/test_provider.py` — pins `StaticProvider` queuing/sticking; the
+  OpenRouter/Groq/Gemini providers raising without their keys; `_parse_gemini`;
+  the `make_provider` factory + `has_provider_key`; and `_with_retry` (retries on
+  429, gives up after N, ignores non-429).
 - `evals/test_synth.py` — pins that `build_prompt` includes the question, refs,
   and text, offers the unknown path, and truncates very long chunks.
 - `evals/test_gate.py` — pins the gate's conscience: grounded answers pass,
@@ -194,6 +204,9 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
 - `evals/test_answer_correctness_eval.py` — pins the real-model proof: with the
   judge, answer correctness becomes a number > 0 while both gates stay 100%
   (skips without `OPENROUTER_API_KEY` or the corpus).
+- `evals/test_free_hosted_eval.py` — pins the free-hosted proof (Groq writer +
+  Gemini judge): gates 100% and quality ≥ the OpenRouter baseline (skips without
+  `GROQ_API_KEY`/`GEMINI_API_KEY` or the corpus).
 
 ## demo/links.py
 Map a `source:ref` citation to its GitHub URL. No classes.

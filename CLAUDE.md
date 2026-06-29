@@ -129,13 +129,15 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   Exits non-zero **only** if an honesty gate (groundedness / abstention recall)
   breaks; quality below target is the expected red baseline, not a build failure.
 - `python3 -m evals.run --k 10` — change the retrieval recall@k cut-off.
-- `OPENROUTER_API_KEY=… python3 -m evals.run --pipeline gated` — run the board
-  against the real brain (retrieve → cite-or-abstain prompt → rented LLM writer
-  → deterministic honesty gate). Needs `OPENROUTER_API_KEY` exported (never
-  committed); public repos only while on free models. When the key is set the
-  answer-correctness judge (`poolside/laguna-m.1:free`, a different model from the
-  writer) also runs, so `answer correctness` prints as a number instead of
-  PENDING. The judge is a quality dial only — it never touches the honesty gates.
+- `GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m evals.run --pipeline gated` — run
+  the board against the real brain (retrieve → cite-or-abstain prompt → rented LLM
+  writer → deterministic honesty gate). Default free hosted models: **writer =
+  Groq** `llama-3.3-70b-versatile` (`GROQ_API_KEY`), **judge = Gemini**
+  `gemini-2.5-flash-lite` (`GEMINI_API_KEY`) — judge ≠ writer, cross-provider.
+  Override with `--writer {groq,gemini,openrouter}` / `--judge {gemini,groq,
+  openrouter}`. Keys never committed; **public repos only** (free tiers may train
+  on inputs). Providers retry on HTTP 429 with backoff (free tiers cap RPM). The
+  judge is a quality dial only — it never touches the honesty gates.
 - `python3 -m unittest evals.test_grader` — test the harness conscience itself
   (proves the gates fire on a bluff or an ungrounded citation).
 - `python3 -m unittest evals.test_gate` — test the honesty gate's conscience
@@ -144,17 +146,18 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   (proves its verdict parser fails safe to "incorrect" on an ambiguous reply).
 
 Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
-- `OPENROUTER_API_KEY=… python3 -m demo.server` — serve the demo at
+- `GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m demo.server` — serve the demo at
   `http://127.0.0.1:8000`: type a question about `simonw/llm` and get a cited
   answer (citations link to GitHub at the pinned commit) or an honest "no one
-  wrote this down". Pure packaging over `GatedPipeline` — no brain change. Needs
-  the key (the writer runs per request) and the committed corpus.
+  wrote this down". Writer defaults to Groq (falls back to Gemini, then
+  OpenRouter). Pure packaging over `GatedPipeline` — no brain change. Needs a free
+  key and the committed corpus.
 - `python3 -m unittest demo.test_demo_live` — end-to-end live guard (cited answer
-  + honest unknown); self-skips without `OPENROUTER_API_KEY`/corpus.
+  + honest unknown); self-skips without a provider key/corpus.
 
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 @ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
-scores against). The real pipeline is `GatedPipeline` (`--pipeline gated`): on
-the labelled set the honesty gates hold at 100% while citation correctness and
-answer correctness rise off zero. The minimal web demo (`demo/`) is Brick 5;
-next is the recordable demo (Brick 6).
+scores against). On the free hosted stack (Groq writer + Gemini judge) the board
+reads **GREEN**: gates 100%, citation correctness 100%, answer correctness ~83%.
+Public-repo MVP only (no private repos on free models). Next MVP bricks: any-repo
+ingest, UI redesign, the macOS app, and voice.
