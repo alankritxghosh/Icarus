@@ -23,3 +23,6 @@ build/
 repositories/
 *.sqlite
 *.db
+
+# Demo per-repo corpus cache (switched-to public repos; not committed)
+evals/corpus/cache/

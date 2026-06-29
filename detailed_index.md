@@ -43,8 +43,11 @@ One-time tool that generates a corpus from a public repo into
   are PRs.
 - `fetch_code(repo, commit, code_dir)` — clone at the commit and return one chunk
   per `<code_dir>/**/*.py`.
-- `main(argv=None)` — resolve args, generate chunks, write `chunks.jsonl` and
-  `meta.json` (via `write_meta`), print a count + provenance summary.
+- `ingest_repo(repo, out_dir, commit=None, code_dir="llm") -> counts` — fetch a
+  public repo and write `chunks.jsonl` + `meta.json` into `out_dir`; returns the
+  {pr, issue, code} counts. Reused by the CLI and the demo's per-repo cache.
+- `main(argv=None)` — resolve args, call `ingest_repo` into the default corpus dir,
+  print a count + provenance summary.
 
 ## evals/retriever.py
 BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN`.
@@ -239,28 +242,46 @@ Turn a pipeline `Result` into the JSON the demo page renders. No classes.
   [{ref,url}], searched:[refs]}`. Answers carry prose + citation URLs; the honest
   unknown carries empty answer/citations but always the retrieved `searched` refs.
 
-## demo/server.py
-A minimal local web face over the gated brain. Stdlib `http.server` only. Module
-constants: `ROOT`, `CORPUS`, `CORPUS_META`, `QUESTIONS`, `INDEX_HTML`.
+## demo/library.py
+The demo's active-repo state: which corpus is loaded, its pipeline, and the
+switch status. Thread-safe (a lock guards the pipeline swap). Helpers `_pick_writer`,
+`_default_build_pipeline`, `_slug`.
 
-- `make_handler(pipeline, repo, commit, html_path)` — return a
-  `BaseHTTPRequestHandler` subclass: GET `/` serves the page; POST `/ask` with
-  `{"question": …}` returns `build_payload(pipeline.answer(question), …)`; empty
-  question → 400; other paths → 404. (Quiet logging.)
-- `resolve_provenance(meta_path, questions_path) -> (repo, commit)` — prefer the
-  corpus's own `meta.json`; fall back to the labelled set's `corpus` block.
-- `serve(host="127.0.0.1", port=8000)` — resolve provenance, pick the writer
-  (Groq → Gemini → OpenRouter by available key via `make_provider`), build the real
-  `GatedPipeline`, and run `HTTPServer`. Entry point: `python3 -m demo.server`.
+- `class Library` — `__init__(default_corpus_dir, cache_root, default_repo,
+  build_pipeline=…, ingest_fn=ingest_repo)` builds the default pipeline and reads
+  its meta.
+  - `connect_sync(repo)` — switch the active repo (blocking): default repo → committed
+    corpus; cache hit → instant rebuild; miss → `ingest_fn` into the cache then
+    rebuild. On failure keeps the previous repo and sets status `error`.
+  - `current_pipeline()` / `provenance()` / `status_snapshot()` — lock-guarded reads
+    (`{state, repo, commit, counts, error}`).
+
+## demo/server.py
+A minimal local web face over a `Library`. Stdlib `http.server` only. Module
+constants: `ROOT`, `CORPUS_DIR`, `CORPUS_META`, `CACHE_ROOT`, `QUESTIONS`,
+`INDEX_HTML`, `_REPO_RE`.
+
+- `make_handler(library, html_path)` — return a `BaseHTTPRequestHandler` subclass:
+  GET `/` serves the page; GET `/status` returns the library snapshot; POST `/ask`
+  returns `build_payload(library.current_pipeline().answer(q), *library.provenance())`;
+  POST `/connect` validates `owner/name`, spawns `connect_sync` in a daemon thread,
+  returns 202; bad input → 400; other paths → 404. (Quiet logging.)
+- `resolve_provenance(meta_path, questions_path) -> (repo, commit)` — default repo
+  from the committed `meta.json`, else the labelled set's `corpus` block.
+- `serve(host="127.0.0.1", port=8000)` — build the `Library` (default = committed
+  corpus) and run `HTTPServer`. Entry point: `python3 -m demo.server`.
 
 ## demo/ test modules
 - `demo/test_links.py` — pins `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — pins the answer and honest-unknown payload shapes
   (citation URLs, order preserved, `searched`, url=None for unknown sources).
-- `demo/test_server.py` — pins routing against a stub pipeline (GET `/`, POST
-  `/ask` answer/unknown, 400 on missing question, 404), `resolve_provenance`
-  (meta wins, else questions fallback), and smoke-checks that `index.html` keeps
-  the front-end hooks (`id="question"`, `/ask`, the hero text).
-- `demo/test_demo_live.py` — end-to-end live guard over the real pipeline: an
-  answerable question returns a cited answer with a github.com link, an
-  unrecorded one returns the honest unknown (skips without key/corpus).
+- `demo/test_library.py` — pins the `Library`: starts on the default repo, cache-hit
+  switches without re-ingesting, a miss ingests, default uses the committed corpus,
+  and an ingest failure keeps the previous repo answerable.
+- `demo/test_server.py` — pins routing against a stub library (GET `/`, `/status`,
+  POST `/ask` answer/unknown, POST `/connect` valid→202 / bad→400, missing question
+  → 400, 404), and smoke-checks `index.html` hooks (`id="question"`, `id="ask"`,
+  `/ask`, `id="repo"`, `/connect`, `/status`, the hero text).
+- `demo/test_demo_live.py` — end-to-end live guard over the real pipeline (built via
+  `Library`): an answerable question returns a cited answer with a github.com link,
+  an unrecorded one returns the honest unknown (skips without a provider key/corpus).

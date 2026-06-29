@@ -137,20 +137,28 @@ removing, or renaming files). For class/function-level detail see
   URL (pr/issue/code) at the pinned commit; unknown/malformed → None.
 - `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON
   (verdict, answer, citations-with-urls, and `searched` refs for transparency).
-- `demo/server.py` — stdlib `http.server` demo: `make_handler` (GET `/` serves
-  the page, POST `/ask` runs the pipeline), `resolve_provenance` (repo/commit from
-  `corpus/meta.json`, falling back to the labelled set), and `serve` (builds the
-  real `GatedPipeline`). Run `python3 -m demo.server`. No brain change.
-- `demo/index.html` — the single-page UI: question box, cited-answer card, and
-  the honest "no one wrote this down" hero state; vanilla `fetch`, no framework.
+- `demo/library.py` — `Library`: the demo's active-repo state. Holds the live
+  `GatedPipeline` + switch status; `connect_sync(repo)` reuses a git-ignored
+  per-repo cache or ingests once on a miss; thread-safe so `/ask` always sees a
+  consistent pipeline. Built-in `simonw/llm` uses the committed corpus.
+- `demo/server.py` — stdlib `http.server` demo over a `Library`: `make_handler`
+  (GET `/` page, GET `/status`, POST `/ask`, POST `/connect` → background switch),
+  `resolve_provenance` (default repo/commit from `corpus/meta.json`), and `serve`.
+  Run `python3 -m demo.server`. No brain change.
+- `demo/index.html` — the single-page UI: question box, cited-answer card, the
+  honest "no one wrote this down" hero state, and an `owner/repo` connect control
+  with status polling; vanilla `fetch`, no framework.
 - `demo/test_links.py` — tests `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — tests `build_payload` for the answer and honest-unknown
   shapes (citation URLs, order, `searched`).
-- `demo/test_server.py` — tests routing against a stub pipeline (GET `/`, POST
-  `/ask` answer/unknown, 400, 404) plus a smoke check that `index.html` keeps the
-  front-end hooks.
+- `demo/test_library.py` — tests the `Library`: starts on the default repo,
+  cache-hit switches without re-ingesting, a miss ingests, and an ingest failure
+  keeps the previous repo answerable.
+- `demo/test_server.py` — tests routing against a stub library (GET `/`, `/status`,
+  POST `/ask`, POST `/connect` valid/bad, 404) plus a smoke check that `index.html`
+  keeps the front-end hooks (question, ask, /ask, /connect, /status, hero text).
 - `demo/test_demo_live.py` — end-to-end live guard over the real pipeline (cited
-  answer + honest unknown); skips without `OPENROUTER_API_KEY` or the corpus.
+  answer + honest unknown); skips without a provider key or the corpus.
 
 ## .claude/agents/
 - `.claude/agents/opus-architect.md` — definition for the opus-architect agent

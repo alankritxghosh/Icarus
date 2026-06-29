@@ -151,7 +151,10 @@ Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
   answer (citations link to GitHub at the pinned commit) or an honest "no one
   wrote this down". Writer defaults to Groq (falls back to Gemini, then
   OpenRouter). Pure packaging over `GatedPipeline` — no brain change. Needs a free
-  key and the committed corpus.
+  key and the committed corpus. **In-app repo switch:** type any public
+  `owner/repo` in the sidebar → it indexes once into a git-ignored cache
+  (`evals/corpus/cache/`) and switches; the built-in `simonw/llm` always reloads
+  from the committed corpus. One active repo at a time (`demo/library.py`).
 - `python3 -m unittest demo.test_demo_live` — end-to-end live guard (cited answer
   + honest unknown); self-skips without a provider key/corpus.
 
