@@ -1,0 +1,11 @@
+{
+  "repo": "simonw/llm",
+  "commit": "94769b8b076cde9392059d76bd766453cf900180",
+  "code_dir": "llm",
+  "counts": {
+    "pr": 141,
+    "issue": 84,
+    "code": 18
+  },
+  "generated_at": "2026-06-29T12:46:06.061495+00:00"
+}
