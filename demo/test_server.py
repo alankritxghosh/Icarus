@@ -82,6 +82,27 @@ class ServerTests(unittest.TestCase):
         cm.exception.close()
 
 
+class ResolveProvenanceTests(unittest.TestCase):
+    """The demo's repo/commit come from corpus meta.json when present, else fall
+    back to the labelled set's corpus block (back-compat)."""
+
+    def test_meta_wins_when_present(self):
+        from .server import resolve_provenance
+        with tempfile.TemporaryDirectory() as d:
+            meta = Path(d) / "meta.json"
+            meta.write_text(json.dumps({"repo": "octocat/hello", "commit": "abc123"}))
+            q = Path(d) / "q.json"
+            q.write_text(json.dumps({"corpus": {"repo": "simonw/llm", "commit": "zzz"}}))
+            self.assertEqual(resolve_provenance(meta, q), ("octocat/hello", "abc123"))
+
+    def test_falls_back_to_questions_when_no_meta(self):
+        from .server import resolve_provenance
+        with tempfile.TemporaryDirectory() as d:
+            q = Path(d) / "q.json"
+            q.write_text(json.dumps({"corpus": {"repo": "simonw/llm", "commit": "zzz"}}))
+            self.assertEqual(resolve_provenance(Path(d) / "missing.json", q), ("simonw/llm", "zzz"))
+
+
 class IndexHtmlSmokeTests(unittest.TestCase):
     """The served page must keep the hooks the front-end contract depends on."""
 

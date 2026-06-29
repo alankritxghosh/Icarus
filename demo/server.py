@@ -19,11 +19,13 @@ from evals.corpus import load_chunks
 from evals.retriever import LexicalRetriever
 from evals.provider import make_provider, has_provider_key
 from evals.pipeline import GatedPipeline
+from evals.corpus_meta import load_meta
 
 from .payload import build_payload
 
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT.parent / "evals" / "corpus" / "chunks.jsonl"
+CORPUS_META = ROOT.parent / "evals" / "corpus" / "meta.json"
 QUESTIONS = ROOT.parent / "evals" / "phase1_questions.json"
 INDEX_HTML = ROOT / "index.html"
 
@@ -71,9 +73,19 @@ def make_handler(pipeline, repo: str, commit: str, html_path: str):
     return Handler
 
 
+def resolve_provenance(meta_path, questions_path):
+    """Where the loaded corpus came from -> (repo, commit). Prefer the corpus's
+    own meta.json (written by ingest for whatever repo was ingested); fall back to
+    the labelled set's corpus block for the committed simonw/llm corpus."""
+    meta = load_meta(meta_path)
+    if meta:
+        return meta["repo"], meta["commit"]
+    corpus = json.loads(Path(questions_path).read_text())["corpus"]
+    return corpus["repo"], corpus["commit"]
+
+
 def serve(host: str = "127.0.0.1", port: int = 8000):
-    corpus = json.loads(QUESTIONS.read_text())["corpus"]
-    repo, commit = corpus["repo"], corpus["commit"]
+    repo, commit = resolve_provenance(CORPUS_META, QUESTIONS)
     chunks = load_chunks(CORPUS)
     # Default writer = Groq (Llama 3.3 70B; 30 RPM handles bursts). Fall back to
     # Gemini, then OpenRouter. Public repos only on free hosted models.
