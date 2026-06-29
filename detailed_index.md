@@ -19,21 +19,32 @@ The corpus: chunks of evidence, each carrying a citation ref.
 - `load_chunks(path) -> List[Chunk]` — read a JSONL file into a list of `Chunk`s,
   tolerating blank lines.
 
-## evals/ingest.py
-One-time tool that generates the Phase 1 corpus from `simonw/llm` into
-`evals/corpus/chunks.jsonl` (needs `gh` + `git`). Module constants: `REPO`,
-`COMMIT`, `PR_LIMIT`, `OUT`, `ISSUE_REF`.
+## evals/corpus_meta.py
+Self-describing corpus provenance written next to `chunks.jsonl`. No classes.
 
-- `_gh_json(args)` — run a `gh` subcommand and parse its JSON stdout (None when
-  empty).
-- `fetch_prs()` — list recent merged PRs and return their chunks plus the set of
-  referenced issue ids (from `closingIssuesReferences` and `#NNN` mentions).
-- `fetch_issues(issue_ids)` — fetch each referenced issue and return its chunks,
-  skipping ids that turn out to be PRs, not issues.
-- `fetch_code()` — clone the repo at the pinned commit and return one chunk per
-  `llm/**/*.py` source file.
-- `main()` — generate PR, issue, and code chunks, write them to `chunks.jsonl`,
-  and print a count summary.
+- `write_meta(path, repo, commit, code_dir, counts)` — write
+  `{repo, commit, code_dir, counts, generated_at}` (ISO-8601 UTC) as JSON.
+- `load_meta(path)` — read it back, or None if the file is absent.
+
+## evals/ingest.py
+One-time tool that generates a corpus from a public repo into
+`evals/corpus/chunks.jsonl` + `meta.json` (needs `gh` + `git`). Module constants:
+`REPO`, `COMMIT`, `PR_LIMIT`, `OUT`, `META`, `ISSUE_REF`.
+
+- `parse_args(argv)` — CLI: `--repo` (default `simonw/llm`), `--commit` (default
+  None → HEAD), `--code-dir` (default `llm`).
+- `resolve_commit(repo, commit)` — explicit commit wins; the default repo without
+  one keeps the pinned `COMMIT` (reproducible board); any other repo resolves HEAD
+  via `git ls-remote`.
+- `_gh_json(args)` — run a `gh` subcommand and parse its JSON stdout (None empty).
+- `fetch_prs(repo)` — merged PRs → chunks + referenced issue ids
+  (`closingIssuesReferences` and `#NNN`).
+- `fetch_issues(repo, issue_ids)` — fetch each referenced issue, skipping ids that
+  are PRs.
+- `fetch_code(repo, commit, code_dir)` — clone at the commit and return one chunk
+  per `<code_dir>/**/*.py`.
+- `main(argv=None)` — resolve args, generate chunks, write `chunks.jsonl` and
+  `meta.json` (via `write_meta`), print a count + provenance summary.
 
 ## evals/retriever.py
 BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN`.
@@ -166,6 +177,12 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
 ## Test modules
 - `evals/test_corpus.py` — pins that `load_chunks` parses JSONL into `Chunk`s and
   tolerates blank lines.
+- `evals/test_corpus_meta.py` — pins `write_meta`/`load_meta` round-trip and the
+  missing-file → None case.
+- `evals/test_ingest_args.py` — pins the ingest CLI defaults (reproduce the pin),
+  overrides, and `resolve_commit` (explicit commit / default-repo pin).
+- `evals/test_ingest_smoke.py` — skippable live proof: ingest a tiny public repo
+  to a temp path and assert chunks + meta written (set `RUN_INGEST_SMOKE=1`).
 - `evals/test_retriever.py` — pins tokenization plus BM25 behavior: relevant
   chunk ranked first, at-most-`k` results, no-match returns empty, deterministic
   ref-ascending tie-break, empty corpus, and zero-score dropping/truncation.
@@ -224,23 +241,26 @@ Turn a pipeline `Result` into the JSON the demo page renders. No classes.
 
 ## demo/server.py
 A minimal local web face over the gated brain. Stdlib `http.server` only. Module
-constants: `ROOT`, `CORPUS`, `QUESTIONS`, `INDEX_HTML`.
+constants: `ROOT`, `CORPUS`, `CORPUS_META`, `QUESTIONS`, `INDEX_HTML`.
 
 - `make_handler(pipeline, repo, commit, html_path)` — return a
   `BaseHTTPRequestHandler` subclass: GET `/` serves the page; POST `/ask` with
   `{"question": …}` returns `build_payload(pipeline.answer(question), …)`; empty
   question → 400; other paths → 404. (Quiet logging.)
-- `serve(host="127.0.0.1", port=8000)` — read repo/commit from the labelled set,
-  build the real `GatedPipeline(LexicalRetriever(corpus), corpus, OpenRouterProvider())`,
-  and run `HTTPServer`. Entry point: `python3 -m demo.server`.
+- `resolve_provenance(meta_path, questions_path) -> (repo, commit)` — prefer the
+  corpus's own `meta.json`; fall back to the labelled set's `corpus` block.
+- `serve(host="127.0.0.1", port=8000)` — resolve provenance, pick the writer
+  (Groq → Gemini → OpenRouter by available key via `make_provider`), build the real
+  `GatedPipeline`, and run `HTTPServer`. Entry point: `python3 -m demo.server`.
 
 ## demo/ test modules
 - `demo/test_links.py` — pins `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — pins the answer and honest-unknown payload shapes
   (citation URLs, order preserved, `searched`, url=None for unknown sources).
 - `demo/test_server.py` — pins routing against a stub pipeline (GET `/`, POST
-  `/ask` answer/unknown, 400 on missing question, 404) and smoke-checks that
-  `index.html` keeps the front-end hooks (`id="question"`, `/ask`, the hero text).
+  `/ask` answer/unknown, 400 on missing question, 404), `resolve_provenance`
+  (meta wins, else questions fallback), and smoke-checks that `index.html` keeps
+  the front-end hooks (`id="question"`, `/ask`, the hero text).
 - `demo/test_demo_live.py` — end-to-end live guard over the real pipeline: an
   answerable question returns a cited answer with a github.com link, an
   unrecorded one returns the honest unknown (skips without key/corpus).

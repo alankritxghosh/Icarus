@@ -155,9 +155,22 @@ Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
 - `python3 -m unittest demo.test_demo_live` — end-to-end live guard (cited answer
   + honest unknown); self-skips without a provider key/corpus.
 
+Ingest (point the demo at any **public** repo; needs `gh` authed + `git`):
+- `python3 -m evals.ingest` — reproduce the pinned `simonw/llm` corpus (no args =
+  the frozen eval corpus; the board depends on it).
+- `python3 -m evals.ingest --repo OWNER/REPO [--commit SHA] [--code-dir DIR]` —
+  ingest any public repo into `evals/corpus/chunks.jsonl` (overwrites it) and
+  write `evals/corpus/meta.json` (provenance). `--commit` defaults to repo HEAD;
+  `--code-dir` is the subtree globbed for `*.py` (default `llm`). The demo reads
+  repo/commit from `meta.json`, so citation links follow the ingested repo. **Back
+  up the committed `chunks.jsonl`/`meta.json` first** if you want the `simonw/llm`
+  board back. Python-only code chunks; public repos only.
+- `RUN_INGEST_SMOKE=1 python3 -m unittest evals.test_ingest_smoke` — live ingest a
+  tiny public repo to a temp path (self-skips by default).
+
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 @ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
 scores against). On the free hosted stack (Groq writer + Gemini judge) the board
 reads **GREEN**: gates 100%, citation correctness 100%, answer correctness ~83%.
-Public-repo MVP only (no private repos on free models). Next MVP bricks: any-repo
-ingest, UI redesign, the macOS app, and voice.
+Public-repo MVP only (no private repos on free models). Next MVP bricks: UI
+redesign, the macOS app, and voice.
