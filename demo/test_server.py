@@ -163,6 +163,11 @@ class IndexHtmlSmokeTests(unittest.TestCase):
     def test_renders_the_honest_unknown_hero(self):
         self.assertIn("No one wrote this down", self.html)
 
+    def test_has_repo_connect_controls(self):
+        self.assertIn('id="repo"', self.html)
+        self.assertIn("/connect", self.html)
+        self.assertIn("/status", self.html)
+
 
 if __name__ == "__main__":
     unittest.main()

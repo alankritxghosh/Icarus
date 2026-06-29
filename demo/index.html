@@ -27,6 +27,16 @@
   nav a:hover:not(.active){background:#EFEEE8;}
   .trust{margin-top:auto;font:600 12px var(--mono);color:var(--grounded);display:flex;align-items:center;gap:7px;border:1.5px solid var(--grounded);border-radius:4px;padding:8px 10px;}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--grounded);}
+  .repo-active{font:600 13px var(--mono);word-break:break-all;margin:4px 0 8px;}
+  .repo-form{display:flex;gap:6px;}
+  #repo{flex:1;min-width:0;padding:7px 9px;border:1.5px solid var(--line);border-radius:4px;background:#fff;font:12px var(--mono);}
+  #repo:focus{outline:none;box-shadow:2px 2px 0 var(--accent);}
+  #connect-btn{padding:7px 10px;border:1.5px solid var(--line);border-radius:4px;background:#fff;font:600 12px var(--sans);cursor:pointer;box-shadow:2px 2px 0 var(--line);}
+  #connect-btn:active{transform:translate(2px,2px);box-shadow:none;}
+  #connect-btn:disabled{opacity:.5;cursor:default;}
+  .repo-status{font:11px var(--mono);color:var(--muted);margin-top:7px;min-height:14px;}
+  .repo-status.indexing{color:var(--accent);}
+  .repo-status.error{color:var(--danger);}
   /* main */
   .canvas{flex:1;min-width:0;padding:34px 40px 80px;max-width:920px;}
   h1{font-size:26px;font-weight:650;margin:0 0 4px;}
@@ -85,6 +95,15 @@
         <a href="#">Unknowns</a>
         <a href="#">Privacy boundary</a>
       </nav>
+    </div>
+    <div>
+      <div class="navlabel">active repo</div>
+      <div class="repo-active" id="active-repo">—</div>
+      <form id="repo-form" class="repo-form">
+        <input id="repo" name="repo" autocomplete="off" placeholder="owner/repo" />
+        <button id="connect-btn" type="submit">Connect</button>
+      </form>
+      <div class="repo-status" id="connect-status"></div>
     </div>
     <div class="trust"><span class="dot"></span> 0 trained on your code</div>
   </aside>
@@ -181,6 +200,44 @@ form.addEventListener("submit",async(e)=>{
   }catch(err){renderError();}
   finally{ask.disabled=false;}
 });
+
+const activeRepo=document.getElementById("active-repo");
+const repoForm=document.getElementById("repo-form");
+const repoInput=document.getElementById("repo");
+const connectBtn=document.getElementById("connect-btn");
+const connectStatus=document.getElementById("connect-status");
+const sub=document.getElementById("sub");
+
+function setStatus(msg,cls){connectStatus.className="repo-status"+(cls?" "+cls:"");connectStatus.textContent=msg||"";}
+
+async function refreshStatus(){
+  try{const s=await (await fetch("/status")).json();
+    if(s.repo)activeRepo.textContent=s.repo;
+    return s;
+  }catch(e){return null;}
+}
+
+repoForm.addEventListener("submit",async(e)=>{
+  e.preventDefault();
+  const repo=repoInput.value.trim();
+  if(!repo)return;
+  connectBtn.disabled=true; ask.disabled=true;
+  setStatus("indexing "+repo+" …","indexing");
+  try{
+    const r=await fetch("/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({repo})});
+    if(r.status===400){setStatus((await r.json()).error||"bad repo","error");connectBtn.disabled=false;ask.disabled=false;return;}
+    for(let i=0;i<150;i++){
+      await new Promise(res=>setTimeout(res,1000));
+      const s=await refreshStatus();
+      if(!s)continue;
+      if(s.state==="ready"&&s.repo===repo){setStatus("connected · "+repo,"");sub.textContent="Now answering about "+repo+" — with proof, or an honest “no one wrote this down.”";result.innerHTML="";break;}
+      if(s.state==="error"){setStatus(s.error||"indexing failed","error");break;}
+    }
+  }catch(err){setStatus("couldn’t reach the server","error");}
+  finally{connectBtn.disabled=false;ask.disabled=false;}
+});
+
+refreshStatus();
 </script>
 </body>
 </html>
