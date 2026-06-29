@@ -10,11 +10,45 @@ hardcode or commit it. Public repos only while on free models (see CLAUDE.md).
 
 import json
 import os
+import re
+import time
+import urllib.error
 import urllib.request
 
 # Some providers (Groq) sit behind Cloudflare and 403 the default urllib
 # User-Agent; a plain UA is enough to pass. Harmless for the others.
 _USER_AGENT = "icarus/0.1"
+
+
+_RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
+
+
+def _with_retry(call, retries: int = 6, base: float = 2.0):
+    """Run `call()`, retrying on HTTP 429 with backoff (free tiers cap RPM).
+
+    Wait order of preference: a Retry-After header, else the `retryDelay` Gemini
+    returns in its 429 body, else base*2**attempt. Capped at 65s (covers a
+    per-minute window). Non-429 errors raise immediately. Unit-tested offline."""
+    for attempt in range(retries):
+        try:
+            return call()
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == retries - 1:
+                raise
+            wait = None
+            header = e.headers.get("Retry-After") if e.headers else None
+            if header:
+                wait = float(header)
+            else:
+                try:  # Gemini puts the delay in the body, not a header
+                    m = _RETRY_DELAY.search(e.read().decode())
+                    if m:
+                        wait = float(m.group(1))
+                except Exception:
+                    pass
+            if wait is None:
+                wait = base * (2 ** attempt)
+            time.sleep(min(wait, 65))
 
 
 def _openai_chat(url: str, key: str, model: str, prompt: str, timeout: float) -> str:
@@ -31,9 +65,12 @@ def _openai_chat(url: str, key: str, model: str, prompt: str, timeout: float) ->
             "User-Agent": _USER_AGENT,
         },
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = json.loads(resp.read())
-    return data["choices"][0]["message"]["content"]
+
+    def _do():
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+
+    return _with_retry(_do)["choices"][0]["message"]["content"]
 
 
 class Provider:
@@ -104,7 +141,8 @@ class GeminiProvider(Provider):
 
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    def __init__(self, model: str = "gemini-2.5-flash", timeout: float = 60.0):
+    # flash-lite is the free-tier-friendly model; full flash has a tight free cap.
+    def __init__(self, model: str = "gemini-2.5-flash-lite", timeout: float = 60.0):
         self.model = model
         self.timeout = timeout
 
@@ -121,9 +159,12 @@ class GeminiProvider(Provider):
             data=body,
             headers={"Content-Type": "application/json", "User-Agent": _USER_AGENT},
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            data = json.loads(resp.read())
-        return _parse_gemini(data)
+
+        def _do():
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return json.loads(resp.read())
+
+        return _parse_gemini(_with_retry(_do))
 
 
 _PROVIDERS = {

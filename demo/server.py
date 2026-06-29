@@ -75,9 +75,9 @@ def serve(host: str = "127.0.0.1", port: int = 8000):
     corpus = json.loads(QUESTIONS.read_text())["corpus"]
     repo, commit = corpus["repo"], corpus["commit"]
     chunks = load_chunks(CORPUS)
-    # Default writer = free Gemini (~1,500/day); fall back to OpenRouter only if
-    # Gemini's key is absent. Public repos only on free hosted models.
-    writer = "gemini" if has_provider_key("gemini") else "openrouter"
+    # Default writer = Groq (Llama 3.3 70B; 30 RPM handles bursts). Fall back to
+    # Gemini, then OpenRouter. Public repos only on free hosted models.
+    writer = "groq" if has_provider_key("groq") else "gemini" if has_provider_key("gemini") else "openrouter"
     pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, make_provider(writer))
     handler = make_handler(pipeline, repo, commit, str(INDEX_HTML))
     httpd = HTTPServer((host, port), handler)

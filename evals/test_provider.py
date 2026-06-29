@@ -1,9 +1,44 @@
 # evals/test_provider.py
+import email.message
 import os
 import unittest
+import urllib.error
 
 from .provider import StaticProvider, OpenRouterProvider, GroqProvider, GeminiProvider
-from .provider import _parse_gemini, make_provider, has_provider_key
+from .provider import _parse_gemini, make_provider, has_provider_key, _with_retry
+
+
+def _http(code):
+    return urllib.error.HTTPError("u", code, "x", email.message.Message(), None)
+
+
+class RetryTests(unittest.TestCase):
+    def test_retries_on_429_then_succeeds(self):
+        calls = {"n": 0}
+
+        def call():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise _http(429)
+            return "ok"
+
+        self.assertEqual(_with_retry(call, retries=5, base=0), "ok")
+        self.assertEqual(calls["n"], 3)
+
+    def test_gives_up_after_retries(self):
+        with self.assertRaises(urllib.error.HTTPError):
+            _with_retry(lambda: (_ for _ in ()).throw(_http(429)), retries=3, base=0)
+
+    def test_non_429_raises_immediately(self):
+        calls = {"n": 0}
+
+        def call():
+            calls["n"] += 1
+            raise _http(500)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            _with_retry(call, retries=5, base=0)
+        self.assertEqual(calls["n"], 1)  # no retry on non-429
 
 
 class StaticProviderTests(unittest.TestCase):
