@@ -3,7 +3,7 @@ import os
 import unittest
 
 from .provider import StaticProvider, OpenRouterProvider, GroqProvider, GeminiProvider
-from .provider import _parse_gemini
+from .provider import _parse_gemini, make_provider, has_provider_key
 
 
 class StaticProviderTests(unittest.TestCase):
@@ -52,6 +52,28 @@ class GeminiProviderTests(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["GEMINI_API_KEY"] = old
+
+
+class MakeProviderTests(unittest.TestCase):
+    def test_factory_returns_right_class(self):
+        self.assertIsInstance(make_provider("gemini"), GeminiProvider)
+        self.assertIsInstance(make_provider("groq"), GroqProvider)
+        self.assertIsInstance(make_provider("openrouter"), OpenRouterProvider)
+
+    def test_unknown_provider_raises(self):
+        with self.assertRaises(ValueError):
+            make_provider("nope")
+
+    def test_has_provider_key_reflects_env(self):
+        old = os.environ.pop("GROQ_API_KEY", None)
+        try:
+            self.assertFalse(has_provider_key("groq"))
+            os.environ["GROQ_API_KEY"] = "x"
+            self.assertTrue(has_provider_key("groq"))
+        finally:
+            os.environ.pop("GROQ_API_KEY", None)
+            if old is not None:
+                os.environ["GROQ_API_KEY"] = old
 
 
 if __name__ == "__main__":

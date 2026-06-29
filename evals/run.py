@@ -11,7 +11,6 @@ until the real pipeline lands.
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -19,10 +18,8 @@ from .grader import grade
 from .corpus import load_chunks
 from .retriever import LexicalRetriever
 from .pipeline import StubPipeline, RetrievalPipeline, GatedPipeline
-from .provider import OpenRouterProvider
+from .provider import make_provider, has_provider_key
 from .judge import Judge
-
-JUDGE_MODEL = "poolside/laguna-m.1:free"  # judge != writer, to avoid self-grading bias
 
 DEFAULT_SET = Path(__file__).resolve().parent / "phase1_questions.json"
 CORPUS = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
@@ -40,14 +37,18 @@ def main(argv=None) -> int:
     parser.add_argument("--k", type=int, default=5, help="retrieval recall cut-off")
     parser.add_argument("--pipeline", choices=["stub", "retrieval", "gated"], default="retrieval",
                         help="which pipeline to grade")
+    parser.add_argument("--writer", choices=["gemini", "groq", "openrouter"], default="gemini",
+                        help="answer-writer model for the gated pipeline")
+    parser.add_argument("--judge", choices=["groq", "gemini", "openrouter"], default="groq",
+                        help="answer-correctness judge model (kept different from the writer)")
     args = parser.parse_args(argv)
 
     data = json.loads(args.questions.read_text())
     questions = data["questions"]
     if args.pipeline == "gated":
         chunks = load_chunks(CORPUS)
-        pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, OpenRouterProvider())
-        name = "GatedPipeline"
+        pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, make_provider(args.writer))
+        name = f"GatedPipeline[{args.writer}]"
     elif args.pipeline == "retrieval":
         pipeline = RetrievalPipeline(LexicalRetriever(load_chunks(CORPUS)))
         name = "RetrievalPipeline"
@@ -55,8 +56,8 @@ def main(argv=None) -> int:
         pipeline = StubPipeline()
         name = "StubPipeline"
     # The judge is the fuzzy answer-correctness dial, never a gate. Only runs when
-    # a key is present (it needs the network); offline the board stays PENDING.
-    judge = Judge(OpenRouterProvider(model=JUDGE_MODEL)) if os.environ.get("OPENROUTER_API_KEY") else None
+    # its key is present (it needs the network); offline the board stays PENDING.
+    judge = Judge(make_provider(args.judge)) if has_provider_key(args.judge) else None
     board = grade(questions, pipeline, k=args.k, judge=judge)
 
     corpus = data.get("corpus", {})

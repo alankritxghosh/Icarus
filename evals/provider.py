@@ -124,3 +124,28 @@ class GeminiProvider(Provider):
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             data = json.loads(resp.read())
         return _parse_gemini(data)
+
+
+_PROVIDERS = {
+    "gemini": GeminiProvider,
+    "groq": GroqProvider,
+    "openrouter": OpenRouterProvider,
+}
+_KEY_ENV = {
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def make_provider(name: str) -> Provider:
+    """Build a provider by name (default-configured). Raises on an unknown name."""
+    try:
+        return _PROVIDERS[name]()
+    except KeyError:
+        raise ValueError(f"unknown provider: {name}")
+
+
+def has_provider_key(name: str) -> bool:
+    """True if the env key for this provider is set (so we can run it)."""
+    return bool(os.environ.get(_KEY_ENV.get(name, "")))

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from evals.corpus import load_chunks
 from evals.retriever import LexicalRetriever
-from evals.provider import OpenRouterProvider
+from evals.provider import make_provider, has_provider_key
 from evals.pipeline import GatedPipeline
 
 from .payload import build_payload
@@ -75,7 +75,10 @@ def serve(host: str = "127.0.0.1", port: int = 8000):
     corpus = json.loads(QUESTIONS.read_text())["corpus"]
     repo, commit = corpus["repo"], corpus["commit"]
     chunks = load_chunks(CORPUS)
-    pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, OpenRouterProvider())
+    # Default writer = free Gemini (~1,500/day); fall back to OpenRouter only if
+    # Gemini's key is absent. Public repos only on free hosted models.
+    writer = "gemini" if has_provider_key("gemini") else "openrouter"
+    pipeline = GatedPipeline(LexicalRetriever(chunks), chunks, make_provider(writer))
     handler = make_handler(pipeline, repo, commit, str(INDEX_HTML))
     httpd = HTTPServer((host, port), handler)
     print(f"Icarus demo on http://{host}:{port}  (corpus: {repo} @ {commit[:12]})")
