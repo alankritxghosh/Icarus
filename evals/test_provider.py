@@ -2,7 +2,8 @@
 import os
 import unittest
 
-from .provider import StaticProvider, OpenRouterProvider, GroqProvider
+from .provider import StaticProvider, OpenRouterProvider, GroqProvider, GeminiProvider
+from .provider import _parse_gemini
 
 
 class StaticProviderTests(unittest.TestCase):
@@ -36,6 +37,21 @@ class GroqProviderTests(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["GROQ_API_KEY"] = old
+
+
+class GeminiProviderTests(unittest.TestCase):
+    def test_parse_extracts_text(self):
+        data = {"candidates": [{"content": {"parts": [{"text": "the answer"}]}}]}
+        self.assertEqual(_parse_gemini(data), "the answer")
+
+    def test_raises_without_api_key(self):
+        old = os.environ.pop("GEMINI_API_KEY", None)
+        try:
+            with self.assertRaises(RuntimeError):
+                GeminiProvider().complete("hi")
+        finally:
+            if old is not None:
+                os.environ["GEMINI_API_KEY"] = old
 
 
 if __name__ == "__main__":

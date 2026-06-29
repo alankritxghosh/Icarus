@@ -88,3 +88,39 @@ class GroqProvider(Provider):
         if not key:
             raise RuntimeError("GROQ_API_KEY not set")
         return _openai_chat(self.URL, key, self.model, prompt, self.timeout)
+
+
+def _parse_gemini(data: dict) -> str:
+    """Extract the text from a Gemini generateContent response."""
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+class GeminiProvider(Provider):
+    """Calls Google Gemini (generateContent REST). Network. Stdlib only.
+
+    Gemini's free tier (~1,500 req/day) is the default writer -- far more headroom
+    than OpenRouter's 50/day. Key from GEMINI_API_KEY (passed as ?key=). Public
+    repos only (free tiers may train on inputs)."""
+
+    BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    def __init__(self, model: str = "gemini-2.5-flash", timeout: float = 60.0):
+        self.model = model
+        self.timeout = timeout
+
+    def complete(self, prompt: str) -> str:
+        key = os.environ.get("GEMINI_API_KEY")
+        if not key:
+            raise RuntimeError("GEMINI_API_KEY not set")
+        url = f"{self.BASE}/{self.model}:generateContent?key={key}"
+        body = json.dumps(
+            {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0}}
+        ).encode()
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json", "User-Agent": _USER_AGENT},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            data = json.loads(resp.read())
+        return _parse_gemini(data)
