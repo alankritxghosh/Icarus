@@ -19,9 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A real app: Dock icon + a visible window, plus a menu-bar item and the
         // hotkey overlay. (Onboarding/setup wants a window; Q&A stays an overlay.)
         NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = IconArt.appIcon()   // Signal Spine in the Dock
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "☉"   // placeholder glyph; real icon in a later brick
+        statusItem.button?.image = IconArt.menuBarGlyph()   // monochrome menu-bar mark
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Icarus", action: #selector(openWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Ask… (⌘⇧I)", action: #selector(ask), keyEquivalent: ""))
