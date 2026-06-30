@@ -9,10 +9,11 @@ hold the whole shape in their head, not just an engineer.
 
 **The Mac app is the *face*. The cloud is the *brain*.** The laptop does the
 light, private things (listen while you hold the key, draw the overlay). All the
-real thinking runs in a cloud space rented privately per company.
+real thinking runs in **one unified cloud we operate**, where each company's data
+is isolated per tenant.
 
 ```
-  GitHub ──learns──▶  [ THE BRAIN — private cloud, per company ]
+  GitHub ──learns──▶  [ THE BRAIN — unified cloud, isolated per tenant ]
                           memory · search · AI writer · speech
                                     ▲        │
                           question  │        │  answer + citations
@@ -83,16 +84,21 @@ model or the speech models yourself is the trap.
 
 ## Where compute runs (the trust model)
 
-Deployment is a spectrum, and where we draw the line is the whole game.
+Deployment is a spectrum, and where we draw the line is the whole game. **Decided
+model: one unified cloud we operate, with per-tenant data isolation** (see
+[decisions/2026-06-30-unified-cloud-per-tenant-isolation.md](decisions/2026-06-30-unified-cloud-per-tenant-isolation.md)).
 
-- **Local tier.** Everything on the user's machine. Maximum privacy, limited by
-  hardware. Kept deliberately for regulated / air-gapped customers. Degraded but
-  still honest — cite-or-unknown never degrades.
-- **Private cloud / single-tenant (the default target for heavy work).**
-  Inference runs in the customer's own cloud or an isolated single-tenant
-  environment. Compute is solved; the source never enters a shared pool.
-- **Managed multi-tenant.** Easiest UX, largest liability. A deliberate, later,
-  eyes-open choice for lower-trust segments only — **never the foundation.**
+- **Unified cloud + per-tenant isolation (the default).** One control plane we run
+  and update, but every company's corpus, embeddings, and keys live in separate
+  stores — never pooled across customers. Simplest to operate; isolation is
+  enforced in software and tested.
+- **Single-tenant / in-customer-cloud (enterprise upsell).** The customer's own
+  isolated stack, or deployed into their cloud, for buyers who contractually
+  require it. Stronger isolation, more ops — a paid tier, not the default.
+- **Local tier.** Everything on the user's machine, for the most regulated /
+  air-gapped customers. Degraded but still honest — cite-or-unknown never degrades.
+- **Naive pooled multi-tenant — never.** Pooling one company's source with
+  another's is the one thing we don't do.
 
 When compute is remote, trust is held by **controls, not architecture**:
 zero-data-retention, never-train-on-customer-data, discard-after-request, and

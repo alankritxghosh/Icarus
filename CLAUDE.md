@@ -57,8 +57,10 @@ Icarus is a privacy-first conversational engineering brain a company can buy: it
 learns a company's codebase and the decisions around it, and answers *why*,
 *what*, *how* — spoken like a colleague, with citations in a translucent overlay,
 and an honest "no one wrote this down" when the reason was never recorded.
-v1 = GitHub source + macOS voice app + per-company private cloud. See
-[docs/VISION.md](docs/VISION.md).
+v1 = GitHub source + macOS voice app + **one unified cloud we operate, with
+per-tenant data isolation** (true single-tenant / in-customer-cloud is an
+enterprise upsell). See [docs/VISION.md](docs/VISION.md) and
+[docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md](docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md).
 
 ## The one non-negotiable: it cannot bluff
 Icarus answers only from evidence it actually retrieved, and says "I don't know"
@@ -72,6 +74,8 @@ guess. This never degrades, on any tier, in any phase. Every change preserves it
 - Personal and commercial stay isolated — never read, ingest, or depend on any
   personal memory system (e.g. anything under `../brain/`).
 - Never train on customer code; discard after each request.
+- One unified cloud, but **per-tenant data isolation** — never pool one company's
+  code or decisions with another's; isolated stores + keys per tenant.
 - Never train an LLM from scratch — rent the LLM/speech; own the pipeline.
 - A credential is a responsibility — every byte leaving the trust boundary is a
   deliberate, minimized decision.
@@ -95,8 +99,8 @@ demo (honest "I don't know" is the hero shot). See
 
 ## Architecture in one line
 The Mac app is the *face* (hotkey, mic, overlay); the cloud is the *brain*
-(librarian, search, AI writer, speech), rented privately per company, never
-trained on, discarded after each request. See
+(librarian, search, AI writer, speech), run in one unified cloud we operate with
+each company's data isolated, never trained on, discarded after each request. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Working within one model's limits
@@ -120,7 +124,9 @@ Before and after every change, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md):
 - Deep structural code understanding / dependency tracing.
 - Autonomous coding-agent behavior.
 - Voice or the Mac app before their phase.
-- Managed multi-tenant deployment as a default.
+- Cloud hosting / deployment — the model is decided (one unified cloud +
+  per-tenant isolation; see the decision doc), but not built until post-demo and
+  the paid/private-model decision. Naive pooled multi-tenancy is never the answer.
 - Any use of personal JARVIS memory.
 
 ## Commands

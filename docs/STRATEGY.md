@@ -20,7 +20,7 @@ Three ingredients are each already proven *in market* — but never combined:
    it down* — nobody in this space sells this as the headline.
 
 **Icarus = Wispr's interface playbook × Unblocked's brain × a deterministic
-honesty guarantee, sold as a private-per-company brain.** Three proven parts,
+honesty guarantee, sold as a brain whose data stays isolated per company.** Three proven parts,
 one new combination.
 
 ## 2. Our defensibility (and the honest threat)
@@ -32,8 +32,17 @@ do. We are defensible on:
   has).
 - **The "cannot bluff" brand** — deterministic, auditable honesty as the product,
   not a footnote.
-- **Privacy posture** — per-company private cloud, never trained on, discarded
-  after each request.
+- **Privacy posture** — per-tenant data isolation in one unified cloud, never
+  trained on, discarded after each request.
+
+**Explanation is the wedge; organizational memory is the product.** "Chat with your
+repo" is crowded; *preserving the why behind a codebase* is not. We sell **"Git
+remembers what changed. Icarus remembers why"** — reduced onboarding, preserved
+institutional knowledge, confidence to change things. Explanation (answer-when-asked)
+is the low-risk trojan horse that earns the right to sit on a team's memory; the
+defensible core is **capture** (getting the rationale recorded — most "why"s never hit
+a PR) and, later, **push** (surfacing stale decisions before anyone asks). See
+[decisions/2026-06-30-organizational-memory-positioning.md](decisions/2026-06-30-organizational-memory-positioning.md).
 
 **The honest threat: [Unblocked](https://getunblocked.com/) is Icarus without
 voice**, and is already pivoting toward agents/MCP. We do not beat them by being
@@ -69,8 +78,9 @@ Drawn directly from how the comparables built theirs — see
   gate, and the evaluation harness — those are the moat.
 - **Native Swift/AppKit Mac app** for the face (overlay-over-fullscreen + global
   hotkey need native APIs; also avoids Wispr's ~800MB Electron footprint).
-- **One private brain per company** for v1 — sidesteps Glean's hardest problem
-  (per-user permission mirroring) until we deliberately choose to take it on.
+- **One isolated tenant per company** for v1 (one unified cloud, data separated
+  per company) — sidesteps Glean's hardest problem (per-user permission mirroring)
+  until we deliberately choose to take it on.
 
 ## 5. Recommended stack (with the genuinely-open calls flagged)
 
@@ -84,7 +94,7 @@ Drawn directly from how the comparables built theirs — see
 | Mac app | Native Swift / AppKit — **deferred to Phase 2** | deferred |
 | Speech (Phase 3) | Rent STT/TTS first; self-host only if latency forces it | deferred |
 | GitHub access | Local export / `gh` CLI for the first slice, then PAT; GitHub App later | **open — decide in Phase 1** |
-| Cloud provider / hosting | — | **open — decide later** |
+| Cloud provider / hosting | **Model decided: one unified cloud + per-tenant isolation** (see decision doc); provider TBD | model locked, provider open |
 
 **Two rules attached to the model choice:**
 - **Public repos only while on free models.** Free routes may log/train on inputs — fine for
@@ -108,7 +118,7 @@ Do not pre-commit the "open" rows. Decide them against real numbers, not vibes.
 2. **Phase 2 — Mac app + overlay**, still typed.
 3. **Phase 3 — voice** (where we copy Wispr's latency engineering, and keep a
    degraded-but-honest fallback so a cloud blip never makes Icarus go silent).
-4. **Phase 4 — multi-company + trust** (isolation, permissions, SOC 2).
+4. **Phase 4 — multi-company + trust** (per-tenant isolation, permissions, SOC 2).
 
 ## 7. Risks I'm tracking (and the mitigation)
 
@@ -120,6 +130,7 @@ Do not pre-commit the "open" rows. Decide them against real numbers, not vibes.
 | Permissions complexity | Glean's moat *and* its heaviest burden | One brain per company in v1; defer per-user scoping |
 | Latency | The magic dies if the loop is slow | Design streaming/"first word fast" into the response format from day one |
 | Trust scandal | Wispr's silent screenshots became its reputation wound | Never capture the screen silently; opt-in and explicit, always |
+| **Low usage frequency** | Explanation is *pull* — you only ask when confused; low frequency is fatal for SaaS | **Push**: proactively surface stale decisions (v5) so Icarus is a daily-touch tool, not break-glass |
 
 ## 8. What "started" looks like
 

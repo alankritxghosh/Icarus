@@ -9,6 +9,13 @@ This document is the north star. It is intentionally bigger than what exists
 today. Every brick we build is judged by one question: *does it move us toward
 this, without breaking the one thing that makes it trustworthy?*
 
+**Positioning:** *"Git remembers what changed. Icarus remembers why."* We do not sell
+"AI that explains repositories" — explanation is the **wedge** that earns trust. The
+product is **organizational memory**: the *why* behind a codebase, preserved against the
+churn of people leaving. People buy reduced onboarding, preserved institutional knowledge,
+faster debugging, and confidence to change things — not explanations. See
+[decisions/2026-06-30-organizational-memory-positioning.md](decisions/2026-06-30-organizational-memory-positioning.md).
+
 ---
 
 ## 1. The product, in one sentence
@@ -60,7 +67,7 @@ with "different product" is the trap.
 | **Core engine** (honest retrieval: cite-or-unknown) | the defensible core + grounded conversational synthesis | deeper structural understanding |
 | **Data sources** (what it knows) | **GitHub** (PRs, reviews, merges, reverts) | Slack, Linear, Notion, org-wide |
 | **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay** | team surfaces, web |
-| **Deployment** (where compute runs) | per-company private cloud (+ a local tier where required) | managed multi-tenant for lower-trust segments |
+| **Deployment** (where compute runs) | one unified cloud we operate, with **per-tenant data isolation** | true single-tenant / in-customer-cloud for the most regulated (enterprise upsell) |
 
 The core engine is the slow, defensible, expensive part — and it is
 interface-agnostic, source-agnostic, and deployment-agnostic. Voice is the
@@ -76,15 +83,20 @@ code stays inside your trust boundary, and we never train on it."**
 A big company codebase, a good language model, and fast voice are too heavy for
 one laptop — they would be slow and drain the battery, and every engineer would
 get a different experience based on their hardware. So the heavy thinking runs in
-the cloud. But it runs in a space **rented privately per company**, walled off
-from every other customer, under written guarantees:
+the cloud. It runs in **one unified cloud we operate**, but every company's data
+is **isolated per tenant** — separate stores and keys, never pooled with another
+customer's — under written guarantees:
 
 - **Never trained on customer code.**
 - **Discarded after each request** (zero-data-retention).
 - **Real compliance** (SOC 2, ISO 27001, and BAAs where needed).
 
-A **local tier** stays available for the most regulated / air-gapped customers —
-degraded but still honest. Cite-or-unknown never degrades, on any tier.
+A **single-tenant tier — their own cloud, or fully local** — stays available for
+the most regulated / air-gapped customers (an enterprise upsell), degraded where
+needed but still honest. Cite-or-unknown never degrades, on any tier.
+
+See [decisions/2026-06-30-unified-cloud-per-tenant-isolation.md](decisions/2026-06-30-unified-cloud-per-tenant-isolation.md)
+for why unified-with-isolation, not private-per-company-by-default.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the face/brain split makes this work.
 
@@ -100,7 +112,16 @@ So the brain has two jobs:
   human can hold — and cite it.
 - **Capture** the why at the moment it happens (PR descriptions, decision
   prompts) so it *enters* the corpus. Part of the product's job is to make the
-  org write things down.
+  org write things down. **Capture is the moat** — the highest-value "why"s
+  ("Kafka not RabbitMQ?") are usually never written in a PR, so retrieval alone
+  has a low hit-rate exactly where the value is; getting the rationale recorded is
+  the defensible, unglamorous part nobody does well.
+
+Asking is **pull** — low frequency, only when you're confused. The higher-order
+goal is **push**: proactively surfacing **stale decisions** (*"chosen in 2023
+because X lacked feature Y; Y shipped; nobody revisited it"*). Push is what makes
+Icarus a tool you touch daily, not only when stuck — and is the strategic answer to
+the usage-frequency risk.
 
 We claim superhuman *recall*, never superhuman *omniscience*. That honesty is
 the brand.
@@ -128,8 +149,8 @@ the brand.
 
 - Not an autonomous coding agent.
 - Not a confident chatbot that answers from training memory.
-- Not a multi-tenant cloud service that pools or trains on a company's source by
-  default.
+- Not a cloud that pools or trains on a company's source — tenants stay isolated
+  (separate stores + keys) even in the one unified cloud.
 - Not a product that hides its reasoning or pretends to know what it doesn't.
 - Not a silent screen-watcher.
 - Not Alankrit's personal memory system. Personal and commercial contexts stay
