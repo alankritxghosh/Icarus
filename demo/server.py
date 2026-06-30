@@ -2,6 +2,7 @@
 """A minimal local web face over the gated brain. Stdlib http.server only.
 
 GET  /        -> the static demo page (demo/index.html)
+GET  /health  -> {"ok": true, "repo": ..., "commit": ...} -- liveness + provenance
 GET  /status  -> the active repo + switch status (JSON)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
 POST /connect -> {"repo": "owner/name"} -> start indexing/switching to that repo
@@ -57,6 +58,9 @@ def make_handler(library, html_path: str):
         def do_GET(self):
             if self.path == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
+            elif self.path == "/health":
+                repo, commit = library.provenance()
+                self._send_json(200, {"ok": True, "repo": repo, "commit": commit})
             elif self.path == "/status":
                 self._send_json(200, library.status_snapshot())
             else:

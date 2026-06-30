@@ -90,6 +90,14 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["answer"], "")
         self.assertEqual(payload["searched"], ["code:llm/x.py", "code:llm/y.py"])
 
+    def test_health_reports_ok_and_provenance(self):
+        with urllib.request.urlopen(self.base + "/health") as resp:
+            self.assertEqual(resp.status, 200)
+            body = json.loads(resp.read())
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["repo"], REPO)
+        self.assertEqual(body["commit"], COMMIT)
+
     def test_status_reports_active_repo(self):
         with urllib.request.urlopen(self.base + "/status") as resp:
             self.assertEqual(resp.status, 200)
