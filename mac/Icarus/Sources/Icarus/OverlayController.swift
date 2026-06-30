@@ -6,7 +6,8 @@ import SwiftUI
 @MainActor
 final class OverlayController {
     private var panel: FloatingPanel<OverlayView>?
-    /// The ask state lives here (not in the view) so it survives hide/re-show.
+    /// Auth + ask state live here (not in the view) so they survive hide/re-show.
+    private let auth = AuthModel()
     private let model = AskModel()
 
     /// Show the overlay if hidden, hide it if visible.
@@ -25,7 +26,7 @@ final class OverlayController {
         } else {
             panel = FloatingPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 120)
-            ) { OverlayView(model: self.model) }
+            ) { OverlayView(auth: self.auth, model: self.model) }
             self.panel = panel
             // Center only on first creation; reusing the cached panel preserves
             // wherever the user last dragged it instead of yanking it back.
