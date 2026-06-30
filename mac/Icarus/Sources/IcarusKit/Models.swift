@@ -26,13 +26,6 @@ public struct AskResponse: Decodable, Sendable {
     public let searched: [String]
 }
 
-/// The `/health` response: liveness + which repo/commit the brain is serving.
-public struct Health: Decodable, Sendable {
-    public let ok: Bool
-    public let repo: String
-    public let commit: String
-}
-
 /// The `/status` response (demo/library.py): the active repo + switch state.
 /// `state` is one of "idle" | "indexing" | "ready" | "error". (`counts` is an
 /// object in the real payload and unused here, so it's intentionally not decoded.)

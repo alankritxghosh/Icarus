@@ -62,10 +62,4 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(failed.error, "clone failed")
     }
 
-    func testDecodesHealth() throws {
-        let json = Data(#"{"ok":true,"repo":"simonw/llm","commit":"94769b8"}"#.utf8)
-        let h = try decoder.decode(Health.self, from: json)
-        XCTAssertTrue(h.ok)
-        XCTAssertEqual(h.repo, "simonw/llm")
-    }
 }

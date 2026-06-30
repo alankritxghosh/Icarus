@@ -45,13 +45,4 @@ public struct BrainClient: Sendable {
         }
         return try JSONDecoder().decode(RepoStatus.self, from: data)
     }
-
-    /// GET /health -> true iff the brain is reachable and reports ok. Never throws.
-    public func isHealthy() async -> Bool {
-        guard
-            let (data, _) = try? await URLSession.shared.data(from: base.appending(path: "health")),
-            let health = try? JSONDecoder().decode(Health.self, from: data)
-        else { return false }
-        return health.ok
-    }
 }
