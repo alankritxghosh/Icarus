@@ -31,9 +31,7 @@ final class OverlayController {
         if let existing = self.panel {
             panel = existing
         } else {
-            panel = FloatingPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 120)
-            ) { OverlayView(auth: self.auth, connect: self.connect, model: self.model) }
+            panel = FloatingPanel { OverlayView(auth: self.auth, connect: self.connect, model: self.model) }
             self.panel = panel
             // Center only on first creation; reusing the cached panel preserves
             // wherever the user last dragged it instead of yanking it back.
