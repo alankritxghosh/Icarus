@@ -6,9 +6,14 @@ import SwiftUI
 @MainActor
 final class OverlayController {
     private var panel: FloatingPanel<OverlayView>?
-    /// Auth + ask state live here (not in the view) so they survive hide/re-show.
-    private let auth = AuthModel()
+    /// Ask state lives here (not in the view) so it survives hide/re-show. Auth is
+    /// shared with the onboarding window, so it's injected by the app delegate.
+    private let auth: AuthModel
     private let model = AskModel()
+
+    init(auth: AuthModel) {
+        self.auth = auth
+    }
 
     /// Show the overlay if hidden, hide it if visible.
     func toggle() {

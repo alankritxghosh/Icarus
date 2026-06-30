@@ -2,21 +2,28 @@ import AppKit
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    /// Global hotkey that toggles the overlay. Default ⌘⇧I; user-rebindable later.
+    /// Global hotkey that toggles the ask overlay. Default ⌘⇧I; user-rebindable later.
     static let toggleIcarus = Self("toggleIcarus", default: .init(.i, modifiers: [.command, .shift]))
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private let overlay = OverlayController()
+    /// One auth session shared by the onboarding window and the ask overlay.
+    private let auth = AuthModel()
+    private lazy var overlay = OverlayController(auth: auth)
+    private lazy var onboarding = OnboardingWindowController(auth: auth)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)   // menu-bar agent: no Dock icon
+        // A real app: Dock icon + a visible window, plus a menu-bar item and the
+        // hotkey overlay. (Onboarding/setup wants a window; Q&A stays an overlay.)
+        NSApp.setActivationPolicy(.regular)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "☉"           // placeholder glyph; real icon comes in a later brick
+        statusItem.button?.title = "☉"   // placeholder glyph; real icon in a later brick
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Ask…", action: #selector(ask), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Icarus", action: #selector(openWindow), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Ask… (⌘⇧I)", action: #selector(ask), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Icarus",
                                 action: #selector(NSApplication.terminate(_:)),
@@ -24,11 +31,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
 
         // Registered global hotkey — works from any app without Accessibility
-        // permission. The callback is main-actor-isolated, matching OverlayController.
+        // permission. Main-actor-isolated, matching OverlayController.
         KeyboardShortcuts.onKeyUp(for: .toggleIcarus) { [weak self] in
             self?.overlay.toggle()
         }
+
+        // The first screen: the onboarding window.
+        onboarding.show()
     }
 
+    /// Re-open the window when the user clicks the Dock icon with no window visible.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { onboarding.show() }
+        return true
+    }
+
+    @objc private func openWindow() { onboarding.show() }
     @objc private func ask() { overlay.toggle() }
 }
