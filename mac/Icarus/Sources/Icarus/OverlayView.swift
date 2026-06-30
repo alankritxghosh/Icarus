@@ -1,10 +1,11 @@
 import SwiftUI
 import IcarusKit
 
-/// The hotkey overlay's content: the ask box + the brain's reply. Auth/onboarding
-/// live in the separate onboarding window, so the overlay only asks. It renders the
-/// brain's verdict verbatim — it never decides grounding itself; the cite-or-unknown
-/// gate lives in the Python brain. Honest-Brutalism polish lands in a later brick.
+/// The hotkey overlay's content: the ask box + the brain's reply, styled to the
+/// Honest-Brutalism "Quiet Native Memory v2" language. Renders the brain's verdict
+/// verbatim — it never decides grounding itself; the cite-or-unknown gate lives in
+/// the Python brain. Cited answers use green receipt pills; the honest unknown is an
+/// amber signature card.
 struct OverlayView: View {
     @Bindable var auth: AuthModel
     @Bindable var connect: ConnectModel
@@ -22,16 +23,16 @@ struct OverlayView: View {
         }
         .padding(20)
         .frame(width: 560, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.border, lineWidth: 1))
     }
-
-    // MARK: - Gating + ask states
 
     @ViewBuilder
     private func setupHint(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Finish setup first").font(.headline)
-            Text(message).font(.callout).foregroundStyle(.secondary)
+            MonoLabel("FINISH SETUP")
+            Text(message).font(.system(size: 15)).foregroundStyle(Theme.muted)
         }
     }
 
@@ -40,7 +41,8 @@ struct OverlayView: View {
         VStack(alignment: .leading, spacing: 14) {
             TextField("Ask Icarus about the codebase…", text: $model.question)
                 .textFieldStyle(.plain)
-                .font(.title3)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(Theme.ink)
                 .onSubmit { Task { await model.submit() } }
 
             switch model.state {
@@ -49,7 +51,7 @@ struct OverlayView: View {
             case .loading:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Searching the codebase…").foregroundStyle(.secondary)
+                    Text("Searching the codebase…").font(Theme.mono(12)).foregroundStyle(Theme.muted)
                 }
             case .response(let r) where r.verdict == .answer:
                 answer(r)
@@ -57,44 +59,46 @@ struct OverlayView: View {
                 honestUnknown(r)
             case .unreachable:
                 Text("Can't reach the brain. Is it running on 127.0.0.1:8000?")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14)).foregroundStyle(Theme.muted)
             }
         }
     }
 
     @ViewBuilder
     private func answer(_ r: AskResponse) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Divider()
-            Text(r.answer).font(.body).textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 12) {
+            Rectangle().fill(Theme.border).frame(height: 1)
+            Text(r.answer)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.ink)
+                .textSelection(.enabled)
             if !r.citations.isEmpty {
-                HStack(spacing: 8) {
-                    ForEach(r.citations) { chip($0) }
+                VStack(alignment: .leading, spacing: 8) {
+                    MonoLabel("RECEIPTS", Theme.cited)
+                    FlowLayout(spacing: 8) {
+                        ForEach(r.citations) { CitationChip(citation: $0) }
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func chip(_ citation: Citation) -> some View {
-        let label = Text(citation.ref).font(.system(.caption, design: .monospaced))
-        if let urlString = citation.url, let url = URL(string: urlString) {
-            Link(destination: url) { label }
-        } else {
-            label.foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
     private func honestUnknown(_ r: AskResponse) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Divider()
-            Text("No one wrote this down.").font(.title2).fontWeight(.semibold)
+        VStack(alignment: .leading, spacing: 8) {
+            MonoLabel("HONEST UNKNOWN", Theme.unknown)
+            Text("No one wrote this down.")
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(Theme.ink)
             if !r.searched.isEmpty {
-                Text("Looked at: " + r.searched.joined(separator: ", "))
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                Text("searched: " + r.searched.joined(separator: ", "))
+                    .font(Theme.mono(11)).foregroundStyle(Theme.muted)
             }
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.unknownBg)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.unknown, lineWidth: 1))
     }
 }
