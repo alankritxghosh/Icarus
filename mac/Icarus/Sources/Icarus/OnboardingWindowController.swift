@@ -8,9 +8,11 @@ import SwiftUI
 final class OnboardingWindowController {
     private var window: NSWindow?
     private let auth: AuthModel
+    private let connect: ConnectModel
 
-    init(auth: AuthModel) {
+    init(auth: AuthModel, connect: ConnectModel) {
         self.auth = auth
+        self.connect = connect
     }
 
     func show() {
@@ -19,7 +21,7 @@ final class OnboardingWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: OnboardingView(auth: auth))
+        let hosting = NSHostingController(rootView: OnboardingView(auth: auth, connect: connect))
         let window = NSWindow(contentViewController: hosting)
         window.title = "Icarus"
         window.styleMask = [.titled, .closable, .miniaturizable]

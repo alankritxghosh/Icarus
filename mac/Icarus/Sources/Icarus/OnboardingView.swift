@@ -6,6 +6,7 @@ import IcarusKit
 /// Repo selection (G4) will slot in below the signed-in state.
 struct OnboardingView: View {
     @Bindable var auth: AuthModel
+    @Bindable var connect: ConnectModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -90,13 +91,33 @@ struct OnboardingView: View {
     private func signedIn() -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Signed in to GitHub", systemImage: "checkmark.seal.fill")
-                .font(.title3).foregroundStyle(.green)
-            // Repo selection + ingest arrives in G4; this is the "what's next" state.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Next — connect a public repository").font(.headline)
-                Text("Repository picker is coming next. Once a repo is loaded, press ⌘⇧I anywhere to ask Icarus about it.")
-                    .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(.green)
+
+            Text("Step 2 — Connect a public repository").font(.headline)
+            HStack(spacing: 8) {
+                TextField("owner/repo  (e.g. simonw/llm)", text: $connect.repoInput)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { connect.connect() }
+                Button("Connect") { connect.connect() }
             }
+
+            switch connect.state {
+            case .idle:
+                Text("Public repositories only. The first index of a new repo can take a minute.")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .connecting(let repo):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Indexing \(repo)…").foregroundStyle(.secondary)
+                }
+            case .ready(let repo):
+                Text("✓ Loaded \(repo). Press ⌘⇧I anywhere to ask Icarus about it.")
+                    .font(.callout).foregroundStyle(.green)
+            case .failed(let message):
+                Text(message).font(.callout).foregroundStyle(.orange)
+            }
+
+            Spacer(minLength: 0)
             Button("Sign out") { auth.signOut() }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)

@@ -42,6 +42,26 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(r.citations.first?.url)
     }
 
+    func testDecodesRepoStatusReady() throws {
+        let json = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":42,"error":null}"#.utf8)
+        let s = try decoder.decode(RepoStatus.self, from: json)
+        XCTAssertTrue(s.isReady)
+        XCTAssertFalse(s.isError)
+        XCTAssertEqual(s.repo, "simonw/llm")
+        XCTAssertEqual(s.counts, 42)
+        XCTAssertNil(s.error)
+    }
+
+    func testDecodesRepoStatusIndexingAndError() throws {
+        let indexing = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"indexing","repo":"simonw/llm","commit":"","counts":null,"error":null}"#.utf8))
+        XCTAssertFalse(indexing.isReady)
+        let failed = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"error","repo":"x/y","commit":"","counts":null,"error":"clone failed"}"#.utf8))
+        XCTAssertTrue(failed.isError)
+        XCTAssertEqual(failed.error, "clone failed")
+    }
+
     func testDecodesHealth() throws {
         let json = Data(#"{"ok":true,"repo":"simonw/llm","commit":"94769b8"}"#.utf8)
         let h = try decoder.decode(Health.self, from: json)

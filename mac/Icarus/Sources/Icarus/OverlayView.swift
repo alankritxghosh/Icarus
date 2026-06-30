@@ -7,18 +7,17 @@ import IcarusKit
 /// gate lives in the Python brain. Honest-Brutalism polish lands in a later brick.
 struct OverlayView: View {
     @Bindable var auth: AuthModel
+    @Bindable var connect: ConnectModel
     @Bindable var model: AskModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if auth.isSignedIn {
-                askBox()
+            if !auth.isSignedIn {
+                setupHint("Open the Icarus window and sign in with GitHub, then press ⌘⇧I here to ask.")
+            } else if !connect.isReady {
+                setupHint("Connect a repository in the Icarus window first, then press ⌘⇧I here to ask.")
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Finish setup first").font(.headline)
-                    Text("Open the Icarus window, connect GitHub, then press ⌘⇧I here to ask.")
-                        .font(.callout).foregroundStyle(.secondary)
-                }
+                askBox()
             }
         }
         .padding(20)
@@ -26,7 +25,15 @@ struct OverlayView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    // MARK: - Ask + answer states
+    // MARK: - Gating + ask states
+
+    @ViewBuilder
+    private func setupHint(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Finish setup first").font(.headline)
+            Text(message).font(.callout).foregroundStyle(.secondary)
+        }
+    }
 
     @ViewBuilder
     private func askBox() -> some View {

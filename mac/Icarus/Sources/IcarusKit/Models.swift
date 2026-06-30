@@ -32,3 +32,16 @@ public struct Health: Decodable, Sendable {
     public let repo: String
     public let commit: String
 }
+
+/// The `/status` response (demo/library.py): the active repo + switch state.
+/// `state` is one of "idle" | "indexing" | "ready" | "error".
+public struct RepoStatus: Decodable, Sendable {
+    public let state: String
+    public let repo: String
+    public let commit: String
+    public let counts: Int?
+    public let error: String?
+
+    public var isReady: Bool { state == "ready" }
+    public var isError: Bool { state == "error" }
+}

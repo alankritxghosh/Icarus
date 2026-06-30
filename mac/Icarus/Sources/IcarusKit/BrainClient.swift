@@ -24,6 +24,28 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(AskResponse.self, from: data)
     }
 
+    /// POST /connect {repo} -> start indexing/switching to that public repo. The
+    /// brain ingests in the background; poll `status()` until ready. 2xx = accepted.
+    public func connect(repo: String) async throws {
+        var request = URLRequest(url: base.appending(path: "connect"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["repo": repo])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    /// GET /status -> the active repo + switch state.
+    public func status() async throws -> RepoStatus {
+        let (data, response) = try await URLSession.shared.data(from: base.appending(path: "status"))
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(RepoStatus.self, from: data)
+    }
+
     /// GET /health -> true iff the brain is reachable and reports ok. Never throws.
     public func isHealthy() async -> Bool {
         guard

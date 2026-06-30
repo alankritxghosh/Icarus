@@ -9,10 +9,11 @@ extension KeyboardShortcuts.Name {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    /// One auth session shared by the onboarding window and the ask overlay.
+    /// Auth + repo connection are shared by the onboarding window and the ask overlay.
     private let auth = AuthModel()
-    private lazy var overlay = OverlayController(auth: auth)
-    private lazy var onboarding = OnboardingWindowController(auth: auth)
+    private let connect = ConnectModel()
+    private lazy var overlay = OverlayController(auth: auth, connect: connect)
+    private lazy var onboarding = OnboardingWindowController(auth: auth, connect: connect)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A real app: Dock icon + a visible window, plus a menu-bar item and the

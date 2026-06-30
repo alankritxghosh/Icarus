@@ -9,10 +9,12 @@ final class OverlayController {
     /// Ask state lives here (not in the view) so it survives hide/re-show. Auth is
     /// shared with the onboarding window, so it's injected by the app delegate.
     private let auth: AuthModel
+    private let connect: ConnectModel
     private let model = AskModel()
 
-    init(auth: AuthModel) {
+    init(auth: AuthModel, connect: ConnectModel) {
         self.auth = auth
+        self.connect = connect
     }
 
     /// Show the overlay if hidden, hide it if visible.
@@ -31,7 +33,7 @@ final class OverlayController {
         } else {
             panel = FloatingPanel(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 120)
-            ) { OverlayView(auth: self.auth, model: self.model) }
+            ) { OverlayView(auth: self.auth, connect: self.connect, model: self.model) }
             self.panel = panel
             // Center only on first creation; reusing the cached panel preserves
             // wherever the user last dragged it instead of yanking it back.
