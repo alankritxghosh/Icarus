@@ -34,12 +34,12 @@ public struct Health: Decodable, Sendable {
 }
 
 /// The `/status` response (demo/library.py): the active repo + switch state.
-/// `state` is one of "idle" | "indexing" | "ready" | "error".
+/// `state` is one of "idle" | "indexing" | "ready" | "error". (`counts` is an
+/// object in the real payload and unused here, so it's intentionally not decoded.)
 public struct RepoStatus: Decodable, Sendable {
     public let state: String
     public let repo: String
     public let commit: String
-    public let counts: Int?
     public let error: String?
 
     public var isReady: Bool { state == "ready" }

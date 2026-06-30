@@ -43,12 +43,12 @@ final class ModelsTests: XCTestCase {
     }
 
     func testDecodesRepoStatusReady() throws {
-        let json = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":42,"error":null}"#.utf8)
+        // The real payload carries `counts` as an OBJECT — must decode regardless.
+        let json = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":{"pr":141,"issue":84,"code":18},"error":null}"#.utf8)
         let s = try decoder.decode(RepoStatus.self, from: json)
         XCTAssertTrue(s.isReady)
         XCTAssertFalse(s.isError)
         XCTAssertEqual(s.repo, "simonw/llm")
-        XCTAssertEqual(s.counts, 42)
         XCTAssertNil(s.error)
     }
 
