@@ -1,122 +1,161 @@
-# Icarus — Session Handoff (2026-06-29)
+# Icarus — Session Handoff (2026-07-01)
 
-Read this first in the next session. It captures the *current* state, the
-operating constraints, what shipped, what's planned/shelved, and what's next.
-Pair it with `CLAUDE.md`, `general_index.md`, and the memory index.
+Read this first next session. It captures the current state, how to run it, what's
+done, what isn't, and the gotchas. Pair with `CLAUDE.md`, `AGENTS.md`,
+`general_index.md`, the `docs/decisions/` records, and the memory index.
 
 ---
 
 ## 1. TL;DR — where we are
-The **brain is done and proven**, and there's a **working local web demo** with an
-**in-app repo switcher**. Everything runs on **free hosted models** and **public
-repos only**. What's left for the MVP demo is the **UI polish**, the **macOS app**,
-and **voice** — then record.
+The **brain is done + proven**, there's a **web demo**, and this session built a
+**working native macOS app** on branch **`mac-app`**:
 
-Type a question about a public repo → get a **cited answer** or an honest **"No one
-wrote this down."** The honesty gate is deterministic (can't bluff). Eval board on
-the free stack reads **GREEN**: gates 100%, citation correctness 100%, answer
-correctness ~83%.
+> Launch Icarus → a real window opens → **Sign in with GitHub** (real OAuth device
+> flow, token in Keychain) → connect a **public** repo (it ingests) → press **⌘⇧I**
+> anywhere → type a question → a **cited answer** (clickable GitHub receipt pills) or
+> the honest **"No one wrote this down."**
+
+This whole loop was **verified live** (cited answer citing `pr:1435`, clicked
+through to the real PR). The app has the **Signal Spine icon** (Dock + menu bar) and
+is **restyled to the Figma "Honest Brutalism v2"** language. **Voice is not built
+yet**, and it's **not merged to `main`**.
 
 ## 2. What works today
-- **Brain pipeline:** ingest (any public repo) → BM25 lexical retrieval → cite-or-abstain prompt → free hosted writer → **deterministic honesty gate** → cited answer or honest unknown.
-- **Answer-correctness judge** (eval-time quality dial, different model from writer; never touches the gates).
-- **Eval harness** proving it (`python3 -m evals.run --pipeline gated`).
-- **Web demo** (`demo/`): proof-forward UI — answer + evidence chips (clickable GitHub citations), a big "No one wrote this down." signature state, calm macOS-style shell with Honest-Brutalism edges.
-- **In-app repo switcher:** type `owner/repo` in the sidebar → it indexes once into a git-ignored per-repo cache → you query that repo; switching back to `simonw/llm` is instant; re-connecting a cached repo is instant.
+- **Brain** (`evals/` + `demo/`): ingest any public repo → BM25 retrieval →
+  cite-or-abstain prompt → free hosted writer → **deterministic honesty gate** →
+  cited answer or honest unknown. Eval board GREEN on the free stack.
+- **Web demo** (`demo/server.py`): the browser face over the brain. `GET /health`,
+  `GET /status`, `POST /ask`, `POST /connect` (in-app repo switch).
+- **macOS app** (`mac/Icarus/`, SwiftPM): menu-bar agent + real onboarding window +
+  hotkey overlay; GitHub sign-in; repo connect/ingest; cited-answer + honest-unknown
+  rendering; app icon; Honest-Brutalism v2 styling. **16 Swift unit tests pass.**
 
-## 3. Constraints & key decisions (the operating rules)
-- **No paid APIs.** Free models only. Hardware = Apple Silicon Mac, **8 GB** (too small for big local models).
-- **Brain = free HOSTED models:** **writer = Groq `llama-3.3-70b-versatile`** (`GROQ_API_KEY`); **judge = Gemini `gemini-2.5-flash-lite`** (`GEMINI_API_KEY`). Judge ≠ writer (cross-provider, avoids self-grading). OpenRouter (`cohere/north-mini-code:free`, 50/day) is the fallback only.
-- **Public repos ONLY** — free tiers may train on inputs, so private code is off-limits. **Private-repo support is SHELVED** (would need local or paid models).
-- **MVP target then demo:** brain ✅ → codebase reading (any public repo) ✅ → UI/UX (in progress) → **macOS app** → **voice** (Whisper STT + macOS TTS, free/local) → record the demo.
-- The one non-negotiable: **cite-or-unknown, deterministic, never bluff** — preserved in every change.
+## 3. The macOS app — architecture & files
+**Shape (decided):** hybrid — a real **onboarding window** (Dock-visible) for setup,
+plus a **menu-bar `☉`-replacement glyph + ⌘⇧I overlay** for asking. **GitHub is the
+login** (no Icarus account backend). The app is a **thin client**: it renders the
+brain's verdict verbatim and never re-implements the honesty gate.
 
-## 4. Shipped this session (all merged to `main`)
-Newest → oldest, by area:
+**Build system:** **Swift Package Manager** (not an Xcode project) so it builds
+headlessly. Two targets:
+- `IcarusKit` (testable, UI-free logic): `Models.swift` (AskResponse/Citation/Verdict/
+  RepoStatus), `BrainClient.swift` (URLSession → `/ask`,`/connect`,`/status`),
+  `GitHubAuth.swift` (device-flow request + poll parser), `TokenStore.swift`
+  (protocol + in-memory double).
+- `Icarus` (executable app): `IcarusApp.swift` (@main, no window), `AppDelegate.swift`
+  (`.regular` policy, status item, hotkey, owns shared models + windows),
+  `OnboardingWindowController.swift`, `OnboardingView.swift`, `OverlayController.swift`,
+  `FloatingPanel.swift` (NSPanel, auto-sizes to content), `OverlayView.swift`,
+  `AskModel.swift` / `AuthModel.swift` / `ConnectModel.swift` (`@MainActor @Observable`
+  state, shared via AppDelegate), `KeychainTokenStore.swift`, `IconArt.swift` (Signal
+  Spine drawn in Core Graphics), `Theme.swift` (v2 tokens + MonoLabel/CitationChip/
+  PrimaryButton/FlowLayout).
+- Dependency: **KeyboardShortcuts** (SPM, pinned in `Package.resolved`) for the global
+  hotkey (registered Carbon hotkey → **no Accessibility permission** needed).
 
-**In-app repo switcher** (`dda93e4`…`7e32eca`, `936f470`): `ingest_repo()` helper; `demo/library.py` (`Library`: active-repo state + per-repo cache + thread-safe switch); `POST /connect` + `GET /status`; sidebar connect control + status polling; cache git-ignored. Live-proven on `simonw/json-flatten`. **Fix applied:** switched repos ingest with `code_dir="."` (whole repo), not simonw/llm's `llm/`.
+**GitHub auth:** OAuth **Device Flow**, scope `read:user` only (public repos). Client
+ID via env `ICARUS_GH_CLIENT_ID` (public, not a secret). Token stored **only in the
+Keychain** (`KeychainTokenStore`), never logged/committed; restored on launch.
 
-**Proof-forward UI rebuild** (`85afdbb`): `demo/index.html` rebuilt — evidence/proof is the canvas center; honest-unknown is a full signature block; calm shell + hard borders/offset-shadow. Same `/ask` contract, no brain change. Live-verified.
+## 4. Constraints & decisions (the operating rules)
+- **Public repos only, free hosted models** (Groq writer + Gemini judge). Private
+  repos are **blocked** on the paid/private-model decision (free tiers may train on
+  inputs). See `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md`.
+- **Positioning (decided):** Icarus is **organizational memory**; explanation is the
+  wedge. *"Git remembers what changed. Icarus remembers why."* Push (stale-decision
+  detection) beats pull for usage frequency; **capture** is the moat. See
+  `docs/decisions/2026-06-30-organizational-memory-positioning.md`.
+- The non-negotiable: **cite-or-unknown, deterministic, never bluff** — preserved.
 
-**Brick 7 — any public repo** (`3f10e6a`…`e15b7a8`): `evals/corpus_meta.py` (self-describing corpus `meta.json`); `ingest --repo/--commit/--code-dir` (no-arg still reproduces the pinned `simonw/llm`); demo reads repo/commit from `meta.json` so citations follow the ingested repo; skippable smoke test.
-
-**Free hosted providers** (`ed5ff81`…`e0076aa`): `GroqProvider` + `GeminiProvider` behind the `Provider` interface; `--writer`/`--judge` flags; board defaults to Groq writer + Gemini judge; **board went GREEN**. (Replaced the OpenRouter 50/day wall.)
-
-**Brick 5 — web demo** (`52f09a1`…`2ff075a`, `ed67c28`): `links.py` (ref→GitHub URL), `payload.py` (`Result`→page JSON), stdlib `server.py`, `index.html`, live smoke test (later hardened to "≥1 answerable cites").
-
-**Brick 4 — answer-correctness judge** (`59fd0f6`…`61a98ba`): reference answers added to the 6 answerable questions; `evals/judge.py`; `grade(..., judge=None)` additive; wired into board.
-
-**Brick 2 — honesty gate + writer** was also executed earlier this session (provider/synth/gate/GatedPipeline) — foundation for all of the above.
-
-## 5. How to run it
+## 5. How to run it (exact)
+The app talks to the brain at `http://127.0.0.1:8000`. **Start the brain first**, in
+its own Terminal, with a provider key:
+```bash
+cd "/Users/alankritghosh/JARVIS /jarvis_engineering"
+GROQ_API_KEY=<key> GEMINI_API_KEY=<key> python3 -m demo.server
+# wait for: Icarus demo on http://127.0.0.1:8000
 ```
-# Eval board (proves the brain) — GREEN on the free stack:
-GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m evals.run --pipeline gated
-
-# Web demo (the face):
-GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m demo.server   # http://127.0.0.1:8000
-
-# Point the CLI corpus at any public repo (overwrites the committed corpus):
-python3 -m evals.ingest --repo OWNER/REPO [--commit SHA] [--code-dir DIR]
-
-# Tests (all green; network/live tests self-skip without keys):
-python3 -m unittest discover -t . -s evals -p "test_*.py"
-python3 -m unittest discover -t . -s demo  -p "test_*.py"
+Then build + launch the app:
+```bash
+cd "/Users/alankritghosh/JARVIS /jarvis_engineering/mac/Icarus"
+swift build -c release
+ICARUS_GH_CLIENT_ID=Ov23liVZXvv6V5vX2x1Y .build/release/Icarus
 ```
-The **demo's** in-app switcher (sidebar `owner/repo` → Connect) is the product-facing
-way to change repos; it caches per-repo under `evals/corpus/cache/` (git-ignored).
+In the app: **Sign in with GitHub** → approve the device code in the browser →
+connect **`simonw/llm`** → **⌘⇧I** → ask. Known-answerable question (gives a cited
+answer): *"Why did llm implement the OpenAI Responses API as a new model class
+instead of modifying the existing chat completions class?"* → cites `pr:1435`.
 
-## 6. GitHub auth — how "connect" works (important)
-There is **no in-app GitHub login**. `ingest_repo` shells out to local **`git clone`**
-(anonymous for public repos) and the **`gh` CLI** (authenticated once on this machine
-via `gh auth login` — confirmed valid, `repo` scope). So connecting a repo borrows
-*your machine's* `gh`/`git` credentials. Consequence: works for public repos from this
-machine only. A real per-user "Sign in with GitHub" (GitHub App/OAuth) + private repos
-is the **deferred adapter** (shelved).
+Tests: `cd mac/Icarus && swift test` (16 pass). Brain evals:
+`GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m evals.run --pipeline gated`.
 
-## 7. Plans written & status (`docs/plans/`)
-- `2026-06-28-brick-2-gate-and-writer.md` — DONE (merged).
-- `2026-06-28-phase-1.md` — the master Phase-1 roadmap (Bricks 0–6).
-- `2026-06-28-brick-3-embeddings.md` — **SHELVED.** Probe proved a real lexical gap on *paraphrased* questions (BM25 misses the gold PR), so the plan is eval-driven and ready — but deferred (lexical is 100% on the labelled set; not worth the embedding dependency yet).
-- `2026-06-28-brick-4-answer-grading.md` — DONE (merged).
-- `2026-06-28-brick-5-web-demo.md` — DONE (merged).
-- `2026-06-28-brick-6-recordable-demo.md` — PREPARED (the recording script: cited-answer hero = PauseChain q03→pr:1482; honest-unknown hero = q07 "32 characters"). Not recorded yet.
-- `2026-06-28-brick-7-any-repo-ingest.md` — DONE (merged).
-- `2026-06-28-brick-8-9-private-repos.md` — **SHELVED** (paid/private; superseded by the public-repo MVP decision).
-- `2026-06-29-free-hosted-providers.md` — DONE (merged).
-- `2026-06-29-in-app-repo-switcher.md` — DONE (merged).
+## 6. Secrets & credentials
+- **ROTATE THE KEYS.** The **Gemini** and **Groq** API keys were pasted into this
+  session's chat transcript. They are free-tier ($0 risk) but exposed — rotate before
+  sharing the transcript / going public.
+- The **GitHub OAuth Client ID** (`Ov23liVZXvv6V5vX2x1Y`) is **not** a secret (device
+  flow public client). The OAuth App lives under Alankrit's GitHub account with
+  "Enable Device Flow" on. No client secret exists (device flow doesn't need one).
 
-## 8. Design work
-- `docs/UI_UX_BRIEF.md` — functional brief: states + the real payload fields the UI must use (`verdict`, `answer`, `citations:[{ref,url}]`, `searched`).
-- `docs/DESIGN_VISION.md` — art direction: **"Honest Brutalism"** (calm Figma base + brutalist evidence edges; mono citations; the honest-unknown as the hero).
-- **Figma wireframe reviewed** (file `Icarus-Wireframe---Honest-Brutalism`, via the Figma MCP — needs the Full-seat account `alankrit.ghosh@…christuniversity.in`, not the View-seat `ayushghosh2015@gmail.com`). Top-3 fixes I gave: (1) make proof the protagonist, (2) promote honest-unknown to a real signature state, (3) move the logo off the waveform (Route A reads as a generic voice app at icon size). The **proof-forward `index.html` rebuild already implements (1) and (2).**
+## 7. What is NOT done (next work)
+1. **Voice — A4 (WhisperKit STT) + A5 (speak-back TTS).** The vision's hotkey-and-talk
+   experience. Not started. A4 adds the WhisperKit SPM dependency (downloads a CoreML
+   model on first run; pick the smallest that's accurate on the 8 GB Mac).
+2. **A6 — record the demo** (script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
+3. **Full app shell (U1 scope B, deferred).** We only **restyled the current two
+   surfaces** to the Figma v2 look. The wireframe's full windowed app (sidebar nav:
+   Home / Ask by voice / Decision history / Unknowns / Privacy boundary; hero card;
+   metrics; recent-questions list; proof drawer) is **not built** — it's a large
+   re-architecture and needs its own plan. Figma: file `SbmCti2rnsog2rwrzzCWm0`,
+   direction frame `5:2` ("Quiet Native Memory v2 - clean").
+4. **Bundle real fonts.** UI uses system sans + SF Mono as stand-ins for **Geist +
+   JetBrains Mono**; bundle + register the real fonts for a pixel match.
+5. **Merge `mac-app` → `main`** (or open a PR). Everything this session is on
+   `mac-app`, unmerged.
+6. **Productization gaps:** manual brain startup (Terminal) is not customer-acceptable
+   → folds into the one-unified-cloud hosting work; no app-bundle/signing/notarization.
+7. **Private repos, multi-repo, non-GitHub sources, stale-decision detection** — the
+   roadmap beyond v1 (see the org-memory decision doc). All gated / deferred.
 
-## 9. Tests
-All green. Offline suites self-skip the live/network tests without keys. Honesty
-gates, `grader.py`, and `phase1_questions.json` were never weakened. No new
-dependencies anywhere (stdlib only).
+## 8. Task board snapshot (this session)
+Done: brain/demo (prior) · A0 `/health` · A1 menu-bar skeleton · A2 hotkey+overlay ·
+A3 wire-to-brain · G0 OAuth app · G1 device-flow logic · G2 Keychain · G3 sign-in UI ·
+G4 repo connect+ingest+gating · **G5 full workflow (verified live)** · U2 app icon ·
+U1 UI restyle (current surfaces). Pending: **A4 voice-in · A5 voice-out · A6 record
+demo · U1 scope B (full shell)**. (G4/G5 were proven live; close them formally.)
 
-## 10. Operational gotchas
-- **ROTATE THE KEYS** — Gemini, Groq, and OpenRouter keys were pasted into the chat transcript this session. Treat all three as exposed; rotate before sharing the transcript.
-- **OpenRouter free tier = 50 requests/day** (resets UTC midnight). We moved off it to Groq/Gemini for headroom. Don't run real-model evals/demo concurrently — concurrent calls 429.
-- **Groq needs a `User-Agent` header** (Cloudflare 403/1010 on default urllib UA) — handled in `provider.py`.
-- **Gemini key format** here is `AQ.…` (not the usual `AIza…`); it works via `?key=`.
-- **Dashboard shows $0** — free models cost $0; usage is request-count, not dollars. $0 ≠ unused.
-- **Figma MCP requires the Full-seat account** (Dev Mode is gated behind an editor seat).
+## 9. Plans & decisions (docs/)
+- `docs/plans/2026-06-30-macos-app.md` — the macOS app plan (A0–A6), task-by-task.
+- `docs/plans/2026-06-30-github-auth-workflow.md` — the GitHub auth + workflow plan (G0–G5).
+- `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md` — hosting model.
+- `docs/decisions/2026-06-30-organizational-memory-positioning.md` — positioning + roadmap.
+- `docs/DESIGN_VISION.md` (Honest Brutalism), `docs/UI_UX_BRIEF.md` — design intent.
 
-## 11. Next steps (pick up here)
-1. **macOS app** — the "face" (hotkey, window, overlay) wrapping the brain. Biggest remaining build (Swift). *(Honest: largest new surface.)*
-2. **Voice** — Whisper STT (local, free) + macOS `AVSpeechSynthesizer` TTS, on the app.
-3. **Brick 6** — record the demo once UI/app/voice are in (script in its plan doc).
-4. Optional polish: a visible "uses local `gh` auth · public repos" note in the demo; richer cited answers by connecting a repo with recorded PR rationale.
-- **Shelved (need a constraint change):** Brick 3 embeddings (paraphrase robustness), Bricks 8–9 private repos (need local or paid models).
+## 10. Gotchas (learned this session)
+- **Full Xcode is required** for the app (not just CLT), and its **license must be
+  accepted** (`sudo xcodebuild -license accept`) — after Xcode is active, even the
+  Xcode-shimmed `git`/`swift` refuse to run until the licence is accepted.
+- **Always rebuild `-c release` before relaunching** — a stale release binary once
+  showed old UI (the debug build was current but the launched release binary wasn't).
+- **Restarting the brain resets its active repo** to the default; reconnect the repo
+  in the app window afterward. The app keeps pointing at `:8000`; no app relaunch needed.
+- The brain **starts without keys** (ingest/`/connect`/`/status` need no LLM), but
+  `/ask` needs a provider key.
+- `/status` returns `counts` as an **object** (`{pr,issue,code}`) — the Swift model
+  ignores it (was a real decode bug, fixed).
+- **Figma MCP works** for this file (read design context/screenshots/metadata; tokens
+  came from node `9:44`). `get_variable_defs` returned `{}` (no bound variables).
+- `mac/Icarus/.build/` is git-ignored; only `.codex/` (Codex tooling, not ours) is
+  untracked in the tree.
 
-## 12. Key files
-- Brain: `evals/{pipeline,gate,synth,provider,judge,grader,retriever,corpus,corpus_meta,ingest,run}.py`
-- Demo: `demo/{server,library,payload,links,index.html}.py` + tests
-- Corpus: `evals/corpus/{chunks.jsonl,meta.json}` (pinned `simonw/llm` @ `94769b8`); switched repos cached under `evals/corpus/cache/` (git-ignored)
-- Labelled set: `evals/phase1_questions.json` (6 answerable w/ `reference_answer` + gold PRs, 4 unanswerable)
+## 11. Key files
+- Brain: `evals/*.py`, `demo/*.py` (+ `GET /health`).
+- App: `mac/Icarus/` (SwiftPM) — see §3.
+- Docs: `docs/plans/`, `docs/decisions/`, `docs/DESIGN_VISION.md`, `docs/UI_UX_BRIEF.md`.
 
-## 13. Memory
-Session decisions are saved in the project memory index (`MEMORY.md`): see
-`public-repo-mvp-direction.md` and `openrouter-free-tier-limits.md`.
+## 12. Git state
+Branch **`mac-app`** (unmerged). Latest commits (newest first): `7a963ab` restyle,
+`907f268` app icon, `7413c72` dead-code removal, `27ea069`/`3343339` docs reconcile,
+`7bc74e6` panel auto-size, `bb85353` status decode fix, `e55bdea` G4, `2709014`
+onboarding window, `b7f2eca` G3, `eb11d38` G1+G2, `56fc137` A3, `fed52fd`/`ad0c9b8` A2,
+`d388335` A1, `8ee5902` A0. Only `.codex/` is untracked (leave it or gitignore).
