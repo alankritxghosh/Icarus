@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Source Info.plist for the Icarus.app bundle (assembled by scripts/bundle.sh).
+     A bundle + usage string + signature is what macOS TCC requires before it will
+     grant microphone access; a bare SwiftPM executable cannot get the mic. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Icarus</string>
+    <key>CFBundleDisplayName</key>
+    <string>Icarus</string>
+    <key>CFBundleExecutable</key>
+    <string>Icarus</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.alankrit.icarus</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <!-- App is Dock-visible (.regular); no LSUIElement. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Icarus transcribes your spoken question on-device while you hold the hotkey. Audio never leaves your Mac.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Icarus turns your spoken question into text on-device. Speech is recognized locally and never leaves your Mac.</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>

@@ -2,3 +2,6 @@
 Icarus/.build/
 .build/
 .swiftpm/
+
+# Assembled app bundle (produced by scripts/bundle.sh)
+Icarus/Icarus.app/
