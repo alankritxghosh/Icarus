@@ -1,5 +1,6 @@
 import AppKit
 import KeyboardShortcuts
+import IcarusKit
 
 extension KeyboardShortcuts.Name {
     /// Global hotkey that toggles the ask overlay. Default ⌘⇧I; user-rebindable later.
@@ -12,8 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Auth + repo connection are shared by the onboarding window and the ask overlay.
     private let auth = AuthModel()
     private let connect = ConnectModel()
-    private lazy var overlay = OverlayController(auth: auth, connect: connect)
+    /// Voice-in: real-time on-device streaming via Apple's Speech framework.
+    private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
+    private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice)
     private lazy var onboarding = OnboardingWindowController(auth: auth, connect: connect)
+    /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.
+    private var pushToTalk: PushToTalkMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // A real app: Dock icon + a visible window, plus a menu-bar item and the
@@ -37,6 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeyboardShortcuts.onKeyUp(for: .toggleIcarus) { [weak self] in
             self?.overlay.toggle()
         }
+
+        // Push-to-talk: hold Right Option (⌥). Needs Input Monitoring to fire from
+        // other apps — prompt once; the local monitor still works when Icarus is up.
+        if !PushToTalkMonitor.hasInputMonitoringAccess {
+            PushToTalkMonitor.requestInputMonitoringAccess()
+        }
+        let ptt = PushToTalkMonitor(
+            onDown: { [weak self] in self?.overlay.beginVoice() },
+            onUp: { [weak self] in self?.overlay.endVoice() }
+        )
+        ptt.start()
+        pushToTalk = ptt
 
         // The first screen: the onboarding window.
         onboarding.show()

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import IcarusKit
 
 /// Owns the floating overlay panel and its show/hide logic, so `AppDelegate`
 /// stays a thin wiring layer. Main-actor isolated because it touches AppKit.
@@ -11,35 +12,75 @@ final class OverlayController {
     private let auth: AuthModel
     private let connect: ConnectModel
     private let model = AskModel()
+    /// Voice state (push-to-talk). Injected so the app delegate can pre-warm the
+    /// transcriber. Its transcript feeds the same ask path a typed question uses.
+    private let voice: VoiceModel
+    /// Speaks the brain's reply aloud (voice-out). The promise carries into voice:
+    /// it reads the honest unknown just as it reads a cited answer.
+    private let speaker = Speaker()
 
-    init(auth: AuthModel, connect: ConnectModel) {
+    init(auth: AuthModel, connect: ConnectModel, voice: VoiceModel) {
         self.auth = auth
         self.connect = connect
+        self.voice = voice
+        // Speech becomes the exact same question a user would type, then submits.
+        self.voice.onTranscript = { [weak self] text in
+            guard let self else { return }
+            self.model.question = text
+            Task { await self.model.submit() }
+        }
+        // Speak whatever the brain returned — verbatim answer, or the honest unknown.
+        self.model.onResult = { [weak self] state in self?.speak(for: state) }
     }
 
-    /// Show the overlay if hidden, hide it if visible.
+    private func speak(for state: AskModel.State) {
+        guard case .response(let r) = state else { return }
+        if r.verdict == .answer {
+            speaker.speak(r.answer)
+        } else {
+            speaker.speak("I couldn’t find where anyone wrote this down.")
+        }
+    }
+
+    /// Show the overlay if hidden, hide it if visible. Either way, barge-in: stop any
+    /// answer currently being spoken.
     func toggle() {
+        speaker.stop()
         if let panel, panel.isVisible {
             panel.orderOut(nil)
             return
         }
-        show()
+        present()
     }
 
-    private func show() {
+    /// Push-to-talk down: bring the overlay up (so "Listening…" is visible) and start
+    /// recording — but only once setup is done, else just show the setup hint. Barge-in
+    /// stops any speech first, so you can interrupt an answer by starting to talk.
+    func beginVoice() {
+        speaker.stop()
+        present()
+        guard auth.isSignedIn, connect.isReady else { return }
+        Task { await voice.startRecording() }
+    }
+
+    /// Push-to-talk up: stop + transcribe (transcript flows via `onTranscript`).
+    func endVoice() {
+        Task { await voice.stopAndTranscribe() }
+    }
+
+    /// Show + take key focus without activating the app (a non-activating panel must
+    /// not steal focus). Shows if hidden; no-op re-show keeps the dragged position.
+    private func present() {
         let panel: FloatingPanel<OverlayView>
         if let existing = self.panel {
             panel = existing
         } else {
-            panel = FloatingPanel { OverlayView(auth: self.auth, connect: self.connect, model: self.model) }
+            panel = FloatingPanel {
+                OverlayView(auth: self.auth, connect: self.connect, model: self.model, voice: self.voice)
+            }
             self.panel = panel
-            // Center only on first creation; reusing the cached panel preserves
-            // wherever the user last dragged it instead of yanking it back.
             panel.center()
         }
-        // Show + take key focus (the text field is typable) WITHOUT activating
-        // the app — a non-activating panel must not steal focus from the user's
-        // current app, so we deliberately avoid NSApp.activate here.
         panel.makeKeyAndOrderFront(nil)
     }
 }

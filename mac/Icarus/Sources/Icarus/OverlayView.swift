@@ -10,6 +10,7 @@ struct OverlayView: View {
     @Bindable var auth: AuthModel
     @Bindable var connect: ConnectModel
     @Bindable var model: AskModel
+    @Bindable var voice: VoiceModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -45,6 +46,8 @@ struct OverlayView: View {
                 .foregroundStyle(Theme.ink)
                 .onSubmit { Task { await model.submit() } }
 
+            voiceStatus()
+
             switch model.state {
             case .idle:
                 EmptyView()
@@ -61,6 +64,36 @@ struct OverlayView: View {
                 Text("Can't reach the brain. Is it running on 127.0.0.1:8000?")
                     .font(.system(size: 14)).foregroundStyle(Theme.muted)
             }
+        }
+    }
+
+    /// Push-to-talk feedback. When idle, a quiet hint that you can hold ⌥ to speak;
+    /// otherwise the live recording/transcribing/failed state.
+    @ViewBuilder
+    private func voiceStatus() -> some View {
+        switch voice.state {
+        case .idle:
+            Text("Hold Right Option (⌥) to speak")
+                .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+        case .recording:
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Circle().fill(Theme.unknown).frame(width: 9, height: 9)
+                    Text("Listening…").font(Theme.mono(12)).foregroundStyle(Theme.ink)
+                }
+                // Live transcript as you speak (like macOS dictation).
+                if !voice.partialTranscript.isEmpty {
+                    Text(voice.partialTranscript)
+                        .font(.system(size: 16)).foregroundStyle(Theme.muted)
+                }
+            }
+        case .transcribing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Finishing…").font(Theme.mono(12)).foregroundStyle(Theme.muted)
+            }
+        case .failed(let message):
+            Text(message).font(Theme.mono(12)).foregroundStyle(Theme.muted)
         }
     }
 

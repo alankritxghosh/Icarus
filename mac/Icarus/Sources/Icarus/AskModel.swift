@@ -18,6 +18,10 @@ final class AskModel {
     var question: String = ""
     private(set) var state: State = .idle
 
+    /// Called with the final state after each submit (`.response` or `.unreachable`),
+    /// so the app can react — e.g. speak the answer aloud. Never mutates the verdict.
+    var onResult: ((State) -> Void)?
+
     private let client: BrainClient
 
     init(client: BrainClient = BrainClient()) {
@@ -35,5 +39,6 @@ final class AskModel {
         } catch {
             state = .unreachable
         }
+        onResult?(state)
     }
 }

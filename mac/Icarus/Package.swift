@@ -5,7 +5,9 @@ let package = Package(
     name: "Icarus",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0")
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
+        // Voice-in uses Apple's on-device Speech framework (SFSpeechRecognizer) for
+        // real-time streaming dictation — no third-party STT dependency.
     ],
     targets: [
         // Testable, UI-free logic (the brain contract + HTTP client).
