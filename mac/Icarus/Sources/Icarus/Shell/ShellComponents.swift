@@ -1,0 +1,96 @@
+import SwiftUI
+import IcarusKit
+
+/// The Icarus signal-spine mark (five bars, accent stem) — reused in the sidebar.
+struct MarkView: View {
+    var height: CGFloat = 26
+    private let factors: [(CGFloat, Bool)] = [(0.54, false), (0.85, false), (1.0, true), (0.65, false), (0.38, false)]
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            ForEach(0..<factors.count, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(factors[i].1 ? Theme.accent : Theme.ink)
+                    .frame(width: 3, height: height * factors[i].0)
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// One sidebar nav row: filled accent dot + ink label when active, muted otherwise.
+struct NavRow: View {
+    let surface: ShellSurface
+    @Binding var selected: ShellSurface
+    var body: some View {
+        let active = surface == selected
+        Button {
+            selected = surface
+        } label: {
+            HStack(spacing: 11) {
+                Circle().fill(active ? Theme.accent : Color(hex: 0xB4B2A9)).frame(width: 7, height: 7)
+                Text(surface.title)
+                    .font(.system(size: 14, weight: active ? .semibold : .regular))
+                    .foregroundStyle(active ? Theme.ink : Theme.muted)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 11).padding(.vertical, 9)
+            .background(active ? Theme.card : .clear)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? Theme.border : .clear, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// A verdict pill: green "cited" or amber "unknown" — the shell's honesty at a glance.
+struct VerdictPill: View {
+    let cited: Bool
+    var body: some View {
+        Text(cited ? "cited" : "unknown")
+            .font(Theme.mono(11, .bold))
+            .foregroundStyle(cited ? Theme.cited : Theme.unknown)
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(cited ? Theme.citedBg : Theme.unknownBg)
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(cited ? Theme.cited : Theme.unknown, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+/// One real history row (shared by Home's recent list and Decision history).
+struct HistoryRow: View {
+    let entry: AskHistory.Entry
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Text(entry.at, style: .time)
+                .font(Theme.mono(12)).foregroundStyle(Theme.muted)
+                .frame(width: 74, alignment: .leading)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(entry.question).font(.system(size: 14)).foregroundStyle(Theme.ink)
+                Text(evidenceLine).font(Theme.mono(12)).foregroundStyle(Theme.muted)
+            }
+            Spacer(minLength: 12)
+            VerdictPill(cited: entry.isCited)
+        }
+    }
+
+    private var evidenceLine: String {
+        let answered = entry.response.verdict == .answer
+        let refs = answered ? entry.response.citations.map(\.ref) : entry.response.searched
+        let shown = refs.isEmpty ? "—" : refs.prefix(4).joined(separator: " · ")
+        return (answered ? "evidence: " : "searched: ") + shown
+    }
+}
+
+/// A card surface (white, hairline border) used across the shell.
+struct ShellCard<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}

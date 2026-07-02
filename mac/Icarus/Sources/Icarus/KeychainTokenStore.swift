@@ -16,7 +16,7 @@ struct KeychainTokenStore: TokenStore {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: Data(token.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else { throw KeychainError.unhandled(status) }

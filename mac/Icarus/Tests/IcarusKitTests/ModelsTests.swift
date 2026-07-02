@@ -50,6 +50,15 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(s.isError)
         XCTAssertEqual(s.repo, "simonw/llm")
         XCTAssertNil(s.error)
+        XCTAssertEqual(s.counts?.pr, 141)
+        XCTAssertEqual(s.counts?.issue, 84)
+        XCTAssertEqual(s.counts?.code, 18)
+    }
+
+    func testCountsNilWhileIndexing() throws {
+        let json = Data(#"{"state":"indexing","repo":"o/r","commit":"","error":null}"#.utf8)
+        let s = try decoder.decode(RepoStatus.self, from: json)
+        XCTAssertNil(s.counts)   // missing/null counts must still decode
     }
 
     func testDecodesRepoStatusIndexingAndError() throws {

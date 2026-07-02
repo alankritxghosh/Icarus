@@ -49,7 +49,7 @@ final class ConnectModel {
             try await client.connect(repo: repo)
             // The brain ingests in the background and keeps the previous repo active
             // until the new one is ready, so wait for state==ready AND repo match.
-            let deadline = Date().addingTimeInterval(120)
+            let deadline = Date().addingTimeInterval(180)  // past the web UI's 150s poll
             while Date() < deadline {
                 try await Task.sleep(for: .seconds(2))
                 if Task.isCancelled { return }

@@ -26,13 +26,23 @@ public struct AskResponse: Decodable, Sendable {
     public let searched: [String]
 }
 
+/// The corpus's real index counts (demo/library.py `counts`): how many PRs,
+/// issues, and code files were ingested. Powers the metrics card with true
+/// numbers — never a fabricated total.
+public struct IndexCounts: Decodable, Sendable {
+    public let pr: Int
+    public let issue: Int
+    public let code: Int
+}
+
 /// The `/status` response (demo/library.py): the active repo + switch state.
-/// `state` is one of "idle" | "indexing" | "ready" | "error". (`counts` is an
-/// object in the real payload and unused here, so it's intentionally not decoded.)
+/// `state` is one of "idle" | "indexing" | "ready" | "error". `counts` is an
+/// object in the real payload (null while indexing), decoded for the metrics card.
 public struct RepoStatus: Decodable, Sendable {
     public let state: String
     public let repo: String
     public let commit: String
+    public let counts: IndexCounts?
     public let error: String?
 
     public var isReady: Bool { state == "ready" }

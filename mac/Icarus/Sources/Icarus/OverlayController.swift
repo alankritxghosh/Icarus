@@ -11,7 +11,7 @@ final class OverlayController {
     /// shared with the onboarding window, so it's injected by the app delegate.
     private let auth: AuthModel
     private let connect: ConnectModel
-    private let model = AskModel()
+    private let model: AskModel
     /// Voice state (push-to-talk). Injected so the app delegate can pre-warm the
     /// transcriber. Its transcript feeds the same ask path a typed question uses.
     private let voice: VoiceModel
@@ -19,10 +19,14 @@ final class OverlayController {
     /// it reads the honest unknown just as it reads a cited answer.
     private let speaker = Speaker()
 
-    init(auth: AuthModel, connect: ConnectModel, voice: VoiceModel) {
+    init(auth: AuthModel, connect: ConnectModel, voice: VoiceModel,
+         tokenReader: @escaping @Sendable () -> String? = { nil },
+         history: AskHistory? = nil) {
         self.auth = auth
         self.connect = connect
         self.voice = voice
+        self.model = AskModel(client: BrainClient(token: tokenReader))
+        self.model.history = history   // asks flow into the shared shell history
         // Speech becomes the exact same question a user would type, then submits.
         self.voice.onTranscript = { [weak self] text in
             guard let self else { return }

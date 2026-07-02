@@ -22,6 +22,10 @@ final class AskModel {
     /// so the app can react — e.g. speak the answer aloud. Never mutates the verdict.
     var onResult: ((State) -> Void)?
 
+    /// The real in-session record. Each successful ask is appended here so the shell's
+    /// recent/history/unknowns/proof surfaces show truth, never seeded data.
+    var history: AskHistory?
+
     private let client: BrainClient
 
     init(client: BrainClient = BrainClient()) {
@@ -35,7 +39,9 @@ final class AskModel {
         guard !trimmed.isEmpty else { return }
         state = .loading
         do {
-            state = .response(try await client.ask(trimmed))
+            let response = try await client.ask(trimmed)
+            state = .response(response)
+            history?.record(question: trimmed, response: response)
         } catch {
             state = .unreachable
         }
