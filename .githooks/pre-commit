@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Icarus pre-commit security gate.
+#
+# Policy (decided 2026-07-02): a committed SECRET hard-blocks the commit; failing
+# TESTS only warn (so you're never wedged mid-demo-prep). Install once with:
+#     git config core.hooksPath .githooks
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "── pre-commit: secrets scan (blocking) ──"
+if ! bash scripts/scan_secrets.sh --staged; then
+    echo "commit blocked: a secret was found in your staged changes." >&2
+    exit 1
+fi
+
+echo "── pre-commit: tests (advisory — will not block) ──"
+if command -v python3 >/dev/null 2>&1; then
+    if python3 -m unittest discover -t . -s evals >/tmp/icarus_evals.log 2>&1 \
+       && python3 -m unittest discover -t . -s demo >/tmp/icarus_demo.log 2>&1; then
+        echo "tests: PASS"
+    else
+        echo "⚠️  tests: FAIL — commit allowed, but fix before you push."
+        echo "    see /tmp/icarus_evals.log and /tmp/icarus_demo.log"
+    fi
+else
+    echo "⚠️  python3 not found — skipped tests."
+fi
+
+exit 0

@@ -1,0 +1,40 @@
+name: security
+
+# Backstop for the local pre-commit hook: on every push/PR, block on a committed
+# secret and run the full test suite + Swift build.
+on:
+  push:
+    branches: [main, mac-app]
+  pull_request:
+
+jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan tracked files for secrets (blocking)
+        run: bash scripts/scan_secrets.sh
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python tests (evals + demo)
+        run: |
+          python3 -m unittest discover -t . -s evals
+          python3 -m unittest discover -t . -s demo
+
+  swift:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + test the Mac app
+        working-directory: mac/Icarus
+        run: |
+          swift build
+          swift test
