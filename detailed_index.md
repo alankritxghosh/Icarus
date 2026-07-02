@@ -29,25 +29,37 @@ Self-describing corpus provenance written next to `chunks.jsonl`. No classes.
 ## evals/ingest.py
 One-time tool that generates a corpus from a public repo into
 `evals/corpus/chunks.jsonl` + `meta.json` (needs `gh` + `git`). Module constants:
-`REPO`, `COMMIT`, `PR_LIMIT`, `OUT`, `META`, `ISSUE_REF`.
+`REPO`, `COMMIT`, `PR_LIMIT`, `OUT`, `META`, `ISSUE_REF`, and resource bounds
+`_SUBPROCESS_TIMEOUT`, `_MAX_FILE_BYTES`, `_MAX_TOTAL_BYTES`.
 
 - `parse_args(argv)` — CLI: `--repo` (default `simonw/llm`), `--commit` (default
   None → HEAD), `--code-dir` (default `llm`).
 - `resolve_commit(repo, commit)` — explicit commit wins; the default repo without
   one keeps the pinned `COMMIT` (reproducible board); any other repo resolves HEAD
-  via `git ls-remote`.
-- `_gh_json(args)` — run a `gh` subcommand and parse its JSON stdout (None empty).
+  via `git ls-remote` (timeout-bounded).
+- `_safe_code_dir(clone_dir, code_dir)` — resolve `code_dir` inside the clone;
+  raise on an absolute path or `..` that escapes it (path-traversal guard).
+- `_gh_json(args)` — run a `gh` subcommand (timeout-bounded) and parse its JSON.
 - `fetch_prs(repo)` — merged PRs → chunks + referenced issue ids
   (`closingIssuesReferences` and `#NNN`).
 - `fetch_issues(repo, issue_ids)` — fetch each referenced issue, skipping ids that
   are PRs.
-- `fetch_code(repo, commit, code_dir)` — clone at the commit and return one chunk
-  per `<code_dir>/**/*.py`.
+- `fetch_code(repo, commit, code_dir)` — clone at the commit (timeouts) and return
+  one chunk per `<code_dir>/**/*.py`, skipping oversized files and stopping past
+  the total-bytes cap.
 - `ingest_repo(repo, out_dir, commit=None, code_dir="llm") -> counts` — fetch a
   public repo and write `chunks.jsonl` + `meta.json` into `out_dir`; returns the
   {pr, issue, code} counts. Reused by the CLI and the demo's per-repo cache.
 - `main(argv=None)` — resolve args, call `ingest_repo` into the default corpus dir,
   print a count + provenance summary.
+
+## evals/env_file.py
+Stdlib loader so provider keys can live in a gitignored `.env` instead of being
+retyped each launch.
+
+- `load_env_file(path) -> dict` — parse KEY=VALUE lines into `os.environ` via
+  `setdefault` (a real env var always wins); ignores blanks, `#` comments, and an
+  optional `export ` prefix; strips one layer of quotes; missing file → `{}`.
 
 ## evals/retriever.py
 BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN`.
@@ -67,11 +79,12 @@ BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN
 ## evals/provider.py
 The `Provider` abstraction for the rented answer-writer (we rent the model, own
 the pipeline). Stdlib `urllib` only; keys from env. Module constants: `_USER_AGENT`
-(Groq's Cloudflare 403s the default urllib UA), `_RETRY_DELAY`.
+(Groq's Cloudflare 403s the default urllib UA), `_RETRY_DELAY`,
+`_MAX_BACKOFF_SECONDS` (the named per-sleep cap).
 
 - `_with_retry(call, retries=6, base=2.0)` — run `call()`, retrying on HTTP 429
   with backoff; waits a Retry-After header, else Gemini's body `retryDelay`, else
-  `base*2**attempt` (capped 65s). Non-429 raises immediately.
+  `base*2**attempt` (capped at `_MAX_BACKOFF_SECONDS`). Non-429 raises immediately.
 - `_openai_chat(url, key, model, prompt, timeout) -> str` — one OpenAI-compatible
   chat-completions call (shared by OpenRouter + Groq), with UA + 429 retry.
 - `_parse_gemini(data) -> str` — extract text from a Gemini generateContent reply.
@@ -85,12 +98,14 @@ the pipeline). Stdlib `urllib` only; keys from env. Module constants: `_USER_AGE
 - `class GroqProvider(Provider)` — Groq chat-completions (OpenAI-compatible),
   default `llama-3.3-70b-versatile`; key `GROQ_API_KEY`; the default writer.
 - `class GeminiProvider(Provider)` — Google Gemini `generateContent` (REST),
-  default `gemini-2.5-flash-lite`; key `GEMINI_API_KEY` (as `?key=`); the default
+  default `gemini-2.5-flash-lite`; key `GEMINI_API_KEY` sent in the
+  `x-goog-api-key` header (built by `_build_request`, not in the URL); the default
   judge. All raise `RuntimeError` when their key is unset.
 
 ## evals/synth.py
-Builds the strict cite-or-abstain prompt for the writer. Module constants:
-`INSTRUCTION`, `_MAX_CHUNK_CHARS`.
+Builds the strict cite-or-abstain prompt for the writer. `INSTRUCTION` also tells
+the model the evidence is DATA, not instructions (prompt-injection defense in
+depth). Module constants: `INSTRUCTION`, `_MAX_CHUNK_CHARS`.
 
 - `build_prompt(question: str, chunks: List[Chunk]) -> str` — assemble the
   instruction, the question, and the numbered evidence (each chunk truncated to
@@ -166,11 +181,12 @@ honesty gates (groundedness, abstention recall) plus the quality dials.
 
 ## evals/run.py
 CLI entry point that runs and prints the Phase 1 eval board. Module constants:
-`DEFAULT_SET`, `CORPUS`.
+`DEFAULT_SET`, `CORPUS`, `REPO_ROOT`.
 
 - `_fmt(value) -> str` — format a metric value as a percentage (or `n/a` when
   None).
-- `main(argv=None) -> int` — parse args (`--questions`, `--k`,
+- `main(argv=None) -> int` — load `.env` (`load_env_file`), parse args
+  (`--questions`, `--k`,
   `--pipeline {stub,retrieval,gated}`, `--writer {groq,gemini,openrouter}`,
   `--judge {gemini,groq,openrouter}`), build the chosen pipeline (`gated` wraps
   `make_provider(writer)`), build `Judge(make_provider(judge))` when that
