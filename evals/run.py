@@ -20,9 +20,11 @@ from .retriever import LexicalRetriever
 from .pipeline import StubPipeline, RetrievalPipeline, GatedPipeline
 from .provider import make_provider, has_provider_key
 from .judge import Judge
+from .env_file import load_env_file
 
 DEFAULT_SET = Path(__file__).resolve().parent / "phase1_questions.json"
 CORPUS = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _fmt(value) -> str:
@@ -42,6 +44,7 @@ def main(argv=None) -> int:
     parser.add_argument("--judge", choices=["gemini", "groq", "openrouter"], default="gemini",
                         help="answer-correctness judge model (kept different from the writer)")
     args = parser.parse_args(argv)
+    load_env_file(REPO_ROOT / ".env")  # pick up keys from a gitignored .env
 
     data = json.loads(args.questions.read_text())
     questions = data["questions"]

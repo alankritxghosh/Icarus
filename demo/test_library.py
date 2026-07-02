@@ -79,9 +79,42 @@ class LibraryTests(unittest.TestCase):
         self.lib.connect_sync("bad/repo")
         s = self.lib.status_snapshot()
         self.assertEqual(s["state"], "error")
-        self.assertIn("gh exploded", s["error"])
         self.assertEqual(s["repo"], "simonw/llm")  # still on the old repo
         self.assertEqual(self.lib.current_pipeline(), f"pipeline::{self.default_dir}")
+
+    def test_ingest_failure_reports_generic_error(self):
+        # The raw exception (command lines, URLs) must never reach /status.
+        def boom(repo, out_dir, commit=None, code_dir="llm"):
+            raise RuntimeError("git clone https://github.com/o/r.git failed: fatal ...")
+        self.lib._ingest_fn = boom
+        self.lib.connect_sync("o/r")
+        err = self.lib.status_snapshot()["error"]
+        self.assertNotIn("github.com", err)
+        self.assertNotIn("git clone", err)
+        self.assertIn("index", err.lower())
+
+    def test_concurrent_connect_to_same_repo_ingests_once(self):
+        import threading
+        import time
+        gate = threading.Event()
+        started = []
+
+        def slow_ingest(repo, out_dir, commit=None, code_dir="llm"):
+            started.append(repo)
+            gate.wait(timeout=2)
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        self.lib._ingest_fn = slow_ingest
+        t1 = threading.Thread(target=self.lib.connect_sync, args=("o/r",))
+        t2 = threading.Thread(target=self.lib.connect_sync, args=("o/r",))
+        t1.start()
+        time.sleep(0.1)  # let the first take the in-flight slot
+        t2.start()
+        time.sleep(0.1)
+        gate.set()
+        t1.join(); t2.join()
+        self.assertEqual(started.count("o/r"), 1)  # single-flight: one ingest only
 
 
 if __name__ == "__main__":

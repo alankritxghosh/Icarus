@@ -4,7 +4,10 @@ point at any public repo. Pure arg/commit logic only (no network)."""
 
 import unittest
 
-from .ingest import parse_args, resolve_commit, REPO, COMMIT
+import tempfile
+from pathlib import Path
+
+from .ingest import parse_args, resolve_commit, _safe_code_dir, REPO, COMMIT
 
 
 class ParseArgsTests(unittest.TestCase):
@@ -19,6 +22,20 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(a.repo, "octocat/hello")
         self.assertEqual(a.code_dir, "src")
         self.assertEqual(a.commit, "deadbeef")
+
+
+class SafeCodeDirTests(unittest.TestCase):
+    def test_rejects_escaping_paths(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):
+                _safe_code_dir(d, "../../etc")
+            with self.assertRaises(ValueError):
+                _safe_code_dir(d, "/etc")
+
+    def test_allows_subdirs_and_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(_safe_code_dir(d, "llm"), Path(d).resolve() / "llm")
+            self.assertEqual(_safe_code_dir(d, "."), Path(d).resolve())
 
 
 class ResolveCommitTests(unittest.TestCase):

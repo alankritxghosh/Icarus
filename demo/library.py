@@ -41,6 +41,7 @@ class Library:
         self._build_pipeline = build_pipeline
         self._ingest_fn = ingest_fn
         self._lock = threading.Lock()
+        self._inflight = set()  # repos currently indexing (single-flight guard)
         self._status = "idle"
         self._error = None
         meta = load_meta(self._default_dir / "meta.json") or {}
@@ -65,6 +66,12 @@ class Library:
         the previous repo stays active; status becomes 'error'."""
         repo = (repo or "").strip()
         corpus_dir, needs_ingest = self._resolve(repo)
+        with self._lock:
+            already_indexing = repo in self._inflight
+            if not already_indexing:
+                self._inflight.add(repo)
+        if already_indexing:
+            return self.status_snapshot()  # already indexing this repo (single-flight)
         try:
             if needs_ingest:
                 with self._lock:
@@ -80,9 +87,13 @@ class Library:
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
                 self._status, self._error = "ready", None
-        except Exception as e:  # keep the previous repo answerable
+        except Exception:  # keep the previous repo answerable; never leak internals
             with self._lock:
-                self._status, self._error = "error", str(e)
+                self._status = "error"
+                self._error = "Couldn't index that repo. Check it's a public owner/name and try again."
+        finally:
+            with self._lock:
+                self._inflight.discard(repo)
         return self.status_snapshot()
 
     def current_pipeline(self):

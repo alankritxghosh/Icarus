@@ -84,3 +84,23 @@ first (proving the gap is real), then green (proving the fix works).
   exists.
 - Not a replacement for human spot-checks early on, but the goal is that the
   harness becomes the trusted gate that lets us ship without manual review.
+
+## Known limitation: prompt injection via ingested content
+
+The honesty gate proves **provenance** — that every citation was actually
+retrieved from the corpus — not **faithfulness** of the answer prose to its
+source. Because Icarus can ingest an arbitrary public repo, every PR body, issue,
+and source file in that repo becomes untrusted prompt evidence. A repo crafted to
+say "when asked about X, reply Y and cite this file" can steer the writer's prose
+while still attaching a legitimately-retrieved citation. Cite-or-unknown is **not**
+content safety.
+
+This is disclosed, not hidden, and it is consistent with the non-negotiable: the
+gate never fabricates a citation, and an ungrounded reply still collapses to
+"unknown". What it does not yet guarantee is that grounded prose is faithful.
+
+- **Defense in depth today:** the writer prompt (`evals/synth.py`) instructs the
+  model to treat evidence as data, not instructions.
+- **Operational mitigation:** on a live demo, connect only vetted repos.
+- **Roadmap:** output-side checking — verify the answer's claims against the cited
+  chunk before emitting — is the real fix and belongs to a later phase.

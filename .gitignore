@@ -5,6 +5,8 @@
 # Secrets & local config (never commit credentials — GitHub tokens, API keys)
 .env
 .env.*
+# The committed template carries NO real keys, so un-ignore just it:
+!.env.example
 *.local
 
 # Python (cloud services)

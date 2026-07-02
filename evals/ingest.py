@@ -31,6 +31,21 @@ META = Path(__file__).resolve().parent / "corpus" / "meta.json"
 
 ISSUE_REF = re.compile(r"#(\d+)")
 
+# Resource bounds so a huge or hostile repo can't fill disk / hang / OOM.
+_SUBPROCESS_TIMEOUT = 120       # seconds, per git/gh call
+_MAX_FILE_BYTES = 512 * 1024    # skip any single file bigger than this
+_MAX_TOTAL_BYTES = 25 * 1024 * 1024  # stop reading code past this total
+
+
+def _safe_code_dir(clone_dir, code_dir):
+    """Resolve code_dir inside clone_dir; refuse anything that escapes it
+    (absolute paths, ``..``). Prevents ingesting files outside the clone."""
+    root = Path(clone_dir).resolve()
+    target = (root / code_dir).resolve()
+    if root != target and root not in target.parents:
+        raise ValueError(f"code_dir escapes the clone: {code_dir!r}")
+    return target
+
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Ingest a public GitHub repo into the corpus")
@@ -49,13 +64,15 @@ def resolve_commit(repo: str, commit) -> str:
         return COMMIT
     out = subprocess.run(
         ["git", "ls-remote", f"https://github.com/{repo}.git", "HEAD"],
-        check=True, capture_output=True, text=True,
+        check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
     ).stdout
     return out.split()[0]
 
 
 def _gh_json(args):
-    out = subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    out = subprocess.run(
+        ["gh", *args], check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT
+    ).stdout
     return json.loads(out) if out.strip() else None
 
 
@@ -87,13 +104,25 @@ def fetch_issues(repo, issue_ids):
 
 
 def fetch_code(repo, commit, code_dir):
-    chunks = []
+    # Full clone keeps the pinned-commit checkout byte-reproducible (the eval
+    # board depends on it); timeouts bound the clone, size caps bound memory so a
+    # hostile/huge repo can't hang or OOM us.
+    chunks, total = [], 0
     with tempfile.TemporaryDirectory() as d:
-        subprocess.run(["git", "clone", "--quiet", f"https://github.com/{repo}.git", d], check=True)
-        subprocess.run(["git", "-C", d, "checkout", "--quiet", commit], check=True)
-        for path in sorted(Path(d, code_dir).rglob("*.py")):
+        subprocess.run(["git", "clone", "--quiet", f"https://github.com/{repo}.git", d],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT)
+        subprocess.run(["git", "-C", d, "checkout", "--quiet", commit],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT)
+        base = _safe_code_dir(d, code_dir)
+        for path in sorted(base.rglob("*.py")):
+            if path.stat().st_size > _MAX_FILE_BYTES:
+                continue  # skip an oversized single file
+            if total > _MAX_TOTAL_BYTES:
+                break  # stop once we've read enough code
             rel = path.relative_to(d).as_posix()
-            chunks.append({"ref": f"code:{rel}", "source": "code", "text": path.read_text(errors="replace")})
+            text = path.read_text(errors="replace")
+            total += len(text.encode("utf-8", "replace"))
+            chunks.append({"ref": f"code:{rel}", "source": "code", "text": text})
     return chunks
 
 

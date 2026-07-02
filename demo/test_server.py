@@ -176,6 +176,173 @@ class IndexHtmlSmokeTests(unittest.TestCase):
         self.assertIn("/connect", self.html)
         self.assertIn("/status", self.html)
 
+    def test_no_hardcoded_fake_recent_questions(self):
+        self.assertNotIn("mock service requests with MSW", self.html)
+        self.assertNotIn("legacy adapter", self.html)
+
+    def test_no_dead_placeholder_nav_links(self):
+        self.assertNotIn('href="#"', self.html)
+
+
+class _ServerFixture:
+    """Spin up a real server on a random port with the given handler kwargs."""
+
+    def __init__(self, lib, **handler_kwargs):
+        self._tmp = tempfile.TemporaryDirectory()
+        html = Path(self._tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        handler = make_handler(lib, str(html), **handler_kwargs)
+        self.server = HTTPServer(("127.0.0.1", 0), handler)
+        self.port = self.server.server_port
+        self.base = f"http://127.0.0.1:{self.port}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self._tmp.cleanup()
+
+
+class OriginGuardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.fx = _ServerFixture(_StubLibrary())
+        cls.base = cls.fx.base
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.fx.close()
+
+    def test_forged_host_is_rejected(self):
+        req = urllib.request.Request(self.base + "/status")
+        req.add_header("Host", "evil.example.com")
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 403)
+        cm.exception.close()
+
+    def test_cross_origin_post_is_rejected(self):
+        data = json.dumps({"question": "hi"}).encode()
+        req = urllib.request.Request(self.base + "/ask", data=data,
+                                     headers={"Content-Type": "application/json",
+                                              "Origin": "https://evil.example.com"})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 403)
+        cm.exception.close()
+
+    def test_loopback_host_is_allowed(self):
+        with urllib.request.urlopen(self.base + "/status") as resp:
+            self.assertEqual(resp.status, 200)
+
+
+class BodyCapTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.fx = _ServerFixture(_StubLibrary())
+        cls.base = cls.fx.base
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.fx.close()
+
+    def test_oversized_body_is_rejected(self):
+        big = json.dumps({"question": "x" * 200_000}).encode()
+        req = urllib.request.Request(self.base + "/ask", data=big,
+                                     headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 413)
+        cm.exception.close()
+
+
+class ConcurrencyTests(unittest.TestCase):
+    """A slow request must not block a second concurrent request."""
+
+    def test_slow_request_does_not_block_a_fast_one(self):
+        import time
+        from http.server import ThreadingHTTPServer
+
+        release = threading.Event()
+
+        class _SlowLibrary(_StubLibrary):
+            def status_snapshot(self):
+                release.wait(timeout=5)
+                return super().status_snapshot()
+
+        with tempfile.TemporaryDirectory() as d:
+            html = Path(d) / "index.html"
+            html.write_text("<html></html>")
+            handler = make_handler(_SlowLibrary(), str(html))
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            port = server.server_port
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            base = f"http://127.0.0.1:{port}"
+            try:
+                slow = threading.Thread(
+                    target=lambda: urllib.request.urlopen(base + "/status", timeout=5).read(),
+                    daemon=True)
+                slow.start()
+                time.sleep(0.2)
+                start = time.time()
+                with urllib.request.urlopen(base + "/", timeout=3) as resp:
+                    self.assertEqual(resp.status, 200)
+                self.assertLess(time.time() - start, 2.0)
+            finally:
+                release.set()
+                server.shutdown()
+                server.server_close()
+
+
+class AuthGateTests(unittest.TestCase):
+    """With require_auth, /ask and /connect need a valid GitHub bearer."""
+
+    @classmethod
+    def setUpClass(cls):
+        from .auth import StaticTokenVerifier
+        cls.fx = _ServerFixture(_StubLibrary(), require_auth=True,
+                                verifier=StaticTokenVerifier({"good-token"}))
+        cls.base = cls.fx.base
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.fx.close()
+
+    def test_ask_without_token_is_401(self):
+        data = json.dumps({"question": "Why the Responses API as a new class?"}).encode()
+        req = urllib.request.Request(self.base + "/ask", data=data,
+                                     headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 401)
+        cm.exception.close()
+
+    def test_ask_with_bad_token_is_401(self):
+        data = json.dumps({"question": "Why the Responses API as a new class?"}).encode()
+        req = urllib.request.Request(self.base + "/ask", data=data,
+                                     headers={"Content-Type": "application/json",
+                                              "Authorization": "Bearer wrong"})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 401)
+        cm.exception.close()
+
+    def test_ask_with_valid_token_succeeds(self):
+        data = json.dumps({"question": "Why the Responses API as a new class?"}).encode()
+        req = urllib.request.Request(self.base + "/ask", data=data,
+                                     headers={"Content-Type": "application/json",
+                                              "Authorization": "Bearer good-token"})
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read())
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(payload["verdict"], "answer")
+
+    def test_status_is_open_even_with_auth_required(self):
+        # /status must stay pollable so the app can show connection state pre-auth.
+        with urllib.request.urlopen(self.base + "/status") as resp:
+            self.assertEqual(resp.status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

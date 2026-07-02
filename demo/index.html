@@ -89,11 +89,7 @@
     <div>
       <div class="navlabel">ask repo</div>
       <nav>
-        <a href="#" class="active">Home</a>
-        <a href="#">Ask by voice</a>
-        <a href="#">Decision history</a>
-        <a href="#">Unknowns</a>
-        <a href="#">Privacy boundary</a>
+        <span class="active">Home</span>
       </nav>
     </div>
     <div>
@@ -118,12 +114,6 @@
     </form>
 
     <section id="result"></section>
-
-    <section class="recent" id="recent">
-      <div class="navlabel" style="margin-bottom:8px;">recent</div>
-      <div class="row"><span>Why do we mock service requests with MSW instead of stubbing fetch?</span><span class="tag-cited">cited</span></div>
-      <div class="row"><span>Why is the dashboard still on the legacy adapter?</span><span class="tag-unknown">unknown</span></div>
-    </section>
   </main>
 </div>
 
@@ -165,10 +155,6 @@ function renderUnknown(p){
        <h2>No one wrote this down.</h2>
        <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>
        <div class="searched-box"><span class="k">searched</span><div class="v">${list}</div></div>
-       <div class="actions">
-         <button class="ghost" type="button">Create note</button>
-         <button class="ghost" type="button">Keep searching</button>
-       </div>
      </div>`;
 }
 

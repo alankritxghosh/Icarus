@@ -22,6 +22,10 @@ _USER_AGENT = "icarus/0.1"
 
 _RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
 
+# Cap a single backoff sleep. One per-minute free-tier window; named so the
+# interactive server's patience is visible and adjustable in one place.
+_MAX_BACKOFF_SECONDS = 65
+
 
 def _with_retry(call, retries: int = 6, base: float = 2.0):
     """Run `call()`, retrying on HTTP 429 with backoff (free tiers cap RPM).
@@ -48,7 +52,7 @@ def _with_retry(call, retries: int = 6, base: float = 2.0):
                     pass
             if wait is None:
                 wait = base * (2 ** attempt)
-            time.sleep(min(wait, 65))
+            time.sleep(min(wait, _MAX_BACKOFF_SECONDS))
 
 
 def _openai_chat(url: str, key: str, model: str, prompt: str, timeout: float) -> str:
@@ -146,19 +150,28 @@ class GeminiProvider(Provider):
         self.model = model
         self.timeout = timeout
 
+    def _build_request(self, prompt: str, key: str) -> urllib.request.Request:
+        # Key goes in the x-goog-api-key header, NOT the URL query string — a key
+        # in a URL leaks into proxy/server logs, history, and tracebacks.
+        url = f"{self.BASE}/{self.model}:generateContent"
+        body = json.dumps(
+            {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0}}
+        ).encode()
+        return urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": _USER_AGENT,
+                "x-goog-api-key": key,
+            },
+        )
+
     def complete(self, prompt: str) -> str:
         key = os.environ.get("GEMINI_API_KEY")
         if not key:
             raise RuntimeError("GEMINI_API_KEY not set")
-        url = f"{self.BASE}/{self.model}:generateContent?key={key}"
-        body = json.dumps(
-            {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0}}
-        ).encode()
-        req = urllib.request.Request(
-            url,
-            data=body,
-            headers={"Content-Type": "application/json", "User-Agent": _USER_AGENT},
-        )
+        req = self._build_request(prompt, key)
 
         def _do():
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:

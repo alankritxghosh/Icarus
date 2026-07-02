@@ -29,6 +29,17 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             _with_retry(lambda: (_ for _ in ()).throw(_http(429)), retries=3, base=0)
 
+    def test_respects_a_small_retry_budget(self):
+        calls = {"n": 0}
+
+        def call():
+            calls["n"] += 1
+            raise _http(429)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            _with_retry(call, retries=2, base=0)
+        self.assertEqual(calls["n"], 2)  # exactly `retries` attempts, no runaway
+
     def test_non_429_raises_immediately(self):
         calls = {"n": 0}
 
@@ -87,6 +98,11 @@ class GeminiProviderTests(unittest.TestCase):
         finally:
             if old is not None:
                 os.environ["GEMINI_API_KEY"] = old
+
+    def test_key_goes_in_header_not_url(self):
+        req = GeminiProvider()._build_request("hello", key="SECRET123")
+        self.assertNotIn("SECRET123", req.full_url)
+        self.assertEqual(req.get_header("X-goog-api-key"), "SECRET123")
 
 
 class MakeProviderTests(unittest.TestCase):

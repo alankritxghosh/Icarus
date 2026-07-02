@@ -130,6 +130,11 @@ Before and after every change, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md):
 - Any use of personal JARVIS memory.
 
 ## Commands
+Run **all** tests (from repo root — the `-t .` is required so the `evals.`/`demo.`
+package-relative imports resolve; plain `unittest discover` without it fails):
+- `python3 -m unittest discover -t . -s evals`
+- `python3 -m unittest discover -t . -s demo`
+
 Phase 1 eval harness (Python stdlib only, run from repo root):
 - `python3 -m evals.run` — run the eval board against the verified labelled set.
   Exits non-zero **only** if an honesty gate (groundedness / abstention recall)
