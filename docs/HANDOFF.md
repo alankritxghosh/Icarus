@@ -1,4 +1,4 @@
-# Icarus — Session Handoff (2026-07-03)
+# Icarus — Session Handoff (2026-07-04)
 
 Read this first next session. It captures the current state, how to run it, what's
 done vs. not, and the gotchas. Pair with `CLAUDE.md`, `AGENTS.md`,
@@ -7,19 +7,20 @@ done vs. not, and the gotchas. Pair with `CLAUDE.md`, `AGENTS.md`,
 ---
 
 ## 1. TL;DR — where we are
-The **brain is done + proven**, there's a **web demo**, the repo is **security-
-hardened** with a per-commit gate, and the **native macOS app** (branch
-**`mac-app`**) is now a **full windowed shell** you sign into like Google:
+The **brain is done + proven**, the macOS app is a **full windowed shell**, and —
+new this session — **Icarus is now shippable to other people without an Apple
+Developer ID**: the brain runs in the **cloud (Render)** and the app ships as a
+**downloadable `.dmg`**. The end-to-end sign-in → cited-answer flow **works live**.
 
-> Launch Icarus → the **shell window** opens → **Sign in with GitHub** (real web
-> OAuth in a sheet — no code-pasting) → **connect a public repo** → press **⌘⇧I**
-> anywhere and **type** a question — **or hold Right Option (⌥) and speak it** →
-> a **cited answer** (clickable GitHub receipts, spoken aloud) or the honest
-> **"No one wrote this down."** Login persists (Keychain); **Sign out** switches
-> accounts.
+> Recipient downloads `Icarus.dmg` → drags to /Applications → one-time Gatekeeper
+> "Open Anyway" → **Sign in with GitHub** (real web OAuth, now against the hosted
+> brain) → **connect a public repo** → **⌘⇧I** to type or hold **Right Option (⌥)**
+> to speak → a **cited answer** (clickable GitHub receipts, spoken aloud) or the
+> honest **"No one wrote this down."** Login persists (Keychain); **Sign out** switches accounts.
 
-The whole session's work is now **merged into `main`** (fast-forward); `mac-app`
-still points at the same commit. There is **no git remote** — the repo is local only.
+**Hosted brain:** `https://icarus-brain.onrender.com` (Render free tier, Docker,
+GitHub-bearer-gated). **Repo is now on GitHub:** `alankritxghosh/Icarus` (**private**,
+`origin`), `main` pushed. The full runbook is **`docs/DISTRIBUTION.md`**.
 
 ## 2. What works today
 - **Brain** (`evals/` + `demo/`): ingest a public repo → BM25 retrieval →
@@ -33,8 +34,19 @@ still points at the same commit. There is **no git remote** — the repo is loca
   surfaces) + ⌘⇧I overlay + hold-⌥ voice. **Web GitHub login**, **Keychain-
   persisted** session, **Sign out**, **voice in/out**, packaged as a signed
   `.app`. **30 Swift unit tests pass.**
-- **Security** (this session): per-commit secrets gate (`.githooks/pre-commit`,
+- **Security**: per-commit secrets gate (`.githooks/pre-commit`,
   block on secret / warn on failing tests) + CI (`.github/workflows/security.yml`).
+- **Cloud deployment (new this session):** `Dockerfile` + `render.yaml` +
+  `.dockerignore` deploy the brain to Render. `demo/server.py` now binds from
+  `$HOST`/`$PORT`, has a configurable Host guard (`ICARUS_ALLOWED_HOSTS`; `*` =
+  cloud, trust TLS proxy + rely on the bearer gate), and builds the OAuth callback
+  from `ICARUS_PUBLIC_URL`. Auth is **mandatory** in the cloud
+  (`ICARUS_REQUIRE_GITHUB_AUTH=1`). Live at `icarus-brain.onrender.com`.
+- **Distribution (new this session):** `mac/Icarus/scripts/package_dmg.sh` builds
+  a shareable `Icarus.dmg` — ad-hoc signed, stamps the hosted brain URL into the
+  bundle, drag-to-Applications + a `READ ME FIRST.txt`. The app resolves its brain
+  from the bundle's `ICARUS_BRAIN_URL` (`IcarusKit/BrainEndpoint.swift` +
+  `Icarus/AppConfig.swift`); dev builds fall back to `127.0.0.1:8000`.
 
 ## 3. The macOS app — architecture & files
 **Shape (current):** the **shell is the primary window** — no separate onboarding
@@ -75,10 +87,11 @@ honesty gate.
    `state` minted server-side).
 2. `ASWebAuthenticationSession` opens GitHub's login in a sheet
    (`callbackURLScheme: "icarus"`, **ephemeral** so Sign out → pick another account).
-3. GitHub redirects to the brain's **loopback callback**
-   `http://127.0.0.1:8000/auth/github/callback`; the brain **exchanges the code
-   using the client SECRET** (held only in its env) and **302s to
-   `icarus://auth?session=…`** so the sheet closes.
+3. GitHub redirects to the brain's callback — **the hosted URL for a shipped build**
+   (`https://icarus-brain.onrender.com/auth/github/callback`, from `ICARUS_PUBLIC_URL`)
+   or the loopback callback in local dev. The brain **exchanges the code using the
+   client SECRET** (held only in its env) and **302s to `icarus://auth?session=…`**
+   so the sheet closes. The GitHub OAuth app's callback URL must match this exactly.
 4. App `POST /auth/github/redeem {session}` → the token; it's stored in the
    **login Keychain** (`KeychainTokenStore`, `WhenUnlocked`) so **sign-in persists
    across launches**, and sent as `Authorization: Bearer` on `/ask`+`/connect`.
@@ -124,30 +137,47 @@ In the app: **Sign in with GitHub** → authorize in the sheet → connect
 OpenAI Responses API as a new model class instead of modifying the existing chat
 completions class?"* → cites `pr:1435`.
 
-Tests: `cd mac/Icarus && swift test` (30). Brain:
-`python3 -m unittest discover -t . -s evals` and `... -s demo` (85 + 67).
+**To run it HOSTED / build the shareable DMG** (the whole point of this session)
+see **`docs/DISTRIBUTION.md`**: deploy to Render, set env vars, point the GitHub
+OAuth callback at the Render URL, then
+`ICARUS_BRAIN_URL=https://icarus-brain.onrender.com ./scripts/package_dmg.sh` →
+`mac/Icarus/Icarus.dmg`. Local dev still uses the loopback `.env` + `bundle.sh`.
 
-## 6. Secrets & credentials — ROTATE BEFORE SHARING
-- `.env` now holds the **Groq + Gemini keys AND the GitHub client secret**, and all
-  of them were pasted into this session's chat transcript. **Rotate all before
-  sharing the app or transcript.** `.env` is gitignored + the pre-commit hook blocks
-  a staged secret, so nothing is in git — the exposure is the transcript.
-- The GitHub **Client ID** (`Ov23liVZXvv6V5vX2x1Y`) is public; the **secret** is not.
+Tests: `cd mac/Icarus && swift test` (**35**). Brain:
+`python3 -m unittest discover -t . -s evals` and `... -s demo` (**85 + 70**).
+
+## 6. Secrets & credentials
+- **Where they live now:** for the hosted brain, secrets are set in the **Render
+  dashboard** as env vars (`render.yaml` marks them `sync:false`, never committed):
+  `GROQ_API_KEY`, `GEMINI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
+  `GH_TOKEN`, `ICARUS_PUBLIC_URL`. Local dev still reads a gitignored `.env`.
+- **GitHub client secret: rotated this session** (the rotation-mismatch was what
+  broke sign-in — see §10). The Render value now matches the OAuth app whose
+  **Client ID is `Ov23liVZXvv6V5vX2x1Y`** (Client ID is public; the secret is not).
+- **Still verify:** if the **Groq/Gemini keys** exposed in an earlier transcript
+  were not yet rotated, do so and update Render. `.env` is gitignored + the
+  pre-commit hook blocks staged secrets, so nothing secret is in git.
 
 ## 7. What is NOT done (next work)
 1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
    biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated
    prompts) and (b) lets the app open on someone else's Mac. Enrollment has lead
    time — start it before any investor touches the binary.
-2. **Rotate the exposed keys** (see §6) — the one real security to-do.
-3. **Push to a git remote** if you want `main` off this machine (none is
-   configured; `.env` stays local/gitignored). The merge to `main` itself is DONE.
+2. **Rotate any remaining exposed keys** (see §6) — the GitHub client secret is
+   done; confirm Groq/Gemini.
+3. **Harden the hosted brain if it goes beyond a controlled demo:** no rate-limiting
+   today (auth is the only lever — don't post the URL publicly); the free instance
+   sleeps; repo-switching ingests arbitrary public repos on the server (prompt-
+   injection surface, disclosed). The OAuth CSRF state is in-memory (see §10).
 4. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
 5. **Persist the connected repo** across launches (login persists; the repo does
-   not — you reconnect each launch).
+   not — you reconnect each launch). Also survives a Render restart poorly (in-memory).
 6. **Record the demo** (A6; script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
 7. **Private repos, multi-repo, non-GitHub sources, stale-decision detection** —
    post-v1 roadmap, gated/deferred.
+
+**DONE this session:** cloud deployment (Render), shareable DMG, and the git remote
+(`alankritxghosh/Icarus`, private) — the app is now downloadable and works end-to-end.
 
 ## 8. Security posture (this session)
 - Brain: loopback Host/Origin guard, 64 KB body cap, optional GitHub bearer gate
@@ -195,6 +225,27 @@ Tests: `cd mac/Icarus && swift test` (30). Brain:
 - **`swift test`** must be run, not `unittest discover` for Python without `-t .`
   (relative imports need the repo root as top-level).
 
+**Cloud / distribution gotchas (new this session):**
+- **`incorrect_client_credentials` on sign-in = the Render `GITHUB_CLIENT_SECRET`
+  doesn't match the OAuth app** whose Client ID the brain sends (`Ov23liVZXvv6V5vX2x1Y`).
+  Classic rotate-one-side-not-the-other. The brain now logs the real reason to
+  stderr — look in **Render → Logs** for `github callback failed: <reason>`
+  (`server.py` `_github_callback`). `/auth/github/begin` succeeds even with a wrong
+  secret (only needs it non-empty), so a working authorize URL doesn't prove the secret.
+- **OAuth CSRF `state`/sessions are in-memory.** Any Render redeploy (every env-var
+  save triggers one) or the free-tier ~15-min idle sleep **wipes them mid-sign-in**
+  → "expired." Don't change Render settings while signing in; retry once warm.
+- **Pushing `.github/workflows/*` needs the `workflow` token scope.** `gh`'s default
+  OAuth token lacks it; `gh auth refresh -h github.com -s workflow` fixes it.
+- **Ad-hoc Keychain prompt is a one-time "Always Allow," not a bug.** Run Icarus
+  from **/Applications** (not the DMG/Downloads — App Translocation randomizes the
+  path each launch so "Always Allow" can't stick) and clear quarantine
+  (`xattr -dr com.apple.quarantine /Applications/Icarus.app`). Every rebuild changes
+  the cdhash → one re-prompt. Only notarization removes it entirely.
+- **Render injects `$PORT`** (observed `10000`) and expects `0.0.0.0`; the Dockerfile
+  sets `HOST=0.0.0.0` and `serve()` reads `$PORT`. `ICARUS_ALLOWED_HOSTS=*` opens the
+  Host guard so the Render hostname + health check pass.
+
 ## 11. Key files
 - Brain: `evals/*.py`, `demo/*.py` (incl. `demo/github_oauth.py`, `demo/auth.py`).
 - App: `mac/Icarus/` (SwiftPM) — see §3.
@@ -202,11 +253,12 @@ Tests: `cd mac/Icarus && swift test` (30). Brain:
 - Docs: `docs/plans/`, `docs/decisions/`, `docs/EVALUATION.md`.
 
 ## 12. Git state
-**`main`** and **`mac-app`** both point at the same commit — the session was
-**merged into `main` via fast-forward**. **No git remote is configured (local only)**;
-nothing is pushed. Latest commits (newest first): `b94687f` best-quality answer
-voice, `691ca6f` HANDOFF refresh, `93252aa` Keychain persist + Sign out, `a1ddc35`
-sign-in crash fix, `6e9e072` web GitHub login (app), `4ef199e` web login (brain),
-`dc4fc26` shell as primary window, `490eba2` chromeless title bar, `f4f536a` app
-shell, `2a4e3df` per-commit secrets gate, `5b60db4` brain security hardening. `.env`
-and `.codex/` are untracked (leave them).
+**`main`** is now pushed to a **GitHub remote: `origin` → `alankritxghosh/Icarus`
+(private)** — the repo is no longer local-only (Render deploys from it). Latest
+commits (newest first): `8d891ab` log the real GitHub-callback failure reason,
+`6024581` host the brain on Render + package a shareable DMG, `25ed8f0` HANDOFF
+refresh, `b94687f` best-quality answer voice, `93252aa` Keychain persist + Sign out,
+`6e9e072`/`4ef199e` web GitHub login (app/brain), `dc4fc26` shell as primary window.
+`.env` and `.codex/` are untracked (leave them); `Icarus.app`/`Icarus.dmg` are
+gitignored build artifacts. The old `mac-app` branch still exists locally (same
+history line).
