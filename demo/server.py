@@ -16,6 +16,7 @@ Public repos only on free hosted models. Run: GROQ_API_KEY=... python3 -m demo.s
 import json
 import os
 import re
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -145,7 +146,11 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
             state = (q.get("state") or [""])[0]
             try:
                 session_id = oauth.complete(state, code)
-            except Exception:
+            except Exception as e:
+                # Surface the cause in the server log (safe: GitHub's error string
+                # or "unknown/expired state" — never the code or client secret) so a
+                # failed sign-in is diagnosable instead of a silent generic message.
+                print(f"github callback failed: {e!r}", file=sys.stderr, flush=True)
                 self._send(400, b"Sign-in failed or expired. Close this window and try again.",
                            "text/html; charset=utf-8")
                 return
