@@ -2,9 +2,10 @@ import Foundation
 
 /// Abstracts the system web-auth sheet (ASWebAuthenticationSession) so the login
 /// orchestration is testable. The real implementation lives in the app target;
-/// tests use a stub. Main-actor: the sheet must be presented on the main thread.
-@MainActor
-public protocol WebAuthenticating {
+/// tests use a stub. NOT main-actor: ASWebAuthenticationSession's completion
+/// handler fires on a background thread, so the conformer must present on main
+/// itself and keep the completion callback non-isolated (`@Sendable`).
+public protocol WebAuthenticating: Sendable {
     /// Present a web auth sheet at `url` and capture the redirect to
     /// `callbackScheme` (e.g. "icarus"). Returns the full callback URL.
     func authenticate(url: URL, callbackScheme: String) async throws -> URL
