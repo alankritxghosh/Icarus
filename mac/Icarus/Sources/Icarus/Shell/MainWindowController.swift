@@ -19,7 +19,12 @@ final class MainWindowController {
             let w = NSWindow(contentViewController: hosting)
             w.title = "Icarus"
             w.setContentSize(NSSize(width: 1180, height: 760))
-            w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            // Chromeless title bar: content fills the window and the traffic-light
+            // buttons float over the sidebar, so there's one set of dots, not two.
+            w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            w.titlebarAppearsTransparent = true
+            w.titleVisibility = .hidden
+            w.isMovableByWindowBackground = true
             w.isReleasedWhenClosed = false
             w.center()
             window = w

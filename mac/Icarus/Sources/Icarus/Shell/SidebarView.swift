@@ -9,16 +9,13 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 7) {
-                dot(0xE6675A); dot(0xE6B24A); dot(0x57B85B)
-            }
-            .padding(.leading, 4).padding(.top, 2)
-
+            // Top inset clears the real macOS traffic-light buttons, which now
+            // float over the sidebar (the window's own title bar is hidden).
             HStack(alignment: .bottom, spacing: 9) {
                 MarkView(height: 26)
                 Text("Icarus").font(.system(size: 19, weight: .semibold)).foregroundStyle(Theme.ink)
             }
-            .padding(.leading, 4).padding(.top, 22).padding(.bottom, 24)
+            .padding(.leading, 4).padding(.top, 30).padding(.bottom, 24)
 
             VStack(spacing: 3) {
                 ForEach(ShellSurface.allCases) { s in
@@ -42,9 +39,5 @@ struct SidebarView: View {
         .frame(width: 210)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(hex: 0xF2F0E9))
-    }
-
-    private func dot(_ hex: UInt32) -> some View {
-        Circle().fill(Color(hex: hex)).frame(width: 11, height: 11)
     }
 }
