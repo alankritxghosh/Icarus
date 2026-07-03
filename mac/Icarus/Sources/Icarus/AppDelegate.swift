@@ -27,19 +27,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let history = AskHistory()
     private lazy var status = StatusModel(client: BrainClient(token: tokenReader))
     private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: tokenReader, history: history)
-    private lazy var onboarding = OnboardingWindowController(auth: auth, connect: connect)
-    /// Additive full-app shell window (Phase B). Opens from the menu bar; the
-    /// existing onboarding + overlay stay intact until the shell is promoted.
+    /// The primary window: the full app shell. Sign-in + connect are folded into
+    /// Home's setup gate, so there's no separate onboarding window.
     private lazy var shell = MainWindowController {
-        ShellView(history: self.history, status: self.status,
+        ShellView(auth: self.auth, connect: self.connect,
+                  history: self.history, status: self.status,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
     /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.
     private var pushToTalk: PushToTalkMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A real app: Dock icon + a visible window, plus a menu-bar item and the
-        // hotkey overlay. (Onboarding/setup wants a window; Q&A stays an overlay.)
+        // A real app: Dock icon + the shell window, plus a menu-bar item and the
+        // ⌘⇧I ask overlay. (Setup is folded into the shell's Home gate; Q&A stays
+        // an overlay.)
         NSApp.setActivationPolicy(.regular)
         NSApp.applicationIconImage = IconArt.appIcon()   // Signal Spine in the Dock
 
@@ -47,7 +48,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = IconArt.menuBarGlyph()   // monochrome menu-bar mark
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Icarus", action: #selector(openWindow), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Open shell (preview)", action: #selector(openShell), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Ask… (⌘⇧I)", action: #selector(ask), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Icarus",
@@ -73,17 +73,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ptt.start()
         pushToTalk = ptt
 
-        // The first screen: the onboarding window.
-        onboarding.show()
+        // The first screen: the app shell (its Home surface gates on sign-in + connect).
+        shell.show()
     }
 
     /// Re-open the window when the user clicks the Dock icon with no window visible.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { onboarding.show() }
+        if !flag { shell.show() }
         return true
     }
 
-    @objc private func openWindow() { onboarding.show() }
-    @objc private func openShell() { shell.show() }
+    @objc private func openWindow() { shell.show() }
     @objc private func ask() { overlay.toggle() }
 }

@@ -1,35 +1,22 @@
 import SwiftUI
 import IcarusKit
 
-/// The app's first screen, in a real window, styled to "Quiet Native Memory v2":
-/// Welcome → Sign in with GitHub → connect a public repo. GitHub is the login —
-/// there is no separate Icarus account.
-struct OnboardingView: View {
+/// The in-shell setup gate, shown on Home until a repo is connected: sign in with
+/// GitHub, then connect a public repo. Replaces the old separate onboarding window
+/// (folded into the shell). Drives the same shared `AuthModel` / `ConnectModel`.
+struct SetupView: View {
     @Bindable var auth: AuthModel
     @Bindable var connect: ConnectModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
-            Rectangle().fill(Theme.border).frame(height: 1)
-            content
-            Spacer(minLength: 0)
-        }
-        .padding(28)
-        .frame(width: 520, height: 460, alignment: .topLeading)
-        .background(Theme.surface)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Icarus").font(.system(size: 34, weight: .bold)).foregroundStyle(Theme.ink)
-            Text("Ask your codebase anything — and get an honest answer, with citations.")
-                .font(.system(size: 15)).foregroundStyle(Theme.muted)
+        VStack(alignment: .leading, spacing: 16) {
+            surfaceTitle("Welcome to Icarus",
+                         "Sign in with GitHub, connect a public repo, and start asking why.")
+            ShellCard { content }.frame(maxWidth: 620)
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
+    @ViewBuilder private var content: some View {
         switch auth.state {
         case .signedOut:
             signIn(message: nil)
@@ -38,23 +25,22 @@ struct OnboardingView: View {
         case .requesting:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Contacting GitHub…").font(.system(size: 15)).foregroundStyle(Theme.muted)
+                Text("Contacting GitHub…").font(.system(size: 14)).foregroundStyle(Theme.muted)
             }
         case .awaitingApproval(let code, let uri):
             awaitingApproval(code: code, uri: uri)
         case .signedIn:
-            signedIn()
+            connectRepo()
         }
     }
 
-    @ViewBuilder
-    private func signIn(message: String?) -> some View {
+    @ViewBuilder private func signIn(message: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             MonoLabel("STEP 1 — CONNECT GITHUB")
             Text("Sign in with GitHub to load a public repository. Your code is never trained on.")
-                .font(.system(size: 15)).foregroundStyle(Theme.muted)
+                .font(.system(size: 14)).foregroundStyle(Theme.muted)
             if let message {
-                Text(message).font(.system(size: 14)).foregroundStyle(Theme.unknown)
+                Text(message).font(.system(size: 13)).foregroundStyle(Theme.unknown)
             }
             if !auth.isConfigured {
                 Text("Developer setup: set ICARUS_GH_CLIENT_ID to your OAuth App Client ID, then relaunch.")
@@ -66,16 +52,12 @@ struct OnboardingView: View {
         }
     }
 
-    @ViewBuilder
-    private func awaitingApproval(code: String, uri: String) -> some View {
+    @ViewBuilder private func awaitingApproval(code: String, uri: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            MonoLabel("STEP 2 — ENTER THIS CODE ON GITHUB")
-            Text(code)
-                .font(Theme.mono(40, .bold))
-                .foregroundStyle(Theme.ink)
-                .textSelection(.enabled)
-            Text("Your browser opened to GitHub and the code is on your clipboard. Paste it there to authorize — this window updates automatically.")
-                .font(.system(size: 14)).foregroundStyle(Theme.muted)
+            MonoLabel("STEP 1 — ENTER THIS CODE ON GITHUB")
+            Text(code).font(Theme.mono(40, .bold)).foregroundStyle(Theme.ink).textSelection(.enabled)
+            Text("Your browser opened to GitHub and the code is on your clipboard. Paste it there to authorize — this updates automatically.")
+                .font(.system(size: 13)).foregroundStyle(Theme.muted)
             HStack(spacing: 14) {
                 if let url = URL(string: uri) {
                     Link("Reopen GitHub", destination: url).foregroundStyle(Theme.accent)
@@ -85,8 +67,7 @@ struct OnboardingView: View {
         }
     }
 
-    @ViewBuilder
-    private func signedIn() -> some View {
+    @ViewBuilder private func connectRepo() -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Signed in to GitHub", systemImage: "checkmark.seal.fill")
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
@@ -115,13 +96,11 @@ struct OnboardingView: View {
                     Text("Indexing \(repo)…").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
             case .ready(let repo):
-                Text("✓ Loaded \(repo). Press ⌘⇧I anywhere to ask.")
-                    .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
+                Text("✓ Loaded \(repo).").font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
             case .failed(let message):
                 Text(message).font(.system(size: 14)).foregroundStyle(Theme.unknown)
             }
 
-            Spacer(minLength: 0)
             Button("Sign out") { auth.signOut() }.buttonStyle(.plain).foregroundStyle(Theme.muted)
         }
     }

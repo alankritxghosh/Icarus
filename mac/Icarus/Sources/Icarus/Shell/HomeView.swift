@@ -5,11 +5,23 @@ import IcarusKit
 /// session cited-rate), recent asks (real, with honest empty state), and the proof
 /// drawer (the last real answer's receipts). No fabricated numbers or history.
 struct HomeView: View {
+    let auth: AuthModel
+    let connect: ConnectModel
     let history: AskHistory
     let status: StatusModel
     let onTryQuestion: () -> Void
 
     var body: some View {
+        // Until a repo is connected (which also requires signing in), Home is the
+        // setup gate; once ready, it's the dashboard. No separate onboarding window.
+        if connect.isReady {
+            dashboard
+        } else {
+            SetupView(auth: auth, connect: connect)
+        }
+    }
+
+    private var dashboard: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             HStack(alignment: .top, spacing: 16) {

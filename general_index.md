@@ -217,9 +217,7 @@ removing, or renaming files). For class/function-level detail see
 - `IcarusApp.swift` — `@main`; no window, delegates to `AppDelegate`.
 - `AppDelegate.swift` — app wiring: activation policy, menu-bar item, hotkey,
   push-to-talk, shared models (auth/connect/voice/history/status), and the
-  additive shell window.
-- `OnboardingWindowController.swift` / `OnboardingView.swift` — the setup window
-  (Sign in with GitHub → connect a public repo).
+  primary shell window (setup is folded into its Home gate).
 - `OverlayController.swift` — owns the ⌘⇧I ask overlay + ask/voice/speak wiring;
   records each ask into the shared `AskHistory`.
 - `FloatingPanel.swift` — a translucent, non-activating, chromeless `NSPanel` that
@@ -239,18 +237,24 @@ removing, or renaming files). For class/function-level detail see
 - `Speaker.swift` — `AVSpeechSynthesizer`; speaks the answer and the honest
   unknown, with barge-in.
 
-### mac/Icarus/Sources/Icarus/Shell (the full app shell — Phase B)
-- `ShellView.swift` — sidebar + content router across the five surfaces.
-- `SidebarView.swift` — brand mark, nav rows, and the real connected-repo footer.
-- `HomeView.swift` — hero (real ⌥ trigger), metrics (real `/status` counts +
-  session cited-rate), recent asks, and the proof drawer — all real/honest data.
+### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
+- `ShellView.swift` — sidebar + content router across the five surfaces (passes
+  auth/connect through to Home for its setup gate).
+- `SidebarView.swift` — brand mark, nav rows, and the real connected-repo footer
+  (the real macOS traffic-lights float over its top; no decorative dupes).
+- `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
+  the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
+  cited-rate), recent asks, and the proof drawer — all real/honest data.
+- `SetupView.swift` — the in-shell setup gate (Sign in with GitHub → connect a
+  public repo), driving the shared `AuthModel`/`ConnectModel`. Replaces the old
+  separate onboarding window.
 - `ShellSurfaces.swift` — Decision history, Unknowns, Privacy boundary (true
   claims), and Ask-by-voice surfaces, with honest empty states.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
   `VerdictPill`, `HistoryRow`, `ShellCard`).
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
-- `MainWindowController.swift` — hosts the shell in a standard window (additive;
-  opened from the menu bar until promoted to primary).
+- `MainWindowController.swift` — hosts the shell as the primary window with a
+  chromeless (transparent, full-size-content) title bar.
 
 ### mac/Icarus/Tests/IcarusKitTests
 - `GitHubAuthTests.swift` — device-code decode + `parsePoll` outcomes (fail-safe).
