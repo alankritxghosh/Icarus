@@ -6,6 +6,7 @@ import IcarusKit
 struct SidebarView: View {
     @Binding var selected: ShellSurface
     let status: StatusModel
+    @Bindable var auth: AuthModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -32,6 +33,14 @@ struct SidebarView: View {
                     .padding(.top, 3)
                 Text("Zero training on code")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                if auth.isSignedIn {
+                    Button("Sign out") { auth.signOut() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.muted)
+                        .padding(.top, 8)
+                        .help("Sign out to use another GitHub account")
+                }
             }
             .padding(.leading, 4)
         }

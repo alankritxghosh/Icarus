@@ -12,9 +12,9 @@ struct HomeView: View {
     let onTryQuestion: () -> Void
 
     var body: some View {
-        // Until a repo is connected (which also requires signing in), Home is the
-        // setup gate; once ready, it's the dashboard. No separate onboarding window.
-        if connect.isReady {
+        // Signed in AND a repo connected → the dashboard; otherwise the setup gate.
+        // (Both checks so Sign out drops straight back to the gate.)
+        if auth.isSignedIn && connect.isReady {
             dashboard
         } else {
             SetupView(auth: auth, connect: connect)

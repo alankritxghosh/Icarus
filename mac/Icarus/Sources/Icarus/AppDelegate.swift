@@ -10,10 +10,10 @@ extension KeyboardShortcuts.Name {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    /// One in-memory token store, shared everywhere so the token has a single source
-    /// of truth. In memory only — no Keychain, no disk; quit = signed out. The
-    /// BrainClient reads it to authorize /ask and /connect.
-    private let tokenStore: TokenStore = InMemoryTokenStore()
+    /// One Keychain-backed token store, shared everywhere so the token has a single
+    /// source of truth. Persists across launches — sign in once per device — and the
+    /// BrainClient reads it to authorize /ask and /connect. Sign out deletes it.
+    private let tokenStore: TokenStore = KeychainTokenStore()
     /// A thread-safe reader for the current token, for the Authorization header.
     private lazy var tokenReader: @Sendable () -> String? = { [tokenStore] in
         (try? tokenStore.load()) ?? nil

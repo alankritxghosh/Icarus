@@ -32,7 +32,10 @@ final class AppleWebAuth: NSObject, WebAuthenticating, ASWebAuthenticationPresen
                 let s = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme,
                                                    completionHandler: handler)
                 s.presentationContextProvider = self
-                s.prefersEphemeralWebBrowserSession = false  // reuse the GitHub session
+                // Ephemeral: no shared cookies, so each sign-in lets the user pick a
+                // GitHub account (matters after Sign out → use another account). The
+                // token is persisted by us, so a fresh login only happens rarely.
+                s.prefersEphemeralWebBrowserSession = true
                 self.session = s                              // retain until it completes
                 if !s.start() {
                     cont.resume(throwing: WebAuthError.failed("Couldn't open the sign-in sheet."))

@@ -213,8 +213,8 @@ removing, or renaming files). For class/function-level detail see
   from a shared token; injectable URLSession.
 - `WebAuth.swift` — the `WebAuthenticating` protocol (abstracts the auth sheet) +
   `parseCallbackSession` (pull the one-time session id from the `icarus://` URL).
-- `TokenStore.swift` — the token-store protocol + the in-memory store (now the
-  real store — the token lives in memory only, no Keychain).
+- `TokenStore.swift` — the token-store protocol + an in-memory test double (the
+  real store is `KeychainTokenStore`).
 - `SpeechRecognizer.swift` — streaming speech-to-text protocol + a stub.
 - `VoiceModel.swift` — `@Observable` push-to-talk orchestrator: live
   `partialTranscript`, silence → empty → not emitted.
@@ -233,10 +233,13 @@ removing, or renaming files). For class/function-level detail see
   floats above other apps (hidden transparent title bar).
 - `OverlayView.swift` — the overlay UI: question, cited answer, honest unknown.
 - `AskModel.swift` / `AuthModel.swift` / `ConnectModel.swift` — `@Observable`
-  state for asking, GitHub web login (in-memory token), and repo connect (shared
-  via `AppDelegate`).
-- `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login
-  in a secure sheet, captures the `icarus://` callback); no Keychain, no scheme reg.
+  state for asking, GitHub web login (Keychain-persisted token), and repo connect
+  (shared via `AppDelegate`).
+- `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login,
+  captures the `icarus://` callback); ephemeral browser session so Sign out → pick
+  another GitHub account. Completion handler is non-isolated (fires off-main).
+- `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
+  Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
 - `IconArt.swift` — the Signal Spine app icon + menu-bar glyph in Core Graphics.
 - `Theme.swift` — the "Quiet Native Memory v2" tokens + shared views
   (`MonoLabel`, `CitationChip`, `PrimaryButton`, `FlowLayout`).
@@ -250,8 +253,9 @@ removing, or renaming files). For class/function-level detail see
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
 - `ShellView.swift` — sidebar + content router across the five surfaces (passes
   auth/connect through to Home for its setup gate).
-- `SidebarView.swift` — brand mark, nav rows, and the real connected-repo footer
-  (the real macOS traffic-lights float over its top; no decorative dupes).
+- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer, and
+  a Sign out control (shown when signed in). Real macOS traffic-lights float over
+  its top; no decorative dupes.
 - `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
   the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
   cited-rate), recent asks, and the proof drawer — all real/honest data.
