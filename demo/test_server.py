@@ -344,5 +344,76 @@ class AuthGateTests(unittest.TestCase):
             self.assertEqual(resp.status, 200)
 
 
+class GitHubLoginEndpointTests(unittest.TestCase):
+    """The web-login endpoints: begin → callback (302 to icarus://) → redeem.
+    Offline: the token exchange is faked."""
+
+    @classmethod
+    def setUpClass(cls):
+        from .github_oauth import OAuthFlow
+
+        def fake_exchange(code, *, client_id, client_secret, redirect_uri):
+            return f"tok-{code}"
+
+        cls.flow = OAuthFlow("cid", "secret", "http://127.0.0.1:8000/auth/github/callback",
+                             exchanger=fake_exchange)
+        cls.fx = _ServerFixture(_StubLibrary(), oauth=cls.flow)
+        cls.base, cls.port = cls.fx.base, cls.fx.port
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.fx.close()
+
+    def _begin(self):
+        req = urllib.request.Request(self.base + "/auth/github/begin", data=b"{}",
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())["authorize_url"]
+
+    def test_begin_returns_github_authorize_url(self):
+        url = self._begin()
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("state=", url)
+
+    def test_full_flow_begin_callback_redeem(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(urlparse(self._begin()).query)["state"][0]
+
+        # Callback: 302 to icarus://auth?session=... (don't follow the custom scheme).
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODE9&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertTrue(loc.startswith("icarus://auth?session="))
+        session = parse_qs(urlparse(loc).query)["session"][0]
+
+        # Redeem the session id for the token (single-use).
+        req = urllib.request.Request(self.base + "/auth/github/redeem",
+                                     data=json.dumps({"session": session}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(json.loads(resp.read())["token"], "tok-CODE9")
+
+    def test_redeem_unknown_session_is_404(self):
+        req = urllib.request.Request(self.base + "/auth/github/redeem",
+                                     data=json.dumps({"session": "nope"}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 404)
+        cm.exception.close()
+
+    def test_callback_bad_state_is_400(self):
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", "/auth/github/callback?code=X&state=forged")
+        r = conn.getresponse()
+        r.read(); conn.close()
+        self.assertEqual(r.status, 400)
+
+
 if __name__ == "__main__":
     unittest.main()

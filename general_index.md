@@ -170,16 +170,23 @@ removing, or renaming files). For class/function-level detail see
 - `demo/auth.py` — bearer-token auth for the brain: `bearer_token`,
   `GitHubTokenVerifier` (validates against GitHub `/user`, cached, fail-safe),
   and `StaticTokenVerifier` (test double). Enforced only in the auth mode.
+- `demo/github_oauth.py` — server-side GitHub web-login flow: `authorize_url`,
+  `exchange_code` (uses the client SECRET, injectable opener), and `OAuthFlow`
+  (single-use state/session, TTL). The secret lives only here, never in the app.
 - `demo/server.py` — stdlib `http.server` over a `Library`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, optional GitHub bearer on
-  `/ask`+`/connect`), `resolve_provenance`, `serve` (ThreadingHTTPServer, loads
-  `.env`). `GET /`,`/health`,`/status`; `POST /ask`,`/connect`.
+  `/ask`+`/connect`, web-login endpoints), `resolve_provenance`, `serve`
+  (ThreadingHTTPServer, loads `.env`). `GET /`,`/health`,`/status`,
+  `/auth/github/callback`; `POST /ask`,`/connect`,`/auth/github/begin`,
+  `/auth/github/redeem`.
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, and an `owner/repo` connect control; vanilla `fetch`.
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing and the GitHub
   verifier's cache + network-error fail-safe (offline).
+- `demo/test_github_oauth.py` — the web-login flow: authorize-url building, offline
+  token exchange, and the single-use state/session lifecycle.
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
   single-flight concurrent connect, and generic (non-leaking) ingest errors.
 - `demo/test_server.py` — routing against a stub library, plus the Origin guard

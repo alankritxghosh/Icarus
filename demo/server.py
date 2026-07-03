@@ -19,7 +19,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from evals.corpus_meta import load_meta
 from evals.env_file import load_env_file
@@ -27,6 +27,7 @@ from evals.env_file import load_env_file
 from .payload import build_payload
 from .library import Library
 from .auth import bearer_token, GitHubTokenVerifier
+from . import github_oauth
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
@@ -39,12 +40,13 @@ INDEX_HTML = ROOT / "index.html"
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def make_handler(library, html_path: str, require_auth: bool = False, verifier=None):
+def make_handler(library, html_path: str, require_auth: bool = False, verifier=None, oauth=None):
     """Build a request handler bound to a Library (the active-repo state).
 
     `require_auth` gates /ask and /connect behind a valid GitHub bearer token
     (verified by `verifier`); the plain web demo leaves it False and relies on
-    the loopback bind + Host/Origin guard.
+    the loopback bind + Host/Origin guard. `oauth` (an OAuthFlow) enables the web
+    GitHub login endpoints; None leaves them off.
     """
 
     class Handler(BaseHTTPRequestHandler):
@@ -95,15 +97,38 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
             if not self._authorized():
                 self._send_json(403, {"error": "forbidden"})
                 return
-            if self.path == "/":
+            route = urlparse(self.path).path
+            if route == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
-            elif self.path == "/health":
+            elif route == "/health":
                 repo, commit = library.provenance()
                 self._send_json(200, {"ok": True, "repo": repo, "commit": commit})
-            elif self.path == "/status":
+            elif route == "/status":
                 self._send_json(200, library.status_snapshot())
+            elif route == "/auth/github/callback":
+                self._github_callback()
             else:
                 self._send_json(404, {"error": "not found"})
+
+        def _github_callback(self):
+            """GitHub's redirect lands here (inside the app's auth sheet). Exchange
+            the code, then 302 to the app's `icarus://` scheme so the sheet closes."""
+            if oauth is None or not oauth.configured:
+                self._send(503, b"GitHub login is not configured.", "text/plain; charset=utf-8")
+                return
+            q = parse_qs(urlparse(self.path).query)
+            code = (q.get("code") or [""])[0]
+            state = (q.get("state") or [""])[0]
+            try:
+                session_id = oauth.complete(state, code)
+            except Exception:
+                self._send(400, b"Sign-in failed or expired. Close this window and try again.",
+                           "text/html; charset=utf-8")
+                return
+            self.send_response(302)
+            self.send_header("Location", f"icarus://auth?session={session_id}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def do_POST(self):
             if not self._authorized():
@@ -112,6 +137,29 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length > self._MAX_BODY:
                 self._send_json(413, {"error": "request too large"})
+                return
+            # Auth endpoints must be reachable WITHOUT a token (you POST here to get one).
+            if self.path == "/auth/github/begin":
+                if oauth is None or not oauth.configured:
+                    self._send_json(503, {"error": "github login not configured"})
+                    return
+                _, url = oauth.begin()
+                self._send_json(200, {"authorize_url": url})
+                return
+            if self.path == "/auth/github/redeem":
+                if oauth is None:
+                    self._send_json(503, {"error": "github login not configured"})
+                    return
+                try:
+                    session = self._body().get("session")
+                except (ValueError, AttributeError):
+                    self._send_json(400, {"error": "missing session"})
+                    return
+                token = oauth.redeem(session) if session else None
+                if not token:
+                    self._send_json(404, {"error": "unknown or used session"})
+                    return
+                self._send_json(200, {"token": token})
                 return
             if not self._authenticated():
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
@@ -161,10 +209,18 @@ def serve(host: str = "127.0.0.1", port: int = 8000):
     library = Library(CORPUS_DIR, CACHE_ROOT, default_repo)
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
-    handler = make_handler(library, str(INDEX_HTML), require_auth=require_auth, verifier=verifier)
+    # Web GitHub login: enabled only when the client id + secret are configured.
+    oauth = None
+    cid, secret = os.environ.get("GITHUB_CLIENT_ID"), os.environ.get("GITHUB_CLIENT_SECRET")
+    if cid and secret:
+        oauth = github_oauth.OAuthFlow(cid, secret, f"http://{host}:{port}/auth/github/callback")
+    handler = make_handler(library, str(INDEX_HTML), require_auth=require_auth,
+                           verifier=verifier, oauth=oauth)
     httpd = ThreadingHTTPServer((host, port), handler)
     auth_note = "GitHub bearer required" if require_auth else "open (loopback only)"
-    print(f"Icarus demo on http://{host}:{port}  (corpus: {default_repo} @ {commit[:12]}; auth: {auth_note})")
+    login_note = "web login on" if oauth else "web login off (set GITHUB_CLIENT_ID/SECRET)"
+    print(f"Icarus demo on http://{host}:{port}  (corpus: {default_repo} @ {commit[:12]}; "
+          f"auth: {auth_note}; {login_note})")
     print("Type any public owner/repo in the app to switch. Ctrl-C to stop.")
     try:
         httpd.serve_forever()
