@@ -5,3 +5,6 @@ Icarus/.build/
 
 # Assembled app bundle (produced by scripts/bundle.sh)
 Icarus/Icarus.app/
+
+# Distributable disk image (produced by scripts/package_dmg.sh)
+Icarus/Icarus.dmg

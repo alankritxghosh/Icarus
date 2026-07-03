@@ -61,7 +61,7 @@ struct OverlayView: View {
             case .response(let r):
                 honestUnknown(r)
             case .unreachable:
-                Text("Can't reach the brain. Is it running on 127.0.0.1:8000?")
+                Text("Can't reach Icarus's brain — check your internet connection.")
                     .font(.system(size: 14)).foregroundStyle(Theme.muted)
             }
         }

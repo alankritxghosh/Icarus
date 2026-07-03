@@ -40,17 +40,34 @@ INDEX_HTML = ROOT / "index.html"
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def make_handler(library, html_path: str, require_auth: bool = False, verifier=None, oauth=None):
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def _parse_allowed_hosts(raw):
+    """Parse ICARUS_ALLOWED_HOSTS (comma-separated) into a set, or None for the
+    loopback-only default. A '*' entry means "trust the platform's TLS proxy and
+    rely on the GitHub bearer gate" — used when the brain runs in the cloud."""
+    if not raw:
+        return None
+    hosts = {h.strip() for h in raw.split(",") if h.strip()}
+    return hosts or None
+
+
+def make_handler(library, html_path: str, require_auth: bool = False, verifier=None,
+                 oauth=None, allowed_hosts=None):
     """Build a request handler bound to a Library (the active-repo state).
 
     `require_auth` gates /ask and /connect behind a valid GitHub bearer token
     (verified by `verifier`); the plain web demo leaves it False and relies on
     the loopback bind + Host/Origin guard. `oauth` (an OAuthFlow) enables the web
-    GitHub login endpoints; None leaves them off.
+    GitHub login endpoints; None leaves them off. `allowed_hosts` overrides the
+    loopback-only Host allow-list (a set); include '*' to accept any Host/Origin
+    (cloud mode — the bearer gate becomes the real boundary). None = loopback only.
     """
+    hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
+    wildcard = "*" in hosts
 
     class Handler(BaseHTTPRequestHandler):
-        _ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
         _MAX_BODY = 64 * 1024
 
         def log_message(self, fmt, *args):  # keep the console quiet
@@ -75,14 +92,21 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
         def _authorized(self) -> bool:
             """Loopback-only Host + same-origin (when a browser sends Origin).
             Defeats DNS rebinding (attacker's hostname in Host) and cross-site
-            POST from a website (attacker's Origin)."""
+            POST from a website (attacker's Origin).
+
+            In cloud mode (allowed_hosts contains '*') this check is skipped: the
+            platform terminates TLS on a hostname we don't control, and /ask +
+            /connect are already gated by the GitHub bearer token — which a cross-
+            site script cannot forge — so the Host/Origin guard adds nothing."""
+            if wildcard:
+                return True
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
-            if host not in self._ALLOWED_HOSTS:
+            if host not in hosts:
                 return False
             origin = self.headers.get("Origin")
             if origin is not None:
                 oh = urlparse(origin).hostname or ""
-                if oh not in self._ALLOWED_HOSTS:
+                if oh not in hosts:
                     return False
             return True
 
@@ -203,24 +227,39 @@ def resolve_provenance(meta_path, questions_path):
     return corpus["repo"], corpus["commit"]
 
 
-def serve(host: str = "127.0.0.1", port: int = 8000):
+def serve(host: str = None, port: int = None):
     load_env_file(REPO_ROOT / ".env")  # pick up keys from a gitignored .env
+    # Bind from env so a PaaS (e.g. Render injects $PORT) can place us; loopback
+    # defaults keep local dev unchanged.
+    host = host if host is not None else os.environ.get("HOST", "127.0.0.1")
+    port = int(port) if port is not None else int(os.environ.get("PORT", "8000"))
     default_repo, commit = resolve_provenance(CORPUS_META, QUESTIONS)
     library = Library(CORPUS_DIR, CACHE_ROOT, default_repo)
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
+    allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
+    # OAuth callback: a public HTTPS URL when hosted (ICARUS_PUBLIC_URL), else the
+    # loopback callback for local dev. GitHub must have this exact URL registered.
+    public_url = os.environ.get("ICARUS_PUBLIC_URL")
+    callback_base = public_url.rstrip("/") if public_url else f"http://{host}:{port}"
     # Web GitHub login: enabled only when the client id + secret are configured.
     oauth = None
     cid, secret = os.environ.get("GITHUB_CLIENT_ID"), os.environ.get("GITHUB_CLIENT_SECRET")
     if cid and secret:
-        oauth = github_oauth.OAuthFlow(cid, secret, f"http://{host}:{port}/auth/github/callback")
+        oauth = github_oauth.OAuthFlow(cid, secret, f"{callback_base}/auth/github/callback")
     handler = make_handler(library, str(INDEX_HTML), require_auth=require_auth,
-                           verifier=verifier, oauth=oauth)
+                           verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts)
     httpd = ThreadingHTTPServer((host, port), handler)
+    if allowed_hosts and "*" in allowed_hosts:
+        host_note = "any host (cloud: relies on the bearer gate)"
+    elif allowed_hosts:
+        host_note = "hosts: " + ",".join(sorted(allowed_hosts))
+    else:
+        host_note = "loopback only"
     auth_note = "GitHub bearer required" if require_auth else "open (loopback only)"
     login_note = "web login on" if oauth else "web login off (set GITHUB_CLIENT_ID/SECRET)"
     print(f"Icarus demo on http://{host}:{port}  (corpus: {default_repo} @ {commit[:12]}; "
-          f"auth: {auth_note}; {login_note})")
+          f"{host_note}; auth: {auth_note}; {login_note})")
     print("Type any public owner/repo in the app to switch. Ctrl-C to stop.")
     try:
         httpd.serve_forever()

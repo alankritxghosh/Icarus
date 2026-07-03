@@ -19,14 +19,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (try? tokenStore.load()) ?? nil
     }
     /// Auth (web GitHub login) + repo connection, shared by the shell and overlay.
-    private lazy var auth = AuthModel(store: tokenStore, client: BrainClient(), webAuth: AppleWebAuth())
-    private lazy var connect = ConnectModel(client: BrainClient(token: tokenReader))
+    private lazy var auth = AuthModel(store: tokenStore, client: BrainClient(base: AppConfig.brainBaseURL), webAuth: AppleWebAuth())
+    private lazy var connect = ConnectModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
     /// Voice-in: real-time on-device streaming via Apple's Speech framework.
     private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
     /// The real in-session ask record, shared by the overlay (which records into it)
     /// and the shell window (which displays it).
     private let history = AskHistory()
-    private lazy var status = StatusModel(client: BrainClient(token: tokenReader))
+    private lazy var status = StatusModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
     private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: tokenReader, history: history)
     /// The primary window: the full app shell. Sign-in + connect are folded into
     /// Home's setup gate, so there's no separate onboarding window.

@@ -25,7 +25,7 @@ final class OverlayController {
         self.auth = auth
         self.connect = connect
         self.voice = voice
-        self.model = AskModel(client: BrainClient(token: tokenReader))
+        self.model = AskModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
         self.model.history = history   // asks flow into the shared shell history
         // Speech becomes the exact same question a user would type, then submits.
         self.voice.onTranscript = { [weak self] text in

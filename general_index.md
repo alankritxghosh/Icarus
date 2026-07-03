@@ -20,6 +20,14 @@ removing, or renaming files). For class/function-level detail see
 - `.env.example` — committed template (NO real keys) to copy to a gitignored
   `.env`; the brain/eval harness load it on startup for provider keys.
 
+## Cloud deployment (host the brain on Render)
+- `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
+  repo-switch ingest), runs `python -m demo.server`; binds `0.0.0.0`/`$PORT`.
+- `render.yaml` — Render Blueprint: one free Docker web service, `/health` check,
+  `ICARUS_ALLOWED_HOSTS=*` + `ICARUS_REQUIRE_GITHUB_AUTH=1`, secrets as `sync:false`.
+- `.dockerignore` — keeps the image slim (only `evals/`+`demo/`+committed corpus;
+  excludes `mac/`, `.git`, caches, `.env`).
+
 ## Security automation (per-commit + CI)
 - `scripts/scan_secrets.sh` — deterministic secrets scan; `--staged` (pre-commit)
   or tracked-files (CI) mode. Exits non-zero on a provider-token or secret-shaped
@@ -53,6 +61,9 @@ removing, or renaming files). For class/function-level detail see
 - `docs/UI_UX_BRIEF.md` — UI/UX brief and intent behind the app surfaces.
 - `docs/HANDOFF.md` — session handoff: current state, how to run it, what's done
   vs. not, and the gotchas.
+- `docs/DISTRIBUTION.md` — runbook to share Icarus without an Apple Developer ID:
+  host the brain on Render (env vars, OAuth callback), build the DMG, and the
+  recipient's one-time Gatekeeper "Open Anyway" step; lists the demo tradeoffs.
 
 ## docs/decisions/
 - `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md` — the hosting
@@ -204,6 +215,9 @@ removing, or renaming files). For class/function-level detail see
   assembled into `Icarus.app` for TCC.
 - `mac/Icarus/scripts/bundle.sh` — wraps the SwiftPM binary into an ad-hoc-signed
   `Icarus.app` (required for microphone access).
+- `mac/Icarus/scripts/package_dmg.sh` — builds a shareable `Icarus.dmg`: runs
+  `bundle.sh`, stamps `ICARUS_BRAIN_URL` into the bundle Info.plist (re-signs),
+  and lays out a drag-to-Applications DMG with a first-open `READ ME FIRST.txt`.
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
@@ -211,6 +225,9 @@ removing, or renaming files). For class/function-level detail see
 - `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,`/status`,
   `/auth/github/begin`,`/auth/github/redeem`); attaches an `Authorization: Bearer`
   from a shared token; injectable URLSession.
+- `BrainEndpoint.swift` — resolves the brain URL from the bundle's
+  `ICARUS_BRAIN_URL` Info.plist key (stamped at package time → hosted brain),
+  falling back to `127.0.0.1:8000` for dev; pure + unit-tested.
 - `WebAuth.swift` — the `WebAuthenticating` protocol (abstracts the auth sheet) +
   `parseCallbackSession` (pull the one-time session id from the `icarus://` URL).
 - `TokenStore.swift` — the token-store protocol + an in-memory test double (the
@@ -224,6 +241,8 @@ removing, or renaming files). For class/function-level detail see
 
 ### mac/Icarus/Sources/Icarus (the executable app)
 - `IcarusApp.swift` — `@main`; no window, delegates to `AppDelegate`.
+- `AppConfig.swift` — app-wide config; `brainBaseURL` resolves the brain via
+  `BrainEndpoint` over `Bundle.main` (hosted in a shipped build, local otherwise).
 - `AppDelegate.swift` — app wiring: activation policy, menu-bar item, hotkey,
   push-to-talk, shared models (auth/connect/voice/history/status), and the
   primary shell window (setup is folded into its Home gate).
@@ -280,6 +299,8 @@ removing, or renaming files). For class/function-level detail see
 - `BrainClientTests.swift` — the bearer token is sent when present, omitted when
   absent (URLProtocol stub).
 - `ShellNavTests.swift` — the five surfaces' order, titles, and stable ids.
+- `BrainEndpointTests.swift` — `BrainEndpoint.resolve` uses a valid hosted URL,
+  falls back on missing/empty/invalid, and honors an explicit fallback.
 
 ## .claude/agents/ and .codex/agents/
 - `.claude/agents/opus-architect.md` — the opus-architect agent (principal

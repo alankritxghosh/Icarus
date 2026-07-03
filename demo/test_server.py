@@ -237,6 +237,56 @@ class OriginGuardTests(unittest.TestCase):
             self.assertEqual(resp.status, 200)
 
 
+class AllowedHostsTests(unittest.TestCase):
+    """The Host guard is configurable for cloud hosting: a named host is allowed,
+    a foreign one is still 403, and '*' (cloud mode) accepts any Host/Origin."""
+
+    def test_parse_allowed_hosts(self):
+        from .server import _parse_allowed_hosts
+        self.assertIsNone(_parse_allowed_hosts(None))
+        self.assertIsNone(_parse_allowed_hosts(""))
+        self.assertIsNone(_parse_allowed_hosts("  ,  "))
+        self.assertEqual(_parse_allowed_hosts("a.example.com"), {"a.example.com"})
+        self.assertEqual(_parse_allowed_hosts("a.com, b.com"), {"a.com", "b.com"})
+        self.assertEqual(_parse_allowed_hosts("*"), {"*"})
+
+    def test_named_host_allowed_foreign_rejected(self):
+        fx = _ServerFixture(_StubLibrary(), allowed_hosts={"brain.example.com"})
+        try:
+            ok = urllib.request.Request(fx.base + "/status")
+            ok.add_header("Host", "brain.example.com")
+            with urllib.request.urlopen(ok) as resp:
+                self.assertEqual(resp.status, 200)
+
+            bad = urllib.request.Request(fx.base + "/status")
+            bad.add_header("Host", "evil.example.com")
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(bad)
+            self.assertEqual(cm.exception.code, 403)
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_wildcard_accepts_any_host_and_origin(self):
+        fx = _ServerFixture(_StubLibrary(), allowed_hosts={"*"})
+        try:
+            # Any Host passes.
+            req = urllib.request.Request(fx.base + "/status")
+            req.add_header("Host", "icarus-xyz.onrender.com")
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 200)
+            # A cross-origin POST passes too — the bearer gate, not Origin, is the
+            # boundary in cloud mode (here auth is off, so it just answers).
+            data = json.dumps({"question": "Why the Responses API as a new class?"}).encode()
+            post = urllib.request.Request(fx.base + "/ask", data=data,
+                                          headers={"Content-Type": "application/json",
+                                                   "Origin": "https://anywhere.example.com"})
+            with urllib.request.urlopen(post) as resp:
+                self.assertEqual(resp.status, 200)
+        finally:
+            fx.close()
+
+
 class BodyCapTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

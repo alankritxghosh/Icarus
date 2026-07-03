@@ -1,0 +1,18 @@
+# Keep the brain image slim: it needs only evals/ + demo/ (+ the committed corpus).
+.git
+.github
+.githooks
+.claude
+.codex
+mac/
+docs/
+scripts/
+*.md
+.env
+.env.*
+!.env.example
+evals/corpus/cache/
+**/__pycache__/
+*.pyc
+*.pyo
+.DS_Store

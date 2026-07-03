@@ -68,7 +68,7 @@ final class AuthModel {
             default: state = .error("Sign-in failed — try again.")
             }
         } catch {
-            state = .error("Couldn't reach the brain to sign in. Is it running on 127.0.0.1:8000?")
+            state = .error("Couldn't reach Icarus's brain to sign in — check your internet connection.")
         }
     }
 }

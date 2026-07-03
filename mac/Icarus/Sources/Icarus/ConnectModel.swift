@@ -68,7 +68,7 @@ final class ConnectModel {
         } catch is CancellationError {
             // superseded by a newer connect; leave state as set by the canceller
         } catch {
-            state = .failed("Can't reach the brain. Is it running on 127.0.0.1:8000?")
+            state = .failed("Can't reach Icarus's brain — check your internet connection.")
         }
     }
 }
