@@ -18,7 +18,8 @@ hardened** with a per-commit gate, and the **native macOS app** (branch
 > **"No one wrote this down."** Login persists (Keychain); **Sign out** switches
 > accounts.
 
-Everything this session is on **`mac-app`**, **unmerged to `main`**.
+The whole session's work is now **merged into `main`** (fast-forward); `mac-app`
+still points at the same commit. There is **no git remote** — the repo is local only.
 
 ## 2. What works today
 - **Brain** (`evals/` + `demo/`): ingest a public repo → BM25 retrieval →
@@ -83,9 +84,14 @@ honesty gate.
    across launches**, and sent as `Authorization: Bearer` on `/ask`+`/connect`.
    **Sign out** (sidebar) deletes it. The client secret is **never in the app**.
 
-**Voice:** unchanged — real-time on-device Apple Speech (`requiresOnDeviceRecognition
-= true`; fails rather than using Apple's servers), hold **Right Option (⌥)**; speak-
-back via `AVSpeechSynthesizer`.
+**Voice:** voice-in is real-time on-device Apple Speech (`requiresOnDeviceRecognition
+= true`; fails rather than using Apple's servers), hold **Right Option (⌥)**. Speak-
+back is `AVSpeechSynthesizer` in `Speaker.swift`, which now picks the **best-quality
+installed English voice** (premium > enhanced > default, preferring en-US) and never
+a novelty voice. For a natural sound, download a **Premium** voice: System Settings →
+Accessibility → Spoken Content → System Voice → **Manage Voices** → an English
+"(Premium)" voice — the app then uses it automatically (relaunch to pick it up). No
+premium voice installed = falls back to the standard en-US voice.
 
 ## 4. Constraints & decisions (the operating rules)
 - **Public repos only, free hosted models** (Groq writer + Gemini judge). Private
@@ -133,9 +139,10 @@ Tests: `cd mac/Icarus && swift test` (30). Brain:
    biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated
    prompts) and (b) lets the app open on someone else's Mac. Enrollment has lead
    time — start it before any investor touches the binary.
-2. **Merge `mac-app` → `main`** (or open a PR). Everything is on the branch.
-3. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
-4. **Rotate the exposed keys** (see §6).
+2. **Rotate the exposed keys** (see §6) — the one real security to-do.
+3. **Push to a git remote** if you want `main` off this machine (none is
+   configured; `.env` stays local/gitignored). The merge to `main` itself is DONE.
+4. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
 5. **Persist the connected repo** across launches (login persists; the repo does
    not — you reconnect each launch).
 6. **Record the demo** (A6; script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
@@ -195,9 +202,11 @@ Tests: `cd mac/Icarus && swift test` (30). Brain:
 - Docs: `docs/plans/`, `docs/decisions/`, `docs/EVALUATION.md`.
 
 ## 12. Git state
-Branch **`mac-app`** (unmerged to `main`). Latest commits (newest first):
-`93252aa` Keychain persist + Sign out, `a1ddc35` sign-in crash fix, `6e9e072` web
-GitHub login (app), `4ef199e` web login (brain), `dc4fc26` shell as primary window,
-`490eba2` chromeless title bar, `f4f536a` app shell (auth wiring + history + shell),
-`2a4e3df` per-commit secrets gate, `5b60db4` brain security hardening. `.env` and
-`.codex/` are untracked (leave them).
+**`main`** and **`mac-app`** both point at the same commit — the session was
+**merged into `main` via fast-forward**. **No git remote is configured (local only)**;
+nothing is pushed. Latest commits (newest first): `b94687f` best-quality answer
+voice, `691ca6f` HANDOFF refresh, `93252aa` Keychain persist + Sign out, `a1ddc35`
+sign-in crash fix, `6e9e072` web GitHub login (app), `4ef199e` web login (brain),
+`dc4fc26` shell as primary window, `490eba2` chromeless title bar, `f4f536a` app
+shell, `2a4e3df` per-commit secrets gate, `5b60db4` brain security hardening. `.env`
+and `.codex/` are untracked (leave them).
