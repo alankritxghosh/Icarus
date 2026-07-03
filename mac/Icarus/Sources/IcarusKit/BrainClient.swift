@@ -56,6 +56,37 @@ public struct BrainClient: Sendable {
         }
     }
 
+    /// POST /auth/github/begin -> the GitHub authorize URL to open in the sheet.
+    /// No bearer needed (this is how you get one).
+    public func beginGitHubLogin() async throws -> URL {
+        var request = URLRequest(url: base.appending(path: "auth/github/begin"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        struct Begin: Decodable { let authorize_url: String }
+        let url = try JSONDecoder().decode(Begin.self, from: data).authorize_url
+        guard let authorizeURL = URL(string: url) else { throw URLError(.badURL) }
+        return authorizeURL
+    }
+
+    /// POST /auth/github/redeem -> the access token for a one-time session id.
+    public func redeemGitHubSession(_ sessionID: String) async throws -> String {
+        var request = URLRequest(url: base.appending(path: "auth/github/redeem"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["session": sessionID])
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        struct Redeem: Decodable { let token: String }
+        return try JSONDecoder().decode(Redeem.self, from: data).token
+    }
+
     /// GET /status -> the active repo + switch state.
     public func status() async throws -> RepoStatus {
         let (data, response) = try await session.data(from: base.appending(path: "status"))

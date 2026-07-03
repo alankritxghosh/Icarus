@@ -36,6 +36,21 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(auth, "Bearer tok-123")
     }
 
+    func testBeginGitHubLoginReturnsAuthorizeURL() async throws {
+        _CapturingProtocol.body = Data(#"{"authorize_url":"https://github.com/login/oauth/authorize?client_id=x&state=y"}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+        let url = try await client.beginGitHubLogin()
+        XCTAssertEqual(url.host, "github.com")
+        XCTAssertEqual(url.path, "/login/oauth/authorize")
+    }
+
+    func testRedeemGitHubSessionReturnsToken() async throws {
+        _CapturingProtocol.body = Data(#"{"token":"gho_redeemed"}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+        let token = try await client.redeemGitHubSession("sess-1")
+        XCTAssertEqual(token, "gho_redeemed")
+    }
+
     func testAskOmitsAuthorizationWhenNoToken() async throws {
         _CapturingProtocol.lastRequest = nil
         _CapturingProtocol.body = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)

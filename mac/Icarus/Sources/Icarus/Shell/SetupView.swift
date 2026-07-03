@@ -25,10 +25,8 @@ struct SetupView: View {
         case .requesting:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Contacting GitHub…").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                Text("Waiting for GitHub…").font(.system(size: 14)).foregroundStyle(Theme.muted)
             }
-        case .awaitingApproval(let code, let uri):
-            awaitingApproval(code: code, uri: uri)
         case .signedIn:
             connectRepo()
         }
@@ -49,21 +47,6 @@ struct SetupView: View {
             Button("Sign in with GitHub") { auth.connect() }
                 .buttonStyle(PrimaryButton())
                 .keyboardShortcut(.defaultAction)
-        }
-    }
-
-    @ViewBuilder private func awaitingApproval(code: String, uri: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            MonoLabel("STEP 1 — ENTER THIS CODE ON GITHUB")
-            Text(code).font(Theme.mono(40, .bold)).foregroundStyle(Theme.ink).textSelection(.enabled)
-            Text("Your browser opened to GitHub and the code is on your clipboard. Paste it there to authorize — this updates automatically.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted)
-            HStack(spacing: 14) {
-                if let url = URL(string: uri) {
-                    Link("Reopen GitHub", destination: url).foregroundStyle(Theme.accent)
-                }
-                Button("Cancel") { auth.signOut() }.buttonStyle(.plain).foregroundStyle(Theme.muted)
-            }
         }
     }
 

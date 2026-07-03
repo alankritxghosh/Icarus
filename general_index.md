@@ -208,11 +208,13 @@ removing, or renaming files). For class/function-level detail see
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
   `AskResponse`, `RepoStatus`, and `IndexCounts` (real `/status` counts).
-- `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,`/status`);
-  attaches an `Authorization: Bearer` from a shared token; injectable URLSession.
-- `GitHubAuth.swift` — OAuth Device Flow: device-code request + the pure
-  `parsePoll` outcome parser (fails safe, never fakes a token).
-- `TokenStore.swift` — the token-store protocol + an in-memory test double.
+- `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,`/status`,
+  `/auth/github/begin`,`/auth/github/redeem`); attaches an `Authorization: Bearer`
+  from a shared token; injectable URLSession.
+- `WebAuth.swift` — the `WebAuthenticating` protocol (abstracts the auth sheet) +
+  `parseCallbackSession` (pull the one-time session id from the `icarus://` URL).
+- `TokenStore.swift` — the token-store protocol + the in-memory store (now the
+  real store — the token lives in memory only, no Keychain).
 - `SpeechRecognizer.swift` — streaming speech-to-text protocol + a stub.
 - `VoiceModel.swift` — `@Observable` push-to-talk orchestrator: live
   `partialTranscript`, silence → empty → not emitted.
@@ -231,9 +233,10 @@ removing, or renaming files). For class/function-level detail see
   floats above other apps (hidden transparent title bar).
 - `OverlayView.swift` — the overlay UI: question, cited answer, honest unknown.
 - `AskModel.swift` / `AuthModel.swift` / `ConnectModel.swift` — `@Observable`
-  state for asking, GitHub auth, and repo connect (shared via `AppDelegate`).
-- `KeychainTokenStore.swift` — stores the GitHub token in the login Keychain
-  (`WhenUnlocked`); the real `TokenStore`.
+  state for asking, GitHub web login (in-memory token), and repo connect (shared
+  via `AppDelegate`).
+- `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login
+  in a secure sheet, captures the `icarus://` callback); no Keychain, no scheme reg.
 - `IconArt.swift` — the Signal Spine app icon + menu-bar glyph in Core Graphics.
 - `Theme.swift` — the "Quiet Native Memory v2" tokens + shared views
   (`MonoLabel`, `CitationChip`, `PrimaryButton`, `FlowLayout`).
@@ -264,7 +267,8 @@ removing, or renaming files). For class/function-level detail see
   chromeless (transparent, full-size-content) title bar.
 
 ### mac/Icarus/Tests/IcarusKitTests
-- `GitHubAuthTests.swift` — device-code decode + `parsePoll` outcomes (fail-safe).
+- `WebAuthTests.swift` — `parseCallbackSession` pulls the session id from the
+  `icarus://` callback; nil on a malformed/session-less URL.
 - `ModelsTests.swift` — decoding the brain's JSON, including real `IndexCounts`.
 - `TokenStoreTests.swift` — the in-memory token store's save/load/delete.
 - `VoiceModelTests.swift` — push-to-talk states; silence → no question.

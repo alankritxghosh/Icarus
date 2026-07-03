@@ -10,15 +10,16 @@ extension KeyboardShortcuts.Name {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    /// One Keychain-backed token store, shared everywhere so the token has a single
-    /// source of truth. The BrainClient reads it to authorize /ask and /connect.
-    private let tokenStore: TokenStore = KeychainTokenStore()
+    /// One in-memory token store, shared everywhere so the token has a single source
+    /// of truth. In memory only — no Keychain, no disk; quit = signed out. The
+    /// BrainClient reads it to authorize /ask and /connect.
+    private let tokenStore: TokenStore = InMemoryTokenStore()
     /// A thread-safe reader for the current token, for the Authorization header.
     private lazy var tokenReader: @Sendable () -> String? = { [tokenStore] in
         (try? tokenStore.load()) ?? nil
     }
-    /// Auth + repo connection are shared by the onboarding window and the ask overlay.
-    private lazy var auth = AuthModel(store: tokenStore)
+    /// Auth (web GitHub login) + repo connection, shared by the shell and overlay.
+    private lazy var auth = AuthModel(store: tokenStore, client: BrainClient(), webAuth: AppleWebAuth())
     private lazy var connect = ConnectModel(client: BrainClient(token: tokenReader))
     /// Voice-in: real-time on-device streaming via Apple's Speech framework.
     private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
