@@ -260,6 +260,9 @@ removing, or renaming files). For class/function-level detail see
 - `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
   Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
 - `IconArt.swift` — the Signal Spine app icon + menu-bar glyph in Core Graphics.
+- `IconExport.swift` — headless `--render-iconset` renderer (invoked by `bundle.sh`)
+  that bakes `IconArt.appIcon()` into a static `AppIcon.icns` so the Dock/Finder/DMG
+  aren't a blank tile before first launch; `Main` (in `IcarusApp.swift`) intercepts it.
 - `Theme.swift` — the "Quiet Native Memory v2" tokens + shared views
   (`MonoLabel`, `CitationChip`, `PrimaryButton`, `FlowLayout`).
 - `AppleSpeechRecognizer.swift` — on-device `SFSpeechRecognizer` + `AVAudioEngine`

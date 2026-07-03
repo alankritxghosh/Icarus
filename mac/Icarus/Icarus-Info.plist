@@ -13,6 +13,11 @@
     <string>Icarus</string>
     <key>CFBundleIdentifier</key>
     <string>com.alankrit.icarus</string>
+    <!-- Static Dock/Finder/DMG icon, generated from IconArt by scripts/bundle.sh
+         (Icarus --render-iconset → iconutil → Resources/AppIcon.icns). Without it
+         the bundle shows a blank tile until the app launches and sets its icon. -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

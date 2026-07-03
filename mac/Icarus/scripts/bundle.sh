@@ -33,6 +33,16 @@ cp "${BIN}" "${CONTENTS}/MacOS/Icarus"
 cp "${ROOT}/Icarus-Info.plist" "${CONTENTS}/Info.plist"
 printf 'APPL????' > "${CONTENTS}/PkgInfo"
 
+# Bake the static app icon from IconArt (same drawing the running app uses) so the
+# Dock/Finder/DMG aren't a blank tile before first launch. The binary renders the
+# .iconset headlessly; iconutil turns it into Resources/AppIcon.icns (CFBundleIconFile).
+echo "==> generating AppIcon.icns from IconArt"
+ICONSET_DIR="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "${ICONSET_DIR}"
+"${CONTENTS}/MacOS/Icarus" --render-iconset "${ICONSET_DIR}"
+iconutil -c icns -o "${CONTENTS}/Resources/AppIcon.icns" "${ICONSET_DIR}"
+rm -rf "$(dirname "${ICONSET_DIR}")"
+
 # SwiftPM emits per-target resource bundles (e.g. KeyboardShortcuts localizations,
 # later WhisperKit assets). Bundle.module resolves them from the app's Resources.
 shopt -s nullglob
