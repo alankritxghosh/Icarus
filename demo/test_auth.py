@@ -29,42 +29,74 @@ class BearerTokenTests(unittest.TestCase):
 
 
 class StaticVerifierTests(unittest.TestCase):
-    def test_allows_only_listed_tokens(self):
+    def test_maps_tokens_to_user_ids(self):
+        v = StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"})
+        self.assertEqual(v.verify("tok-a"), "1001")
+        self.assertEqual(v.verify("tok-b"), "1002")
+        self.assertIsNone(v.verify("bad"))
+        self.assertIsNone(v.verify(""))
+
+    def test_set_input_means_token_is_its_own_id(self):
+        # Back-compat sugar for tests that don't care about the id value.
         v = StaticTokenVerifier({"good"})
-        self.assertTrue(v.verify("good"))
-        self.assertFalse(v.verify("bad"))
-        self.assertFalse(v.verify(""))
+        self.assertEqual(v.verify("good"), "good")
 
 
 class GitHubVerifierTests(unittest.TestCase):
     def test_empty_token_never_calls_out(self):
-        # No network: an empty token must fail safe without a request.
-        self.assertFalse(GitHubTokenVerifier().verify(""))
+        self.assertIsNone(GitHubTokenVerifier().verify(""))
 
-    def test_cache_hit_skips_network(self):
-        v = GitHubTokenVerifier()
+    def test_cache_hit_returns_id_without_network(self):
         import time
-        v._cache["cached"] = time.time() + 300  # pretend GitHub already OK'd it
-        self.assertTrue(v.verify("cached"))
+        v = GitHubTokenVerifier()
+        v._cache["cached"] = ("77", time.time() + 300)
+        self.assertEqual(v.verify("cached"), "77")
 
-    def test_network_error_fails_safe_to_false(self):
-        # A transport error must never authorize (fail safe). Patched, offline.
+    def test_valid_token_returns_the_github_user_id(self):
+        import io
+        from unittest import mock
+
+        class _Resp(io.BytesIO):
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch("urllib.request.urlopen",
+                        return_value=_Resp(b'{"id": 583231, "login": "octocat"}')):
+            self.assertEqual(GitHubTokenVerifier().verify("tok"), "583231")
+
+    def test_network_error_fails_safe_to_none(self):
         import urllib.error
         from unittest import mock
-        v = GitHubTokenVerifier()
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
-            self.assertFalse(v.verify("anything"))
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("down")):
+            self.assertIsNone(GitHubTokenVerifier().verify("anything"))
+
+    def test_malformed_body_fails_safe_to_none(self):
+        import io
+        from unittest import mock
+
+        class _Resp(io.BytesIO):
+            status = 200
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch("urllib.request.urlopen", return_value=_Resp(b"not json")):
+            self.assertIsNone(GitHubTokenVerifier().verify("tok"))
 
     def test_expired_cache_entry_is_revalidated_not_trusted(self):
-        # An expired entry must not be trusted on its own; with the network down
-        # it fails safe to False rather than reusing the stale OK.
         import time
         import urllib.error
         from unittest import mock
         v = GitHubTokenVerifier()
-        v._cache["stale"] = time.time() - 1  # expired
-        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
-            self.assertFalse(v.verify("stale"))
+        v._cache["stale"] = ("77", time.time() - 1)
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("down")):
+            self.assertIsNone(v.verify("stale"))
 
 
 if __name__ == "__main__":
