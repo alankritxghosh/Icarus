@@ -54,9 +54,10 @@ def _parse_allowed_hosts(raw):
     return hosts or None
 
 
-def make_handler(library, html_path: str, require_auth: bool = False, verifier=None,
+def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None):
-    """Build a request handler bound to a Library (the active-repo state).
+    """Build a request handler bound to a library registry (resolves the active-
+    repo state per caller identity; see `_identity`).
 
     `require_auth` gates /ask and /connect behind a valid GitHub bearer token
     (verified by `verifier`); the plain web demo leaves it False and relies on
@@ -111,12 +112,18 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
                     return False
             return True
 
-        def _authenticated(self) -> bool:
-            """True if auth isn't required, or a valid GitHub bearer is present."""
+        LOCAL_USER = "local"
+
+        def _identity(self) -> str | None:
+            """Who is calling? 'local' when auth is off (the single local
+            operator); the verified GitHub user id when auth is on; None when
+            auth is on and the token is missing/invalid (fail safe)."""
             if not require_auth:
-                return True
+                return self.LOCAL_USER
             token = bearer_token(self.headers)
-            return bool(token) and verifier is not None and verifier.verify(token)
+            if not token or verifier is None:
+                return None
+            return verifier.verify(token)
 
         def do_GET(self):
             if not self._authorized():
@@ -126,10 +133,12 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
             if route == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
             elif route == "/health":
-                repo, commit = library.provenance()
+                lib = registry.library_for(self._identity())
+                repo, commit = lib.provenance()
                 self._send_json(200, {"ok": True, "repo": repo, "commit": commit})
             elif route == "/status":
-                self._send_json(200, library.status_snapshot())
+                lib = registry.library_for(self._identity())
+                self._send_json(200, lib.status_snapshot())
             elif route == "/auth/github/callback":
                 self._github_callback()
             else:
@@ -190,9 +199,11 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
                     return
                 self._send_json(200, {"token": token})
                 return
-            if not self._authenticated():
+            identity = self._identity()
+            if identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
+            lib = registry.library_for(identity)
             if self.path == "/ask":
                 try:
                     question = self._body()["question"]
@@ -202,8 +213,8 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
                 if not isinstance(question, str) or not question.strip():
                     self._send_json(400, {"error": "missing question"})
                     return
-                repo, commit = library.provenance()
-                payload = build_payload(library.current_pipeline().answer(question), repo, commit)
+                repo, commit = lib.provenance()
+                payload = build_payload(lib.current_pipeline().answer(question), repo, commit)
                 self._send_json(200, payload)
             elif self.path == "/connect":
                 try:
@@ -214,12 +225,23 @@ def make_handler(library, html_path: str, require_auth: bool = False, verifier=N
                 if not isinstance(repo, str) or not _REPO_RE.match(repo.strip()):
                     self._send_json(400, {"error": "repo must look like owner/name"})
                     return
-                threading.Thread(target=library.connect_sync, args=(repo.strip(),), daemon=True).start()
+                threading.Thread(target=lib.connect_sync, args=(repo.strip(),), daemon=True).start()
                 self._send_json(202, {"state": "indexing", "repo": repo.strip()})
             else:
                 self._send_json(404, {"error": "not found"})
 
     return Handler
+
+
+class _SingleLibraryRegistry:
+    """Interim shim: today's one shared Library behind the registry interface.
+    Task 3 (demo/registry.py) replaces this with real per-user isolation."""
+
+    def __init__(self, lib):
+        self._lib = lib
+
+    def library_for(self, user_id):
+        return self._lib
 
 
 def resolve_provenance(meta_path, questions_path):
@@ -252,7 +274,8 @@ def serve(host: str = None, port: int = None):
     cid, secret = os.environ.get("GITHUB_CLIENT_ID"), os.environ.get("GITHUB_CLIENT_SECRET")
     if cid and secret:
         oauth = github_oauth.OAuthFlow(cid, secret, f"{callback_base}/auth/github/callback")
-    handler = make_handler(library, str(INDEX_HTML), require_auth=require_auth,
+    registry = _SingleLibraryRegistry(library)
+    handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts)
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:

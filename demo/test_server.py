@@ -59,7 +59,7 @@ class ServerTests(unittest.TestCase):
         cls.html = Path(cls._tmp.name) / "index.html"
         cls.html.write_text('<html><body><input id="question"></body></html>')
         cls.lib = _StubLibrary()
-        handler = make_handler(cls.lib, str(cls.html))
+        handler = make_handler(_StubRegistry(cls.lib), str(cls.html))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.port = cls.server.server_port
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -184,14 +184,32 @@ class IndexHtmlSmokeTests(unittest.TestCase):
         self.assertNotIn('href="#"', self.html)
 
 
+class _StubRegistry:
+    """Stand-in for demo.registry.LibraryRegistry: one library for everyone,
+    records which identities asked."""
+
+    def __init__(self, lib):
+        self.lib = lib
+        self.seen = []
+        self.disconnected = []
+
+    def library_for(self, user_id):
+        self.seen.append(user_id)
+        return self.lib
+
+    def disconnect(self, user_id):
+        self.disconnected.append(user_id)
+
+
 class _ServerFixture:
     """Spin up a real server on a random port with the given handler kwargs."""
 
     def __init__(self, lib, **handler_kwargs):
+        registry = lib if hasattr(lib, "library_for") else _StubRegistry(lib)
         self._tmp = tempfile.TemporaryDirectory()
         html = Path(self._tmp.name) / "index.html"
         html.write_text("<html></html>")
-        handler = make_handler(lib, str(html), **handler_kwargs)
+        handler = make_handler(registry, str(html), **handler_kwargs)
         self.server = HTTPServer(("127.0.0.1", 0), handler)
         self.port = self.server.server_port
         self.base = f"http://127.0.0.1:{self.port}"
@@ -463,6 +481,37 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         r = conn.getresponse()
         r.read(); conn.close()
         self.assertEqual(r.status, 400)
+
+
+class IdentityTests(unittest.TestCase):
+    """The handler resolves an identity per request: 'local' when auth is off,
+    the verified GitHub id when auth is on."""
+
+    def test_identity_is_local_when_auth_off(self):
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg)
+        try:
+            urllib.request.urlopen(fx.base + "/status").read()
+        finally:
+            fx.close()
+        self.assertEqual(reg.seen, ["local"])
+
+    def test_identity_is_the_github_id_when_auth_on(self):
+        from .auth import StaticTokenVerifier
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg, require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            data = json.dumps({"question": "Why the Responses API as a new class?"}).encode()
+            req = urllib.request.Request(fx.base + "/ask", data=data,
+                                         headers={"Content-Type": "application/json",
+                                                  "Authorization": "Bearer tok-a"})
+            urllib.request.urlopen(req).read()
+        finally:
+            fx.close()
+        self.assertIn("1001", reg.seen)
 
 
 if __name__ == "__main__":
