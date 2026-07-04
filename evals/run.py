@@ -39,7 +39,8 @@ def main(argv=None) -> int:
     parser.add_argument("--k", type=int, default=5, help="retrieval recall cut-off")
     parser.add_argument("--pipeline", choices=["stub", "retrieval", "gated"], default="retrieval",
                         help="which pipeline to grade")
-    parser.add_argument("--writer", choices=["groq", "gemini", "openrouter"], default="groq",
+    parser.add_argument("--writer", choices=["groq", "gemini", "gemini-paid", "openrouter"],
+                        default="groq",
                         help="answer-writer model (Groq's free RPM handles the full board)")
     parser.add_argument("--judge", choices=["gemini", "groq", "openrouter"], default="gemini",
                         help="answer-correctness judge model (kept different from the writer)")

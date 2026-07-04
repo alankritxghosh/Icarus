@@ -78,12 +78,22 @@ def _openai_chat(url: str, key: str, model: str, prompt: str, timeout: float) ->
 
 
 class Provider:
+    # True only for providers whose data-use terms are verified no-training
+    # (or that never leave the machine, like StaticProvider). The trust
+    # interlock (evals/trust.py, Task 6) is keyed off this — NEVER set it on
+    # a free tier, and never infer it at runtime from a key string (free and
+    # paid Gemini are the same API; only a DEDICATED env var, checked at
+    # construction, can attest which is which — see PaidGeminiProvider).
+    private_safe: bool = False
+
     def complete(self, prompt: str) -> str:  # pragma: no cover - interface
         raise NotImplementedError
 
 
 class StaticProvider(Provider):
     """Test double: returns queued responses in order, sticking on the last."""
+
+    private_safe = True  # offline test double; nothing ever leaves the process
 
     def __init__(self, responses):
         self._responses = [responses] if isinstance(responses, str) else list(responses)
@@ -145,6 +155,11 @@ class GeminiProvider(Provider):
 
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
+    # Which env var holds the key. A class attribute (not read inline) so
+    # PaidGeminiProvider can override just this one string -- see its docstring
+    # for why the env var name itself is the safety mechanism.
+    KEY_ENV = "GEMINI_API_KEY"
+
     # flash-lite is the free-tier-friendly model; full flash has a tight free cap.
     def __init__(self, model: str = "gemini-2.5-flash-lite", timeout: float = 60.0):
         self.model = model
@@ -168,9 +183,9 @@ class GeminiProvider(Provider):
         )
 
     def complete(self, prompt: str) -> str:
-        key = os.environ.get("GEMINI_API_KEY")
+        key = os.environ.get(self.KEY_ENV)
         if not key:
-            raise RuntimeError("GEMINI_API_KEY not set")
+            raise RuntimeError(f"{self.KEY_ENV} not set")
         req = self._build_request(prompt, key)
 
         def _do():
@@ -180,13 +195,29 @@ class GeminiProvider(Provider):
         return _parse_gemini(_with_retry(_do))
 
 
+class PaidGeminiProvider(GeminiProvider):
+    """Gemini on a BILLING-ENABLED key. Google's paid-tier terms state inputs/
+    outputs are not used to train -- verified in writing by the project owner
+    (see docs/plans/2026-07-04-private-repos-per-user-isolation.md). The
+    dedicated KEY_ENV is deliberate: code cannot tell a free key string from a
+    paid one, so placing a key in GEMINI_PAID_API_KEY is the operator's
+    attestation that it is billed. Model default follows the free provider;
+    the eval board picks upgrades (Gemini 3.x welcome -- verify the exact
+    model id against the live API before changing the default)."""
+
+    KEY_ENV = "GEMINI_PAID_API_KEY"
+    private_safe = True
+
+
 _PROVIDERS = {
     "gemini": GeminiProvider,
+    "gemini-paid": PaidGeminiProvider,
     "groq": GroqProvider,
     "openrouter": OpenRouterProvider,
 }
 _KEY_ENV = {
     "gemini": "GEMINI_API_KEY",
+    "gemini-paid": "GEMINI_PAID_API_KEY",
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }

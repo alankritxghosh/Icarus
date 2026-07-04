@@ -127,5 +127,39 @@ class MakeProviderTests(unittest.TestCase):
                 os.environ["GROQ_API_KEY"] = old
 
 
+class PrivateSafeFlagTests(unittest.TestCase):
+    """private_safe is a construction-time class property — the interlock's
+    ground truth. Free tiers may train on inputs: never True for them."""
+
+    def test_free_providers_are_not_private_safe(self):
+        from .provider import OpenRouterProvider, GroqProvider, GeminiProvider
+        for cls in (OpenRouterProvider, GroqProvider, GeminiProvider):
+            self.assertFalse(cls().private_safe, cls.__name__)
+
+    def test_static_provider_is_private_safe(self):
+        from .provider import StaticProvider
+        self.assertTrue(StaticProvider("x").private_safe)  # offline; nothing leaves
+
+    def test_paid_gemini_is_private_safe_and_uses_its_own_key(self):
+        import os
+        from unittest import mock
+        from .provider import PaidGeminiProvider
+        p = PaidGeminiProvider()
+        self.assertTrue(p.private_safe)
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "free-key"}, clear=True):
+            with self.assertRaises(RuntimeError):  # the FREE key must not satisfy it
+                p.complete("hi")
+
+    def test_make_provider_knows_gemini_paid(self):
+        import os
+        from unittest import mock
+        from .provider import make_provider, has_provider_key, PaidGeminiProvider
+        self.assertIsInstance(make_provider("gemini-paid"), PaidGeminiProvider)
+        with mock.patch.dict(os.environ, {"GEMINI_PAID_API_KEY": "k"}, clear=True):
+            self.assertTrue(has_provider_key("gemini-paid"))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(has_provider_key("gemini-paid"))
+
+
 if __name__ == "__main__":
     unittest.main()
