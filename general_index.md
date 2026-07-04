@@ -89,6 +89,12 @@ removing, or renaming files). For class/function-level detail see
   (server threading, auth, ingest limits, key hygiene, per-commit gate).
 - `docs/plans/2026-07-02-full-app-shell.md` — the full windowed app-shell plan
   (five surfaces, all wired to real data, no fabricated values).
+- `docs/plans/2026-07-04-private-repos-per-user-isolation.md` — the private-repo
+  scoping doc (hosted, multi-user): per-user library registry, private-safe writer +
+  trust interlock, caller-authorized leak-safe PAT ingest, isolation/egress proofs.
+- `docs/plans/2026-07-04-private-repos-implementation.md` — the executable
+  task-by-task TDD plan for the above: 16 tasks across Bricks A–F with exact code,
+  tests, commands, and commits; Brick G (app) outlined.
 
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
