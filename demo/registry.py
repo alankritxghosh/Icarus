@@ -37,13 +37,19 @@ _ANON = "anon"  # unauthenticated GETs share one read-only default view
 
 class LibraryRegistry:
     def __init__(self, default_corpus_dir, storage_root, default_repo,
-                 build_pipeline=None, ingest_fn=None, max_live=32):
+                 build_pipeline=None, ingest_fn=None, max_live=32,
+                 build_private_pipeline=None, private_ready=None):
         self._default_dir = Path(default_corpus_dir)
         self._storage_root = Path(storage_root)
         self._default_repo = default_repo
         self._base_build = build_pipeline or _default_build_pipeline
         self._ingest_fn = ingest_fn or ingest_repo
         self._max_live = max_live
+        # Forwarded to each Library UNCHANGED -- unlike the public build_pipeline,
+        # a private repo is never shared across users, so there's nothing here to
+        # wrap the way self._build wraps the shared default pipeline below.
+        self._build_private_pipeline = build_private_pipeline
+        self._private_ready = private_ready
         # Built once, shared read-only across every user (see module docstring).
         self._default_pipeline = self._base_build(self._default_dir)
         self._libraries: OrderedDict[str, Library] = OrderedDict()
@@ -70,9 +76,18 @@ class LibraryRegistry:
                 self._libraries.move_to_end(key)
                 return lib
             resume_repo = self._last_repo.get(key)
+            # Only forward the private-pipeline overrides if the registry itself
+            # was given them -- otherwise omit the kwargs entirely so Library's
+            # own defaults (_default_build_private_pipeline/_default_private_ready)
+            # apply, rather than overriding them with an explicit None.
+            private_kwargs = {}
+            if self._build_private_pipeline is not None:
+                private_kwargs["build_private_pipeline"] = self._build_private_pipeline
+            if self._private_ready is not None:
+                private_kwargs["private_ready"] = self._private_ready
             lib = Library(self._default_dir, self._storage_root / key / "cache",
                           self._default_repo, build_pipeline=self._build,
-                          ingest_fn=self._ingest_fn)
+                          ingest_fn=self._ingest_fn, **private_kwargs)
             self._libraries[key] = lib
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:

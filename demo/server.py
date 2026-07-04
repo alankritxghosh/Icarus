@@ -30,6 +30,7 @@ from .payload import build_payload
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier
 from . import github_oauth
+from evals import github_access
 
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
@@ -237,8 +238,21 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not isinstance(repo, str) or not _REPO_RE.match(repo.strip()):
                     self._send_json(400, {"error": "repo must look like owner/name"})
                     return
-                threading.Thread(target=lib.connect_sync, args=(repo.strip(),), daemon=True).start()
-                self._send_json(202, {"state": "indexing", "repo": repo.strip()})
+                repo = repo.strip()
+                token = bearer_token(self.headers)
+                private = False
+                if require_auth:
+                    # Caller-scoped check BEFORE any clone/ingest: can THIS token
+                    # actually read THIS repo? None means refuse (fail safe).
+                    info = github_access.repo_info(repo, token)
+                    if info is None:
+                        self._send_json(403, {"error": "that repo doesn't exist or your GitHub account can't read it"})
+                        return
+                    private = info["private"]
+                threading.Thread(target=lib.connect_sync, args=(repo,),
+                                 kwargs={"token": token if private else None, "private": private},
+                                 daemon=True).start()
+                self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
 

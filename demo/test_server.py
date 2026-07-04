@@ -3,6 +3,7 @@ import json
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.request
 import urllib.error
 from http.server import HTTPServer
@@ -31,6 +32,7 @@ class _StubLibrary:
     def __init__(self):
         self._pipe = _StubPipeline()
         self.connected = []
+        self.connect_calls = []  # (repo, token, private) for tests that need kwargs
 
     def current_pipeline(self):
         return self._pipe
@@ -39,10 +41,12 @@ class _StubLibrary:
         return (REPO, COMMIT)
 
     def status_snapshot(self):
-        return {"state": "ready", "repo": REPO, "commit": COMMIT, "counts": None, "error": None}
+        return {"state": "ready", "repo": REPO, "commit": COMMIT, "counts": None, "error": None,
+                "private": False}
 
-    def connect_sync(self, repo):
+    def connect_sync(self, repo, token=None, private=False):
         self.connected.append(repo)
+        self.connect_calls.append((repo, token, private))
 
 
 def _post(url, obj):
@@ -561,6 +565,106 @@ class DisconnectTests(unittest.TestCase):
         finally:
             fx.close()
         self.assertEqual(reg.disconnected, ["1001"])
+
+
+class PrivateConnectRouteTests(unittest.TestCase):
+    """/connect must verify caller access BEFORE spawning any background work
+    when auth is required, and route private/public repos correctly. In local
+    dev (auth off) the behavior is untouched: no access check at all."""
+
+    def _connect(self, base, token=None, repo="acme/secret"):
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(base + "/connect", data=json.dumps({"repo": repo}).encode(),
+                                     headers=headers)
+        return urllib.request.urlopen(req)
+
+    def test_repo_info_none_is_403_and_never_spawns_connect(self):
+        from .auth import StaticTokenVerifier
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg, require_auth=True, verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            with unittest.mock.patch("demo.server.github_access.repo_info", return_value=None) as m:
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    self._connect(fx.base, token="tok-a")
+                self.assertEqual(cm.exception.code, 403)
+                cm.exception.close()
+                m.assert_called_once()
+        finally:
+            fx.close()
+        import time
+        time.sleep(0.05)  # give any (incorrectly) spawned thread a chance to run
+        self.assertEqual(lib.connected, [])
+
+    def test_private_repo_spawns_connect_with_token_and_private_true(self):
+        from .auth import StaticTokenVerifier
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg, require_auth=True, verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            with unittest.mock.patch("demo.server.github_access.repo_info",
+                                     return_value={"private": True}):
+                status, payload = _post_with_auth(fx.base + "/connect", {"repo": "acme/secret"}, "tok-a")
+            self.assertEqual(status, 202)
+        finally:
+            fx.close()
+        import time
+        for _ in range(50):
+            if lib.connect_calls:
+                break
+            time.sleep(0.02)
+        self.assertEqual(lib.connect_calls, [("acme/secret", "tok-a", True)])
+
+    def test_public_repo_spawns_connect_without_token(self):
+        from .auth import StaticTokenVerifier
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg, require_auth=True, verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            with unittest.mock.patch("demo.server.github_access.repo_info",
+                                     return_value={"private": False}):
+                status, payload = _post_with_auth(fx.base + "/connect", {"repo": "octo/pub"}, "tok-a")
+            self.assertEqual(status, 202)
+        finally:
+            fx.close()
+        import time
+        for _ in range(50):
+            if lib.connect_calls:
+                break
+            time.sleep(0.02)
+        self.assertEqual(lib.connect_calls, [("octo/pub", None, False)])
+
+    def test_local_dev_auth_off_never_calls_repo_info(self):
+        # auth off (today's default) must behave exactly as before: no access
+        # check at all. Patch repo_info to raise if it's ever called.
+        lib = _StubLibrary()
+        reg = _StubRegistry(lib)
+        fx = _ServerFixture(reg)  # require_auth defaults False
+        try:
+            def _boom(*a, **k):
+                raise AssertionError("repo_info must not be called when auth is off")
+            with unittest.mock.patch("demo.server.github_access.repo_info", side_effect=_boom):
+                status, payload = _post(fx.base + "/connect", {"repo": "octo/pub"})
+            self.assertEqual(status, 202)
+        finally:
+            fx.close()
+        import time
+        for _ in range(50):
+            if lib.connect_calls:
+                break
+            time.sleep(0.02)
+        self.assertEqual(lib.connect_calls, [("octo/pub", None, False)])
+
+
+def _post_with_auth(url, obj, token):
+    data = json.dumps(obj).encode()
+    req = urllib.request.Request(url, data=data,
+                                 headers={"Content-Type": "application/json",
+                                          "Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(req) as resp:
+        return resp.status, json.loads(resp.read())
 
 
 if __name__ == "__main__":

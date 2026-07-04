@@ -34,7 +34,7 @@ class LibraryTests(unittest.TestCase):
 
         self.ingest_code_dirs = []
 
-        def fake_ingest(repo, out_dir, commit=None, code_dir="llm"):
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
             self.ingested.append(repo)
             self.ingest_code_dirs.append(code_dir)
             _seed_corpus(out_dir, repo)
@@ -73,7 +73,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.status_snapshot()["repo"], "simonw/llm")
 
     def test_ingest_failure_keeps_previous_repo(self):
-        def boom(repo, out_dir, commit=None, code_dir="llm"):
+        def boom(repo, out_dir, commit=None, code_dir="llm", token=None):
             raise RuntimeError("gh exploded")
         self.lib._ingest_fn = boom
         self.lib.connect_sync("bad/repo")
@@ -84,7 +84,7 @@ class LibraryTests(unittest.TestCase):
 
     def test_ingest_failure_reports_generic_error(self):
         # The raw exception (command lines, URLs) must never reach /status.
-        def boom(repo, out_dir, commit=None, code_dir="llm"):
+        def boom(repo, out_dir, commit=None, code_dir="llm", token=None):
             raise RuntimeError("git clone https://github.com/o/r.git failed: fatal ...")
         self.lib._ingest_fn = boom
         self.lib.connect_sync("o/r")
@@ -99,7 +99,7 @@ class LibraryTests(unittest.TestCase):
         gate = threading.Event()
         started = []
 
-        def slow_ingest(repo, out_dir, commit=None, code_dir="llm"):
+        def slow_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
             started.append(repo)
             gate.wait(timeout=2)
             _seed_corpus(out_dir, repo)
@@ -115,6 +115,86 @@ class LibraryTests(unittest.TestCase):
         gate.set()
         t1.join(); t2.join()
         self.assertEqual(started.count("o/r"), 1)  # single-flight: one ingest only
+
+
+class PrivateConnectTests(unittest.TestCase):
+    """Private repos use their own storage, their own pipeline builder, and are
+    refused up-front (never touching ingest) when the paid writer isn't ready."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.default_dir = root / "default"
+        _seed_corpus(self.default_dir, "simonw/llm", "94769b8")
+        self.cache_root = root / "cache"
+        self.built = []          # (corpus_dir,) build_pipeline was called with
+        self.private_built = []  # (corpus_dir,) build_private_pipeline was called with
+        self.ingested = []       # (repo, token) ingest_fn was called with
+
+        def fake_build(corpus_dir):
+            self.built.append(str(corpus_dir))
+            return f"pipeline::{corpus_dir}"
+
+        def fake_private_build(corpus_dir):
+            self.private_built.append(str(corpus_dir))
+            return f"private-pipeline::{corpus_dir}"
+
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            self.ingested.append((repo, token))
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        self.fake_ingest = fake_ingest
+        self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                           build_pipeline=fake_build, ingest_fn=fake_ingest,
+                           build_private_pipeline=fake_private_build,
+                           private_ready=lambda: True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_private_connect_uses_private_storage_and_pipeline(self):
+        self.lib.connect_sync("acme/secret", token="tok-123", private=True)
+        s = self.lib.status_snapshot()
+        self.assertEqual(s["state"], "ready")
+        self.assertEqual(s["repo"], "acme/secret")
+        self.assertTrue(s["private"])
+        self.assertEqual(self.ingested, [("acme/secret", "tok-123")])
+        # Private storage is a sibling of the public cache root, not inside it.
+        private_dir = self.cache_root.parent / "private" / "acme__secret"
+        self.assertTrue((private_dir / "chunks.jsonl").exists())
+        self.assertFalse((self.cache_root / "acme__secret").exists())
+        self.assertEqual(self.private_built, [str(private_dir)])
+        # The public builder was only used once, at construction (for the
+        # default repo) -- never for this private connect.
+        self.assertEqual(self.built, [str(self.default_dir)])
+
+    def test_public_connect_is_unaffected(self):
+        self.lib.connect_sync("octo/new")
+        s = self.lib.status_snapshot()
+        self.assertFalse(s["private"])
+        self.assertEqual(self.ingested, [("octo/new", None)])  # no token spent
+        self.assertEqual(self.private_built, [])  # the private builder was never used
+
+    def test_private_not_ready_refuses_before_any_ingest(self):
+        lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                     build_pipeline=lambda d: f"pipeline::{d}",
+                     ingest_fn=self.fake_ingest,
+                     build_private_pipeline=lambda d: f"private::{d}",
+                     private_ready=lambda: False)
+        lib.connect_sync("acme/secret", token="tok-secret", private=True)
+        s = lib.status_snapshot()
+        self.assertEqual(s["state"], "error")
+        self.assertEqual(self.ingested, [])  # never even attempted
+        self.assertNotIn("tok-secret", s["error"])
+        # Still on the original default repo -- nothing was switched.
+        self.assertEqual(s["repo"], "simonw/llm")
+
+    def test_token_never_appears_in_status_snapshot(self):
+        caller_token = "tok-shh-999"
+        self.lib.connect_sync("acme/secret", token=caller_token, private=True)
+        s = self.lib.status_snapshot()
+        self.assertNotIn(caller_token, json.dumps(s))
 
 
 if __name__ == "__main__":
