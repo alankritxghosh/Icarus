@@ -255,6 +255,25 @@ class OriginGuardTests(unittest.TestCase):
             self.assertEqual(resp.status, 200)
 
 
+class ResolveStorageRootTests(unittest.TestCase):
+    """ICARUS_STORAGE_ROOT falls back to the default when unset AND when set
+    but blank (a PaaS env-var UI can easily leave a value blank) -- either way
+    it must never silently resolve to the cwd."""
+
+    def test_unset_and_blank_both_fall_back_to_default(self):
+        from pathlib import Path
+        from .server import _resolve_storage_root
+        default = Path("/tmp/icarus-default-data")
+        self.assertEqual(_resolve_storage_root(None, default), default)
+        self.assertEqual(_resolve_storage_root("", default), default)
+
+    def test_explicit_value_is_honored(self):
+        from pathlib import Path
+        from .server import _resolve_storage_root
+        default = Path("/tmp/icarus-default-data")
+        self.assertEqual(_resolve_storage_root("/mnt/data", default), Path("/mnt/data"))
+
+
 class AllowedHostsTests(unittest.TestCase):
     """The Host guard is configurable for cloud hosting: a named host is allowed,
     a foreign one is still 403, and '*' (cloud mode) accepts any Host/Origin."""

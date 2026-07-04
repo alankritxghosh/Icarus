@@ -54,6 +54,14 @@ def _parse_allowed_hosts(raw):
     return hosts or None
 
 
+def _resolve_storage_root(raw, default):
+    """ICARUS_STORAGE_ROOT, falling back to `default` when unset OR set-but-
+    blank (a PaaS env-var UI can easily leave a value blank rather than unset;
+    `os.environ.get(key, default)` alone would silently resolve that to the
+    cwd instead of the intended default)."""
+    return Path(raw or default)
+
+
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None):
     """Build a request handler bound to a library registry (resolves the active-
@@ -254,7 +262,7 @@ def serve(host: str = None, port: int = None):
     host = host if host is not None else os.environ.get("HOST", "127.0.0.1")
     port = int(port) if port is not None else int(os.environ.get("PORT", "8000"))
     default_repo, commit = resolve_provenance(CORPUS_META, QUESTIONS)
-    storage_root = Path(os.environ.get("ICARUS_STORAGE_ROOT", str(REPO_ROOT / "data")))
+    storage_root = _resolve_storage_root(os.environ.get("ICARUS_STORAGE_ROOT"), REPO_ROOT / "data")
     registry = LibraryRegistry(CORPUS_DIR, storage_root, default_repo)
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
