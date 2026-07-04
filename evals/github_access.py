@@ -5,6 +5,7 @@ but a clean 200 (fail safe, like the honesty gate). The same response tells us
 whether the repo is private, which routes writer + storage. The token is used
 in-memory for one request header; never logged, never stored."""
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -37,7 +38,7 @@ def repo_info(repo: str, token: str, opener=None, timeout: float = 10.0):
             if getattr(resp, "status", None) != 200:
                 return None
             data = json.loads(resp.read())
-    except (urllib.error.URLError, OSError, ValueError, TypeError):
+    except (urllib.error.URLError, OSError, ValueError, TypeError, http.client.HTTPException):
         return None
     private = data.get("private") if isinstance(data, dict) else None
     if not isinstance(private, bool):

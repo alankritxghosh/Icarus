@@ -65,6 +65,10 @@ class RepoInfoTests(unittest.TestCase):
         opener, _ = _opener_returning(200, b'{"full_name": "o/r"}')
         self.assertIsNone(repo_info("o/r", "tok", opener=opener))
 
+    def test_non_bool_private_field_refuses(self):
+        opener, _ = _opener_returning(200, b'{"private": "yes"}')
+        self.assertIsNone(repo_info("o/r", "tok", opener=opener))
+
     def test_no_token_refuses_without_calling_out(self):
         def opener(req, timeout):
             raise AssertionError("must not call out without a token")
