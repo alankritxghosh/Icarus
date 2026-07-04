@@ -15,7 +15,9 @@ Public repos only while on free models (see CLAUDE.md).
 """
 
 import argparse
+import base64
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -37,6 +39,28 @@ _MAX_FILE_BYTES = 512 * 1024    # skip any single file bigger than this
 _MAX_TOTAL_BYTES = 25 * 1024 * 1024  # stop reading code past this total
 
 
+def _git_env(token=None):
+    """Subprocess env for git. A token authenticates via GIT_CONFIG_* env
+    (http.extraHeader with Basic x-access-token) -- never argv (visible in ps),
+    never the URL (lands in git config). The token is never logged."""
+    env = dict(os.environ)
+    if token:
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env.update({
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        })
+    return env
+
+
+def _gh_env(token=None):
+    env = dict(os.environ)
+    if token:
+        env["GH_TOKEN"] = token  # per-call, never the server's ambient identity
+    return env
+
+
 def _safe_code_dir(clone_dir, code_dir):
     """Resolve code_dir inside clone_dir; refuse anything that escapes it
     (absolute paths, ``..``). Prevents ingesting files outside the clone."""
@@ -55,7 +79,7 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def resolve_commit(repo: str, commit) -> str:
+def resolve_commit(repo: str, commit, token=None) -> str:
     """Explicit --commit wins; the default repo without one keeps the pinned SHA
     (reproducible board); any other repo resolves its HEAD via git ls-remote."""
     if commit:
@@ -65,24 +89,27 @@ def resolve_commit(repo: str, commit) -> str:
     out = subprocess.run(
         ["git", "ls-remote", f"https://github.com/{repo}.git", "HEAD"],
         check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+        env=_git_env(token),
     ).stdout
     return out.split()[0]
 
 
-def _gh_json(args):
+def _gh_json(args, token=None):
     out = subprocess.run(
-        ["gh", *args], check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT
+        ["gh", *args], check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+        env=_gh_env(token),
     ).stdout
     return json.loads(out) if out.strip() else None
 
 
-def fetch_prs(repo):
+def fetch_prs(repo, token=None):
     nums = [pr["number"] for pr in _gh_json(
-        ["pr", "list", "-R", repo, "--state", "merged", "--limit", str(PR_LIMIT), "--json", "number"]
+        ["pr", "list", "-R", repo, "--state", "merged", "--limit", str(PR_LIMIT), "--json", "number"],
+        token=token,
     )]
     chunks, issue_ids = [], set()
     for n in nums:
-        pr = _gh_json(["pr", "view", str(n), "-R", repo, "--json", "title,body,closingIssuesReferences"])
+        pr = _gh_json(["pr", "view", str(n), "-R", repo, "--json", "title,body,closingIssuesReferences"], token=token)
         text = f"{pr['title']}\n\n{pr.get('body') or ''}"
         chunks.append({"ref": f"pr:{n}", "source": "pr", "text": text})
         for ref in pr.get("closingIssuesReferences", []):
@@ -92,27 +119,27 @@ def fetch_prs(repo):
     return chunks, issue_ids
 
 
-def fetch_issues(repo, issue_ids):
+def fetch_issues(repo, issue_ids, token=None):
     chunks = []
     for n in sorted(issue_ids):
         try:
-            it = _gh_json(["issue", "view", str(n), "-R", repo, "--json", "title,body"])
+            it = _gh_json(["issue", "view", str(n), "-R", repo, "--json", "title,body"], token=token)
         except subprocess.CalledProcessError:
             continue  # number was a PR, not an issue
         chunks.append({"ref": f"issue:{n}", "source": "issue", "text": f"{it['title']}\n\n{it.get('body') or ''}"})
     return chunks
 
 
-def fetch_code(repo, commit, code_dir):
+def fetch_code(repo, commit, code_dir, token=None):
     # Full clone keeps the pinned-commit checkout byte-reproducible (the eval
     # board depends on it); timeouts bound the clone, size caps bound memory so a
     # hostile/huge repo can't hang or OOM us.
     chunks, total = [], 0
     with tempfile.TemporaryDirectory() as d:
         subprocess.run(["git", "clone", "--quiet", f"https://github.com/{repo}.git", d],
-                       check=True, timeout=_SUBPROCESS_TIMEOUT)
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
         subprocess.run(["git", "-C", d, "checkout", "--quiet", commit],
-                       check=True, timeout=_SUBPROCESS_TIMEOUT)
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
         base = _safe_code_dir(d, code_dir)
         for path in sorted(base.rglob("*.py")):
             if path.stat().st_size > _MAX_FILE_BYTES:
@@ -126,15 +153,17 @@ def fetch_code(repo, commit, code_dir):
     return chunks
 
 
-def ingest_repo(repo, out_dir, commit=None, code_dir="llm"):
-    """Fetch a public repo and write chunks.jsonl + meta.json into out_dir.
+def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
+    """Fetch a repo and write chunks.jsonl + meta.json into out_dir.
 
     Returns the {pr, issue, code} counts. Reusable by the CLI (default corpus)
-    and the demo's per-repo cache. Network (gh + git); public repos only."""
-    commit = resolve_commit(repo, commit)
-    prs, issue_ids = fetch_prs(repo)
-    issues = fetch_issues(repo, issue_ids)
-    code = fetch_code(repo, commit, code_dir)
+    and the demo's per-repo cache. Network (gh + git); public repos by default.
+    An optional caller token (never from the CLI -- programmatic callers only)
+    authenticates git/gh as that caller for a private repo, via env only."""
+    commit = resolve_commit(repo, commit, token=token)
+    prs, issue_ids = fetch_prs(repo, token=token)
+    issues = fetch_issues(repo, issue_ids, token=token)
+    code = fetch_code(repo, commit, code_dir, token=token)
     all_chunks = prs + issues + code
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
