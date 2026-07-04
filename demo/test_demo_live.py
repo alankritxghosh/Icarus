@@ -6,6 +6,7 @@ this only proves the face is wired to it. Skips without key/corpus."""
 
 import json
 import os
+import tempfile
 import threading
 import unittest
 import urllib.request
@@ -13,7 +14,7 @@ from http.server import HTTPServer
 from pathlib import Path
 
 from . import server
-from .library import Library
+from .registry import LibraryRegistry
 
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT.parent / "evals" / "corpus" / "chunks.jsonl"
@@ -34,8 +35,9 @@ class DemoLiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         default_repo, _ = server.resolve_provenance(server.CORPUS_META, server.QUESTIONS)
-        lib = Library(server.CORPUS_DIR, server.CACHE_ROOT, default_repo)
-        handler = server.make_handler(lib, str(server.INDEX_HTML))
+        cls._tmp = tempfile.TemporaryDirectory()
+        registry = LibraryRegistry(server.CORPUS_DIR, Path(cls._tmp.name), default_repo)
+        handler = server.make_handler(registry, str(server.INDEX_HTML))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.base = f"http://127.0.0.1:{cls.server.server_port}"
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -45,6 +47,7 @@ class DemoLiveTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
+        cls._tmp.cleanup()
 
     def test_some_answerable_returns_cited_answer(self):
         # The free writer is non-deterministic and abstains on some answerable
