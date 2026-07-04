@@ -196,14 +196,16 @@ class GeminiProvider(Provider):
 
 
 class PaidGeminiProvider(GeminiProvider):
-    """Gemini on a BILLING-ENABLED key. Google's paid-tier terms state inputs/
-    outputs are not used to train -- verified in writing by the project owner
-    (see docs/plans/2026-07-04-private-repos-per-user-isolation.md). The
-    dedicated KEY_ENV is deliberate: code cannot tell a free key string from a
-    paid one, so placing a key in GEMINI_PAID_API_KEY is the operator's
-    attestation that it is billed. Model default follows the free provider;
-    the eval board picks upgrades (Gemini 3.x welcome -- verify the exact
-    model id against the live API before changing the default)."""
+    """Gemini on a BILLING-ENABLED key. Billing is confirmed enabled (2026-07-04,
+    project owner); the written no-training policy link is NOT YET recorded --
+    see the open checklist item in
+    docs/plans/2026-07-04-private-repos-per-user-isolation.md before treating
+    this as a settled, audited fact. The dedicated KEY_ENV is deliberate: code
+    cannot tell a free key string from a paid one, so placing a key in
+    GEMINI_PAID_API_KEY is the operator's attestation that it is billed. Model
+    default follows the free provider; the eval board picks upgrades (Gemini 3.x
+    welcome -- verify the exact model id against the live API before changing
+    the default)."""
 
     KEY_ENV = "GEMINI_PAID_API_KEY"
     private_safe = True

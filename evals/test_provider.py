@@ -140,6 +140,10 @@ class PrivateSafeFlagTests(unittest.TestCase):
         from .provider import StaticProvider
         self.assertTrue(StaticProvider("x").private_safe)  # offline; nothing leaves
 
+    def test_base_provider_defaults_to_not_private_safe(self):
+        from .provider import Provider
+        self.assertFalse(Provider().private_safe)
+
     def test_paid_gemini_is_private_safe_and_uses_its_own_key(self):
         import os
         from unittest import mock
@@ -147,8 +151,12 @@ class PrivateSafeFlagTests(unittest.TestCase):
         p = PaidGeminiProvider()
         self.assertTrue(p.private_safe)
         with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "free-key"}, clear=True):
-            with self.assertRaises(RuntimeError):  # the FREE key must not satisfy it
-                p.complete("hi")
+            with mock.patch(
+                "urllib.request.urlopen",
+                side_effect=AssertionError("should not reach network"),
+            ):
+                with self.assertRaises(RuntimeError):  # the FREE key must not satisfy it
+                    p.complete("hi")
 
     def test_make_provider_knows_gemini_paid(self):
         import os
