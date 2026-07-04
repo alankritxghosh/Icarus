@@ -30,12 +30,19 @@ def _opener(payload):
 
 class AuthorizeUrlTests(unittest.TestCase):
     def test_includes_all_params(self):
-        url = authorize_url("cid123", "http://127.0.0.1:8000/auth/github/callback", "st8", scope="read:user")
+        url = authorize_url("cid123", "http://127.0.0.1:8000/auth/github/callback", "st8", scope="repo")
         self.assertTrue(url.startswith("https://github.com/login/oauth/authorize?"))
         self.assertIn("client_id=cid123", url)
         self.assertIn("state=st8", url)
-        self.assertIn("scope=read", url)
+        self.assertIn("scope=repo", url)
         self.assertIn("127.0.0.1", url)
+
+    def test_default_scope_is_repo(self):
+        # No explicit scope passed: must default to `repo` so a signed-in
+        # user's token can actually read their private repos (read:user only
+        # proves identity, it can't read repo contents).
+        url = authorize_url("cid123", "http://127.0.0.1:8000/auth/github/callback", "st8")
+        self.assertIn("scope=repo", url)
 
 
 class ExchangeCodeTests(unittest.TestCase):
