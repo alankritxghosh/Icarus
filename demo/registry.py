@@ -14,10 +14,22 @@ starts a fresh instance on `default_repo`'s state -- it has no way to notice
 that its own `cache_root` already holds a different repo's cache from a prior
 connect, so a naive rebuild-on-demand would silently and invisibly revert an
 evicted user back to the public demo repo. To keep that continuity, the
-registry remembers each user's last-connected repo itself (outside the
-LRU-evictable `Library` objects) and, on rebuild, replays `connect_sync` on
-the fresh instance -- which is a cache hit against the user's own on-disk
-corpus (no re-ingest), so it just re-hydrates in-memory state from disk.
+registry remembers each user's last-connected repo (and whether it was
+private) itself (outside the LRU-evictable `Library` objects) and, on
+rebuild, replays `connect_sync` on the fresh instance -- which is a cache hit
+against the user's own on-disk corpus (no re-ingest), so it just re-hydrates
+in-memory state from disk.
+
+A private repo's resume is more constrained: the registry never holds the
+caller's GitHub token (tokens are per-request, never stored -- see
+demo/server.py), so it cannot replay a private connect that would need to
+re-ingest. It resumes a private repo ONLY when that repo's corpus cache still
+exists on disk (a genuine cache hit, which `connect_sync` proves never touches
+`token`); otherwise it leaves the rebuilt Library on the default repo and lets
+the next explicit `/connect` (which DOES carry the caller's token) reestablish
+it. A private repo must NEVER silently resume reporting `private: False` --
+that would mean answering from the free/public writer or the wrong storage
+root for what the user believes is still their private connection.
 
 `disconnect` deletes a user's storage -- a trust product must let a user
 delete -- and forgets their last-connected repo too."""
@@ -54,6 +66,7 @@ class LibraryRegistry:
         self._default_pipeline = self._base_build(self._default_dir)
         self._libraries: OrderedDict[str, Library] = OrderedDict()
         self._last_repo: dict[str, str] = {}  # key -> most-recently-connected repo
+        self._last_private: dict[str, bool] = {}  # key -> was that repo private?
         self._lock = threading.Lock()
 
     def _build(self, corpus_dir):
@@ -76,6 +89,7 @@ class LibraryRegistry:
                 self._libraries.move_to_end(key)
                 return lib
             resume_repo = self._last_repo.get(key)
+            resume_private = self._last_private.get(key, False)
             # Only forward the private-pipeline overrides if the registry itself
             # was given them -- otherwise omit the kwargs entirely so Library's
             # own defaults (_default_build_private_pipeline/_default_private_ready)
@@ -92,22 +106,43 @@ class LibraryRegistry:
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:
                 evicted_key, evicted = self._libraries.popitem(last=False)
-                # Capture the outgoing library's repo and record it while STILL
-                # holding self._lock, so no other thread can ever observe the
-                # "popped from _libraries but not yet in _last_repo" gap -- that
-                # gap is exactly what would let the evicted user's own next
-                # library_for() race in and rebuild on the default repo instead
-                # of resuming. status_snapshot() only takes Library's own lock
-                # (see demo/library.py) and Library holds no reference back to
-                # the registry, so registry-lock -> library-lock is a safe,
-                # cycle-free one-way ordering -- no deadlock risk.
-                self._last_repo[evicted_key] = evicted.status_snapshot()["repo"]
+                # Capture the outgoing library's repo (and whether it was
+                # private) and record both while STILL holding self._lock, so
+                # no other thread can ever observe the "popped from
+                # _libraries but not yet in _last_repo/_last_private" gap --
+                # that gap is exactly what would let the evicted user's own
+                # next library_for() race in and rebuild on the default repo
+                # instead of resuming. status_snapshot() only takes Library's
+                # own lock (see demo/library.py) and Library holds no
+                # reference back to the registry, so registry-lock ->
+                # library-lock is a safe, cycle-free one-way ordering -- no
+                # deadlock risk.
+                snap = evicted.status_snapshot()
+                self._last_repo[evicted_key] = snap["repo"]
+                self._last_private[evicted_key] = snap["private"]
         # Replay the user's last connect on a freshly (re)built Library so an
         # eviction never silently reverts them to the public demo repo. This
         # is a cache hit -- connect_sync sees the on-disk cache and skips
         # ingest -- so it only re-hydrates in-memory state, it doesn't refetch.
         if resume_repo and resume_repo != self._default_repo:
-            lib.connect_sync(resume_repo)
+            if resume_private:
+                # No token to replay a private connect with (tokens are
+                # per-request, never stored -- see demo/server.py). Only
+                # resume if the private cache still exists on disk: that's a
+                # genuine cache hit, and connect_sync's ingest branch (the
+                # only place `token` is ever used) is proven skipped whenever
+                # needs_ingest is False, so a token-less resume is safe THERE
+                # and only there. If the cache is gone, resuming would need a
+                # fresh ingest we have no token for -- fail safe by leaving
+                # the rebuilt Library on the default repo (honest: the next
+                # explicit /connect, which carries the caller's token, will
+                # reestablish it) rather than ever silently downgrading a
+                # private repo to a public connect.
+                _, needs_ingest = lib._resolve(resume_repo, private=True)
+                if not needs_ingest:
+                    lib.connect_sync(resume_repo, private=True)
+            else:
+                lib.connect_sync(resume_repo)
         return lib
 
     def disconnect(self, user_id):
@@ -117,6 +152,7 @@ class LibraryRegistry:
         with self._lock:
             self._libraries.pop(key, None)
             self._last_repo.pop(key, None)
+            self._last_private.pop(key, None)
         target = (self._storage_root / key).resolve()
         root = self._storage_root.resolve()
         # Traversal is already fully closed by `_key`'s whitelist regex above --
