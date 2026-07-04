@@ -47,6 +47,14 @@ GitHub-bearer-gated). **Repo is now on GitHub:** `alankritxghosh/Icarus` (**priv
   bundle, drag-to-Applications + a `READ ME FIRST.txt`. The app resolves its brain
   from the bundle's `ICARUS_BRAIN_URL` (`IcarusKit/BrainEndpoint.swift` +
   `Icarus/AppConfig.swift`); dev builds fall back to `127.0.0.1:8000`.
+- **Static app icon (new this session):** the app previously only set its Dock icon
+  at runtime, so Finder/DMG/Dock showed a blank tile until launch. `IconExport.swift`
+  now renders the same `IconArt` art headlessly (`Icarus --render-iconset`),
+  `bundle.sh` bakes it into `Resources/AppIcon.icns`, and the Info.plist declares
+  `CFBundleIconFile` — so the icon shows everywhere, before first launch.
+- **End-to-end proven:** the hosted sign-in → cited-answer flow **works live** (the
+  final blocker was a `GITHUB_CLIENT_SECRET` mismatch on Render, since fixed). The
+  repo is on GitHub (`alankritxghosh/Icarus`, private); `main` is pushed.
 
 ## 3. The macOS app — architecture & files
 **Shape (current):** the **shell is the primary window** — no separate onboarding
@@ -159,6 +167,19 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
   pre-commit hook blocks staged secrets, so nothing secret is in git.
 
 ## 7. What is NOT done (next work)
+
+> **TOP PRIORITY — Private-repo support (for the PMF beta).** The goal: let
+> engineers connect their **own private repos** and get cited answers, so we can
+> test product-market fit. Decisions already made: keep it **hosted/cloud**
+> (centrally operated, not local per-engineer), with **per-user isolation** (the
+> current shared instance holds only one active repo and pools code — unsafe for
+> private repos), and a **paid, no-training LLM writer** (billing-enabled Gemini —
+> the free tier may train on inputs; verify the paid-tier terms before onboarding
+> real code). The only external egress of private code is the writer prompt
+> (retrieval is local BM25, no judge in the serve path). Not started — a detailed
+> approach was scoped but deliberately deferred. Prereqs the owner must do: enable
+> a **paid Gemini API key** and **upgrade Render off the free tier**.
+
 1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
    biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated
    prompts) and (b) lets the app open on someone else's Mac. Enrollment has lead
@@ -173,11 +194,12 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 5. **Persist the connected repo** across launches (login persists; the repo does
    not — you reconnect each launch). Also survives a Render restart poorly (in-memory).
 6. **Record the demo** (A6; script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
-7. **Private repos, multi-repo, non-GitHub sources, stale-decision detection** —
-   post-v1 roadmap, gated/deferred.
+7. **Multi-repo, non-GitHub sources, stale-decision detection** — post-v1 roadmap,
+   gated/deferred. (Private repos moved up to TOP PRIORITY above.)
 
-**DONE this session:** cloud deployment (Render), shareable DMG, and the git remote
-(`alankritxghosh/Icarus`, private) — the app is now downloadable and works end-to-end.
+**DONE this session:** cloud deployment (Render), shareable DMG, the git remote
+(`alankritxghosh/Icarus`, private), a baked static app icon, and a live end-to-end
+sign-in → cited-answer flow — the app is now downloadable and works for real users.
 
 ## 8. Security posture (this session)
 - Brain: loopback Host/Origin guard, 64 KB body cap, optional GitHub bearer gate
@@ -245,6 +267,10 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 - **Render injects `$PORT`** (observed `10000`) and expects `0.0.0.0`; the Dockerfile
   sets `HOST=0.0.0.0` and `serve()` reads `$PORT`. `ICARUS_ALLOWED_HOSTS=*` opens the
   Host guard so the Render hostname + health check pass.
+- **A code-only Dock icon shows a blank tile until launch.** `applicationIconImage`
+  set at runtime doesn't help Finder/DMG/pre-launch Dock — the bundle needs a static
+  `AppIcon.icns` + `CFBundleIconFile`. `bundle.sh` now bakes it from `IconArt` via the
+  `--render-iconset` path (`IconExport.swift`), so don't re-introduce a runtime-only icon.
 
 ## 11. Key files
 - Brain: `evals/*.py`, `demo/*.py` (incl. `demo/github_oauth.py`, `demo/auth.py`).
@@ -253,12 +279,12 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 - Docs: `docs/plans/`, `docs/decisions/`, `docs/EVALUATION.md`.
 
 ## 12. Git state
-**`main`** is now pushed to a **GitHub remote: `origin` → `alankritxghosh/Icarus`
-(private)** — the repo is no longer local-only (Render deploys from it). Latest
-commits (newest first): `8d891ab` log the real GitHub-callback failure reason,
-`6024581` host the brain on Render + package a shareable DMG, `25ed8f0` HANDOFF
-refresh, `b94687f` best-quality answer voice, `93252aa` Keychain persist + Sign out,
-`6e9e072`/`4ef199e` web GitHub login (app/brain), `dc4fc26` shell as primary window.
-`.env` and `.codex/` are untracked (leave them); `Icarus.app`/`Icarus.dmg` are
-gitignored build artifacts. The old `mac-app` branch still exists locally (same
-history line).
+**`main`** is pushed to a **GitHub remote: `origin` → `alankritxghosh/Icarus`
+(private)** — the repo is no longer local-only (Render deploys from it), and
+**local == remote** as of this handoff. Latest commits (newest first): `daf1cba`
+bake a static app icon (no more blank Dock tile), `165154f` HANDOFF refresh,
+`8d891ab` log the real GitHub-callback failure reason, `6024581` host the brain on
+Render + package a shareable DMG, `25ed8f0` HANDOFF refresh, `b94687f` best-quality
+answer voice, `6e9e072`/`4ef199e` web GitHub login (app/brain). `.env` and `.codex/`
+are untracked (leave them); `Icarus.app`/`Icarus.dmg` are gitignored build
+artifacts. The old `mac-app` branch still exists locally (same history line).
