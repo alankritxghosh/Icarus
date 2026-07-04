@@ -91,6 +91,20 @@ class RegistryTests(unittest.TestCase):
         reg.library_for("3")  # evicts "1"
         self.assertIsNot(reg.library_for("1"), first)  # rebuilt, disk cache intact
 
+    def test_lru_eviction_does_not_silently_revert_a_connected_repo(self):
+        # Regression: a rebuilt Library must resume the user's own connected
+        # repo, not silently fall back to the shared default (Library.__init__
+        # always starts on default_repo's meta.json; only the registry knows
+        # a per-user cache_root may already hold a different repo on disk).
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build,
+                              ingest_fn=self.reg._ingest_fn, max_live=2)
+        reg.library_for("1").connect_sync("octo/xrepo")
+        reg.library_for("2")
+        reg.library_for("3")  # evicts "1"
+        rebuilt = reg.library_for("1")
+        self.assertEqual(rebuilt.status_snapshot()["repo"], "octo/xrepo")
+
     def test_disconnect_deletes_only_that_users_storage(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
