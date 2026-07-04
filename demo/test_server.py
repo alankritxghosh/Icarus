@@ -514,5 +514,35 @@ class IdentityTests(unittest.TestCase):
         self.assertIn("1001", reg.seen)
 
 
+class DisconnectTests(unittest.TestCase):
+    def test_disconnect_requires_auth_when_auth_on(self):
+        from .auth import StaticTokenVerifier
+        fx = _ServerFixture(_StubRegistry(_StubLibrary()), require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(fx.base + "/disconnect", {})
+            self.assertEqual(cm.exception.code, 401)
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_disconnect_calls_registry_with_the_callers_identity(self):
+        from .auth import StaticTokenVerifier
+        reg = _StubRegistry(_StubLibrary())
+        fx = _ServerFixture(reg, require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            req = urllib.request.Request(
+                fx.base + "/disconnect", data=b"{}",
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer tok-a"})
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 200)
+        finally:
+            fx.close()
+        self.assertEqual(reg.disconnected, ["1001"])
+
+
 if __name__ == "__main__":
     unittest.main()

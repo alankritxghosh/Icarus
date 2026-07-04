@@ -28,3 +28,6 @@ repositories/
 
 # Demo per-repo corpus cache (switched-to public repos; not committed)
 evals/corpus/cache/
+
+# Per-user corpora (public caches AND private code) — never committed
+data/

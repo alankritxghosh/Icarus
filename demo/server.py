@@ -6,6 +6,7 @@ GET  /health  -> {"ok": true, "repo": ..., "commit": ...} -- liveness + provenan
 GET  /status  -> the active repo + switch status (JSON)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
 POST /connect -> {"repo": "owner/name"} -> start indexing/switching to that repo
+POST /disconnect -> forget the caller's library and delete their on-disk storage
 
 The active pipeline lives in a Library (demo/library.py); the handler is a thin
 shell over it. /connect runs in a background thread so the request returns
@@ -26,7 +27,7 @@ from evals.corpus_meta import load_meta
 from evals.env_file import load_env_file
 
 from .payload import build_payload
-from .library import Library
+from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier
 from . import github_oauth
 
@@ -34,7 +35,6 @@ ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent
 CORPUS_DIR = ROOT.parent / "evals" / "corpus"
 CORPUS_META = CORPUS_DIR / "meta.json"
-CACHE_ROOT = CORPUS_DIR / "cache"
 QUESTIONS = ROOT.parent / "evals" / "phase1_questions.json"
 INDEX_HTML = ROOT / "index.html"
 
@@ -203,6 +203,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
+            if self.path == "/disconnect":
+                registry.disconnect(identity)
+                self._send_json(200, registry.library_for(identity).status_snapshot())
+                return
             lib = registry.library_for(identity)
             if self.path == "/ask":
                 try:
@@ -233,17 +237,6 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     return Handler
 
 
-class _SingleLibraryRegistry:
-    """Interim shim: today's one shared Library behind the registry interface.
-    Task 3 (demo/registry.py) replaces this with real per-user isolation."""
-
-    def __init__(self, lib):
-        self._lib = lib
-
-    def library_for(self, user_id):
-        return self._lib
-
-
 def resolve_provenance(meta_path, questions_path):
     """Default repo/commit for the committed corpus: prefer its meta.json, else
     fall back to the labelled set's corpus block."""
@@ -261,7 +254,8 @@ def serve(host: str = None, port: int = None):
     host = host if host is not None else os.environ.get("HOST", "127.0.0.1")
     port = int(port) if port is not None else int(os.environ.get("PORT", "8000"))
     default_repo, commit = resolve_provenance(CORPUS_META, QUESTIONS)
-    library = Library(CORPUS_DIR, CACHE_ROOT, default_repo)
+    storage_root = Path(os.environ.get("ICARUS_STORAGE_ROOT", str(REPO_ROOT / "data")))
+    registry = LibraryRegistry(CORPUS_DIR, storage_root, default_repo)
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
     allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
@@ -274,7 +268,6 @@ def serve(host: str = None, port: int = None):
     cid, secret = os.environ.get("GITHUB_CLIENT_ID"), os.environ.get("GITHUB_CLIENT_SECRET")
     if cid and secret:
         oauth = github_oauth.OAuthFlow(cid, secret, f"{callback_base}/auth/github/callback")
-    registry = _SingleLibraryRegistry(library)
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts)
     httpd = ThreadingHTTPServer((host, port), handler)
