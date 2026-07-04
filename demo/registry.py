@@ -70,7 +70,6 @@ class LibraryRegistry:
                 self._libraries.move_to_end(key)
                 return lib
             resume_repo = self._last_repo.get(key)
-            evicted = None
             lib = Library(self._default_dir, self._storage_root / key / "cache",
                           self._default_repo, build_pipeline=self._build,
                           ingest_fn=self._ingest_fn)
@@ -78,10 +77,16 @@ class LibraryRegistry:
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:
                 evicted_key, evicted = self._libraries.popitem(last=False)
-        # Remember the outgoing library's repo for its own future rebuild --
-        # done outside the lock since status_snapshot() takes Library's lock.
-        if evicted is not None:
-            self._last_repo[evicted_key] = evicted.status_snapshot()["repo"]
+                # Capture the outgoing library's repo and record it while STILL
+                # holding self._lock, so no other thread can ever observe the
+                # "popped from _libraries but not yet in _last_repo" gap -- that
+                # gap is exactly what would let the evicted user's own next
+                # library_for() race in and rebuild on the default repo instead
+                # of resuming. status_snapshot() only takes Library's own lock
+                # (see demo/library.py) and Library holds no reference back to
+                # the registry, so registry-lock -> library-lock is a safe,
+                # cycle-free one-way ordering -- no deadlock risk.
+                self._last_repo[evicted_key] = evicted.status_snapshot()["repo"]
         # Replay the user's last connect on a freshly (re)built Library so an
         # eviction never silently reverts them to the public demo repo. This
         # is a cache hit -- connect_sync sees the on-disk cache and skips

@@ -105,6 +105,62 @@ class RegistryTests(unittest.TestCase):
         rebuilt = reg.library_for("1")
         self.assertEqual(rebuilt.status_snapshot()["repo"], "octo/xrepo")
 
+    def test_eviction_and_last_repo_write_are_atomic_under_a_racing_request(self):
+        # Regression for the eviction/resume race: the evicted key's pop from
+        # _libraries and the write to _last_repo must happen under the SAME
+        # hold of the registry lock, so a same-key library_for() racing in
+        # right as eviction happens can never observe "popped but not yet
+        # recorded" and silently rebuild on the default repo instead of
+        # resuming.
+        #
+        # This is deterministic (lock-forced), not a timing/sleep race, so
+        # it isn't flaky: the hook below fires from INSIDE the registry's
+        # `with self._lock:` block during eviction (status_snapshot() is
+        # only called there, right after the pop). It starts the racer
+        # thread right then -- the racer immediately blocks trying to
+        # acquire self._lock, since the main thread still holds it -- and
+        # only lets the racer proceed once the main thread's library_for()
+        # call has fully returned (and so released the lock). If the pop
+        # and the _last_repo write are atomic under one lock hold (the fix),
+        # the racer can only ever see the post-write state. If they were
+        # split across two lock holds (the bug), the racer could win the
+        # lock in the gap and see "popped, not yet recorded".
+        import threading
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build,
+                              ingest_fn=self.reg._ingest_fn, max_live=2)
+        reg.library_for("1").connect_sync("octo/xrepo")
+        reg.library_for("2")
+
+        from .library import Library
+        real_snapshot = Library.status_snapshot
+        entered = threading.Event()
+        racer_started = threading.Event()
+        racer = {}
+
+        def snooping_snapshot(self_lib):
+            entered.set()
+            t = threading.Thread(target=lambda: racer.update(
+                lib=reg.library_for("1")))
+            t.start()
+            racer["thread"] = t
+            racer_started.set()
+            return real_snapshot(self_lib)
+
+        Library.status_snapshot = snooping_snapshot
+        try:
+            reg.library_for("3")  # evicts "1" -- triggers snooping_snapshot
+        finally:
+            Library.status_snapshot = real_snapshot
+
+        self.assertTrue(entered.is_set())
+        self.assertTrue(racer_started.wait(timeout=5))
+        racer["thread"].join(timeout=5)
+        self.assertFalse(racer["thread"].is_alive())  # actually finished, didn't hang
+        self.assertIn("lib", racer)
+        self.assertEqual(racer["lib"].status_snapshot()["repo"], "octo/xrepo")
+
     def test_disconnect_deletes_only_that_users_storage(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
