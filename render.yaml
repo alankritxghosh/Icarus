@@ -35,6 +35,17 @@ services:
         sync: false
       - key: GITHUB_CLIENT_SECRET
         sync: false
+      # The private-repo writer -- a billing-enabled, no-training Gemini key.
+      # Never satisfied by the free GEMINI_API_KEY (the trust interlock only
+      # trusts this dedicated env var). See docs/plans/2026-07-04-private-repos-
+      # per-user-isolation.md.
+      - key: GEMINI_PAID_API_KEY
+        sync: false
       # Lets the container's `gh` fetch PRs/issues when a user switches repos.
       - key: GH_TOKEN
         sync: false
+      # Per-user corpora (public cache AND private code). Render's free-tier
+      # disk is EPHEMERAL -- wiped on every deploy/restart/idle-sleep, so this
+      # is a cache, not durable storage (decision recorded in the scoping doc).
+      - key: ICARUS_STORAGE_ROOT
+        value: /opt/render/project/src/data

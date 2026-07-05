@@ -168,17 +168,33 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 
 ## 7. What is NOT done (next work)
 
-> **TOP PRIORITY — Private-repo support (for the PMF beta).** The goal: let
-> engineers connect their **own private repos** and get cited answers, so we can
-> test product-market fit. Decisions already made: keep it **hosted/cloud**
-> (centrally operated, not local per-engineer), with **per-user isolation** (the
-> current shared instance holds only one active repo and pools code — unsafe for
-> private repos), and a **paid, no-training LLM writer** (billing-enabled Gemini —
-> the free tier may train on inputs; verify the paid-tier terms before onboarding
-> real code). The only external egress of private code is the writer prompt
-> (retrieval is local BM25, no judge in the serve path). Not started — a detailed
-> approach was scoped but deliberately deferred. Prereqs the owner must do: enable
-> a **paid Gemini API key** and **upgrade Render off the free tier**.
+> **Private-repo support (brain side) — DONE on `feat/private-repos`, not yet
+> merged/deployed.** The 16-task plan
+> (`docs/plans/2026-07-04-private-repos-implementation.md`) landed: per-GitHub-
+> identity `LibraryRegistry` isolation, a deterministic trust interlock
+> (`evals/trust.py`) that refuses any non-`private_safe` provider, caller-scoped
+> access checks + leak-safe token-authed ingest, a paid no-training writer
+> (`PaidGeminiProvider`, `GEMINI_PAID_API_KEY`), per-identity rate limiting, and
+> two proof suites (`demo/test_isolation.py`, `evals/test_egress_invariants.py`).
+> **Still open:** merge this branch, set `GEMINI_PAID_API_KEY` +
+> `ICARUS_STORAGE_ROOT` on Render, and build the small Mac-app surface (Brick G —
+> see the two new gaps in §10 and the item below).
+> - **App-side private-repo UI (Brick G) is NOT built yet:** the app has no
+>   "connect a private repo" affordance, no "disconnect / delete my data"
+>   control, and no public-vs-private / which-writer indicator. It's scoped as
+>   its own brick in the implementation plan's Brick G outline — build after the
+>   brain lands.
+> - **Private-connection-loss signal is a genuine, not-yet-tracked product gap:**
+>   if the `LibraryRegistry`'s LRU eviction can't safely resume a user's private
+>   repo (it never holds the caller's token, so it can't re-ingest — see
+>   `demo/registry.py`'s eviction/resume logic), it honestly falls back to "not
+>   connected" rather than silently serving public-tier answers under the wrong
+>   pretense. But the user currently sees **no explicit signal** that this
+>   happened: `GET /status` just shows a normal-looking "ready" state pointing at
+>   the public default repo. The Mac app's `RepoStatus` model
+>   (`mac/Icarus/Sources/IcarusKit/Models.swift`) doesn't even have a `private`
+>   field yet to detect this. Needs a task once the app work (Brick G) is scoped
+>   — not fixed here, this is a docs-only pass.
 
 1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
    biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated
@@ -186,16 +202,18 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
    time — start it before any investor touches the binary.
 2. **Rotate any remaining exposed keys** (see §6) — the GitHub client secret is
    done; confirm Groq/Gemini.
-3. **Harden the hosted brain if it goes beyond a controlled demo:** no rate-limiting
-   today (auth is the only lever — don't post the URL publicly); the free instance
-   sleeps; repo-switching ingests arbitrary public repos on the server (prompt-
-   injection surface, disclosed). The OAuth CSRF state is in-memory (see §10).
+3. **Harden the hosted brain if it goes beyond a controlled demo:** `/ask` and
+   `/connect` now have per-identity rate limits (`demo/ratelimit.py`, Task 15),
+   but auth is still the only ban/throttle lever otherwise — don't post the URL
+   publicly. The free instance sleeps; repo-switching ingests arbitrary public
+   repos on the server (prompt-injection surface, disclosed). The OAuth CSRF
+   state is in-memory (see §10).
 4. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
 5. **Persist the connected repo** across launches (login persists; the repo does
    not — you reconnect each launch). Also survives a Render restart poorly (in-memory).
 6. **Record the demo** (A6; script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
 7. **Multi-repo, non-GitHub sources, stale-decision detection** — post-v1 roadmap,
-   gated/deferred. (Private repos moved up to TOP PRIORITY above.)
+   gated/deferred.
 
 **DONE this session:** cloud deployment (Render), shareable DMG, the git remote
 (`alankritxghosh/Icarus`, private), a baked static app icon, and a live end-to-end
@@ -264,6 +282,13 @@ sign-in → cited-answer flow — the app is now downloadable and works for real
   path each launch so "Always Allow" can't stick) and clear quarantine
   (`xattr -dr com.apple.quarantine /Applications/Icarus.app`). Every rebuild changes
   the cdhash → one re-prompt. Only notarization removes it entirely.
+- **The GitHub OAuth scope widened `read:user` → `repo`** (private-repo support,
+  `demo/github_oauth.py`) so a signed-in user's own token can read their private
+  repos. Anyone who signed in **before** this change is holding a stale
+  `read:user`-scoped token — private-repo connect fails for them until they
+  **sign out and sign back in** to pick up the new scope. There is **no
+  server-side token migration**; this is a real, one-time, user-visible step
+  (also called out in `docs/DISTRIBUTION.md`).
 - **Render injects `$PORT`** (observed `10000`) and expects `0.0.0.0`; the Dockerfile
   sets `HOST=0.0.0.0` and `serve()` reads `$PORT`. `ICARUS_ALLOWED_HOSTS=*` opens the
   Host guard so the Render hostname + health check pass.

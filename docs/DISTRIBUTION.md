@@ -32,11 +32,16 @@ up. Verify with `git status` before pushing that `.env` is untracked.
    - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — your GitHub OAuth app.
    - `GH_TOKEN` — a GitHub token so the container's `gh` can fetch PRs/issues when
      a user switches repos. A fine-grained token with public-repo read is enough.
+   - `GEMINI_PAID_API_KEY` — a **billing-enabled** Gemini key; the private-repo
+     writer. Never satisfied by the free `GEMINI_API_KEY` (the trust interlock
+     only trusts this dedicated env var — see
+     `docs/plans/2026-07-04-private-repos-per-user-isolation.md`).
    - `ICARUS_PUBLIC_URL` — **the service's own https URL**, e.g.
      `https://icarus-brain.onrender.com`. You get this after the first deploy;
      set it, then redeploy. It must match the OAuth callback in step 1c.
-   - (already in `render.yaml`, no action) `ICARUS_ALLOWED_HOSTS=*` and
-     `ICARUS_REQUIRE_GITHUB_AUTH=1`.
+   - (already in `render.yaml`, no action) `ICARUS_ALLOWED_HOSTS=*`,
+     `ICARUS_REQUIRE_GITHUB_AUTH=1`, and `ICARUS_STORAGE_ROOT` (per-user corpora;
+     Render's free-tier disk is ephemeral, so this is a cache, not durable storage).
 3. Deploy. Health check is `GET /health`.
 
 ### 1c. Point the GitHub OAuth app at the hosted callback
@@ -84,6 +89,13 @@ price of not paying Apple. It happens once per recipient.
 
 Then: **Sign in with GitHub** → connect a public repo (e.g. `simonw/llm`) →
 **⌘⇧I** to type, or hold **Right Option (⌥)** to speak.
+
+**One-time re-sign-in for private repos.** The GitHub OAuth scope widened from
+`read:user` to `repo` so a signed-in user's own token can read their private
+repos. Anyone who signed in **before** this deploy is holding a stale
+`read:user`-scoped token — private-repo connect will fail for them until they
+**sign out and sign back in once** to pick up the new scope. There is no
+server-side token migration; this is a real, user-visible one-time step.
 
 ---
 

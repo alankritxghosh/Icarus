@@ -24,7 +24,9 @@ removing, or renaming files). For class/function-level detail see
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
   repo-switch ingest), runs `python -m demo.server`; binds `0.0.0.0`/`$PORT`.
 - `render.yaml` — Render Blueprint: one free Docker web service, `/health` check,
-  `ICARUS_ALLOWED_HOSTS=*` + `ICARUS_REQUIRE_GITHUB_AUTH=1`, secrets as `sync:false`.
+  `ICARUS_ALLOWED_HOSTS=*` + `ICARUS_REQUIRE_GITHUB_AUTH=1`, `ICARUS_STORAGE_ROOT`
+  (per-user corpora on Render's ephemeral disk), secrets (incl. the private-repo
+  writer's `GEMINI_PAID_API_KEY`) as `sync:false`.
 - `.dockerignore` — keeps the image slim (only `evals/`+`demo/`+committed corpus;
   excludes `mac/`, `.git`, caches, `.env`).
 
@@ -101,18 +103,27 @@ removing, or renaming files). For class/function-level detail see
   conscience (cited-answer correctness + honest abstention).
 - `evals/corpus.py` — the `Chunk` dataclass and `load_chunks` (read the committed
   corpus, one evidence unit per line with a citation ref).
-- `evals/ingest.py` — one-time corpus generator from a public repo (PRs, linked
-  issues, Python source) → `corpus/chunks.jsonl` + `meta.json`. Subprocess
-  timeouts, per-file/total size caps, and a `code_dir` path-traversal guard.
-  Needs `gh` + `git`.
+- `evals/ingest.py` — corpus generator from a public **or private** repo (PRs,
+  linked issues, Python source) → `chunks.jsonl` + `meta.json`. Subprocess
+  timeouts, per-file/total size caps, a `code_dir` path-traversal guard, and an
+  optional caller `token` threaded leak-safe into `git`/`gh` subprocess **env**
+  (`_git_env`/`_gh_env` — never argv, never the clone URL, never logged). Needs
+  `gh` + `git`.
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links.
 - `evals/retriever.py` — `LexicalRetriever`, a stdlib BM25 keyword retriever, plus
   a `tokenize` helper.
 - `evals/provider.py` — the `Provider` abstraction for the rented writer/judge:
   `GroqProvider`, `GeminiProvider` (key in the `x-goog-api-key` header, not the
-  URL), `OpenRouterProvider`, `StaticProvider`; `make_provider` factory + 429
-  backoff. Stdlib `urllib`; keys from env.
+  URL), `OpenRouterProvider`, `StaticProvider`, and `PaidGeminiProvider` (a
+  billing-enabled, `private_safe=True` Gemini on its own `GEMINI_PAID_API_KEY`);
+  `make_provider` factory + 429 backoff. Stdlib `urllib`; keys from env.
+- `evals/trust.py` — the deterministic trust interlock: `assert_safe_for_private`
+  raises `PrivateDataError` unless a provider declares `private_safe=True`
+  (never inferred from a key string) — private code's only gate to a writer.
+- `evals/github_access.py` — `repo_info`: the caller-scoped permission check
+  (`GET /repos/{owner}/{repo}` as the caller's own token); 200 → `{"private":
+  bool}`, anything else (403/404/network/malformed) → `None` (fail-safe refuse).
 - `evals/env_file.py` — `load_env_file`: stdlib loader that reads a gitignored
   `.env` into `os.environ` without overriding real env vars.
 - `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt (also tells
@@ -144,7 +155,13 @@ removing, or renaming files). For class/function-level detail see
 - `evals/test_pipeline.py` — `RetrievalPipeline` populates `retrieved` yet still
   abstains.
 - `evals/test_provider.py` — `StaticProvider` queuing, no-key errors, the retry
-  budget, and the Gemini key going in the header not the URL.
+  budget, and the Gemini key going in the header not the URL; `private_safe`
+  flags per provider and `PaidGeminiProvider`'s dedicated key env.
+- `evals/test_trust.py` — the trust interlock refuses every free provider and an
+  undeclared one, and passes the private-safe/static providers.
+- `evals/test_github_access.py` — `repo_info` across 200 (public/private),
+  sends the caller's token as Bearer, and refuses on 404/network error/garbage
+  body/missing `private` field/no token (never calls out without one).
 - `evals/test_synth.py` — the prompt includes question/refs/text, offers the
   unknown path, truncates long chunks.
 - `evals/test_gate.py` — the gate passes grounded answers and fails safe to
@@ -168,6 +185,17 @@ removing, or renaming files). For class/function-level detail see
   > 0 while both gates stay 100% (skips without a key/corpus).
 - `evals/test_free_hosted_eval.py` — real-model proof on the free hosted stack
   (Groq writer + Gemini judge).
+- `evals/test_paid_writer_eval.py` — real-model proof: the paid Gemini writer
+  holds both honesty gates at 100% with citation correctness > 0 on the public
+  board (self-skips without `GEMINI_PAID_API_KEY`).
+- `evals/test_private_ingest_live.py` — live end-to-end private-repo proof: the
+  access gate, an authed clone, a paid-writer answer, and the free-provider
+  interlock refusal, all against a real repo (self-skips without
+  `RUN_PRIVATE_INGEST=1` + a real repo/token/paid key).
+- `evals/test_egress_invariants.py` — proves, offline with a spy provider, that
+  private text reaches only a genuinely private-safe provider, an unsafe one
+  raises before any prompt is sent, the serve path never imports the judge, and
+  the per-user private tree is git-ignored.
 
 ## evals/ data files
 - `evals/phase1_questions.json` — the verified labelled question set (pinned to
@@ -181,34 +209,68 @@ removing, or renaming files). For class/function-level detail see
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
 - `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON.
-- `demo/library.py` — `Library`: the active-repo state + live `GatedPipeline`;
-  `connect_sync` reuses a cache or ingests once, single-flight and thread-safe,
-  serving a generic error on failure (never the raw command line).
-- `demo/auth.py` — bearer-token auth for the brain: `bearer_token`,
-  `GitHubTokenVerifier` (validates against GitHub `/user`, cached, fail-safe),
-  and `StaticTokenVerifier` (test double). Enforced only in the auth mode.
-- `demo/github_oauth.py` — server-side GitHub web-login flow: `authorize_url`,
-  `exchange_code` (uses the client SECRET, injectable opener), and `OAuthFlow`
-  (single-use state/session, TTL). The secret lives only here, never in the app.
-- `demo/server.py` — stdlib `http.server` over a `Library`: `make_handler`
-  (loopback Host/Origin guard, 64KB body cap, optional GitHub bearer on
-  `/ask`+`/connect`, web-login endpoints), `resolve_provenance`, `serve`
-  (ThreadingHTTPServer, loads `.env`). `GET /`,`/health`,`/status`,
-  `/auth/github/callback`; `POST /ask`,`/connect`,`/auth/github/begin`,
+- `demo/library.py` — `Library`: one active repo's state + pipeline. `connect_sync`
+  reuses a cache or ingests once, single-flight and thread-safe, serving a
+  generic error on failure; now takes an optional caller `token` + `private`
+  flag — a private connect resolves a separate on-disk path, refuses (before any
+  clone) if the paid writer isn't configured, and builds its pipeline through
+  the trust interlock (`evals/trust.py`) so private code can only ever reach
+  `PaidGeminiProvider`. `status_snapshot()` reports `"private": bool`.
+- `demo/registry.py` — `LibraryRegistry`: one isolated `Library` per GitHub
+  identity under `<storage_root>/<user_id>/…`; the shared public default is
+  built once and reused read-only. LRU-bounded (`max_live`); an evicted user's
+  library rebuilds from its on-disk cache and the registry replays their last
+  connect so eviction never silently reverts them to the public repo — except a
+  private repo, which it only resumes from a genuine on-disk cache hit (no
+  token to re-ingest with), otherwise honestly leaves on the default rather
+  than ever downgrading a private connection to a public one. `disconnect`
+  deletes a user's storage + forgets their last-connected repo.
+- `demo/ratelimit.py` — `RateLimiter`: per-key sliding-window limiter (stdlib,
+  thread-safe, injectable clock) bounding how often an identity can hit `/ask`
+  (bills the writer) or `/connect` (shells out to git/gh).
+- `demo/auth.py` — bearer-token auth that resolves *identity*, not just
+  validity: `bearer_token`, `GitHubTokenVerifier` (returns the caller's stable
+  GitHub user id via `/user`, cached, fail-safe to `None`), and
+  `StaticTokenVerifier` (test double mapping tokens to ids). Enforced only in
+  the auth mode.
+- `demo/github_oauth.py` — server-side GitHub web-login flow: `authorize_url`
+  (default scope `repo`, so a caller's token can read their own private repos —
+  existing `read:user`-scoped sign-ins must re-authenticate once), `exchange_code`
+  (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
+  state/session, TTL). The secret lives only here, never in the app.
+- `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
+  (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
+  optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
+  limits via `demo/ratelimit.py`, web-login endpoints), `resolve_provenance`,
+  `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
+  `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/auth/github/callback`;
+  `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
+  caller's token before any private clone),`/disconnect`,`/auth/github/begin`,
   `/auth/github/redeem`.
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, and an `owner/repo` connect control; vanilla `fetch`.
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
-- `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing and the GitHub
-  verifier's cache + network-error fail-safe (offline).
-- `demo/test_github_oauth.py` — the web-login flow: authorize-url building, offline
-  token exchange, and the single-use state/session lifecycle.
+- `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's
+  token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
+- `demo/test_github_oauth.py` — the web-login flow: authorize-url building
+  (including the `repo` scope), offline token exchange, and the single-use
+  state/session lifecycle.
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
-  single-flight concurrent connect, and generic (non-leaking) ingest errors.
-- `demo/test_server.py` — routing against a stub library, plus the Origin guard
-  (403), body cap (413), bearer-auth gate (401), concurrency, and index.html
-  smoke checks (real hooks present, no fabricated data).
+  single-flight concurrent connect, generic (non-leaking) ingest errors, and
+  private connect (token/private routing, refusal without the paid writer,
+  token never in status output).
+- `demo/test_registry.py` — the registry: per-user isolation, per-user storage
+  paths, the shared default pipeline built once, hostile-id rejection, LRU
+  eviction, and disconnect deleting only that user's storage.
+- `demo/test_ratelimit.py` — the limiter: allows up to the limit, blocks past
+  it, a different key is unaffected, and the window sliding restores access.
+- `demo/test_server.py` — routing against a stub registry, plus the Origin guard
+  (403), body cap (413), bearer-auth gate (401), per-request identity, rate
+  limiting (429), `/disconnect`, concurrency, and index.html smoke checks.
+- `demo/test_isolation.py` — cross-user isolation proven at the HTTP boundary: a
+  real `LibraryRegistry` behind a real server with two authenticated identities
+  — connect, storage, disconnect, and provenance all stay disjoint.
 - `demo/test_demo_live.py` — end-to-end live guard over the real pipeline; skips
   without a key or the corpus.
 

@@ -155,6 +155,9 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   (proves it fails safe to abstention on every ambiguous reply).
 - `python3 -m unittest evals.test_judge` — test the answer-correctness judge
   (proves its verdict parser fails safe to "incorrect" on an ambiguous reply).
+- `GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_paid_writer_eval` — prove
+  the paid writer holds both honesty gates at 100% on the public board (self-skips
+  without the key).
 
 Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
 - `GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m demo.server` — serve the demo at
@@ -182,9 +185,28 @@ Ingest (point the demo at any **public** repo; needs `gh` authed + `git`):
 - `RUN_INGEST_SMOKE=1 python3 -m unittest evals.test_ingest_smoke` — live ingest a
   tiny public repo to a temp path (self-skips by default).
 
+Private repos (hosted, per-user isolated; needs the `repo`-scoped GitHub login —
+sign out/in once if you signed in before this landed, see `docs/DISTRIBUTION.md`):
+- Sign in with GitHub, then `POST /connect {"repo": "owner/name"}` for a repo your
+  token can read. The server checks `GET /repos/{owner}/{repo}` **as the caller**
+  first (200-or-refuse, fail-safe); a private repo routes to the **paid,
+  private-safe writer** (`PaidGeminiProvider`, `GEMINI_PAID_API_KEY`) under a
+  per-user storage root — a public repo always keeps using the free writer.
+  `GET /status` reports `"private": true/false` for the caller's active repo.
+- `POST /disconnect` — deletes the caller's own on-disk corpus and resets their
+  library to the public default. Never touches another user's data.
+- **Loud warnings:** never commit `data/` (git-ignored, holds per-user corpora —
+  Task 4 of the private-repo plan); public repos always use the free writer,
+  private repos ONLY the paid private-safe one, enforced in code by the
+  deterministic trust interlock (`evals/trust.py` — refuses any provider that
+  isn't `private_safe=True`, never inferred from a key string); the caller's
+  GitHub token is used in-memory only for the duration of the request — never
+  written to argv, disk, or logs (`evals/ingest.py`'s leak-safe env-based auth).
+
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 @ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
 scores against). On the free hosted stack (Groq writer + Gemini judge) the board
 reads **GREEN**: gates 100%, citation correctness 100%, answer correctness ~83%.
-Public-repo MVP only (no private repos on free models). Next MVP bricks: UI
-redesign, the macOS app, and voice.
+Public repos use free hosted models; a signed-in user may also connect their own
+**private** repo, answered only by the paid private-safe writer (see above). Next
+MVP bricks: UI redesign, the macOS app (Brick G), and voice.
