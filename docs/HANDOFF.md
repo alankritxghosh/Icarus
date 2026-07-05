@@ -259,11 +259,17 @@ run this for real yet**, only proven to construct correctly and self-skip).
 > **Still open, in priority order:**
 > 1. ~~Push `main` to `origin`~~ **Done.**
 > 2. ~~Set `GEMINI_PAID_API_KEY` on Render and redeploy~~ **Done — confirmed live.**
-> 3. **Actually run the two live proofs with real credentials** (§5) —
->    `evals.test_paid_writer_eval` and `evals.test_private_ingest_live` are
->    built and self-skip cleanly, but **nobody has run either for real yet**.
->    Do this before telling anyone private repos are proven end-to-end, not just
->    "correctly constructed."
+> 3. ~~Run `evals.test_paid_writer_eval` for real~~ **Done — actually run with a
+>    real billing-enabled key.** Hit a real, transient Google-side "high demand"
+>    503 on the old `gemini-2.5-flash-lite` default; verified the model swap
+>    (`gemini-3.1-flash-lite`) is a real, stable id via the live
+>    `/v1beta/models` list before changing it, then reran: **GREEN** — gates
+>    100%, citation correctness 100%, answer correctness 100%
+>    (`evals/provider.py`, commit `7510c4b`).
+>    **Still open:** `evals.test_private_ingest_live` — needs
+>    `ICARUS_TEST_PRIVATE_REPO` (a real private repo) + `GITHUB_TOKEN`, neither
+>    of which has been supplied yet. Do this before telling anyone the full
+>    private-repo path (not just the writer swap) is proven end-to-end.
 > 4. **Record the written no-training policy link** for the paid Gemini key —
 >    billing is confirmed enabled, but the actual policy-link verification is
 >    still an open checkbox in
