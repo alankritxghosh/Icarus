@@ -28,8 +28,9 @@ GitHub-bearer-gated). **Repo is now on GitHub:** `alankritxghosh/Icarus` (**priv
 
 **This session's headline: the 16-task private-repo plan
 (`docs/plans/2026-07-04-private-repos-implementation.md`) is fully built, reviewed,
-and merged to `main` — brain-side. Not yet: pushed to `origin`, deployed to Render
-with the new env vars, or given a Mac-app surface (Brick G). See §1a and §7.**
+merged to `main`, pushed to `origin`, and deployed live on Render with
+`GEMINI_PAID_API_KEY` set — brain-side. Not yet: a Mac-app surface (Brick G), or
+anyone actually running the two live proofs for real. See §1a and §7.**
 
 ## 1a. This session: private repos, merged (read this if you're picking up next)
 Built task-by-task via subagent-driven development (fresh implementer + spec review
@@ -225,13 +226,14 @@ run this for real yet**, only proven to construct correctly and self-skip).
 - **Where they live now:** for the hosted brain, secrets are set in the **Render
   dashboard** as env vars (`render.yaml` marks them `sync:false`, never committed):
   `GROQ_API_KEY`, `GEMINI_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
-  `GH_TOKEN`, `ICARUS_PUBLIC_URL`, and **new this session:**
-  `GEMINI_PAID_API_KEY` (the private-repo writer — billing-enabled, per the
-  project owner; placing a value here is the attestation it's billed, since code
-  can't tell a free key string from a paid one) and `ICARUS_STORAGE_ROOT`
-  (per-user corpora; defaults to `<repo>/app/data`-style path if unset — see
-  `render.yaml`). **Neither is set on Render yet — do this before private repos
-  work in production.** Local dev still reads a gitignored `.env`.
+  `GH_TOKEN`, `ICARUS_PUBLIC_URL`, and **new this session: `GEMINI_PAID_API_KEY`**
+  (the private-repo writer — billing-enabled, per the project owner; placing a
+  value here is the attestation it's billed, since code can't tell a free key
+  string from a paid one) — **now set on Render, redeployed, confirmed live**
+  (`GET /status` returns the new `"private"` field). `ICARUS_STORAGE_ROOT` is
+  NOT a dashboard secret — it's a plain committed value (`/app/data`) directly in
+  `render.yaml`, applied automatically on every deploy; nothing to set for it.
+  Local dev still reads a gitignored `.env`.
 - **GitHub client secret: rotated this session** (the rotation-mismatch was what
   broke sign-in — see §10). The Render value now matches the OAuth app whose
   **Client ID is `Ov23liVZXvv6V5vX2x1Y`** (Client ID is public; the secret is not).
@@ -249,16 +251,14 @@ run this for real yet**, only proven to construct correctly and self-skip).
 > token-authed ingest, a paid no-training writer (`PaidGeminiProvider`,
 > `GEMINI_PAID_API_KEY`), per-identity rate limiting, and two mutation-tested
 > proof suites (`demo/test_isolation.py`, `evals/test_egress_invariants.py`).
-> `main` is NOT yet pushed to `origin`, and Render has NOT been redeployed with
-> the new env vars — see the checklist below.
+> **`main` is pushed to `origin` and Render is redeployed with `GEMINI_PAID_API_KEY`
+> set** (`ICARUS_STORAGE_ROOT` was already committed with a value in `render.yaml`,
+> so no dashboard entry was needed for it — confirmed live: `GET /status` on
+> `https://icarus-brain.onrender.com` now returns the new `"private"` field).**
 >
 > **Still open, in priority order:**
-> 1. **Push `main` to `origin`** (this session merged locally; `git push` was
->    deliberately not run without being asked — do this, then redeploy Render).
-> 2. **Set `GEMINI_PAID_API_KEY` and `ICARUS_STORAGE_ROOT` on Render** (§6) and
->    redeploy — private-repo connect is a no-op in production until this happens
->    (`Library.connect_sync` refuses cleanly with a generic error if the paid key
->    isn't configured; it never silently falls back to a free writer).
+> 1. ~~Push `main` to `origin`~~ **Done.**
+> 2. ~~Set `GEMINI_PAID_API_KEY` on Render and redeploy~~ **Done — confirmed live.**
 > 3. **Actually run the two live proofs with real credentials** (§5) —
 >    `evals.test_paid_writer_eval` and `evals.test_private_ingest_live` are
 >    built and self-skip cleanly, but **nobody has run either for real yet**.
@@ -411,19 +411,19 @@ sign-in → cited-answer flow — the app is now downloadable and works for real
   16-task plan, all done).
 
 ## 12. Git state
-**`main` is LOCAL-ONLY AHEAD of `origin/main` by 27 commits — NOT YET PUSHED.**
-This session merged `feat/private-repos` into `main` via fast-forward
-(`a237ab2` → `95aeda6`, no merge commit, clean history) but deliberately did not
-push, per the standing rule to never push without being asked. **Next step:
-`git push origin main`, then redeploy Render with the two new env vars (§6).**
+**`main` == `origin/main`, both at `899be8f`** (this HANDOFF's own commit) —
+pushed this session. This session merged `feat/private-repos` into `main` via
+fast-forward (`a237ab2` → `95aeda6`, no merge commit, clean history), pushed it,
+and confirmed the Render deploy picked it up live (§6/§7).
 
-Latest commits (newest first): `95aeda6` HANDOFF's Task-0 gap + a Render storage-path
-fix, `dbe7b38` private-repo env/deploy/docs + regenerated indexes, `e4d2bcb`
-per-identity rate limits, `0a0b03f`/`454e5cd` egress-invariants proof suite,
-`1ebfd45` cross-user isolation proof suite, `f9f70d3`/`aff26cb` the live
-private-repo proof (self-skipping), `7391277`/`0fce604` the private connect path
-+ an eviction-resume race/downgrade fix, working back through all 16 tasks to
-`a237ab2` (the plan docs, and the branch point off the previous session's HEAD).
+Latest commits (newest first): `899be8f` this HANDOFF refresh, `95aeda6` HANDOFF's
+Task-0 gap + a Render storage-path fix, `dbe7b38` private-repo env/deploy/docs +
+regenerated indexes, `e4d2bcb` per-identity rate limits, `0a0b03f`/`454e5cd`
+egress-invariants proof suite, `1ebfd45` cross-user isolation proof suite,
+`f9f70d3`/`aff26cb` the live private-repo proof (self-skipping), `7391277`/`0fce604`
+the private connect path + an eviction-resume race/downgrade fix, working back
+through all 16 tasks to `a237ab2` (the plan docs, and the branch point off the
+previous session's HEAD).
 
 The `feat/private-repos` branch still exists locally (only its worktree at
 `.claude/worktrees/private-repos` was removed, since it's now fully merged) —
