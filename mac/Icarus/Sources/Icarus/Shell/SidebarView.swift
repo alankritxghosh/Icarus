@@ -7,6 +7,7 @@ struct SidebarView: View {
     @Binding var selected: ShellSurface
     let status: StatusModel
     @Bindable var auth: AuthModel
+    let connect: ConnectModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,14 +32,30 @@ struct SidebarView: View {
                 Text(status.repo ?? "—")
                     .font(Theme.mono(13)).foregroundStyle(Theme.ink)
                     .padding(.top, 3)
+                // Which trust tier the active repo is on — straight from /status,
+                // never inferred: private = the paid private-safe writer only.
+                if let s = status.status, s.isReady {
+                    Text(s.isPrivate ? "PRIVATE · PAID WRITER" : "PUBLIC · FREE WRITER")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(s.isPrivate ? Theme.cited : Theme.muted)
+                        .padding(.top, 2)
+                }
                 Text("Zero training on code")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                if auth.isSignedIn, connect.isReady {
+                    Button("Disconnect repo") { connect.disconnect() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.muted)
+                        .padding(.top, 8)
+                        .help("Deletes your indexed data on the server and returns to setup")
+                }
                 if auth.isSignedIn {
                     Button("Sign out") { auth.signOut() }
                         .buttonStyle(.plain)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.muted)
-                        .padding(.top, 8)
+                        .padding(.top, auth.isSignedIn && connect.isReady ? 4 : 8)
                         .help("Sign out to use another GitHub account")
                 }
             }

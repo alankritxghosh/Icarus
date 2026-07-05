@@ -29,7 +29,7 @@ public struct AskResponse: Decodable, Sendable {
 /// The corpus's real index counts (demo/library.py `counts`): how many PRs,
 /// issues, and code files were ingested. Powers the metrics card with true
 /// numbers — never a fabricated total.
-public struct IndexCounts: Decodable, Sendable {
+public struct IndexCounts: Decodable, Equatable, Sendable {
     public let pr: Int
     public let issue: Int
     public let code: Int
@@ -38,13 +38,18 @@ public struct IndexCounts: Decodable, Sendable {
 /// The `/status` response (demo/library.py): the active repo + switch state.
 /// `state` is one of "idle" | "indexing" | "ready" | "error". `counts` is an
 /// object in the real payload (null while indexing), decoded for the metrics card.
-public struct RepoStatus: Decodable, Sendable {
+public struct RepoStatus: Decodable, Equatable, Sendable {
     public let state: String
     public let repo: String
     public let commit: String
     public let counts: IndexCounts?
     public let error: String?
+    /// Whether the caller's active repo is private (answered only by the paid,
+    /// private-safe writer). Optional so an older brain without the field still
+    /// decodes; absent = the public default, which is the truthful fallback.
+    private let `private`: Bool?
 
     public var isReady: Bool { state == "ready" }
     public var isError: Bool { state == "error" }
+    public var isPrivate: Bool { `private` ?? false }
 }

@@ -56,6 +56,23 @@ public struct BrainClient: Sendable {
         }
     }
 
+    /// POST /disconnect -> the brain deletes the caller's own on-disk corpus and
+    /// resets their library to the public default, replying with the fresh
+    /// status snapshot. Requires the bearer in hosted (auth-required) mode.
+    @discardableResult
+    public func disconnect() async throws -> RepoStatus {
+        var request = URLRequest(url: base.appending(path: "disconnect"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        authorize(&request)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(RepoStatus.self, from: data)
+    }
+
     /// POST /auth/github/begin -> the GitHub authorize URL to open in the sheet.
     /// No bearer needed (this is how you get one).
     public func beginGitHubLogin() async throws -> URL {

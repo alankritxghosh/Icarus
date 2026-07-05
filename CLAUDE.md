@@ -213,5 +213,6 @@ Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 scores against). On the free hosted stack (Groq writer + Gemini judge) the board
 reads **GREEN**: gates 100%, citation correctness 100%, answer correctness ~83%.
 Public repos use free hosted models; a signed-in user may also connect their own
-**private** repo, answered only by the paid private-safe writer (see above). Next
-MVP bricks: UI redesign, the macOS app (Brick G), and voice.
+**private** repo, answered only by the paid private-safe writer (see above). The
+Mac app's private-repo surface (Brick G) is built — badge, disconnect, repo
+persistence, lost-connection banner. Next MVP bricks: UI redesign and voice.

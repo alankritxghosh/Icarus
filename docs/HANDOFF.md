@@ -38,8 +38,11 @@ else about it is done:**
    never written to disk or printed back by the assistant. Do this before the
    next session if you haven't already.
 
-Past that, the next real chunk of work is **Brick G**: the Mac app has no
-private-repo UI yet (§7).
+**Update (later on 2026-07-06): Brick G is now built** — the Mac app has the
+private-repo surface (trust-tier badge, disconnect, repo persistence across
+launches, and the client-side lost-connection banner). App-only; zero brain
+changes; plan + details in `docs/plans/2026-07-06-brick-g-private-repo-ui.md`.
+48 Swift tests pass (up from 35). Not yet committed as of this note.
 
 ## 2. What happened this session (private repos: built, merged, deployed, proven)
 Built task-by-task via subagent-driven development (fresh implementer + spec
@@ -114,7 +117,12 @@ honesty gate — is byte-for-byte unchanged across the entire effort.**
 - **macOS app** (`mac/Icarus/`, SwiftPM): the **primary windowed shell** (five
   surfaces) + ⌘⇧I overlay + hold-⌥ voice. **Web GitHub login**, **Keychain-
   persisted** session, **Sign out**, **voice in/out**, packaged as a signed
-  `.app`. **35 Swift unit tests pass.** No private-repo UI yet (§7, Brick G).
+  `.app`. **48 Swift unit tests pass.** Brick G (private-repo UI) is built:
+  private/public trust-tier badge, Disconnect-repo control, repo persistence
+  across launches, and an explicit lost-connection banner when the server drops
+  the session (restart / LRU eviction) — with one-click Reconnect (the app holds
+  the caller's bearer, so it CAN legitimately re-connect a private repo the
+  server-side registry couldn't resume).
 - **Security**: per-commit secrets gate (`.githooks/pre-commit`,
   block on secret / warn on failing tests) + CI (`.github/workflows/security.yml`).
 - **Cloud deployment:** `Dockerfile` + `render.yaml` + `.dockerignore` deploy the
@@ -270,21 +278,17 @@ created — a repo you own but didn't select still 404s (indistinguishable from
    echoed back by the assistant, but a chat transcript isn't the designated
    home for live secrets. Regenerate both if you haven't already.
 
-**Brick G — the Mac app's private-repo surface (not built, not yet scoped as a
-plan):**
-- No "connect a private repo" affordance, no "disconnect / delete my data"
-  control, no public-vs-private / which-writer indicator in the UI. The brain
-  fully supports all of this over HTTP already (§6) — only the app is missing.
-- **Fold in a real, still-open product gap while scoping this:** if the
-  `LibraryRegistry`'s LRU eviction can't safely resume a user's private repo (it
-  never holds the caller's token, so it can't re-ingest — `demo/registry.py`'s
-  eviction/resume logic), it honestly falls back to "not connected" rather than
-  silently serving public-tier answers under the wrong pretense — but the user
-  currently sees **no explicit signal** that this happened. `GET /status` just
-  shows a normal "ready" state pointing at the public default repo, and the
-  Mac app's `RepoStatus` model (`mac/Icarus/Sources/IcarusKit/Models.swift`)
-  doesn't even have a `private` field yet to detect the switch. This needs a UI
-  decision (a toast? a banner?), not just a data-model fix.
+**Brick G — DONE (2026-07-06, same-day update to this handoff):** built per
+`docs/plans/2026-07-06-brick-g-private-repo-ui.md`, TDD, app-only. The
+`RepoStatus` model decodes `private`, `BrainClient` has `disconnect()`, a new
+`IcarusKit/SavedConnection.swift` persists the last connection + implements the
+pure `isLost` downgrade check, and the shell shows the trust-tier badge, the
+Disconnect control, and the lost-connection banner (the previously-flagged
+"no explicit signal" gap — solved client-side: the app remembers what it
+connected and flags a ready-on-a-different-repo status, with one-click
+Reconnect using the caller's own bearer). Remaining for Brick G: a live
+end-to-end run with a real signed-in user + private repo (needs your
+credentials; unit + contract-level checks are green).
 
 **Older, smaller items (predate this session, still open):**
 1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
@@ -301,9 +305,9 @@ plan):**
    the server (prompt-injection surface, disclosed). The OAuth CSRF state is
    in-memory (§9).
 4. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
-5. **Persist the connected repo** across launches (login persists; the repo does
-   not — you reconnect each launch). Also survives a Render restart poorly
-   (in-memory / ephemeral disk).
+5. ~~Persist the connected repo across launches~~ — **done in Brick G**
+   (`SavedConnection` + auto-resume at launch when signed in; a Render restart
+   now surfaces the explicit lost-connection banner instead of a silent revert).
 6. **Record the demo** (script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
 7. **Multi-repo, non-GitHub sources, stale-decision detection** — post-v1
    roadmap, gated/deferred.

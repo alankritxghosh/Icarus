@@ -15,7 +15,7 @@ struct ShellView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selected: $selected, status: status, auth: auth)
+            SidebarView(selected: $selected, status: status, auth: auth, connect: connect)
             Divider()
             ScrollView {
                 content.padding(26).frame(maxWidth: .infinity, alignment: .leading)
@@ -24,6 +24,11 @@ struct ShellView: View {
         .frame(minWidth: 1040, minHeight: 680)
         .background(Theme.surface)
         .onAppear { status.start() }
+        // Feed every /status poll to the connect model so a server-side drop of
+        // the session (restart / eviction) is surfaced explicitly, never hidden.
+        .onChange(of: status.status) { _, new in
+            if let new { connect.noteStatus(new) }
+        }
     }
 
     @ViewBuilder private var content: some View {

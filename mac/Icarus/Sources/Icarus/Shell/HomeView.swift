@@ -46,6 +46,11 @@ struct HomeView: View {
             VStack(alignment: .trailing, spacing: 6) {
                 pill("hold ⌥ Right Option", filled: true)
                 pill("GitHub · \(status.repo ?? "not connected")", filled: false)
+                // Real trust tier from /status — private repos answer only on
+                // the paid private-safe writer.
+                if let s = status.status, s.isReady {
+                    pill(s.isPrivate ? "private · paid writer" : "public · free writer", filled: false)
+                }
             }
         }
     }

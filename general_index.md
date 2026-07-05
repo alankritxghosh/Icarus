@@ -97,6 +97,9 @@ removing, or renaming files). For class/function-level detail see
 - `docs/plans/2026-07-04-private-repos-implementation.md` — the executable
   task-by-task TDD plan for the above: 16 tasks across Bricks A–F with exact code,
   tests, commands, and commits; Brick G (app) outlined.
+- `docs/plans/2026-07-06-brick-g-private-repo-ui.md` — Brick G, built: the Mac
+  app's private-repo surface (private flag, disconnect, repo persistence across
+  launches, client-side lost-connection banner) — app-only, zero brain changes.
 
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
@@ -289,10 +292,14 @@ removing, or renaming files). For class/function-level detail see
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
-  `AskResponse`, `RepoStatus`, and `IndexCounts` (real `/status` counts).
-- `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,`/status`,
-  `/auth/github/begin`,`/auth/github/redeem`); attaches an `Authorization: Bearer`
-  from a shared token; injectable URLSession.
+  `AskResponse`, `RepoStatus` (incl. the `private` trust-tier flag), and
+  `IndexCounts` (real `/status` counts).
+- `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,
+  `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`); attaches
+  an `Authorization: Bearer` from a shared token; injectable URLSession.
+- `SavedConnection.swift` — persists the last-connected repo + private flag
+  (injectable UserDefaults) and the pure `isLost` check behind the
+  eviction/restart lost-connection banner.
 - `BrainEndpoint.swift` — resolves the brain URL from the bundle's
   `ICARUS_BRAIN_URL` Info.plist key (stamped at package time → hosted brain),
   falling back to `127.0.0.1:8000` for dev; pure + unit-tested.
@@ -321,7 +328,9 @@ removing, or renaming files). For class/function-level detail see
 - `OverlayView.swift` — the overlay UI: question, cited answer, honest unknown.
 - `AskModel.swift` / `AuthModel.swift` / `ConnectModel.swift` — `@Observable`
   state for asking, GitHub web login (Keychain-persisted token), and repo connect
-  (shared via `AppDelegate`).
+  (public or private; saves/resumes the connection via `SavedConnection`,
+  `disconnect()` deletes server-side data, `.lost` when the server drops the
+  session). Shared via `AppDelegate`.
 - `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login,
   captures the `icarus://` callback); ephemeral browser session so Sign out → pick
   another GitHub account. Completion handler is non-isolated (fires off-main).
@@ -343,15 +352,18 @@ removing, or renaming files). For class/function-level detail see
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
 - `ShellView.swift` — sidebar + content router across the five surfaces (passes
   auth/connect through to Home for its setup gate).
-- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer, and
-  a Sign out control (shown when signed in). Real macOS traffic-lights float over
-  its top; no decorative dupes.
+- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer
+  (with the PRIVATE·paid / PUBLIC·free writer badge from `/status`), Disconnect
+  repo + Sign out controls. Real macOS traffic-lights float over its top; no
+  decorative dupes.
 - `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
   the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
   cited-rate), recent asks, and the proof drawer — all real/honest data.
 - `SetupView.swift` — the in-shell setup gate (Sign in with GitHub → connect a
-  public repo), driving the shared `AuthModel`/`ConnectModel`. Replaces the old
-  separate onboarding window.
+  public or private repo), driving the shared `AuthModel`/`ConnectModel`; hosts
+  the lost-connection banner (server restart/eviction → explicit Reconnect,
+  never a silent fallback to the public default). Replaces the old separate
+  onboarding window.
 - `ShellSurfaces.swift` — Decision history, Unknowns, Privacy boundary (true
   claims), and Ask-by-voice surfaces, with honest empty states.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
@@ -363,15 +375,20 @@ removing, or renaming files). For class/function-level detail see
 ### mac/Icarus/Tests/IcarusKitTests
 - `WebAuthTests.swift` — `parseCallbackSession` pulls the session id from the
   `icarus://` callback; nil on a malformed/session-less URL.
-- `ModelsTests.swift` — decoding the brain's JSON, including real `IndexCounts`.
+- `ModelsTests.swift` — decoding the brain's JSON, including real `IndexCounts`
+  and the `private` flag (absent → public default).
 - `TokenStoreTests.swift` — the in-memory token store's save/load/delete.
 - `VoiceModelTests.swift` — push-to-talk states; silence → no question.
 - `AskHistoryTests.swift` — record order, unknowns filter, cited-rate (nil first).
 - `BrainClientTests.swift` — the bearer token is sent when present, omitted when
-  absent (URLProtocol stub).
+  absent; `/disconnect` POSTs with the bearer and decodes the fresh snapshot
+  (URLProtocol stub).
 - `ShellNavTests.swift` — the five surfaces' order, titles, and stable ids.
 - `BrainEndpointTests.swift` — `BrainEndpoint.resolve` uses a valid hosted URL,
   falls back on missing/empty/invalid, and honors an explicit fallback.
+- `SavedConnectionTests.swift` — the saved-connection store round-trip/clear and
+  every branch of the `isLost` downgrade check (ready-elsewhere = lost;
+  indexing/error/no-save = not lost; case-insensitive repo match).
 
 ## .claude/agents/ and .codex/agents/
 - `.claude/agents/opus-architect.md` — the opus-architect agent (principal
