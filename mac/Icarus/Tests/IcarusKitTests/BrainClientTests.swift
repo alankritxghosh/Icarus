@@ -51,6 +51,20 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(token, "gho_redeemed")
     }
 
+    func testStatusSendsBearerToken() async throws {
+        // In hosted auth mode the brain resolves the caller's library by
+        // identity — an unauthenticated /status returns the shared public
+        // default, stranding the connect poll. The bearer MUST be attached.
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"state":"ready","repo":"o/secret","commit":"c","counts":null,"error":null,"private":true}"#.utf8)
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+        let s = try await client.status()
+        XCTAssertEqual(_CapturingProtocol.lastRequest?.url?.path, "/status")
+        XCTAssertEqual(_CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-123")
+        XCTAssertEqual(s.repo, "o/secret")
+        XCTAssertTrue(s.isPrivate)
+    }
+
     func testDisconnectPostsWithBearerAndReturnsSnapshot() async throws {
         _CapturingProtocol.lastRequest = nil
         _CapturingProtocol.body = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":null,"error":null,"private":false}"#.utf8)

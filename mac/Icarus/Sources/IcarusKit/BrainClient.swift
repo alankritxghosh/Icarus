@@ -104,9 +104,15 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(Redeem.self, from: data).token
     }
 
-    /// GET /status -> the active repo + switch state.
+    /// GET /status -> the active repo + switch state. MUST carry the bearer:
+    /// in the hosted auth-required mode the brain resolves the caller's own
+    /// library by identity, so an unauthenticated /status returns the shared
+    /// public default instead of the caller's connected (possibly private) repo
+    /// — which would make the connect poll never see its repo go ready.
     public func status() async throws -> RepoStatus {
-        let (data, response) = try await session.data(from: base.appending(path: "status"))
+        var request = URLRequest(url: base.appending(path: "status"))
+        authorize(&request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
