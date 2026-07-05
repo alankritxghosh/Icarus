@@ -195,6 +195,10 @@ Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 >   (`mac/Icarus/Sources/IcarusKit/Models.swift`) doesn't even have a `private`
 >   field yet to detect this. Needs a task once the app work (Brick G) is scoped
 >   — not fixed here, this is a docs-only pass.
+> - Task 0's written no-training policy link for the paid Gemini key is still
+>   unrecorded (billing is confirmed enabled; the actual policy-link verification
+>   is an open checkbox in docs/plans/2026-07-04-private-repos-per-user-isolation.md)
+>   — close this before onboarding real private code from other people.
 
 1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
    biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated

@@ -44,8 +44,12 @@ services:
       # Lets the container's `gh` fetch PRs/issues when a user switches repos.
       - key: GH_TOKEN
         sync: false
-      # Per-user corpora (public cache AND private code). Render's free-tier
-      # disk is EPHEMERAL -- wiped on every deploy/restart/idle-sleep, so this
-      # is a cache, not durable storage (decision recorded in the scoping doc).
+      # Per-user corpora (public cache AND private code). /app matches this
+      # Dockerfile's own WORKDIR (this is a docker runtime, not Render's native
+      # one -- /opt/render/project/src is that OTHER runtime's auto-provisioned
+      # path and doesn't apply to a container service; don't reuse it here).
+      # Render's free-tier disk is EPHEMERAL -- wiped on every deploy/restart/
+      # idle-sleep, so this is a cache, not durable storage (decision recorded
+      # in the scoping doc).
       - key: ICARUS_STORAGE_ROOT
-        value: /opt/render/project/src/data
+        value: /app/data
