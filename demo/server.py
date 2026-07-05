@@ -30,6 +30,7 @@ from .payload import build_payload
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier
 from . import github_oauth
+from .ratelimit import RateLimiter
 from evals import github_access
 
 ROOT = Path(__file__).resolve().parent
@@ -64,7 +65,7 @@ def _resolve_storage_root(raw, default):
 
 
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
-                 oauth=None, allowed_hosts=None):
+                 oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -74,9 +75,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     GitHub login endpoints; None leaves them off. `allowed_hosts` overrides the
     loopback-only Host allow-list (a set); include '*' to accept any Host/Origin
     (cloud mode — the bearer gate becomes the real boundary). None = loopback only.
+
+    `ask_limiter`/`connect_limiter` are per-identity `RateLimiter`s (see
+    `demo/ratelimit.py`) bounding how often a caller can hit the LLM writer
+    (/ask) or spawn a clone/ingest (/connect); defaults are generous real-world
+    limits so they never fire in normal use or in tests that make a handful of
+    requests.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
+    ask_limiter = ask_limiter or RateLimiter(30, 60)          # 30 asks/min
+    connect_limiter = connect_limiter or RateLimiter(5, 600)  # 5 connects/10min
 
     class Handler(BaseHTTPRequestHandler):
         _MAX_BODY = 64 * 1024
@@ -218,6 +227,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 return
             lib = registry.library_for(identity)
             if self.path == "/ask":
+                # Rate-limit BEFORE parsing/validating the body: a caller must not
+                # be able to dodge the limiter by sending bodies that fail cheap
+                # validation, and this also saves us from ever reaching the real
+                # (billed) writer call below.
+                if not ask_limiter.allow(identity):
+                    self._send_json(429, {"error": "slow down -- try again in a minute"})
+                    return
                 try:
                     question = self._body()["question"]
                 except (ValueError, KeyError, TypeError):
@@ -230,6 +246,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 payload = build_payload(lib.current_pipeline().answer(question), repo, commit)
                 self._send_json(200, payload)
             elif self.path == "/connect":
+                # Same reasoning as /ask: check the limiter first, before the body
+                # is even parsed, so a rate-limited caller never reaches the real
+                # GitHub `repo_info` call or a background clone/ingest.
+                if not connect_limiter.allow(identity):
+                    self._send_json(429, {"error": "slow down -- try again later"})
+                    return
                 try:
                     repo = self._body()["repo"]
                 except (ValueError, KeyError, TypeError):

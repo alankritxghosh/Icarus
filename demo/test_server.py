@@ -658,6 +658,51 @@ class PrivateConnectRouteTests(unittest.TestCase):
         self.assertEqual(lib.connect_calls, [("octo/pub", None, False)])
 
 
+class RateLimitTests(unittest.TestCase):
+    """/ask is rate-limited per identity; the limit is checked before any real
+    (billed) work happens, and a different identity is unaffected."""
+
+    def test_second_ask_in_window_is_429(self):
+        from .ratelimit import RateLimiter
+        fx = _ServerFixture(_StubLibrary(), ask_limiter=RateLimiter(1, 60))
+        try:
+            status, payload = _post(fx.base + "/ask", {"question": "Why the Responses API as a new class?"})
+            self.assertEqual(status, 200)
+
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(fx.base + "/ask", {"question": "Why the Responses API as a new class?"})
+            self.assertEqual(cm.exception.code, 429)
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_a_different_identity_is_not_rate_limited_by_the_first(self):
+        from .auth import StaticTokenVerifier
+        from .ratelimit import RateLimiter
+        reg = _StubRegistry(_StubLibrary())
+        fx = _ServerFixture(reg, require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+                            ask_limiter=RateLimiter(1, 60))
+        try:
+            status, _ = _post_with_auth(fx.base + "/ask",
+                                        {"question": "Why the Responses API as a new class?"}, "tok-a")
+            self.assertEqual(status, 200)
+
+            # tok-a is now exhausted...
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post_with_auth(fx.base + "/ask",
+                                {"question": "Why the Responses API as a new class?"}, "tok-a")
+            self.assertEqual(cm.exception.code, 429)
+            cm.exception.close()
+
+            # ...but tok-b (a different identity) still has its own budget.
+            status, _ = _post_with_auth(fx.base + "/ask",
+                                        {"question": "Why the Responses API as a new class?"}, "tok-b")
+            self.assertEqual(status, 200)
+        finally:
+            fx.close()
+
+
 def _post_with_auth(url, obj, token):
     data = json.dumps(obj).encode()
     req = urllib.request.Request(url, data=data,
