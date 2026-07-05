@@ -15,7 +15,10 @@ Default-skips (mirrors evals/test_ingest_smoke.py's opt-in-flag pattern):
 requires RUN_PRIVATE_INGEST=1 PLUS all of ICARUS_TEST_PRIVATE_REPO,
 GITHUB_TOKEN, GEMINI_PAID_API_KEY. Partial configuration still skips cleanly --
 this test clones a real repo and spends real paid-API quota, so it must never
-run by accident."""
+run by accident.
+
+GITHUB_TOKEN needs the "repo" scope (classic PAT) or equivalent private-repo
+read access -- see docs/plans/2026-07-04-private-repos-per-user-isolation.md."""
 
 import os
 import tempfile
@@ -74,6 +77,10 @@ class PrivateIngestLiveTests(unittest.TestCase):
 
             result = pipeline.answer("What does this repository do?")
             self.assertIn(result.verdict, ("answer", "unknown"))
+            if result.verdict == "unknown":
+                print("WARNING: pipeline abstained -- the citations-subset assertion path "
+                      "was NOT exercised this run. Consider a repo with more substantive "
+                      "README/docs content, or a more specific question.")
             if result.verdict == "answer":
                 self.assertTrue(result.citations, "answer verdict with no citations")
                 self.assertTrue(
