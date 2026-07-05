@@ -214,13 +214,13 @@ you to the paid writer. `POST /disconnect` deletes your data. `GET /status` show
 Tests: `cd mac/Icarus && swift test` (**35**). Brain:
 `python3 -m unittest discover -t . -s evals` (**118, 12 self-skip**) and
 `... -s demo` (**117, 2 self-skip**) — up from 85+70 before this session's
-16-task private-repo effort. Live proofs (skip without keys):
+16-task private-repo effort. Live proofs (skip without keys) — **both actually
+run this session with real credentials, both GREEN, see §7 item 3**:
 `GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_paid_writer_eval` (paid
 writer holds both honesty gates at 100% on the public board) and
 `RUN_PRIVATE_INGEST=1 ICARUS_TEST_PRIVATE_REPO=owner/repo GITHUB_TOKEN=…
 GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_private_ingest_live`
-(real private clone + real paid answer + real interlock refusal — **nobody has
-run this for real yet**, only proven to construct correctly and self-skip).
+(real private clone + real paid answer + real interlock refusal).
 
 ## 6. Secrets & credentials
 - **Where they live now:** for the hosted brain, secrets are set in the **Render
@@ -259,17 +259,30 @@ run this for real yet**, only proven to construct correctly and self-skip).
 > **Still open, in priority order:**
 > 1. ~~Push `main` to `origin`~~ **Done.**
 > 2. ~~Set `GEMINI_PAID_API_KEY` on Render and redeploy~~ **Done — confirmed live.**
-> 3. ~~Run `evals.test_paid_writer_eval` for real~~ **Done — actually run with a
->    real billing-enabled key.** Hit a real, transient Google-side "high demand"
->    503 on the old `gemini-2.5-flash-lite` default; verified the model swap
->    (`gemini-3.1-flash-lite`) is a real, stable id via the live
->    `/v1beta/models` list before changing it, then reran: **GREEN** — gates
->    100%, citation correctness 100%, answer correctness 100%
->    (`evals/provider.py`, commit `7510c4b`).
->    **Still open:** `evals.test_private_ingest_live` — needs
->    `ICARUS_TEST_PRIVATE_REPO` (a real private repo) + `GITHUB_TOKEN`, neither
->    of which has been supplied yet. Do this before telling anyone the full
->    private-repo path (not just the writer swap) is proven end-to-end.
+> 3. ~~Run both live proofs for real~~ **Done — both actually run with real
+>    credentials, both GREEN.**
+>    - `evals.test_paid_writer_eval`: hit a real, transient Google-side "high
+>      demand" 503 on the old `gemini-2.5-flash-lite` default; verified the
+>      model swap (`gemini-3.1-flash-lite`) is a real, stable id via the live
+>      `/v1beta/models` list before changing it (commit `7510c4b`), then reran
+>      the full board: gates 100%, citation correctness 100%, answer
+>      correctness 100%.
+>    - `evals.test_private_ingest_live`: run against Icarus's own private repo
+>      (`alankritxghosh/Icarus`). First attempt correctly 404'd — the
+>      fine-grained PAT hadn't been given access to that specific repo yet
+>      (fixed on GitHub's side, not code). Second attempt surfaced a **real,
+>      pre-existing bug**: `evals/ingest.py`'s `fetch_code` compared an
+>      unresolved tempdir path against an already-resolved one — on macOS
+>      `/var` symlinks to `/private/var`, so `relative_to()` raised on any real
+>      nested-directory clone. Never caught before because every offline test
+>      mocks `subprocess.run`; this was the first genuine end-to-end clone into
+>      a real temp dir. Fixed (`ab305b3`, resolve the clone root once, refs
+>      stay relative to it — `simonw/llm`'s committed corpus ref format is
+>      unaffected). Reran: all 3 pass — real access check, real authenticated
+>      clone, a real paid-writer answer holding the honesty gate, and the
+>      interlock genuinely refusing a real free provider. **The full
+>      private-repo path is now proven end-to-end with real credentials, not
+>      just correctly constructed.**
 > 4. **Record the written no-training policy link** for the paid Gemini key —
 >    billing is confirmed enabled, but the actual policy-link verification is
 >    still an open checkbox in
