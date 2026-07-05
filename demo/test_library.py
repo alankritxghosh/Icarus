@@ -196,6 +196,48 @@ class PrivateConnectTests(unittest.TestCase):
         s = self.lib.status_snapshot()
         self.assertNotIn(caller_token, json.dumps(s))
 
+    def test_interlock_refusal_inside_connect_sync_leaves_state_untouched(self):
+        # The trust interlock is unit-tested in isolation (evals/test_trust.py)
+        # and exercised via a fake build_private_pipeline in the other tests
+        # above -- but nothing proves what happens when it actually RAISES
+        # from inside connect_sync's try block (the same composition the real
+        # _default_build_private_pipeline uses: assert_safe_for_private then
+        # GatedPipeline construction). It must be caught by the same generic
+        # except-and-report-error path as any other build/ingest failure,
+        # leaving whatever was connected before completely untouched -- never
+        # a partially-applied repo/private flag/pipeline.
+        from evals.trust import PrivateDataError
+
+        def raising_private_build(corpus_dir):
+            raise PrivateDataError("not private-safe: refusing to send private code")
+
+        lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                     build_pipeline=lambda d: f"pipeline::{d}",
+                     ingest_fn=self.fake_ingest,
+                     build_private_pipeline=raising_private_build,
+                     private_ready=lambda: True)
+
+        # A known-good baseline: a successful public connect first.
+        lib.connect_sync("octo/known-good")
+        baseline_pipeline = lib.current_pipeline()
+        baseline_provenance = lib.provenance()
+
+        # The interlock refuses mid-construction on this private attempt.
+        lib.connect_sync("acme/secret", token="tok-danger", private=True)
+
+        s = lib.status_snapshot()
+        self.assertEqual(s["state"], "error")
+        self.assertEqual(s["error"],
+                         "Couldn't index that repo. Check it's a public owner/name and try again.")
+        self.assertNotIn("PrivateDataError", s["error"])
+        self.assertNotIn("tok-danger", s["error"])
+        # Everything from before the refused attempt is untouched -- not the
+        # refused repo, not flipped to private, not a half-built pipeline.
+        self.assertEqual(s["repo"], "octo/known-good")
+        self.assertFalse(s["private"])
+        self.assertEqual(lib.current_pipeline(), baseline_pipeline)
+        self.assertEqual(lib.provenance(), baseline_provenance)
+
 
 if __name__ == "__main__":
     unittest.main()

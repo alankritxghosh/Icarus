@@ -230,6 +230,70 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(snap["repo"], "acme/secret")
         self.assertTrue(snap["private"])  # resumed correctly as private, not public
 
+    def test_lru_eviction_resume_never_calls_ingest(self):
+        # Pinning test: resuming a repo after eviction must always be a cache
+        # hit -- ingest_fn is called exactly once, for the ORIGINAL connect,
+        # and never again during any later eviction+resume. This is exactly
+        # what makes it safe for resume to sit outside the rate limiter's
+        # reach (Task 15): if a future change ever made resume re-ingest, it
+        # would add unthrottled subprocess/network cost to a path nothing
+        # throttles -- this test exists to catch that regression, not just
+        # today's correct-by-inspection behavior.
+        ingested = []
+
+        def counting_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            ingested.append(repo)
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build,
+                              ingest_fn=counting_ingest, max_live=2)
+
+        reg.library_for("1").connect_sync("octo/xrepo")
+        self.assertEqual(ingested, ["octo/xrepo"])  # the one real ingest
+
+        reg.library_for("2")
+        reg.library_for("3")  # evicts "1"
+        rebuilt = reg.library_for("1")  # triggers resume -- must be a cache hit
+
+        self.assertEqual(rebuilt.status_snapshot()["repo"], "octo/xrepo")
+        self.assertEqual(ingested, ["octo/xrepo"])  # still just the one call
+
+    def test_lru_eviction_private_resume_never_calls_ingest(self):
+        # Same pin, for the private cache-hit resume path specifically --
+        # this is the one connect_sync proves is token-safe (needs_ingest is
+        # False, so the ingest branch, the only place token is used, is never
+        # reached); confirm it's also genuinely ingest-free, not just token-free.
+        ingested = []
+
+        def counting_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            ingested.append(repo)
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        def fake_private_build(corpus_dir):
+            return f"private-pipeline::{corpus_dir}"
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build,
+                              ingest_fn=counting_ingest, max_live=2,
+                              build_private_pipeline=fake_private_build,
+                              private_ready=lambda: True)
+
+        lib1 = reg.library_for("1")
+        lib1.connect_sync("acme/secret", token="tok-abc", private=True)
+        self.assertEqual(ingested, ["acme/secret"])  # the one real ingest
+
+        reg.library_for("2")
+        reg.library_for("3")  # evicts "1" -- disk cache survives
+
+        rebuilt = reg.library_for("1")  # resumes as private -- must be a cache hit
+        snap = rebuilt.status_snapshot()
+        self.assertEqual(snap["repo"], "acme/secret")
+        self.assertTrue(snap["private"])
+        self.assertEqual(ingested, ["acme/secret"])  # still just the one call
+
     def test_disconnect_deletes_only_that_users_storage(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
