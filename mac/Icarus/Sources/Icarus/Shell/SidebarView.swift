@@ -5,7 +5,6 @@ import IcarusKit
 /// REAL connected repo (from /status) — never a fabricated tenant name.
 struct SidebarView: View {
     @Binding var selected: ShellSurface
-    let status: StatusModel
     @Bindable var auth: AuthModel
     let connect: ConnectModel
 
@@ -29,19 +28,27 @@ struct SidebarView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 MonoLabel("COMPANY BRAIN")
-                Text(status.repo ?? "—")
-                    .font(Theme.mono(13)).foregroundStyle(Theme.ink)
-                    .padding(.top, 3)
-                // Which trust tier the active repo is on — straight from /status,
-                // never inferred: private = the paid private-safe writer only.
-                if let s = status.status, s.isReady {
-                    Text(s.isPrivate ? "PRIVATE · PAID WRITER" : "PUBLIC · FREE WRITER")
+                // Show a repo ONLY once THIS user has actually connected one —
+                // the brain's /status always serves the public default, so keying
+                // off it made simonw/llm look like hardcoded UI chrome. The connect
+                // state is the app's own truth (and drops to "Not connected" if the
+                // server ever loses the session).
+                if case .ready(let repo, let isPrivate) = connect.state {
+                    Text(repo)
+                        .font(Theme.mono(13)).foregroundStyle(Theme.ink)
+                        .padding(.top, 3)
+                    Text(isPrivate ? "PRIVATE · PAID WRITER" : "PUBLIC · FREE WRITER")
                         .font(Theme.mono(10))
-                        .foregroundStyle(s.isPrivate ? Theme.cited : Theme.muted)
+                        .foregroundStyle(isPrivate ? Theme.cited : Theme.muted)
                         .padding(.top, 2)
+                } else {
+                    Text("Not connected")
+                        .font(Theme.mono(13)).foregroundStyle(Theme.muted)
+                        .padding(.top, 3)
                 }
                 Text("Zero training on code")
                     .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .padding(.top, 2)
                 if auth.isSignedIn, connect.isReady {
                     Button("Disconnect repo") { connect.disconnect() }
                         .buttonStyle(.plain)

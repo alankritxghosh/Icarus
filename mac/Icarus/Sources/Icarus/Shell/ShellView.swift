@@ -15,7 +15,7 @@ struct ShellView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(selected: $selected, status: status, auth: auth, connect: connect)
+            SidebarView(selected: $selected, auth: auth, connect: connect)
             Divider()
             ScrollView {
                 content.padding(26).frame(maxWidth: .infinity, alignment: .leading)

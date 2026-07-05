@@ -35,6 +35,9 @@ removing, or renaming files). For class/function-level detail see
   or tracked-files (CI) mode. Exits non-zero on a provider-token or secret-shaped
   hit so it can block a commit/build.
 - `scripts/install_hooks.sh` — one-time wire of `core.hooksPath` → `.githooks`.
+- `scripts/private_flow_smoke.py` — manual, leak-safe live smoke of the brain's
+  PRIVATE-repo HTTP path (/status→/connect→/ask→/disconnect) the Mac app drives;
+  token from `GH_BEARER` env (never argv/logs), repo from `ICARUS_PRIVATE_REPO`.
 - `.githooks/pre-commit` — commit gate: a staged secret hard-blocks; failing
   tests only warn (never block).
 - `.github/workflows/security.yml` — CI backstop on push/PR: secrets scan +
