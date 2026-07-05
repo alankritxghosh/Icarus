@@ -144,11 +144,16 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   the board against the real brain (retrieve → cite-or-abstain prompt → rented LLM
   writer → deterministic honesty gate). Default free hosted models: **writer =
   Groq** `llama-3.3-70b-versatile` (`GROQ_API_KEY`), **judge = Gemini**
-  `gemini-2.5-flash-lite` (`GEMINI_API_KEY`) — judge ≠ writer, cross-provider.
-  Override with `--writer {groq,gemini,openrouter}` / `--judge {gemini,groq,
-  openrouter}`. Keys never committed; **public repos only** (free tiers may train
-  on inputs). Providers retry on HTTP 429 with backoff (free tiers cap RPM). The
-  judge is a quality dial only — it never touches the honesty gates.
+  `gemini-3.1-flash-lite` (`GEMINI_API_KEY`) — judge ≠ writer, cross-provider.
+  Override with `--writer {groq,gemini,gemini-paid,openrouter}` / `--judge
+  {gemini,groq,openrouter}`. Keys never committed; **public repos only on the
+  free writers** (free tiers may train on inputs); `gemini-paid` is the
+  billing-enabled, private-safe writer (`GEMINI_PAID_API_KEY`) — see the
+  private-repo plan. Providers retry on HTTP 429 with backoff (free tiers cap
+  RPM). The judge is a quality dial only — it never touches the honesty gates.
+  Model default bumped Gemini 2.5 → 3.1 (2026-07-05), verified against the live
+  `/v1beta/models` list and the eval board (`--writer gemini-paid`: gates 100%,
+  citation correctness 100%, answer correctness 100%) before landing.
 - `python3 -m unittest evals.test_grader` — test the harness conscience itself
   (proves the gates fire on a bluff or an ungrounded citation).
 - `python3 -m unittest evals.test_gate` — test the honesty gate's conscience

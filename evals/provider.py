@@ -161,7 +161,10 @@ class GeminiProvider(Provider):
     KEY_ENV = "GEMINI_API_KEY"
 
     # flash-lite is the free-tier-friendly model; full flash has a tight free cap.
-    def __init__(self, model: str = "gemini-2.5-flash-lite", timeout: float = 60.0):
+    # Bumped 2.5 -> 3.1 (verified against the live /v1beta/models list before
+    # changing this default, per the project's own rule -- see PaidGeminiProvider's
+    # docstring); the eval board is what actually proves the swap holds the gates.
+    def __init__(self, model: str = "gemini-3.1-flash-lite", timeout: float = 60.0):
         self.model = model
         self.timeout = timeout
 
