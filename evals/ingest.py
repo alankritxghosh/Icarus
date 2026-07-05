@@ -140,13 +140,19 @@ def fetch_code(repo, commit, code_dir, token=None):
                        check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
         subprocess.run(["git", "-C", d, "checkout", "--quiet", commit],
                        check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
+        # Resolve once, consistently: _safe_code_dir already resolves its own
+        # return value, and on macOS /var is a symlink to /private/var, so an
+        # unresolved `d` used in relative_to() below would mismatch against
+        # paths yielded by the resolved `base` -- resolving `d` too keeps refs
+        # relative to the clone root (unchanged format) while fixing that.
+        root = Path(d).resolve()
         base = _safe_code_dir(d, code_dir)
         for path in sorted(base.rglob("*.py")):
             if path.stat().st_size > _MAX_FILE_BYTES:
                 continue  # skip an oversized single file
             if total > _MAX_TOTAL_BYTES:
                 break  # stop once we've read enough code
-            rel = path.relative_to(d).as_posix()
+            rel = path.relative_to(root).as_posix()
             text = path.read_text(errors="replace")
             total += len(text.encode("utf-8", "replace"))
             chunks.append({"ref": f"code:{rel}", "source": "code", "text": text})
