@@ -84,16 +84,16 @@ class PrivateEgressTests(unittest.TestCase):
         # No other provider object exists anywhere in this test's scope: only
         # `safe_spy` was ever constructed or passed to the pipeline builder.
 
-    def test_no_free_tier_provider_is_ever_constructed_in_the_private_path(self):
+    def test_the_private_safe_spy_is_called_exactly_once(self):
         chunks = _private_chunks()
         safe_spy = SpyProvider(private_safe=True)
         pipeline = build_private_pipeline(safe_spy, chunks)
         pipeline.answer("what does handle return")
 
-        # Make the "no other provider" intent explicit: a free-tier-shaped
-        # spy exists in this test file but is NEVER instantiated in this path.
-        unused_free_spy = None
-        self.assertIsNone(unused_free_spy)
+        # The one spy that exists was called exactly once. No other provider
+        # object is constructed anywhere in this test's scope -- `safe_spy` is
+        # the only Provider instance this test ever creates or passes to the
+        # pipeline builder.
         self.assertEqual(len(safe_spy.prompts), 1)
 
 
