@@ -16,7 +16,14 @@ from .pipeline import Pipeline, Result
 
 
 def gold_refs(question: dict) -> List[str]:
-    """Normalized gold citations for an answerable question, as "source:ref"."""
+    """Normalized gold citations for an answerable question, as "source:ref".
+
+    Accepts either shape: a flat `citations: ["source:ref", ...]` list (already
+    normalized, used by comprehension_questions.json), or the dict-list
+    `gold_citations: [{"source", "ref"}, ...]` (used by phase1_questions.json).
+    """
+    if "citations" in question:
+        return question["citations"]
     return [f"{c['source']}:{c['ref']}" for c in question.get("gold_citations", [])]
 
 

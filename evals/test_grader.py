@@ -41,6 +41,18 @@ def _oracle_results():
     return out
 
 
+class GoldRefsTests(unittest.TestCase):
+    def test_gold_citations_dict_list_still_normalizes(self):
+        # Regression: phase1_questions.json's existing shape is untouched.
+        question = {"gold_citations": [{"source": "pr", "ref": "5"}]}
+        self.assertEqual(gold_refs(question), ["pr:5"])
+
+    def test_flat_citations_field_normalizes_as_is(self):
+        # New shape: comprehension_questions.json's flat "source:ref" strings.
+        question = {"citations": ["code:llm/foo.py"]}
+        self.assertEqual(gold_refs(question), ["code:llm/foo.py"])
+
+
 class StubBaselineTests(unittest.TestCase):
     def test_stub_holds_gates_but_fails_quality(self):
         board = grade(QUESTIONS, StubPipeline())

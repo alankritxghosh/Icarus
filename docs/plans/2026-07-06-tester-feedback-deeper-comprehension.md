@@ -169,6 +169,38 @@ a measured gap, not a vibe. This number is the acceptance test for A/C/Q/S.
 **Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
 not ground-truth "understanding" in the abstract.
 
+**Execution log — Task 0.2:**
+
+`evals/run.py` already had a `--questions PATH` flag (default `phase1_questions.json`),
+so no CLI change was needed. The one real gap was `evals/grader.py`'s `gold_refs()`,
+which only read the `gold_citations` dict-list shape used by `phase1_questions.json`
+and silently returned `[]` for `comprehension_questions.json`'s flat `citations:
+["source:ref", ...]` field — which would have made `retrieval_recall_at_k` and
+`citation_correctness` read a false, meaningless 0% for every question. Fixed with
+a two-line fallback: `gold_refs()` now returns `question["citations"]` as-is when
+present, otherwise falls back to the existing dict-list logic unchanged.
+`evals/test_grader.py` gained two tests proving both shapes: the existing
+`gold_citations` dict-list still normalizes correctly (regression), and the new flat
+`citations` list normalizes as-is. Full offline suite (`python3 -m unittest discover
+-t . -s evals`) stayed green: 125 tests, 12 skipped (live-network tests), 0 failures.
+
+Ran the real gated pipeline once (`python3 -m evals.run --questions
+evals/comprehension_questions.json --pipeline gated`, Groq writer) against the 15
+comprehension questions (13 answerable, 2 unanswerable) on the committed
+`simonw/llm` corpus. Both honesty gates held at 100% (groundedness, abstention
+recall) — no bluff, no ungrounded citation. The measured RED baseline: retrieval
+recall@k **53.8%**, citation correctness **30.8%**, answer correctness **30.8%**,
+abstention precision **20.0%**. Status: `RED -- gates hold, quality below target`.
+This is the concrete gap Bricks A/C/Q/S exist to close.
+
+**Note:** this branch (`brick-0-comprehension-eval`) diverged from `main` at
+`32c4e71` before `main` picked up two doc-only commits (`577e7fb`, `c9bb0eb`)
+recording Task 0.1's review verdict and locking Task 0.2's design decisions —
+those commits are not present on this branch. This execution log was written
+directly against the real `evals/grader.py`, `evals/run.py`, and
+`evals/comprehension_questions.json` on this branch, independent of that content,
+but the two histories will need reconciling (merge/rebase) before this branch lands.
+
 ---
 
 ## Brick A — Whole-codebase ingest (all languages, all directories)
