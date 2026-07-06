@@ -307,6 +307,16 @@ almost no code evidence.
    (by lines, with overlap) — this is also a prerequisite for Brick D. This is the
    one non-trivial sub-task; give it its own red test.
 
+**Branch note (found during A1, decided by Alankrit):** an unmerged prior branch
+`feat/ingest-markdown` (commit `15373ca`) had already added a narrower `*.py`+`*.md`
+→ `code`/`doc` glob (`_FILE_SOURCES`, `_collect_files`) plus matching `doc:` link
+support in `demo/links.py`/`index.html` — but it was never merged into `main`
+before Brick 0/A branched off. Since A1's classifier already generalizes `.md` →
+`doc` as a strict superset (plus far more languages, deny-lists, binary-sniffing),
+**Brick A supersedes `feat/ingest-markdown` entirely** — do not merge it in; A3/A4
+rebuild the doc-linking behavior more generally. `feat/ingest-markdown` can be
+deleted once Brick A lands.
+
 **Tasks (red→green):**
 - **A1 — extension/deny-list classifier (pure, offline).** `test_ingest_files.py`:
   a fixture tree with `.py .go .yaml`, a binary, a `node_modules/` file, an
