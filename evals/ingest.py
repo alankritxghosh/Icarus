@@ -22,7 +22,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .corpus_meta import write_meta
 
@@ -70,6 +70,65 @@ _DENY_FILENAMES = {
 _DENY_FILENAME_SUFFIXES = (".min.js", ".min.css")
 
 _BINARY_SNIFF_BYTES = 8192  # how much of the file head to check for a null byte
+
+# Line-window chunking (Task A2). A window of 300 lines is small enough for a
+# BM25/embedding retriever to score a chunk as a coherent unit and for a writer
+# prompt to consume several chunks without blowing its context, while staying
+# large enough that most functions/classes fit inside one window rather than
+# being fragmented on every chunk boundary. 40 lines of overlap (~13% of the
+# window) is enough that a definition straddling a boundary is still whole in
+# at least one of the two windows, without materially inflating chunk count.
+# Both are plain module constants, not derived from any measurement -- if a
+# future eval shows retrieval quality wants different numbers, change these.
+_CHUNK_WINDOW_LINES = 300
+_CHUNK_OVERLAP_LINES = 40
+
+
+def chunk_text(text: str, ref_prefix: str) -> List[dict]:
+    """Split `text` into size-bounded, overlapping line-windows.
+
+    `ref_prefix` is the ref a caller would have used for a single whole-file
+    chunk (e.g. `f"{source}:{rel_path}"`, exactly what `fetch_code` builds
+    today). Returns a list of `{"ref": ..., "text": ...}` dicts -- no
+    `"source"` key, by design: the caller already has the source tag baked
+    into `ref_prefix` and builds the rest of the chunk dict itself (matching
+    how `fetch_prs`/`fetch_issues`/`fetch_code` all assemble
+    `{"ref": ..., "source": ..., "text": ...}` at their own call sites); this
+    keeps `chunk_text` ignorant of the source taxonomy entirely.
+
+    If `text` has at most `_CHUNK_WINDOW_LINES` lines, returns exactly ONE
+    chunk with `ref_prefix` unchanged (no line range) -- this is today's
+    existing whole-file ref format and must not gain a spurious line range
+    just because it went through this function. Otherwise splits into
+    consecutive windows of `_CHUNK_WINDOW_LINES` lines with
+    `_CHUNK_OVERLAP_LINES` lines of overlap between neighbors, each ref
+    carrying a 1-indexed, inclusive `#Lstart-Lend` suffix (GitHub's own
+    line-link convention, so a later citation-link update can parse it
+    directly). The last window ends exactly at the real last line -- no
+    padding past end-of-file, no phantom trailing window.
+
+    Pure and offline: no filesystem, no network. `splitlines()` (not a raw
+    split on "\n") so a missing/extra trailing newline in `text` doesn't
+    produce a spurious empty final "line".
+    """
+    lines = text.splitlines()
+    total = len(lines)
+
+    if total <= _CHUNK_WINDOW_LINES:
+        return [{"ref": ref_prefix, "text": text}]
+
+    stride = _CHUNK_WINDOW_LINES - _CHUNK_OVERLAP_LINES
+    chunks = []
+    start = 0  # 0-indexed line offset into `lines`
+    while start < total:
+        end = min(start + _CHUNK_WINDOW_LINES, total)
+        window_lines = lines[start:end]
+        ref = f"{ref_prefix}#L{start + 1}-L{end}"
+        chunks.append({"ref": ref, "text": "\n".join(window_lines) + "\n"})
+        if end == total:
+            break
+        start += stride
+    return chunks
 
 
 def classify_file(path: Path, root: Path) -> Optional[str]:
