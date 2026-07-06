@@ -187,6 +187,31 @@ recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
   `Fragment.id()` itself. Still a legitimate abstention, but the more contestable
   one if this set is later used to stress-test the honesty gate against a
   plausible-sounding-but-unrecorded rationale.
+- **Code-quality review verdict: ready to merge, no Critical/Important issues.**
+  Two Minor, non-blocking test-rigor notes for whoever next touches this file: (a)
+  `test_every_question_has_a_genuinely_messy_variant` only asserts `!=`, not a
+  minimum divergence — a future question with a 1-character messy variant would
+  still pass; (b) no test guards against duplicate/malformed refs inside a single
+  question's `citations` list. Cheap to add if this set grows past ~15 rows;
+  not worth a review round-trip at the current scale.
+
+**Task 0.2 — two design decisions locked here (so the implementer doesn't
+improvise architecture):**
+1. **Schema reconciliation:** extend `evals/grader.py`'s `gold_refs()` to accept
+   **either** shape — the existing `gold_citations: [{"source","ref",...}]` (used
+   by `phase1_questions.json`) **or** a flat `citations: ["source:ref", ...]` list
+   (used by `comprehension_questions.json`) — rather than reshaping the new file
+   or forking a parallel comparison function. Minimal, backward-compatible,
+   doesn't reopen the already-reviewed Task 0.1 file.
+2. **CLI wiring:** add an optional `--questions PATH` flag to `evals/run.py`,
+   defaulting to the current `phase1_questions.json` (so today's invocations are
+   byte-identical). `python3 -m evals.run --questions evals/comprehension_questions.json
+   --pipeline gated` runs the comprehension board explicitly. No new script, no
+   parallel CLI.
+3. **Real keys are available in this environment** (`.env` has `GROQ_API_KEY` +
+   `GEMINI_API_KEY`) — Task 0.2 runs the actual `gated` pipeline for a genuine
+   baseline, not a stub. Run once, not concurrently with anything else (free-tier
+   quota).
 
 **Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
 not ground-truth "understanding" in the abstract.
