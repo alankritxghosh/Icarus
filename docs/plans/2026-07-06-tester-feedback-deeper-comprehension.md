@@ -195,19 +195,25 @@ recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
   question's `citations` list. Cheap to add if this set grows past ~15 rows;
   not worth a review round-trip at the current scale.
 
-**Task 0.2 — two design decisions locked here (so the implementer doesn't
-improvise architecture):**
-1. **Schema reconciliation:** extend `evals/grader.py`'s `gold_refs()` to accept
-   **either** shape — the existing `gold_citations: [{"source","ref",...}]` (used
-   by `phase1_questions.json`) **or** a flat `citations: ["source:ref", ...]` list
-   (used by `comprehension_questions.json`) — rather than reshaping the new file
-   or forking a parallel comparison function. Minimal, backward-compatible,
-   doesn't reopen the already-reviewed Task 0.1 file.
-2. **CLI wiring:** add an optional `--questions PATH` flag to `evals/run.py`,
-   defaulting to the current `phase1_questions.json` (so today's invocations are
-   byte-identical). `python3 -m evals.run --questions evals/comprehension_questions.json
-   --pipeline gated` runs the comprehension board explicitly. No new script, no
-   parallel CLI.
+**Task 0.2 — corrected scope, verified against the real code before dispatch:**
+1. **`evals/run.py` already has `--questions PATH` (default `phase1_questions.json`)**
+   — no CLI change needed. `python3 -m evals.run --questions
+   evals/comprehension_questions.json --pipeline gated` already runs any
+   compatible question file today.
+2. **The only real gap:** `evals/grader.py:18-20`'s `gold_refs()` reads
+   `question.get("gold_citations", [])` (list of `{"source","ref",...}` dicts).
+   `comprehension_questions.json`'s answerable questions use a flat `"citations":
+   ["source:ref", ...]` list instead (confirmed: unanswerable questions already
+   correctly use the existing `correct_behavior`/`notes` convention — the
+   deviation is narrowly scoped to just this one field on answerable questions).
+   Left as-is, `gold_refs()` silently returns `[]` for every comprehension
+   question, making `retrieval_recall`/`citation_correctness` read a **false**
+   0% (a data-shape bug, not a genuine capability signal) — the two real gates
+   (groundedness, abstention recall) are unaffected since they don't use
+   `gold_refs()`. **Fix:** `gold_refs()` gains a fallback — if `"citations"` is
+   present, return it as-is (already `"source:ref"`-shaped); else fall back to
+   the existing `gold_citations` dict-list logic. Two-line, backward-compatible,
+   doesn't touch `phase1_questions.json`'s behavior at all.
 3. **Real keys are available in this environment** (`.env` has `GROQ_API_KEY` +
    `GEMINI_API_KEY`) — Task 0.2 runs the actual `gated` pipeline for a genuine
    baseline, not a stub. Run once, not concurrently with anything else (free-tier
