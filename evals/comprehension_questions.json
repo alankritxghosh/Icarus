@@ -3,8 +3,8 @@
   "corpus": {
     "repo": "simonw/llm",
     "commit": "94769b8b076cde9392059d76bd766453cf900180",
-    "rationale_sources": ["code"],
-    "note": "Every citation here is a code: ref that must exist verbatim in evals/corpus/chunks.jsonl (one whole-file chunk per source file)."
+    "rationale_sources": ["pr_descriptions", "linked_issues", "code"],
+    "note": "The committed corpus (evals/corpus/chunks.jsonl) has 141 pr + 84 issue + 18 code chunks. This Brick 0 probe set only cites the code: refs (one whole-file chunk per source file) -- it does not use the pr/issue chunks -- but the corpus itself is not code-only."
   },
   "questions": [
     {
