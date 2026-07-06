@@ -181,6 +181,16 @@ recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
   parsing branch for the flat-string shape or reshape the JSON to match
   `gold_citations`** — decide explicitly at the start of 0.2, don't let it surprise
   you mid-task.
+- **Granularity deviation (flagged by the final whole-brick review, not caught
+  earlier):** this Brick 0 section's own success criterion (above) specifies gold
+  citations as `code:path#Lstart-Lend`. What Task 0.1 actually delivered is
+  whole-file citations (`code:llm/models.py`, no line range) — because the
+  committed corpus only *has* whole-file `code:` chunks today (line-window
+  chunking doesn't exist until Brick A). This is internally consistent (every
+  test passes, both gates hold) but means **the retrieval_recall/citation_correctness
+  baseline below is measured at whole-file granularity.** Once Brick A lands
+  line-ranged refs, these two numbers are not directly comparable before/after —
+  re-baseline (or note the granularity change explicitly) when A lands.
 - **Known limitation:** question `c14` (why `Fragment.id()` uses `sha256`) is the
   weaker of the two honest-unknown cases — a nearby issue (`issue:617`) discusses
   `sha256` as precedent from a *different* feature, without stating a rationale for
@@ -220,7 +230,10 @@ recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
    quota).
 
 **Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
-not ground-truth "understanding" in the abstract.
+not ground-truth "understanding" in the abstract. Only 2 unanswerable questions —
+`abstention_recall` (gate) is quantized to {0%, 50%, 100%} and `abstention_precision`
+(quality dial) is a small-sample estimate; grow the unanswerable set before treating
+either number as a tuning target.
 
 **Execution log — Task 0.2:**
 

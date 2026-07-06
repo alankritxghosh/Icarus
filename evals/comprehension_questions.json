@@ -1,5 +1,5 @@
 {
-  "_status": "DRAFT — Brick 0 probe (docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md). What/how code-comprehension questions, deliberately messy phrasing, meant to read RED on today's why-tuned BM25 pipeline so later bricks have a concrete target.",
+  "_status": "Brick 0 probe, landed (docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md). What/how code-comprehension questions, deliberately messy phrasing, measured RED on today's why-tuned BM25 pipeline (retrieval_recall@k 53.8%, citation_correctness 30.8%, both honesty gates 100%) so later bricks have a concrete target to beat.",
   "corpus": {
     "repo": "simonw/llm",
     "commit": "94769b8b076cde9392059d76bd766453cf900180",
