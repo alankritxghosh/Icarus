@@ -172,7 +172,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             code = (q.get("code") or [""])[0]
             state = (q.get("state") or [""])[0]
             try:
-                session_id, _ = oauth.complete(state, code)
+                session_id, mode = oauth.complete(state, code)
             except Exception as e:
                 # Surface the cause in the server log (safe: GitHub's error string
                 # or "unknown/expired state" — never the code or client secret) so a
@@ -181,8 +181,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send(400, b"Sign-in failed or expired. Close this window and try again.",
                            "text/html; charset=utf-8")
                 return
+            # Web logins return to the same-origin page; the Mac app keeps its
+            # icarus:// custom scheme (which closes its auth sheet). The token is
+            # NOT in the URL — only the single-use session id is.
+            location = f"/?session={session_id}" if mode == "web" else f"icarus://auth?session={session_id}"
             self.send_response(302)
-            self.send_header("Location", f"icarus://auth?session={session_id}")
+            self.send_header("Location", location)
             self.send_header("Content-Length", "0")
             self.end_headers()
 
@@ -199,7 +203,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if oauth is None or not oauth.configured:
                     self._send_json(503, {"error": "github login not configured"})
                     return
-                _, url = oauth.begin()
+                try:
+                    mode = (self._body() or {}).get("mode", "app")
+                except (ValueError, AttributeError):
+                    mode = "app"
+                if mode not in ("app", "web"):
+                    mode = "app"
+                _, url = oauth.begin(mode)
                 self._send_json(200, {"authorize_url": url})
                 return
             if self.path == "/auth/github/redeem":

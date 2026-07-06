@@ -461,6 +461,40 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())["authorize_url"]
 
+    def _begin_mode(self, mode):
+        req = urllib.request.Request(
+            self.base + "/auth/github/begin",
+            data=json.dumps({"mode": mode}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())["authorize_url"]
+
+    def test_web_mode_callback_redirects_to_page(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(urlparse(self._begin_mode("web")).query)["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEW&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertTrue(loc.startswith("/?session="),
+                        f"web login must return to the page, got {loc!r}")
+
+    def test_app_mode_callback_still_uses_custom_scheme(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(urlparse(self._begin()).query)["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEA&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertTrue(loc.startswith("icarus://auth?session="),
+                        f"app login must stay on the custom scheme, got {loc!r}")
+
     def test_begin_returns_github_authorize_url(self):
         url = self._begin()
         self.assertIn("github.com/login/oauth/authorize", url)
