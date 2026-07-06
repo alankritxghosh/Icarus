@@ -166,6 +166,59 @@ GREEN as A/C/Q land.
 **Definition of done:** the comprehension board runs, gates hold, and it reads RED —
 a measured gap, not a vibe. This number is the acceptance test for A/C/Q/S.
 
+**Execution log — Task 0.1 (done, branch `brick-0-comprehension-eval`, commit `dfb38a0`):**
+`evals/comprehension_questions.json` (15 Qs: 13 answerable, 2 unanswerable) +
+`evals/test_comprehension_questions.py` landed, spec-verified independently
+(citations checked against the real corpus, 6/13 reference answers spot-checked
+against actual source text, messy variants confirmed non-trivial, scope boundary
+confirmed — `phase1_questions.json`/`grader.py`/`run.py` untouched). Two decisions
+recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
+- **Schema deviation (intentional, not a bug):** the new file uses a flat
+  `"citations": ["code:llm/models.py", ...]` field, **not** `phase1_questions.json`'s
+  `"gold_citations": [{"source", "ref", "why", "also_in_docs"}, ...]` shape read by
+  `grader.gold_refs()`. This was the simplest schema that satisfied Task 0.1's own
+  test spec, but it means **Task 0.2's grader/board wiring must either add a second
+  parsing branch for the flat-string shape or reshape the JSON to match
+  `gold_citations`** — decide explicitly at the start of 0.2, don't let it surprise
+  you mid-task.
+- **Known limitation:** question `c14` (why `Fragment.id()` uses `sha256`) is the
+  weaker of the two honest-unknown cases — a nearby issue (`issue:617`) discusses
+  `sha256` as precedent from a *different* feature, without stating a rationale for
+  `Fragment.id()` itself. Still a legitimate abstention, but the more contestable
+  one if this set is later used to stress-test the honesty gate against a
+  plausible-sounding-but-unrecorded rationale.
+- **Code-quality review verdict: ready to merge, no Critical/Important issues.**
+  Two Minor, non-blocking test-rigor notes for whoever next touches this file: (a)
+  `test_every_question_has_a_genuinely_messy_variant` only asserts `!=`, not a
+  minimum divergence — a future question with a 1-character messy variant would
+  still pass; (b) no test guards against duplicate/malformed refs inside a single
+  question's `citations` list. Cheap to add if this set grows past ~15 rows;
+  not worth a review round-trip at the current scale.
+
+**Task 0.2 — corrected scope, verified against the real code before dispatch:**
+1. **`evals/run.py` already has `--questions PATH` (default `phase1_questions.json`)**
+   — no CLI change needed. `python3 -m evals.run --questions
+   evals/comprehension_questions.json --pipeline gated` already runs any
+   compatible question file today.
+2. **The only real gap:** `evals/grader.py:18-20`'s `gold_refs()` reads
+   `question.get("gold_citations", [])` (list of `{"source","ref",...}` dicts).
+   `comprehension_questions.json`'s answerable questions use a flat `"citations":
+   ["source:ref", ...]` list instead (confirmed: unanswerable questions already
+   correctly use the existing `correct_behavior`/`notes` convention — the
+   deviation is narrowly scoped to just this one field on answerable questions).
+   Left as-is, `gold_refs()` silently returns `[]` for every comprehension
+   question, making `retrieval_recall`/`citation_correctness` read a **false**
+   0% (a data-shape bug, not a genuine capability signal) — the two real gates
+   (groundedness, abstention recall) are unaffected since they don't use
+   `gold_refs()`. **Fix:** `gold_refs()` gains a fallback — if `"citations"` is
+   present, return it as-is (already `"source:ref"`-shaped); else fall back to
+   the existing `gold_citations` dict-list logic. Two-line, backward-compatible,
+   doesn't touch `phase1_questions.json`'s behavior at all.
+3. **Real keys are available in this environment** (`.env` has `GROQ_API_KEY` +
+   `GEMINI_API_KEY`) — Task 0.2 runs the actual `gated` pipeline for a genuine
+   baseline, not a stub. Run once, not concurrently with anything else (free-tier
+   quota).
+
 **Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
 not ground-truth "understanding" in the abstract.
 
