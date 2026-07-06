@@ -22,6 +22,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from .corpus_meta import write_meta
 
@@ -37,6 +38,87 @@ ISSUE_REF = re.compile(r"#(\d+)")
 _SUBPROCESS_TIMEOUT = 120       # seconds, per git/gh call
 _MAX_FILE_BYTES = 512 * 1024    # skip any single file bigger than this
 _MAX_TOTAL_BYTES = 25 * 1024 * 1024  # stop reading code past this total
+
+# Extension allowlist -> citation source tag (Task A1). Tight and Phase-1-scale
+# on purpose: enough languages/formats to cover a typical mixed repo, not a
+# general-purpose language database. Extend this table, not the logic below,
+# if a new extension needs a home.
+_EXTENSION_SOURCES = {
+    # code
+    ".py": "code", ".js": "code", ".ts": "code", ".tsx": "code", ".go": "code",
+    ".rs": "code", ".java": "code", ".rb": "code", ".c": "code", ".h": "code",
+    ".cpp": "code", ".swift": "code", ".kt": "code", ".php": "code",
+    ".cs": "code", ".scala": "code", ".sh": "code",
+    # doc
+    ".md": "doc", ".rst": "doc", ".txt": "doc",
+    # config
+    ".yaml": "config", ".yml": "config", ".toml": "config", ".cfg": "config",
+    ".ini": "config", ".sql": "config",
+}
+
+# Path segments that exclude a file regardless of extension (vendored/build/VCS
+# noise -- never signal, just volume).
+_DENY_DIR_SEGMENTS = {".git", "node_modules", "vendor", "dist", "build", ".venv"}
+
+# Specific noisy filenames/patterns skipped even though their extension would
+# otherwise pass: generated lockfiles (huge, machine-authored, zero "why"
+# signal) and minified assets (unreadable, and always a build artifact of
+# source we already ingest separately).
+_DENY_FILENAMES = {
+    "package-lock.json", "yarn.lock", "Pipfile.lock", "poetry.lock", "Cargo.lock",
+}
+_DENY_FILENAME_SUFFIXES = (".min.js", ".min.css")
+
+_BINARY_SNIFF_BYTES = 8192  # how much of the file head to check for a null byte
+
+
+def classify_file(path: Path, root: Path) -> Optional[str]:
+    """Decide whether `path` (a file somewhere under `root`) should be
+    ingested, and under which citation source tag.
+
+    Returns "code" / "doc" / "config" if the file should be ingested, or None
+    if it should be skipped. Pure and offline -- no filesystem writes, no
+    network. Per-file only: does not enforce the total-byte ingest budget
+    (that's `_MAX_TOTAL_BYTES`, a stateful concern for the caller walking a
+    tree); it only rejects a file already larger than `_MAX_FILE_BYTES`.
+
+    `root` lets deny-listed directory segments (e.g. `node_modules`) be
+    checked against the path relative to the repo root, matching how
+    `fetch_code` already computes `path.relative_to(root)` for citation refs.
+    """
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        rel = path  # not under root; still check by name/extension below
+
+    if set(rel.parts) & _DENY_DIR_SEGMENTS:
+        return None
+
+    name = path.name
+    if name in _DENY_FILENAMES:
+        return None
+    if name.endswith(_DENY_FILENAME_SUFFIXES):
+        return None
+
+    source = _EXTENSION_SOURCES.get(path.suffix)
+    if source is None:
+        return None
+
+    try:
+        if path.stat().st_size > _MAX_FILE_BYTES:
+            return None
+    except OSError:
+        return None
+
+    try:
+        with path.open("rb") as f:
+            head = f.read(_BINARY_SNIFF_BYTES)
+    except OSError:
+        return None
+    if b"\x00" in head:
+        return None
+
+    return source
 
 
 def _git_env(token=None):
