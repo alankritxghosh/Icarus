@@ -1,0 +1,473 @@
+# Tester Feedback → Deeper Codebase Comprehension — Phased Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: superpowers:executing-plans. Every task is
+> red→green: a failing eval/test first, then the smallest code that turns it
+> green. **Never weaken a test or either honesty gate. Do NOT change the committed
+> `simonw/llm` corpus or `phase1_questions.json` — the eval board depends on them
+> being frozen.** Every commit appends
+> `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`. Work one brick at a
+> time in an isolated worktree per [CLAUDE.md](../../CLAUDE.md).
+
+**Context:** Alankrit shipped the `.dmg` + web staging link to testers. Nine
+remarks came back. This doc turns them into a sequenced, eval-first build order,
+keeping the non-negotiable identity intact: **cite-or-unknown, retrieval-only,
+never touch customer code, discard after each request.**
+
+---
+
+## The nine remarks → five themes, one bug, one refusal
+
+| # | Remark | Theme |
+|---|---|---|
+| 2, 4 | Index the whole codebase, not just PRs/Issues | **A. Whole-codebase ingest** |
+| 1 | Old codebases have no docs → we look redundant | **A / positioning** (see reframe) |
+| 5 | Not all Issues/PRs read; issue titles not picked up | **B. PR/Issue coverage** (bug) |
+| 6, 8 | Context-based retrieval, not text matching | **C. Semantic retrieval** |
+| 3 | Select a line → get an explanation | **D. Line-select explain** |
+| 7 | Answer *why*, explain failures | **E. Positioning + richer sources** |
+| 9 | Remove restrictions on touching real code | **REFUSED — see below** |
+
+### Grounding (what the code does today, verified)
+- `evals/ingest.py` globs only `*.py` + `*.md` under a **single** `--code-dir`
+  (default `llm`). No other languages, no other directories, no whole-repo pass.
+- `fetch_prs` reads only **merged** PRs (limit 200); `fetch_issues` reads only
+  issues **linked from those PRs** (`closingIssuesReferences` / `#N` in the body).
+  Standalone issues and open PRs are never ingested. **Titles *are* captured**
+  (`fetch_issues` writes `{title}\n\n{body}`) — so remark 5's "titles dropped" is
+  almost certainly *coverage* (an issue we never ingested), not a title bug. Brick
+  B verifies this against the tester's specific repo before writing code.
+- `evals/retriever.py` is BM25 — literally keyword/text matching. Remarks 6/8 are
+  correct: no semantics.
+
+---
+
+## The reframe on remark 1 (read this before building)
+
+"You're redundant on undocumented legacy code" reads as an argument *against* the
+honesty wedge. It is the opposite — **but only if we also index the code itself.**
+
+- Today the "why" leans on PRs/decisions/docs. A legacy repo with none of those
+  leaves Icarus with little to retrieve → looks empty → looks redundant.
+- The fix is **not** to abandon the honest unknown. It is: index *all the source*
+  so **what/how** questions work on any repo, and let **why** honestly return
+  *"no one wrote this down"* when the record is genuinely empty. That honest
+  unknown is the hero shot, not the failure — it is exactly what a code-search
+  competitor bluffs through.
+
+So Brick A (whole-codebase ingest) is what makes remark 1 land in our favor.
+Nothing in this plan weakens the abstention gate to paper over thin retrieval.
+
+---
+
+## Remark 9 — off the table (Alankrit's call, recorded)
+
+Icarus **writing or modifying real code** is not a brick in this plan. It is a
+different product (a coding agent) and it detonates the moat: cite-or-unknown,
+retrieval-only, "never train on / act on customer code, discard after each
+request." If it is ever revisited it is a deliberate strategy pivot **post-Phase-4
+at the earliest**, scoped in its own decision doc — not smuggled in by loosening
+the honesty constraints. Recorded here so it is not silently reopened.
+
+---
+
+## Refined north star (Alankrit, 2026-07-06)
+
+> Icarus must understand a codebase **from the code itself** — regardless of
+> whether descriptive PRs, issues, or docs exist. If nothing is written down, it
+> reads the code and understands it well enough to answer **any** question,
+> **regardless of framing, grammar, or spelling**. A JARVIS for every developer.
+
+The load-bearing word is "any." Read naively it collides with cite-or-unknown.
+Read correctly it *is* cite-or-unknown. That resolution is the governing
+principle below, and it sits above every brick.
+
+## Governing principle — the honesty boundary (over every brick)
+
+"Answer any question" means **any phrasing of any answerable question** — never
+"fabricate when the evidence isn't there." The boundary is deterministic:
+
+- **What / how — derivable from the code.** With the code indexed and understood,
+  Icarus should almost never abstain here. It reads the code and answers, citing
+  the lines. Bricks A + C + S are what make this near-total. This is where the
+  vision demands we get dramatically better.
+- **Why / intent — sometimes never recorded.** You cannot derive "why Postgres
+  over Mongo" from code if the reasoning was never written. Here the honest
+  unknown **stays** — and it is the reason every *other* answer is trustworthy. A
+  JARVIS that bluffs the "why" saves the developer nothing, because they'd have to
+  re-verify everything.
+
+So: *Icarus answers anything the code or the record can support, in any phrasing,
+and is honest about the rest.* No brick in this plan weakens the abstention gate
+to make thin retrieval look smarter — richer ingest and smarter retrieval feed the
+gate more evidence; they never change what counts as a provable answer.
+
+## Sequencing (probe first, then cheapest impact-per-brick)
+
+Risk-first (playbook-planning): **Brick 0 is the probe** — it measures the very
+thing the vision claims and is buildable *now* against the committed corpus, so it
+reads RED before A/C and turns GREEN as they land. Nothing claims "understands
+code" until Brick 0 says so.
+
+```
+Brick 0  Code-comprehension eval set   PROVES the vision · buildable now · RED baseline   ← probe
+Brick A  Whole-codebase ingest         fixes 1,2,4 · unblocks D,Q,S · small
+Brick B  PR/Issue coverage + bug       fixes 5                       · small
+Brick C  Semantic retrieval            fixes 6,8 · lifts 7           · needs a dependency decision
+Brick Q  Query-understanding layer     "any framing/grammar/spelling" · rides on C
+Brick D  Line-select → explain         fixes 3 · after A+C
+Brick S  Structural comprehension      the deep "reads the code" · LARGE · needs explicit go (deferred-gated)
+Brick E  Richer "why" sources          lifts 7 · optional, after C
+```
+
+**Walking skeleton (earliest end-to-end proof):** after **0 + A + C**, a
+messily-phrased *what/how* question returns a cited answer drawn from code alone,
+and the eval board (Brick 0's set) reads green on comprehension with both honesty
+gates at 100%. Everything after that milestone is deepening (Q, D, S, E), not new
+promise.
+
+Each brick is independently shippable and independently proven by the harness; one
+brick in flight at a time.
+
+---
+
+## Brick 0 — Code-comprehension eval set (the probe; do this first)
+
+**Goal:** a labelled question set that measures *understanding the code itself*,
+asked in **deliberately messy phrasing**, so every later brick is proven red→green
+instead of asserted.
+
+**Why:** `phase1_questions.json` is "why"-heavy (6 PR-intent questions). It cannot
+prove Icarus comprehends code, and it cannot prove robustness to bad grammar/
+spelling. Per playbook-planning this is the *fatal-assumption probe* — and it is
+buildable **now** against the committed `simonw/llm` corpus, which already has
+`*.py` chunks, so it reads RED on today's BM25 + why-tuned pipeline and turns
+GREEN as A/C/Q land.
+
+**Success criterion (binary, externally checkable):**
+- A new labelled file (e.g. `evals/comprehension_questions.json`) with **≥ 12**
+  *what/how* questions grounded in `simonw/llm` code, each carrying a gold
+  citation (`code:path#Lstart-Lend`) and a `reference_answer` for the judge.
+- **Each question has a messy-phrasing variant** (typos + broken grammar) that must
+  resolve to the *same* gold citation — this is the objective test for remark
+  "any framing/grammar/spelling."
+- At least 2 **honest-unknown** *why* questions whose intent is genuinely
+  unrecorded, to keep the abstention gate honest on this set too.
+- The eval board runs this set (`evals/run.py` extended or a sibling target),
+  both honesty gates fire correctly, and comprehension/robustness read RED on the
+  current pipeline (the baseline we will beat).
+
+**Tasks (red→green):**
+- **0.1** Author the set (human + Claude); a schema/loader test proves every
+  answerable Q has a gold `code:` citation + reference answer, every unknown has
+  none, and every Q has a messy variant. Mirror `test_reference_answers.py`.
+- **0.2** Wire it into the grader/board as a distinct set (do **not** touch the
+  frozen `phase1_questions.json`); record the RED baseline numbers in the doc.
+
+**Definition of done:** the comprehension board runs, gates hold, and it reads RED —
+a measured gap, not a vibe. This number is the acceptance test for A/C/Q/S.
+
+**Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
+not ground-truth "understanding" in the abstract.
+
+---
+
+## Brick A — Whole-codebase ingest (all languages, all directories)
+
+**Goal:** `evals.ingest` chunks *every* source/text file in the repo, not just
+`*.py`/`*.md` under one dir — so retrieval has the whole codebase to cite.
+
+**Why:** remarks 1, 2, 4. Today a Go/TS/Rust/config repo yields PRs + issues but
+almost no code evidence.
+
+**Design decisions (lock before coding):**
+1. **What counts as ingestable.** Extension allowlist of text/source types
+   (`.py .js .ts .tsx .go .rs .java .rb .c .h .cpp .swift .kt .php .cs .scala .sh
+   .yaml .yml .toml .cfg .ini .sql .md .rst .txt` — finalize the list). Skip
+   binaries by extension **and** by a null-byte sniff. Keep the existing
+   `_MAX_FILE_BYTES` / `_MAX_TOTAL_BYTES` caps — they are the OOM guard for a huge
+   repo and must not be removed.
+2. **Skip noise.** Ignore `.git`, `node_modules`, `vendor`, `dist`, `build`,
+   `.venv`, lockfiles, minified assets. A small deny-list of dirs/globs.
+3. **`--code-dir` becomes optional.** Default = whole repo root (walk everything);
+   `--code-dir` still narrows the subtree when passed. No-arg `simonw/llm` run must
+   stay byte-reproducible — so keep its default `code_dir="llm"` for the pinned
+   corpus path, but make the general path walk the root.
+4. **Citation source tag.** Keep `code:` for source, `doc:` for prose (`.md/.rst/
+   .txt`); add `config:` for config-ish files so citations read honestly. One-line
+   `_FILE_SOURCES`-style mapping extension → source.
+5. **Chunking.** Large files must be split (a 3k-line file as one chunk is useless
+   for retrieval *and* blows the writer's context). Add size-bounded chunking
+   (by lines, with overlap) — this is also a prerequisite for Brick D. This is the
+   one non-trivial sub-task; give it its own red test.
+
+**Tasks (red→green):**
+- **A1 — extension/deny-list classifier (pure, offline).** `test_ingest_files.py`:
+  a fixture tree with `.py .go .yaml`, a binary, a `node_modules/` file, an
+  oversized file → assert only the intended files are selected with the right
+  source tag. Then implement the classifier in `ingest.py`.
+- **A2 — line-window chunking (pure, offline).** Test: a long file splits into N
+  overlapping windows with stable `code:path#Lstart-Lend` refs; a short file → one
+  chunk. Implement. **`ref` format carries line ranges** (needed by links + Brick D).
+- **A3 — wire into `_collect_files`/`fetch_code`.** Extend `test_ingest_args.py` /
+  `test_ingest_repo.py` (network monkeypatched) so whole-repo walk + caps + skip
+  rules hold and counts come back per source.
+- **A4 — links.** Update `demo/links.py` (`ref_to_url`) so a `code:path#L10-L40`
+  ref deep-links to the right lines on GitHub at the pinned commit; extend
+  `demo/test_links.py`.
+- **A5 — skippable live smoke.** Extend `test_ingest_smoke.py` to ingest a tiny
+  **non-Python** public repo behind `RUN_INGEST_SMOKE=1` and assert non-`.py`
+  chunks appear.
+
+**Definition of done:** ingesting a mixed-language public repo produces `code:` /
+`doc:` / `config:` chunks across the whole tree; caps + skip-lists hold; citation
+links point at the right file and lines; no-arg `simonw/llm` corpus unchanged;
+offline suite green; **no new dependency.**
+
+**Honest limits:** still public repos only on free writers; no language-aware
+parsing (line-window chunks, not AST/symbols) — that is a later brick if Brick C
+plateaus; the eval board still only measures `simonw/llm`.
+
+---
+
+## Brick B — PR/Issue coverage (and the "dropped title" report)
+
+**Goal:** ingest **all** issues and **open + merged** PRs, not just merged PRs and
+their linked issues. Confirm or refute the title report first.
+
+**Why:** remark 5. Coverage gap: a standalone issue (never linked from a merged PR)
+is invisible today, which *looks* like "titles not picked up."
+
+**Tasks (red→green):**
+- **B0 — repro (human + Claude).** Get the tester's repo + the specific issue that
+  "lost its title." Re-ingest, grep `chunks.jsonl`. If the title is present → it
+  was a coverage miss (proceed). If genuinely absent → fix the real bug in
+  `fetch_issues` first. **Do not write the coverage code before this is known.**
+- **B1 — `gh issue list` pass (network fn, thin).** Add an issue-list fetch (all
+  issues up to a limit, states open+closed) alongside the linked-issue set; dedupe
+  by number. Keep the linked-issue logic (cheap "why" signal). Unit-test the
+  dedupe/merge as a pure function over stub JSON.
+- **B2 — include open PRs.** `pr list --state all` (or `open` + `merged`), guarded
+  by the same `PR_LIMIT`. Pure-test the number collection.
+- **B3 — counts + meta.** Extend `ingest_repo` counts and `meta.json`; update
+  tests.
+
+**Definition of done:** a repo's standalone issues and open PRs appear in the
+corpus with titles; dedupe verified; no-arg `simonw/llm` corpus untouched (its
+counts are frozen — this brick changes the *general* path, and if it would alter
+the pinned corpus, gate the new breadth behind the same "default repo keeps its
+frozen behavior" rule Brick 7 established).
+
+**Honest limits:** issue/PR *comments* still deferred (noise/volume); `PR_LIMIT`
+still caps very large repos.
+
+---
+
+## Brick C — Semantic retrieval (context, not keywords)
+
+**Goal:** retrieve by meaning, not term overlap, so "why does auth fail on token
+refresh" finds the relevant code/PR even when it shares no keywords.
+
+**Why:** remarks 6, 8; lifts 7. BM25 can't match paraphrases or concepts.
+
+**⚠️ This brick needs a decision from Alankrit before any code — it likely adds a
+dependency, which CLAUDE.md forbids without asking.** Two routes:
+
+- **C-route-1 — hosted embeddings via the provider abstraction (recommended).**
+  Add an `EmbeddingProvider` next to the writer/judge providers (Gemini/Cohere/
+  OpenAI embeddings). Fits "rent the commodity, own the pipeline," stays close to
+  stdlib, no heavy local model. **Trust boundary:** embedding text = sending it to
+  the provider → **public repos only on free embeddings**, and **private repos must
+  route through the private-safe provider + trust interlock** exactly like the
+  writer does today (`evals/trust.py`). This route inherits the existing isolation
+  proofs.
+- **C-route-2 — local open embeddings (`sentence-transformers`).** Matches the
+  CLAUDE.md stack line ("local open embeddings") and keeps text on-box, but adds a
+  real dependency + model download + CPU cost. Heavier for the demo/Render image.
+
+**Recommendation:** C-route-1 first (fastest to prove, reuses the trust interlock),
+keep C-route-2 as the private/on-box option later. **Get Alankrit's sign-off on the
+dependency/route before building.**
+
+**Tasks (red→green), route-1 shape:**
+- **C1 — `EmbeddingProvider` abstraction** with a `StaticEmbeddingProvider` test
+  double (deterministic vectors); no-key error path; 429 backoff — mirror
+  `evals/provider.py` + `test_provider.py`.
+- **C2 — `SemanticRetriever`** (cosine over cached chunk vectors). Pure test with
+  the static provider: a paraphrased query ranks the right chunk above a
+  keyword-only match. Precompute + cache vectors at ingest (persist next to
+  `chunks.jsonl`); the demo loads them.
+- **C3 — hybrid rank (optional but recommended).** Blend BM25 + semantic
+  (reciprocal-rank fusion). Prove recall@k rises on the labelled set **without
+  dropping either honesty gate** — the red→green retrieval eval already exists
+  (`test_retrieval_eval.py`); extend it.
+- **C4 — gate untouched.** Explicitly assert the honesty gate + abstention recall
+  stay 100% with semantic retrieval on (`grader`/`gate` tests). Retrieval getting
+  smarter must never let a bluff through.
+
+**Definition of done:** recall@k on `phase1_questions.json` beats BM25 with both
+gates at 100%; private repos still only reach the private-safe embedder via the
+interlock; the egress invariants test extended to cover the embedder.
+
+**Honest limits:** embeddings improve *recall*, not truthfulness — the
+deterministic gate is still the only thing standing between retrieval and a claim.
+
+---
+
+## Brick Q — Query-understanding layer (any framing, grammar, spelling)
+
+**Goal:** the *same* answer whether the developer types "how does auth refresh
+work" or "how duz teh authh refersh wrk lol". Robustness to phrasing, grammar, and
+spelling — a first-class capability, not a side effect.
+
+**Why:** the vision's "regardless of framing, grammar, or spelling." BM25 breaks on
+a misspelled term (no token match); embeddings absorb most paraphrase/synonymy but
+not arbitrary typos.
+
+**Design (locked order):** embeddings (Brick C) do the heavy lifting for paraphrase
+and synonyms, so **Q rides on C**. On top, a thin normalization step: lowercase,
+spell-tolerant tokenization, and — where a writer call is already being made — let
+the LLM restate the question before retrieval. No new heavyweight dependency;
+prefer stdlib fuzzy matching over a spellcheck library unless a probe shows it's
+needed.
+
+**Success criterion (binary):** every messy-phrasing variant in **Brick 0** returns
+the same gold citation as its clean twin, at the same k, with both gates at 100%.
+That's the objective, pre-committed test.
+
+**Tasks (red→green):**
+- **Q1** Pure query-normalizer (fuzzy tokenize + optional LLM restate behind the
+  provider abstraction); unit-tested on typo pairs.
+- **Q2** Wire ahead of the retriever; extend the Brick 0 board to assert
+  clean-variant parity. Turn Brick 0's robustness metric GREEN.
+
+**Definition of done:** Brick 0's messy variants match their clean twins; gates
+untouched.
+
+**Honest limits:** extreme gibberish or ambiguous questions still legitimately get
+"can you clarify / no evidence" — robustness is not mind-reading.
+
+---
+
+## Brick S — Structural comprehension (reads the code like a developer)
+
+**Goal:** understand code *structurally* — what calls what, what a function depends
+on, how data flows — so Icarus answers "how does X work across the system," not
+just "here's the chunk that mentions X." This is the deep "reads and understands
+the code" the vision is really about.
+
+**Why:** the tail of remarks 1/4/7 and the north star. Line-window chunks (Brick A)
++ embeddings (Brick C) get us *semantic* retrieval; they do not get us a call
+graph. Real comprehension of an undocumented legacy repo needs structure.
+
+**⚠️ Gated — needs Alankrit's explicit go.** CLAUDE.md lists "deep structural code
+understanding / dependency tracing" under **Do not build yet (post-Phase-4)**. This
+brick is written so it's *ready*, not so it's started. It is also the **largest**
+brick and almost certainly adds a parsing dependency (e.g. tree-sitter / language
+servers) — which needs sign-off.
+
+**Probe first (cheap, before committing):** on `simonw/llm` (Python), build a
+call-graph for *one* module with stdlib `ast` only, and measure whether adding
+"callers/callees as retrieval neighbors" moves Brick 0's harder *how-across-system*
+questions. Stdlib `ast` is Python-only; multi-language structure is what would need
+tree-sitter — decide based on the probe.
+
+**Success criterion (binary):** the *structural* subset of Brick 0 (how-does-X-flow
+questions) beats the Brick A+C baseline on recall@k, gates still 100%.
+
+**Definition of done / limits:** deferred-gated. Even built, it stays retrieval +
+reasoning + cite-or-unknown — never autonomous action on code (remark 9 stays
+closed).
+
+---
+
+## Brick D — Select a line → explain it
+
+**Goal:** in the app, select a file+line range and ask "what does this do / why is
+it here" → a cited answer grounded in that code plus the PRs/issues/docs that
+touch it. Honest unknown when the *why* was never written.
+
+**Why:** remark 3. High-signal demo moment; depends on A (line-addressable chunks)
+and benefits from C (semantic neighbors).
+
+**Tasks (red→green):**
+- **D1 — brain endpoint.** `POST /explain {repo, path, start, end}` → resolve the
+  chunk(s) covering those lines (A2 refs), retrieve neighbors (semantic + the PRs/
+  issues that reference the file), run the same cite-or-abstain writer → gate →
+  `Result`. New handler test in `demo/test_server.py`; **reuses the gate — no new
+  honesty path.**
+- **D2 — payload/links** for the explain shape (`demo/payload.py`,
+  `demo/test_payload.py`).
+- **D3 — app surface** (`mac/`): a line-selection → explain call in the overlay/
+  shell, rendering the cited answer or the honest unknown. IcarusKit client method
+  + test; SwiftUI wiring.
+
+**Definition of done:** selecting real lines returns a cited explanation or an
+honest unknown, proven end-to-end (brain test + one live guard); no new gate.
+
+**Honest limits:** explanation quality rides on A+C; without language-aware parsing
+the "neighbors" are retrieval-based, not call-graph-based (deep structural
+understanding stays post-Phase-4 per CLAUDE.md).
+
+---
+
+## Brick E — Richer "why" sources (optional, after C)
+
+**Goal:** answer more "why did this fail / why is it this way" by adding
+commit-message + `git blame` provenance for a line, so even repos thin on PRs have
+*some* recorded rationale.
+
+**Why:** remark 7 and the tail of remark 1. Commit messages are the most universal
+"why" signal in legacy repos.
+
+**Sketch (not yet task-broken — scope after C lands):** ingest commit messages as a
+`commit:` source; on explain, map a line → its introducing commit via blame. Still
+retrieval + cite-or-unknown; still no structural analysis. **Prove with a red eval
+before building.**
+
+---
+
+## Cross-cutting invariants (true for every brick)
+- Prove the gap with a **failing eval first**; never weaken an eval or a gate to
+  pass (CLAUDE.md / WORKFLOWS.md).
+- The **deterministic honesty gate is untouched** by all of this — richer ingest
+  and smarter retrieval feed it more/better evidence; they never change what counts
+  as a provable answer vs. an honest unknown.
+- **Public repos → free providers; private repos → private-safe provider via the
+  trust interlock.** Any new provider (embeddings) inherits this, with the egress
+  test extended.
+- **No new dependency without Alankrit's explicit sign-off** (Brick C is the one
+  that needs it — decide the route first).
+- Regenerate `general_index.md` + `detailed_index.md` after each brick's structural
+  changes.
+
+## Not doing (deferred, with reopen-triggers)
+- **Icarus writes/modifies real code (remark 9).** Closed. *Reopen trigger:* a
+  deliberate strategy pivot in its own decision doc, post-Phase-4 — never by
+  loosening the honesty gate.
+- **Structural comprehension / dependency tracing (Brick S).** Ready, not started.
+  *Reopen trigger:* Alankrit's explicit go **and** the Brick S probe showing
+  call-graph neighbors move Brick 0's structural questions.
+- **Multi-language structural parsing (tree-sitter et al.).** *Reopen trigger:*
+  the stdlib-`ast` probe proves value on Python first.
+- **Private repos on new providers (embeddings).** Allowed only through the
+  existing trust interlock; *reopen trigger for free embeddings on private code:*
+  never.
+- **Issue/PR comment ingestion, incremental sync.** *Reopen trigger:* a repo where
+  the answer provably lives in comments and Bricks A/B/C miss it.
+
+## Re-planning checkpoints
+- After **Brick 0**: record the RED baseline. If comprehension is already high on
+  the current pipeline, re-scope A/C (unlikely, but the probe decides — not a
+  guess).
+- After **each brick**: run both boards (`phase1` + comprehension). A broken gate
+  halts everything. A brick that overran its session gets split, not pushed.
+- Before **Brick C**: the dependency/route decision is made and written here first.
+- Before **Brick S**: the probe result is written here; no go without it.
+
+## Recommended first move
+Alankrit chose "just write the plan," so nothing is built yet. When you are ready,
+**start Brick 0** — the code-comprehension eval set. Per playbook-planning it is the
+probe that de-risks the whole vision: buildable now against the committed corpus,
+it turns "Icarus understands code" from a claim into a measured RED number that
+Bricks A/C/Q/S then drive to GREEN. Brick A is the first *build-the-brain* step
+right after it.

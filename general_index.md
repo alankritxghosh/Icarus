@@ -103,6 +103,14 @@ removing, or renaming files). For class/function-level detail see
 - `docs/plans/2026-07-06-brick-g-private-repo-ui.md` — Brick G, built: the Mac
   app's private-repo surface (private flag, disconnect, repo persistence across
   launches, client-side lost-connection banner) — app-only, zero brain changes.
+- `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md` — turns the nine
+  tester remarks + the refined north star ("understand code from the code itself,
+  answer any phrasing, JARVIS per developer") into a probe-first build order: Brick
+  0 (code-comprehension eval set), A (whole-codebase ingest), B (PR/Issue coverage),
+  C (semantic retrieval), Q (query-understanding: framing/grammar/spelling), D
+  (line-select explain), S (structural comprehension, deferred-gated), E (richer
+  "why"). Governed by the what/how-vs-why honesty boundary; remark 9 (writing code)
+  stays off the table.
 
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
