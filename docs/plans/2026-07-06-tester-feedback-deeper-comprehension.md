@@ -251,6 +251,18 @@ doc-only commits recording Task 0.1's review verdict and Task 0.2's design
 decisions, not yet present here) — merged `main` into this branch after Task 0.2
 landed; both execution logs above now live together on `brick-0-comprehension-eval`.
 
+**Code-quality review verdict: ready to merge, no Critical/Important issues.**
+Two Minor, dormant (not live-data-affecting) test gaps for whoever next touches
+`gold_refs()` or adds a third question-file schema: (a) no test for a question
+carrying both `citations` and `gold_citations` (current precedence: `citations`
+wins, untested); (b) no explicit test for a question with neither key (falls
+back to `[]`, matching old behavior, but not asserted directly). Cheap to add
+alongside the next schema change, not worth a round-trip now.
+
+**Brick 0 status: DONE.** Both tasks (0.1, 0.2) implemented, independently
+spec-reviewed and code-quality-reviewed, both verdicts "ready to merge." The
+measured RED baseline above is the acceptance bar Bricks A/C/Q/S must beat.
+
 ---
 
 ## Brick A — Whole-codebase ingest (all languages, all directories)
