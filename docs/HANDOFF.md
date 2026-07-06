@@ -114,6 +114,18 @@ honesty gate — is byte-for-byte unchanged across the entire effort.**
   `/disconnect`, `/auth/github/begin`, `/auth/github/redeem`. Loopback Host/Origin
   guard, 64 KB body cap, optional GitHub bearer gate, per-identity rate limits,
   loads `.env` on start.
+- **Typed web staging link** (`demo/index.html`, branch `feat/web-staging-link`):
+  the hosted brain now doubles as a **browser** try-it surface — engineers sign
+  in with GitHub in the page (web-mode OAuth: `/auth/github/begin {"mode":"web"}`
+  → callback returns to `/?session=` → redeem → token in **sessionStorage** →
+  `Authorization: Bearer` on `/ask`+`/connect`+`/status`), connect their own
+  public or private repo, and see a public/private writer badge. No DMG needed.
+  Typed only (no voice/overlay — those are native-only, and browser voice would
+  break the on-device-audio promise). **Same infra/bill/no-training caveats as
+  the DMG — a link is easier to pass around, so don't post it publicly, and close
+  the paid-key no-training-policy checkbox before real private code.** The Mac-app
+  OAuth flow (`icarus://`) is unchanged. Deploying this needs a Render redeploy
+  (it's a brain change). See `docs/plans/2026-07-06-web-staging-link.md`.
 - **macOS app** (`mac/Icarus/`, SwiftPM): the **primary windowed shell** (five
   surfaces) + ⌘⇧I overlay + hold-⌥ voice. **Web GitHub login**, **Keychain-
   persisted** session, **Sign out**, **voice in/out**, packaged as a signed

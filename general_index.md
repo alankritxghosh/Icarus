@@ -243,7 +243,9 @@ removing, or renaming files). For class/function-level detail see
   (default scope `repo`, so a caller's token can read their own private repos —
   existing `read:user`-scoped sign-ins must re-authenticate once), `exchange_code`
   (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
-  state/session, TTL). The secret lives only here, never in the app.
+  state/session, TTL). `begin(mode)` tags each login `app` (Mac app) or `web`
+  (browser); `complete` returns `(session_id, mode)` so the callback knows where
+  to send the user. The secret lives only here, never in the app.
 - `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
@@ -251,10 +253,15 @@ removing, or renaming files). For class/function-level detail see
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
   `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/auth/github/callback`;
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
-  caller's token before any private clone),`/disconnect`,`/auth/github/begin`,
-  `/auth/github/redeem`.
+  caller's token before any private clone),`/disconnect`,`/auth/github/begin`
+  (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
+  `icarus://`),`/auth/github/redeem`.
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
-  honest-unknown hero, and an `owner/repo` connect control; vanilla `fetch`.
+  honest-unknown hero, an `owner/repo` connect control, and **browser GitHub
+  sign-in** (web-mode OAuth → session redeemed for a token held in
+  sessionStorage, sent as `Authorization: Bearer` on `/ask`+`/connect`+`/status`)
+  so private repos work from the browser; a public/private writer badge; vanilla
+  `fetch`. This is the typed **web staging link** (no voice/overlay — native only).
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's
