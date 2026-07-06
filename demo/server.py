@@ -172,7 +172,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             code = (q.get("code") or [""])[0]
             state = (q.get("state") or [""])[0]
             try:
-                session_id = oauth.complete(state, code)
+                session_id, _ = oauth.complete(state, code)
             except Exception as e:
                 # Surface the cause in the server log (safe: GitHub's error string
                 # or "unknown/expired state" — never the code or client secret) so a

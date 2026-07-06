@@ -88,7 +88,7 @@ class OAuthFlow:
         self._redirect = redirect_uri
         self._ttl = ttl
         self._exchange = exchanger
-        self._pending: dict[str, float] = {}      # state -> created_at
+        self._pending: dict[str, tuple[float, str]] = {}   # state -> (created_at, mode)
         self._sessions: dict[str, tuple[str, float]] = {}  # session_id -> (token, created_at)
         self._lock = threading.Lock()
 
@@ -96,28 +96,33 @@ class OAuthFlow:
     def configured(self) -> bool:
         return bool(self._cid and self._secret)
 
-    def begin(self) -> tuple[str, str]:
-        """Mint a CSRF state and return (state, authorize_url)."""
+    def begin(self, mode: str = "app") -> tuple[str, str]:
+        """Mint a CSRF state (tagged with the login surface) and return
+        (state, authorize_url). `mode` is "app" (Mac app → icarus:// callback)
+        or "web" (browser → same-origin page); the callback reads it back to
+        decide where to send the user."""
         state = new_state()
         with self._lock:
             self._sweep()
-            self._pending[state] = time.time()
+            self._pending[state] = (time.time(), mode)
         return state, authorize_url(self._cid, self._redirect, state)
 
-    def complete(self, state: str, code: str) -> str:
+    def complete(self, state: str, code: str) -> tuple[str, str]:
         """Validate the state, exchange the code, store the token under a fresh
-        session id, and return it. Raises ValueError on an unknown/expired state."""
+        session id, and return (session_id, mode). Raises ValueError on an
+        unknown/expired state."""
         with self._lock:
             self._sweep()
-            if state not in self._pending:
+            entry = self._pending.pop(state, None)
+            if entry is None:
                 raise ValueError("unknown or expired state")
-            del self._pending[state]
+        _created, mode = entry
         token = self._exchange(  # network happens outside the lock
             code, client_id=self._cid, client_secret=self._secret, redirect_uri=self._redirect)
         session_id = new_state()
         with self._lock:
             self._sessions[session_id] = (token, time.time())
-        return session_id
+        return session_id, mode
 
     def redeem(self, session_id: str) -> str | None:
         """Return the token for a session id exactly once, else None."""
@@ -128,5 +133,5 @@ class OAuthFlow:
 
     def _sweep(self):
         now = time.time()
-        self._pending = {s: t for s, t in self._pending.items() if now - t < self._ttl}
+        self._pending = {s: v for s, v in self._pending.items() if now - v[0] < self._ttl}
         self._sessions = {s: v for s, v in self._sessions.items() if now - v[1] < self._ttl}

@@ -73,8 +73,23 @@ class OAuthFlowTests(unittest.TestCase):
         flow = self._flow()
         state, url = flow.begin()
         self.assertIn(f"state={state}", url)
-        session = flow.complete(state, "CODE1")
+        session, mode = flow.complete(state, "CODE1")
+        self.assertEqual(mode, "app")
         self.assertEqual(flow.redeem(session), "token-for-CODE1")
+
+    def test_begin_defaults_to_app_mode(self):
+        flow = self._flow()
+        state, _ = flow.begin()
+        session, mode = flow.complete(state, "CODE_A")
+        self.assertEqual(mode, "app")
+        self.assertEqual(flow.redeem(session), "token-for-CODE_A")
+
+    def test_begin_web_mode_flows_through_complete(self):
+        flow = self._flow()
+        state, _ = flow.begin("web")
+        session, mode = flow.complete(state, "CODE_W")
+        self.assertEqual(mode, "web")
+        self.assertEqual(flow.redeem(session), "token-for-CODE_W")
 
     def test_unknown_state_rejected(self):
         with self.assertRaises(ValueError):
@@ -83,7 +98,7 @@ class OAuthFlowTests(unittest.TestCase):
     def test_redeem_is_single_use(self):
         flow = self._flow()
         state, _ = flow.begin()
-        session = flow.complete(state, "CODE2")
+        session, _ = flow.complete(state, "CODE2")
         self.assertEqual(flow.redeem(session), "token-for-CODE2")
         self.assertIsNone(flow.redeem(session))  # second time: gone
 
