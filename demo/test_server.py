@@ -168,6 +168,10 @@ class IndexHtmlSmokeTests(unittest.TestCase):
         self.assertIn('id="question"', self.html)
         self.assertIn('id="ask"', self.html)
 
+    def test_has_github_sign_in(self):
+        self.assertIn("Sign in with GitHub", self.html)
+        self.assertIn("/auth/github/begin", self.html)
+
     def test_posts_to_ask_and_handles_both_verdicts(self):
         self.assertIn("/ask", self.html)
         self.assertIn('verdict', self.html)
