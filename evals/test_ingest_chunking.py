@@ -64,6 +64,24 @@ class ShortFileTests(unittest.TestCase):
         self.assertEqual(chunks[0]["ref"], "code:pkg/empty.py")
         self.assertEqual(chunks[0]["text"], "")
 
+    def test_whitespace_only_long_file_splits_into_valid_windows(self):
+        # All-blank-line file, longer than one window: still splits cleanly
+        # into non-degenerate windows (no content isn't the same as no lines).
+        total_lines = _CHUNK_WINDOW_LINES * 2 + 50
+        text = "\n" * total_lines
+        chunks = chunk_text(text, "code:pkg/blank.py")
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertIn("#L", c["ref"])
+            line_part = c["ref"].split("#L", 1)[1]
+            start_str, end_str = line_part.split("-L")
+            start, end = int(start_str), int(end_str)
+            self.assertLessEqual(start, end)
+            self.assertGreaterEqual(end, start)
+        last_line_part = chunks[-1]["ref"].split("#L", 1)[1]
+        _, last_end_str = last_line_part.split("-L")
+        self.assertEqual(int(last_end_str), total_lines)
+
 
 class LongFileTests(unittest.TestCase):
     """A file over the window size must split into overlapping windows with
@@ -150,6 +168,18 @@ class JustOverBoundaryTests(unittest.TestCase):
         last_line_part = chunks[1]["ref"].split("#L", 1)[1]
         _, end_str = last_line_part.split("-L")
         self.assertEqual(int(end_str), _CHUNK_WINDOW_LINES + 1)
+
+
+class RefPrefixContractTests(unittest.TestCase):
+    def test_hash_in_ref_prefix_is_rejected(self):
+        # A "#" in ref_prefix would produce a ref with two "#"s for a
+        # windowed chunk (e.g. "code:weird#anchor.py#L1-L300"), ambiguous for
+        # any downstream parser that recovers the path via ref.split("#")[0].
+        # Real repo-relative paths never contain "#" -- this is a caller
+        # contract, so it must fail loudly rather than silently produce a
+        # malformed ref.
+        with self.assertRaises(AssertionError):
+            chunk_text(_make_lines(_CHUNK_WINDOW_LINES * 2), "code:pkg/weird#anchor.py")
 
 
 if __name__ == "__main__":

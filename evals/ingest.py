@@ -82,6 +82,10 @@ _BINARY_SNIFF_BYTES = 8192  # how much of the file head to check for a null byte
 # future eval shows retrieval quality wants different numbers, change these.
 _CHUNK_WINDOW_LINES = 300
 _CHUNK_OVERLAP_LINES = 40
+assert _CHUNK_OVERLAP_LINES < _CHUNK_WINDOW_LINES, (
+    "overlap must be smaller than the window, or chunk_text's stride "
+    "would be <= 0 and its while loop would never advance"
+)
 
 
 def chunk_text(text: str, ref_prefix: str) -> List[dict]:
@@ -110,7 +114,16 @@ def chunk_text(text: str, ref_prefix: str) -> List[dict]:
     Pure and offline: no filesystem, no network. `splitlines()` (not a raw
     split on "\n") so a missing/extra trailing newline in `text` doesn't
     produce a spurious empty final "line".
+
+    `ref_prefix` must not itself contain "#" -- a real repo-relative path
+    never does, so this is a caller-contract assertion, not a real-world
+    case: a downstream ref parser (e.g. a citation-link builder recovering
+    the path via `ref.split("#")[0]`) would otherwise silently see a
+    malformed two-`#` ref for a windowed chunk instead of a caller bug
+    failing loudly here.
     """
+    assert "#" not in ref_prefix, f"ref_prefix must not contain '#': {ref_prefix!r}"
+
     lines = text.splitlines()
     total = len(lines)
 
