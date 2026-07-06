@@ -2,6 +2,9 @@
 .DS_Store
 .claude/settings.local.json
 
+# Isolated git worktrees for subagent-driven development
+.worktrees/
+
 # Secrets & local config (never commit credentials — GitHub tokens, API keys)
 .env
 .env.*
