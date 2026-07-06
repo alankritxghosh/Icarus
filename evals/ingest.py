@@ -85,11 +85,19 @@ def classify_file(path: Path, root: Path) -> Optional[str]:
     `root` lets deny-listed directory segments (e.g. `node_modules`) be
     checked against the path relative to the repo root, matching how
     `fetch_code` already computes `path.relative_to(root)` for citation refs.
+    Contract: `path` must be under `root` -- callers walk a tree (e.g. via
+    `rglob`) rooted there. `path.relative_to(root)` raises `ValueError` on a
+    misuse (a path outside the walked root) rather than silently falling back
+    to scanning the absolute path's own segments, which could spuriously
+    match a deny-listed name (e.g. a real filesystem prefix containing
+    `vendor` or `.git`) and misclassify a file relative to the wrong tree.
+
+    Extension matching is case-sensitive by design: `Script.PY` or
+    `README.MD` classify as None. Uppercase extensions are rare enough on
+    real repos/case-sensitive filesystems that special-casing them isn't
+    worth it at Phase-1 scale.
     """
-    try:
-        rel = path.relative_to(root)
-    except ValueError:
-        rel = path  # not under root; still check by name/extension below
+    rel = path.relative_to(root)
 
     if set(rel.parts) & _DENY_DIR_SEGMENTS:
         return None

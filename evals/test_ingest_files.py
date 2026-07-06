@@ -79,6 +79,17 @@ class ClassifyFileTests(unittest.TestCase):
         path = self._write("static/app.min.js", "!function(){}();\n")
         self.assertIsNone(classify_file(path, self.root))
 
+    def test_path_not_under_root_raises(self):
+        # Contract: path must be under root (a tree walk always satisfies
+        # this). A path outside root is a caller misuse -- must raise loudly
+        # rather than silently scan the absolute path's own segments, which
+        # could spuriously match a deny-listed name in an unrelated prefix.
+        with TemporaryDirectory() as other_dir:
+            other_root = Path(other_dir)
+            outside_path = self._write("pkg/models.py", "x = 1\n")
+            with self.assertRaises(ValueError):
+                classify_file(outside_path, other_root)
+
 
 if __name__ == "__main__":
     unittest.main()
