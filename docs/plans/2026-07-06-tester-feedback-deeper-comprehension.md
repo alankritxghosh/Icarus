@@ -246,13 +246,10 @@ recall@k **53.8%**, citation correctness **30.8%**, answer correctness **30.8%**
 abstention precision **20.0%**. Status: `RED -- gates hold, quality below target`.
 This is the concrete gap Bricks A/C/Q/S exist to close.
 
-**Note:** this branch (`brick-0-comprehension-eval`) diverged from `main` at
-`32c4e71` before `main` picked up two doc-only commits (`577e7fb`, `c9bb0eb`)
-recording Task 0.1's review verdict and locking Task 0.2's design decisions —
-those commits are not present on this branch. This execution log was written
-directly against the real `evals/grader.py`, `evals/run.py`, and
-`evals/comprehension_questions.json` on this branch, independent of that content,
-but the two histories will need reconciling (merge/rebase) before this branch lands.
+**Reconciled:** this branch had diverged from `main` (which had picked up two
+doc-only commits recording Task 0.1's review verdict and Task 0.2's design
+decisions, not yet present here) — merged `main` into this branch after Task 0.2
+landed; both execution logs above now live together on `brick-0-comprehension-eval`.
 
 ---
 
