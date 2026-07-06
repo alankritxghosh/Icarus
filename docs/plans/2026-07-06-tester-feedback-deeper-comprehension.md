@@ -166,6 +166,28 @@ GREEN as A/C/Q land.
 **Definition of done:** the comprehension board runs, gates hold, and it reads RED —
 a measured gap, not a vibe. This number is the acceptance test for A/C/Q/S.
 
+**Execution log — Task 0.1 (done, branch `brick-0-comprehension-eval`, commit `dfb38a0`):**
+`evals/comprehension_questions.json` (15 Qs: 13 answerable, 2 unanswerable) +
+`evals/test_comprehension_questions.py` landed, spec-verified independently
+(citations checked against the real corpus, 6/13 reference answers spot-checked
+against actual source text, messy variants confirmed non-trivial, scope boundary
+confirmed — `phase1_questions.json`/`grader.py`/`run.py` untouched). Two decisions
+recorded here for **Task 0.2** to pick up, so they aren't lost between sessions:
+- **Schema deviation (intentional, not a bug):** the new file uses a flat
+  `"citations": ["code:llm/models.py", ...]` field, **not** `phase1_questions.json`'s
+  `"gold_citations": [{"source", "ref", "why", "also_in_docs"}, ...]` shape read by
+  `grader.gold_refs()`. This was the simplest schema that satisfied Task 0.1's own
+  test spec, but it means **Task 0.2's grader/board wiring must either add a second
+  parsing branch for the flat-string shape or reshape the JSON to match
+  `gold_citations`** — decide explicitly at the start of 0.2, don't let it surprise
+  you mid-task.
+- **Known limitation:** question `c14` (why `Fragment.id()` uses `sha256`) is the
+  weaker of the two honest-unknown cases — a nearby issue (`issue:617`) discusses
+  `sha256` as precedent from a *different* feature, without stating a rationale for
+  `Fragment.id()` itself. Still a legitimate abstention, but the more contestable
+  one if this set is later used to stress-test the honesty gate against a
+  plausible-sounding-but-unrecorded rationale.
+
 **Honest limits:** authored on one repo (`simonw/llm`); it measures *our* pipeline,
 not ground-truth "understanding" in the abstract.
 
