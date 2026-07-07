@@ -15,6 +15,8 @@ def ref_to_url(ref: str, repo: str, commit: str):
         return f"https://github.com/{repo}/pull/{rest}"
     if source == "issue":
         return f"https://github.com/{repo}/issues/{rest}"
-    if source == "code":
-        return f"https://github.com/{repo}/blob/{commit}/{rest}"
+    if source in ("code", "doc", "config"):
+        path, hash_sep, line_range = rest.partition("#")
+        fragment = f"#{line_range}" if hash_sep else ""
+        return f"https://github.com/{repo}/blob/{commit}/{path}{fragment}"
     return None
