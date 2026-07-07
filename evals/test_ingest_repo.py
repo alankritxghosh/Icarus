@@ -321,6 +321,76 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         self.assertEqual(chunks[0]["ref"], "pr:5")
 
 
+class FullCoverageEndToEndTests(unittest.TestCase):
+    """Task B3: one combined, realistic fixture proving B1 (all issues) + B2
+    (all PR states) both actually reach the FINAL counts dict and the written
+    meta.json -- not just an intermediate call (that's what
+    AllIssuesCoverageTests/FetchPRsAllStatesTests above already prove in
+    isolation). Mixed PR states, a linked issue, and a standalone
+    (benawad/vsinder#253-shaped) issue absent from any PR's references, all in
+    one scenario, verified all the way through to disk."""
+
+    def test_mixed_prs_and_issues_reach_final_counts_and_meta(self):
+        # Two PRs: fixture labels "open"/"merged" are narrative color only --
+        # fetch_prs' real pr-view call never inspects state (see
+        # FetchPRsAllStatesTests above) -- both must count regardless.
+        pr_list_result = [{"number": 1}, {"number": 2}]
+        pr_views = {
+            1: {"title": "Open PR: fix login", "body": "closes #10",
+                "closingIssuesReferences": [{"number": 10}]},
+            2: {"title": "Merged PR: add feature", "body": "no issue refs here",
+                "closingIssuesReferences": []},
+        }
+
+        def fake_gh_json(args, token=None):
+            if "pr" in args and "list" in args:
+                return pr_list_result
+            if "pr" in args and "view" in args:
+                n = int(args[args.index("view") + 1])
+                return pr_views[n]
+            if "issue" in args and "list" in args:
+                # fetch_all_issue_ids: the full open+closed sweep -- includes
+                # #10 (linked from PR 1) AND #253, a standalone issue never
+                # referenced by any PR (the benawad/vsinder#253-shaped proof).
+                return [{"number": 10}, {"number": 253}]
+            if "issue" in args and "view" in args:
+                n = int(args[args.index("view") + 1])
+                titles = {
+                    10: "Linked issue: login broken",
+                    253: "Android app not displaying new matches and messages",
+                }
+                return {"title": titles[n], "body": f"body for issue {n}"}
+            raise AssertionError(f"unexpected _gh_json call: {args}")
+
+        code = [{"ref": "code:main.py", "source": "code", "text": "x = 1\n"}]
+
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json), \
+                mock.patch.object(ingest, "fetch_code", return_value=code):
+            counts = ingest.ingest_repo("benawad/vsinder", out, commit="deadbeef", code_dir=".")
+
+            # Both PRs counted regardless of state.
+            self.assertEqual(counts["pr"], 2)
+            # Both the linked issue (#10) AND the standalone issue (#253) counted.
+            self.assertEqual(counts["issue"], 2)
+            self.assertEqual(counts["code"], 1)
+
+            chunks = [json.loads(l) for l in (Path(out) / "chunks.jsonl").read_text().splitlines() if l.strip()]
+            refs = {c["ref"] for c in chunks}
+            self.assertEqual(refs, {"pr:1", "pr:2", "issue:10", "issue:253", "code:main.py"})
+            issue_253 = next(c for c in chunks if c["ref"] == "issue:253")
+            self.assertIn("Android app not displaying new matches and messages", issue_253["text"])
+
+            # meta.json (on disk, via load_meta) carries the SAME counts -- not
+            # just the in-memory return value.
+            meta = load_meta(Path(out) / "meta.json")
+            self.assertEqual(meta["counts"]["pr"], 2)
+            self.assertEqual(meta["counts"]["issue"], 2)
+            self.assertEqual(meta["counts"]["code"], 1)
+            self.assertEqual(meta["repo"], "benawad/vsinder")
+            self.assertEqual(meta["commit"], "deadbeef")
+
+
 class ResolveCodeDirIntegrationTests(unittest.TestCase):
     """The no-arg / default-repo path resolves code_dir to "llm"; any other
     repo resolves to "." -- verified via the resolve_code_dir helper itself
