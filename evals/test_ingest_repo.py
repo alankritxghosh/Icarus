@@ -22,6 +22,7 @@ class IngestRepoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, \
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             counts = ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             chunks = [json.loads(l) for l in (Path(d) / "chunks.jsonl").read_text().splitlines() if l.strip()]
@@ -128,6 +129,7 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory() as out, \
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
                 mock.patch("evals.ingest.subprocess.run",
                            side_effect=_fake_run_cloning_fixture(fixture)):
             _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
@@ -172,6 +174,7 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory() as out, \
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
                 mock.patch("evals.ingest.subprocess.run",
                            side_effect=_fake_run_cloning_fixture(fixture)):
             _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
@@ -181,6 +184,48 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
             self.assertEqual(counts.get("issue"), 3)
             self.assertEqual(counts.get("code"), 1)
             self.assertEqual(counts.get("doc"), 1)
+
+
+class AllIssuesCoverageTests(unittest.TestCase):
+    """Brick B1 regression test for the benawad/vsinder #253 coverage gap: a
+    standalone issue, never linked from any merged PR (so absent from
+    fetch_prs' issue_ids), must still reach fetch_issues via
+    fetch_all_issue_ids's full open+closed issue-number sweep."""
+
+    def test_standalone_unlinked_issue_reaches_fetch_issues(self):
+        # fetch_prs returns only issue #42, linked from a merged PR's
+        # closingIssuesReferences/#N mention -- #253 is never mentioned here,
+        # mirroring the real vsinder repro (a standalone OPEN issue).
+        prs = ([{"ref": "pr:1", "source": "pr", "text": "why X"}], {42})
+        code = []
+
+        captured_issue_ids = {}
+
+        def fake_fetch_issues(repo, issue_ids, token=None):
+            captured_issue_ids["value"] = set(issue_ids)
+            return [{"ref": f"issue:{n}", "source": "issue", "text": "x"} for n in issue_ids]
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=prs), \
+                mock.patch.object(ingest, "fetch_issues", side_effect=fake_fetch_issues), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value={42, 253}), \
+                mock.patch.object(ingest, "fetch_code", return_value=code):
+            ingest.ingest_repo("benawad/vsinder", d, commit="abc123", code_dir=".")
+
+        self.assertIn(42, captured_issue_ids["value"])   # linked issue kept
+        self.assertIn(253, captured_issue_ids["value"])  # standalone issue now included
+
+    def test_fetch_all_issue_ids_called_with_repo_and_token(self):
+        prs = ([], set())
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=prs), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]) as mock_fetch_issues, \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()) as mock_all_ids, \
+                mock.patch.object(ingest, "fetch_code", return_value=[]):
+            ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".", token="tok")
+
+        mock_all_ids.assert_called_once_with("octo/repo", token="tok")
+        mock_fetch_issues.assert_called_once()
 
 
 class ResolveCodeDirIntegrationTests(unittest.TestCase):

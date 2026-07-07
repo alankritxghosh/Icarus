@@ -64,5 +64,38 @@ class ResolveCodeDirTests(unittest.TestCase):
         self.assertEqual(resolve_code_dir("someone/other-repo", "custom-dir"), "custom-dir")
 
 
+class IssueIdUnionTests(unittest.TestCase):
+    """Brick B1: the linked-issue set (from fetch_prs' closingIssuesReferences/
+    #N-mention scan) and the all-issues set (from fetch_all_issue_ids) must
+    combine into a single deduped set passed to fetch_issues -- a plain set
+    union, since "all issues" already subsumes "linked issues" as a subset.
+    Pure, no network: proven directly over stub id lists/sets standing in for
+    each source's real output."""
+
+    def test_union_is_deduped_and_covers_both_sources(self):
+        linked = {5, 42, 100}          # e.g. issue_ids from fetch_prs
+        all_issues = {5, 12, 42, 253}  # e.g. fetch_all_issue_ids's return value
+        combined = linked | all_issues
+        self.assertEqual(combined, {5, 12, 42, 100, 253})
+
+    def test_standalone_issue_absent_from_linked_set_still_included(self):
+        # This is the exact #253 shape: never linked from any merged PR, but
+        # present in the full issue list.
+        linked = {5, 12, 42}
+        all_issues = {5, 12, 42, 166, 253}
+        combined = linked | all_issues
+        self.assertIn(253, combined)
+        self.assertNotIn(253, linked)  # confirms the gap the union closes
+
+    def test_empty_all_issues_set_is_a_no_op(self):
+        linked = {1, 2, 3}
+        self.assertEqual(linked | set(), linked)
+
+    def test_disjoint_sets_union_without_dropping_either(self):
+        linked = {1, 2}
+        all_issues = {3, 4}
+        self.assertEqual(linked | all_issues, {1, 2, 3, 4})
+
+
 if __name__ == "__main__":
     unittest.main()

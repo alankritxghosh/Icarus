@@ -29,6 +29,7 @@ from .corpus_meta import write_meta
 REPO = "simonw/llm"
 COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
 PR_LIMIT = 200  # recent merged PRs; the 6 gold PRs are well within this range
+ISSUE_LIMIT = 500  # all open+closed issues; generous headroom over a typical repo's issue count
 OUT = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
 META = Path(__file__).resolve().parent / "corpus" / "meta.json"
 
@@ -295,6 +296,19 @@ def fetch_prs(repo, token=None):
     return chunks, issue_ids
 
 
+def fetch_all_issue_ids(repo, token=None):
+    """All issue numbers (open AND closed) up to ISSUE_LIMIT, unfiltered by
+    whether anything links to them -- closes the coverage gap where a
+    standalone, never-linked issue (e.g. an open bug report) was invisible to
+    fetch_issues because fetch_prs only ever surfaces issues mentioned by a
+    merged PR."""
+    items = _gh_json(
+        ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT), "--json", "number"],
+        token=token,
+    )
+    return {it["number"] for it in items}
+
+
 def fetch_issues(repo, issue_ids, token=None):
     chunks = []
     for n in sorted(issue_ids):
@@ -355,6 +369,10 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     authenticates git/gh as that caller for a private repo, via env only."""
     commit = resolve_commit(repo, commit, token=token)
     prs, issue_ids = fetch_prs(repo, token=token)
+    # Union with ALL issue numbers (open+closed), not just ones a merged PR
+    # happens to link -- closes the standalone-issue coverage gap (Brick B1)
+    # without touching fetch_prs' own linked-issue detection.
+    issue_ids = issue_ids | fetch_all_issue_ids(repo, token=token)
     issues = fetch_issues(repo, issue_ids, token=token)
     code = fetch_code(repo, commit, code_dir, token=token)
     all_chunks = prs + issues + code
