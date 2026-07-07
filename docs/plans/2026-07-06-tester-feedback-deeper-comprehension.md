@@ -446,6 +446,16 @@ via `gh issue list`) is confirmed as the right fix — proceed.**
   issues up to a limit, states open+closed) alongside the linked-issue set; dedupe
   by number. Keep the linked-issue logic (cheap "why" signal). Unit-test the
   dedupe/merge as a pure function over stub JSON.
+
+  **Done — `ISSUE_LIMIT=500` + `fetch_all_issue_ids`, plain set union with the
+  existing linked-issue set (no wrapper needed). Ready to merge, no
+  Critical/Important-blocking issues; `fetch_prs` confirmed byte-identical.
+  Two non-blocking test-coverage gaps recorded for a fast-follow (not this
+  brick): no test asserts the literal `gh issue list --state all --limit 500`
+  CLI args reach the subprocess call (a future accidental edit dropping
+  `--state all` would silently reintroduce the #253 gap, uncaught); no
+  integration test for the zero-issues-in-repo case flowing through
+  `ingest_repo` (the pure algebra is tested, the end-to-end path isn't).**
 - **B2 — include open PRs.** `pr list --state all` (or `open` + `merged`), guarded
   by the same `PR_LIMIT`. Pure-test the number collection.
 - **B3 — counts + meta.** Extend `ingest_repo` counts and `meta.json`; update
