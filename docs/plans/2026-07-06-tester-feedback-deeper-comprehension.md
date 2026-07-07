@@ -660,6 +660,26 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      constraint, not a code or design gap; the test is ready to run for real
      as soon as the daily quota resets (or a genuinely distinct paid key
      appears — see the finding above).**
+
+     **Follow-up (same day): Alankrit supplied a new `GEMINI_API_KEY` value in
+     `.env`, replacing the old one; `GEMINI_PAID_API_KEY` left untouched
+     (still the prior duplicated value).** A single-call probe with the new
+     key STILL hit the identical `429`. The error body clarifies why, and
+     refines the earlier finding: `quotaId:
+     EmbedContentRequestsPerDayPerProjectPerModel-FreeTier` — this quota is
+     scoped **per Google Cloud project**, not per key. A new key string from
+     the same underlying project shares the exact same exhausted daily
+     budget; swapping keys within one project cannot grant fresh quota. This
+     also sharpens the earlier `GEMINI_API_KEY`/`GEMINI_PAID_API_KEY`
+     duplication finding: genuine billing-enabled status is a property of the
+     *project* (which would surface a different quota metric entirely, not
+     one literally named `_free_tier_requests`) — not something a
+     differently-named env var alone can confer. **The scheduled retry
+     (`retry-brick-c-live-embedding-proof`, fires ~2026-07-08T00:15:00Z)
+     remains the correct path** — this is a genuine per-day reset, unaffected
+     by which key within the project makes the call. A real unblock would
+     need either that reset, or a key from a genuinely different, billing-
+     enabled Google Cloud project (not just a new key from the same one).**
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
