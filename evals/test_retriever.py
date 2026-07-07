@@ -3,7 +3,7 @@ import unittest
 
 from .corpus import Chunk
 from .provider import StaticEmbeddingProvider
-from .retriever import LexicalRetriever, SemanticRetriever, _cosine, tokenize
+from .retriever import HybridRetriever, LexicalRetriever, SemanticRetriever, _cosine, tokenize
 
 
 class TokenizeTests(unittest.TestCase):
@@ -150,6 +150,127 @@ class SemanticRetrieverTests(unittest.TestCase):
         provider = StaticEmbeddingProvider(mapping)
         SemanticRetriever(self.chunks, provider)
         self.assertEqual(calls, [c.text for c in self.chunks])
+
+
+class HybridRetrieverTests(unittest.TestCase):
+    """Fixture shared by all cases below (see docstring on each test for the
+    hand-computed RRF math this fixture is built to exercise):
+
+    Query: "cache invalidation strategy"
+      - code:a.py -- shares keywords with the query (BM25 rank 1, score
+        1.9011...), but its embedding is orthogonal to the query (cosine 0.0
+        -- dropped by SemanticRetriever's "> 0" cutoff). Lexical-only hit.
+      - code:b.py -- shares zero keywords with the query (BM25 score 0.0 --
+        dropped by LexicalRetriever's "> 0" cutoff), but its embedding is
+        very close to the query's (cosine ~0.99979 -- semantic rank 1).
+        Semantic-only hit.
+      - code:c.py -- shares keywords with the query AND has a close
+        embedding, so it ranks (BM25 rank 2, score 1.3187...; semantic rank
+        2, cosine ~0.99388). Appears in BOTH lists.
+
+    RRF (constant=60, 1-indexed rank, contributions summed per ref):
+      - code:a.py: lexical rank 1 -> 1/61 = 0.016393442...; absent from
+        semantic -> +0. Total = 1/61.
+      - code:b.py: absent from lexical -> +0; semantic rank 1 -> 1/61.
+        Total = 1/61.
+      - code:c.py: lexical rank 2 -> 1/62; semantic rank 2 -> 1/62.
+        Total = 2/62 = 1/31 = 0.032258065... (double the other two, since it
+        is the only ref both retrievers found).
+
+    Expected fused order: code:c.py first (highest combined score), then
+    code:a.py and code:b.py tied at exactly 1/61 -- broken by ref ascending
+    ("code:a.py" < "code:b.py"), matching LexicalRetriever/SemanticRetriever's
+    tie-break convention exactly.
+    """
+
+    def setUp(self):
+        self.query = "cache invalidation strategy"
+        self.chunks = [
+            Chunk("code:a.py", "code", "cache invalidation strategy for the token cache invalidation cache"),
+            Chunk("code:b.py", "code", "evicting stale entries when the ttl expires"),
+            Chunk("code:c.py", "code", "cache invalidation strategy uses a ttl to evict stale entries"),
+        ]
+        self.lexical = LexicalRetriever(self.chunks)
+        vectors = {
+            self.query: [1.0, 0.0],
+            self.chunks[0].text: [0.0, 1.0],   # orthogonal to query -> dropped by semantic
+            self.chunks[1].text: [0.98, 0.02],  # very close to query -> semantic rank 1
+            self.chunks[2].text: [0.9, 0.1],    # close to query -> semantic rank 2
+        }
+        self.provider = StaticEmbeddingProvider(vectors)
+        self.semantic = SemanticRetriever(self.chunks, self.provider)
+        self.hybrid = HybridRetriever(self.lexical, self.semantic)
+
+        # Sanity-check the underlying rankings this whole fixture depends on,
+        # so a change to LexicalRetriever/SemanticRetriever's internals fails
+        # loudly here rather than silently invalidating the hand-computed
+        # RRF math below.
+        assert self.lexical.search(self.query, k=10) == ["code:a.py", "code:c.py"]
+        assert self.semantic.search(self.query, k=10) == ["code:b.py", "code:c.py"]
+
+    def test_chunk_ranked_highly_by_both_retrievers_ranks_first(self):
+        # code:c.py is the only ref both lists agree on -- RRF sums its two
+        # contributions (1/62 + 1/62 = 1/31), which beats either lone
+        # contribution (1/61) that code:a.py/code:b.py get from a single list.
+        self.assertEqual(self.hybrid.search(self.query, k=3)[0], "code:c.py")
+
+    def test_ref_found_by_only_one_retriever_is_still_included(self):
+        # code:b.py has zero keyword overlap with the query (BM25 excludes
+        # it entirely) but is included in the fused result via its semantic
+        # contribution alone -- not dropped, not crashed.
+        results = self.hybrid.search(self.query, k=3)
+        self.assertIn("code:b.py", results)
+
+    def test_concrete_blending_matches_hand_computed_rrf_order(self):
+        # Exact expected order per the fixture docstring's hand computation:
+        # code:c.py (1/31) first, then code:a.py and code:b.py tied at 1/61
+        # each, broken by ref ascending.
+        self.assertEqual(
+            self.hybrid.search(self.query, k=3),
+            ["code:c.py", "code:a.py", "code:b.py"],
+        )
+
+    def test_determinism_same_inputs_same_order_every_time(self):
+        first = self.hybrid.search(self.query, k=3)
+        for _ in range(5):
+            self.assertEqual(self.hybrid.search(self.query, k=3), first)
+
+    def test_ties_break_by_ref_ascending(self):
+        # code:a.py and code:b.py are exactly tied at 1/61 in the fixture
+        # above; ref-ascending is the deterministic tiebreak.
+        results = self.hybrid.search(self.query, k=3)
+        self.assertEqual(results[1:], ["code:a.py", "code:b.py"])
+
+    def test_truncates_to_k(self):
+        self.assertLessEqual(len(self.hybrid.search(self.query, k=1)), 1)
+        self.assertEqual(len(self.hybrid.search(self.query, k=1)), 1)
+
+    def test_empty_when_neither_retriever_finds_anything(self):
+        chunks = [Chunk("pr:1", "pr", "completely unrelated text")]
+        lexical = LexicalRetriever(chunks)
+        provider = StaticEmbeddingProvider({"nomatch query": [1.0, 0.0], "completely unrelated text": [0.0, 1.0]})
+        semantic = SemanticRetriever(chunks, provider)
+        hybrid = HybridRetriever(lexical, semantic)
+        self.assertEqual(hybrid.search("nomatch query", k=5), [])
+
+    def test_generic_over_any_search_compatible_object(self):
+        # HybridRetriever must not be hardcoded to LexicalRetriever/
+        # SemanticRetriever -- any object with .search(query, k) works,
+        # proving it wraps the interface, not the concrete classes.
+        class FakeRetriever:
+            def __init__(self, refs):
+                self._refs = refs
+
+            def search(self, query, k=20):
+                return self._refs[:k]
+
+        fake_a = FakeRetriever(["x:1", "x:2"])
+        fake_b = FakeRetriever(["x:2", "x:3"])
+        result = HybridRetriever(fake_a, fake_b).search("anything", k=10)
+        self.assertEqual(set(result), {"x:1", "x:2", "x:3"})
+        # x:2 appears in both lists (rank 2 in a, rank 1 in b) so it should
+        # combine two contributions and not be dropped.
+        self.assertIn("x:2", result)
 
 
 if __name__ == "__main__":

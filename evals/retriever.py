@@ -110,3 +110,55 @@ class SemanticRetriever:
         # toward the query, exactly mirroring BM25's "no evidence at all" cutoff.
         scored.sort(key=lambda x: (-x[0], x[1]))
         return [ref for s, ref in scored[:k] if s > 0]
+
+
+class HybridRetriever:
+    """Fuses two ranked retrievers via Reciprocal Rank Fusion (RRF).
+
+    BM25 scores and cosine similarities live on completely different, mutually
+    incomparable scales -- there's no principled way to add or normalize them
+    directly. RRF sidesteps that by throwing away the raw score entirely and
+    combining retrievers using only RANK POSITION: for a ref at 1-indexed rank
+    `r` in a list, its contribution from that list is `1 / (rrf_constant + r)`.
+    A ref's final score is the SUM of that contribution across every list it
+    appears in -- so a ref both retrievers rank highly gets boosted (it earns
+    two decent contributions), while a ref only one retriever found still gets
+    a fair non-zero score from that one list, rather than being penalized to
+    zero for the other list's silence.
+
+    `rrf_constant = 60` is the standard default from the original RRF paper/
+    practice (it dampens the influence of very top ranks so rank 1 vs. rank 2
+    doesn't dominate the fused score disproportionately); we use it as a
+    sensible off-the-shelf default rather than tuning it.
+
+    Takes two ALREADY-CONSTRUCTED objects, each implementing `.search(query,
+    k) -> List[str]` -- duck-typed, not hardcoded to LexicalRetriever/
+    SemanticRetriever, so any two compatible retrievers (including test
+    fakes) can be fused.
+    """
+
+    def __init__(self, lexical, semantic, rrf_constant: int = 60):
+        self.lexical = lexical
+        self.semantic = semantic
+        self.rrf_constant = rrf_constant
+
+    def search(self, query: str, k: int = 20) -> List[str]:
+        # Pull a generous recall pool from each underlying retriever -- more
+        # than the final `k` we'll return -- so RRF has enough candidates to
+        # fuse from (a ref ranked, say, 15th by one retriever and 2nd by the
+        # other should still be able to surface near the top of the fused
+        # list, which requires actually seeing it in both pools). `max(k, 20)`
+        # keeps the pool at least the standard default recall depth used
+        # elsewhere in this file (both retrievers' own `k` default is 20),
+        # while still growing with a caller-requested larger `k`.
+        recall_n = max(k, 20)
+        lexical_ranked = self.lexical.search(query, recall_n)
+        semantic_ranked = self.semantic.search(query, recall_n)
+
+        scores: dict = {}
+        for ranked in (lexical_ranked, semantic_ranked):
+            for rank, ref in enumerate(ranked, start=1):
+                scores[ref] = scores.get(ref, 0.0) + 1.0 / (self.rrf_constant + rank)
+
+        fused = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+        return [ref for ref, _ in fused[:k]]
