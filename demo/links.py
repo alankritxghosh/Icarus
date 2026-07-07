@@ -2,8 +2,10 @@
 """Map a normalized "source:ref" citation to its source URL on GitHub.
 
 Citations are rendered as clickable links so cite-or-unknown is tangible on
-screen. An unknown source (or a malformed ref) returns None -- the page shows
-the ref as plain text rather than a broken link.
+screen. `code:`, `doc:`, and `config:` all resolve to a GitHub blob URL, with
+an optional `#Lstart-Lend` fragment appended verbatim when the ref carries a
+line range. An unknown source (or a malformed ref) returns None -- the page
+shows the ref as plain text rather than a broken link.
 """
 
 

@@ -25,6 +25,11 @@ class RefToUrlTests(unittest.TestCase):
             ref_to_url("code:llm/models.py#L10-L40", REPO, COMMIT),
             f"https://github.com/simonw/llm/blob/{COMMIT}/llm/models.py#L10-L40")
 
+    def test_code_path_with_single_line_fragment_no_dash(self):
+        self.assertEqual(
+            ref_to_url("code:llm/models.py#L5", REPO, COMMIT),
+            f"https://github.com/simonw/llm/blob/{COMMIT}/llm/models.py#L5")
+
     def test_doc_path_without_line_range(self):
         self.assertEqual(ref_to_url("doc:README.md", REPO, COMMIT),
                          f"https://github.com/simonw/llm/blob/{COMMIT}/README.md")
