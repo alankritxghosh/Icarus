@@ -376,6 +376,28 @@ offline suite green; **no new dependency.**
 parsing (line-window chunks, not AST/symbols) — that is a later brick if Brick C
 plateaus; the eval board still only measures `simonw/llm`.
 
+**Execution log — Brick A (done, branch `brick-a-whole-codebase-ingest`):**
+All five tasks (A1 file classifier, A2 line-window chunking, A3 wiring into
+`fetch_code`, A4 line-ranged multi-source citation links, A5 live smoke test)
+landed, each independently spec-reviewed and code-quality-reviewed with
+"ready to merge" verdicts, plus follow-up hardening applied per task (a
+`relative_to` fallback removed in A1, a `stride`/stray-`#` guard added in A2,
+an unguarded `OSError` on file reads fixed in A3, a stale docstring + missing
+test fixed in A4). **A5 genuinely proved end-to-end multi-language ingest live**
+against a real, tiny non-Python repo (`sindresorhus/is-online`): 10 chunks (7
+code, 2 doc, 1 config) — independently reproduced by two different reviewer
+subagents making the real network call themselves, not just trusting the
+implementer's report.
+
+**Gap flagged by A5's code-quality review, worth carrying into the final
+whole-brick review:** no test yet proves the **citation-link layer**
+(`demo/links.py`) correctly renders a clickable URL for a non-`.py` `code:`
+ref with a `#Lstart-Lend` window pulled from a REAL non-Python ingest — A4's
+own tests prove the link logic is correct for synthetic refs, and A5 proves
+ingestion produces real non-Python refs, but nothing yet chains the two live.
+Likely fine to defer (Brick A is scoped to ingest, not the demo UI path), but
+recording it here rather than letting it go unstated.
+
 ---
 
 ## Brick B — PR/Issue coverage (and the "dropped title" report)
