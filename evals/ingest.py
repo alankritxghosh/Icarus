@@ -332,7 +332,11 @@ def fetch_code(repo, commit, code_dir, token=None):
             if total > _MAX_TOTAL_BYTES:
                 break  # stop once we've read enough across all sources
             rel = path.relative_to(root).as_posix()
-            text = path.read_text(errors="replace")
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue  # e.g. vanished mid-walk, permission change, a dangling
+                          # symlink/socket/fifo classify_file's is_file() let through
             total += len(text.encode("utf-8", "replace"))
             for sub in chunk_text(text, f"{source}:{rel}"):
                 chunks.append({"ref": sub["ref"], "source": source, "text": sub["text"]})

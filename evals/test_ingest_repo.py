@@ -140,6 +140,48 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
             self.assertEqual(counts.get("pr"), 0)
             self.assertEqual(counts.get("issue"), 0)
 
+    def test_empty_repo_yields_no_chunks(self):
+        # A tree containing only deny-listed paths (no ingestable file at all)
+        # must not crash -- the walk just yields nothing.
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "node_modules/left-pad/index.js", "module.exports = 1;\n")
+            _write(fixture, ".git/HEAD", "ref: refs/heads/main\n")
+            chunks = self._fetch(fixture)
+            self.assertEqual(chunks, [])
+
+    def test_genuinely_empty_directory_yields_no_chunks(self):
+        with tempfile.TemporaryDirectory() as fixture:
+            chunks = self._fetch(fixture)
+            self.assertEqual(chunks, [])
+
+    def test_nonzero_pr_and_issue_counts_pass_through_unchanged(self):
+        """The counts-building rewrite buckets code by source dynamically --
+        prove it left PR/issue accounting alone by feeding non-trivial mocked
+        counts (2 PRs, 3 issues) alongside a real mixed-source code walk, and
+        asserting the exact numbers flow through into the final counts dict."""
+        prs = (
+            [{"ref": "pr:1", "source": "pr", "text": "why X"},
+             {"ref": "pr:2", "source": "pr", "text": "why Y"}],
+            {10, 11, 12},
+        )
+        issues = [
+            {"ref": "issue:10", "source": "issue", "text": "ctx A"},
+            {"ref": "issue:11", "source": "issue", "text": "ctx B"},
+            {"ref": "issue:12", "source": "issue", "text": "ctx C"},
+        ]
+        with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(ingest, "fetch_prs", return_value=prs), \
+                mock.patch.object(ingest, "fetch_issues", return_value=issues), \
+                mock.patch("evals.ingest.subprocess.run",
+                           side_effect=_fake_run_cloning_fixture(fixture)):
+            _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
+            _write(fixture, "README.md", "# Title\n\nSome docs.\n")
+            counts = ingest.ingest_repo("octo/repo", out, commit="deadbeef", code_dir=".")
+            self.assertEqual(counts.get("pr"), 2)
+            self.assertEqual(counts.get("issue"), 3)
+            self.assertEqual(counts.get("code"), 1)
+            self.assertEqual(counts.get("doc"), 1)
+
 
 class ResolveCodeDirIntegrationTests(unittest.TestCase):
     """The no-arg / default-repo path resolves code_dir to "llm"; any other
