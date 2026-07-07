@@ -28,7 +28,7 @@ from .corpus_meta import write_meta
 
 REPO = "simonw/llm"
 COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
-PR_LIMIT = 200  # recent merged PRs; the 6 gold PRs are well within this range
+PR_LIMIT = 200  # recent PRs (any state); the 6 gold PRs are well within this range
 ISSUE_LIMIT = 500  # all open+closed issues; generous headroom over a typical repo's issue count
 OUT = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
 META = Path(__file__).resolve().parent / "corpus" / "meta.json"

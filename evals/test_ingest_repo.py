@@ -259,9 +259,14 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         self.assertIn("--limit", call)
         self.assertEqual(call[call.index("--limit") + 1], str(ingest.PR_LIMIT))
 
-    def test_open_and_merged_prs_both_produce_pr_chunks(self):
-        """Integration-style: mixed-state PR fixture data (one open, one
-        merged) must both surface as pr: chunks with source 'pr'."""
+    def test_pr_chunks_produced_regardless_of_which_pr_numbers_are_returned(self):
+        """Integration-style: fetch_prs' pr view call only ever requests
+        title/body/closingIssuesReferences -- it never fetches or branches on
+        a PR's actual state. So this proves the loop is uniform across two
+        different PR numbers from `pr list --state all`, not literally "open
+        vs. merged behave differently" (they never can, by design). The
+        "open"/"merged" labels below are narrative color for the fixture data
+        only, not something the code inspects."""
         pr_list_result = [{"number": 1}, {"number": 2}]
         pr_views = {
             1: {"title": "Open PR title", "body": "closes #10", "closingIssuesReferences": []},
@@ -288,10 +293,13 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         self.assertIn("Open PR title", by_ref["pr:1"]["text"])
         self.assertIn("Merged PR title", by_ref["pr:2"]["text"])
 
-    def test_issue_reference_scanning_works_uniformly_on_open_pr(self):
+    def test_issue_reference_scanning_still_works_on_a_pr_returned_by_state_all(self):
         """The closingIssuesReferences + #N regex scan must not have any
-        hidden assumption that only worked because every PR used to be
-        merged -- prove it fires correctly for an OPEN PR alone."""
+        hidden assumption baked in from the old merged-only fetch. Note:
+        fetch_prs' pr view call never requests or inspects a PR's state, so
+        this doesn't (and can't) prove open-vs-merged branching -- it proves
+        the scan still fires correctly for a PR number reached via the new
+        `--state all` list call."""
         pr_list_result = [{"number": 5}]
         pr_view = {
             "title": "WIP: fix login",
