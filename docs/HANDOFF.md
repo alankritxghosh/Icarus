@@ -1,450 +1,283 @@
-# Icarus — Session Handoff (2026-07-06)
+# Icarus — Session Handoff (2026-07-07 → 2026-07-08)
 
-Read this first next session. It captures the current state, how to run it, what's
-done vs. not, and the gotchas. Pair with `CLAUDE.md`, `AGENTS.md`,
-`general_index.md`, the `docs/decisions/` records, and the memory index.
+Read this first next session. It captures the current state, what's done vs. not,
+and the gotchas for the **tester-feedback deeper-comprehension effort** — the
+active body of work as of this handoff. (The private-repo effort from 2026-07-06
+is a separate, already-shipped feature area; its history lives in
+`docs/plans/2026-07-04-private-repos-*.md` and git log, not repeated here.)
 
 ---
 
-## 1. TL;DR — where we are
-The **brain is done + proven**, the macOS app is a **full windowed shell**, Icarus
-is **shippable without an Apple Developer ID** (cloud brain + downloadable `.dmg`),
-and **private-repo support is fully merged, deployed, and proven live end-to-end**:
-a signed-in engineer can connect their **own private GitHub repo** and get cited
-answers from a **paid, no-training-verified writer**, with proven **per-user
-isolation** and a **deterministic trust interlock** that makes it impossible in
-code for private text to reach a free-tier model. This was proven with **real
-credentials against a real private repo**, not just self-skipping test scaffolding.
+## 0. TL;DR — where we are
 
-> Recipient downloads `Icarus.dmg` → drags to /Applications → one-time Gatekeeper
-> "Open Anyway" → **Sign in with GitHub** (real web OAuth, against the hosted
-> brain, **`repo`-scoped**) → **connect a public or private repo** → **⌘⇧I** to
-> type or hold **Right Option (⌥)** to speak → a **cited answer** (clickable
-> GitHub receipts, spoken aloud) or the honest **"No one wrote this down."**
-> Login persists (Keychain); **Sign out** switches accounts.
+Alankrit shipped the `.dmg` + web staging link to testers and got **nine
+remarks back**. Those became `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`
+— read that file's "Brick" sections for full task-by-task detail; this handoff
+is the orientation layer on top of it.
 
-**Hosted brain:** `https://icarus-brain.onrender.com` (Render free tier, Docker,
-GitHub-bearer-gated, private-repo support live). **Repo on GitHub:**
-`alankritxghosh/Icarus` (**private**, `origin`), `main` pushed and matches local.
-The full runbook is **`docs/DISTRIBUTION.md`**.
+**Merged to `main` (2e4bfa6), fully done:**
+- **Brick 0** — a code-comprehension eval set (`evals/comprehension_questions.json`)
+  proving, with a measured RED baseline, that Icarus doesn't yet understand code
+  from the code itself regardless of phrasing. Baseline: retrieval recall@k
+  53.8%, citation correctness 30.8%, answer correctness 30.8%, abstention
+  precision 20.0% — **both honesty gates 100%**. This is the number Bricks A/C
+  exist to beat.
+- **Brick A** — whole-codebase ingest (all languages/dirs, not just Python under
+  one dir; line-window chunking with `#Lstart-Lend` refs; line-ranged citation
+  links). Fixes tester remarks 1, 2, 4.
+- **Brick B** — PR/Issue coverage. Fixes remark 5 — **and this was a real bug,
+  reproduced and fixed**: `benawad/vsinder` issue `#253` (an open, standalone
+  issue never linked from a merged PR) was completely invisible to ingestion.
+  Confirmed live against the real repo, both before and after the fix.
 
-**Only two real things left on the private-repo effort, both in §7 — everything
-else about it is done:**
-1. Record the written no-training policy link for the paid Gemini key (your job,
-   not code — billing is confirmed enabled, the written terms link isn't).
-2. **Rotate the Gemini paid key and the GitHub PAT used to prove the live tests
-   this session** — they were typed directly into this chat session's transcript,
-   which isn't the intended home for live credentials, even though they were
-   never written to disk or printed back by the assistant. Do this before the
-   next session if you haven't already.
+**Built + reviewed, sitting on an UNMERGED branch (not yet in `main`):**
+- **Brick C** (semantic retrieval, fixes remarks 6/8) — branch/worktree
+  `brick-c-semantic-retrieval` at `.worktrees/brick-c-semantic-retrieval`, HEAD
+  `eef8e6d`. Tasks C1 (`EmbeddingProvider`/`GeminiEmbeddingProvider`/
+  `StaticEmbeddingProvider`), C2 (`SemanticRetriever`, cosine similarity), C3a
+  (`HybridRetriever`, reciprocal-rank fusion of BM25 + semantic) are all built,
+  independently spec- and code-quality-reviewed, hardened via real follow-up
+  fixes. **225 tests pass on this branch (vs. 180 on `main`), 15 self-skip.**
+- **C3b (the live proof) is the ONE thing blocking Brick C's merge** — see §1.
 
-**Update (later on 2026-07-06): Brick G is now built** — the Mac app has the
-private-repo surface (trust-tier badge, disconnect, repo persistence across
-launches, and the client-side lost-connection banner). App-only; zero brain
-changes; plan + details in `docs/plans/2026-07-06-brick-g-private-repo-ui.md`.
-48 Swift tests pass (up from 35). Not yet committed as of this note.
+**Not started yet:** Brick Q (query-understanding: framing/grammar/spelling
+robustness), Brick D (line-select → explain, remark 3), Brick S (structural
+comprehension, deferred-gated, needs explicit go), Brick E (richer "why"
+sources). See §4.
 
-## 2. What happened this session (private repos: built, merged, deployed, proven)
-Built task-by-task via subagent-driven development (fresh implementer + spec
-review + code-quality review per task, looping on real findings) against the
-16-task plan (`docs/plans/2026-07-04-private-repos-implementation.md`, Bricks
-A–F). All 16 landed, several needing real fix rounds (most notably two rounds
-closing a race/downgrade bug in the per-user registry's LRU eviction). A final
-**holistic** review of the whole branch — not per-task — re-verified everything
-at the composed level and returned a clean "ready to merge."
+---
 
-**What it does, end to end:** a signed-in user (GitHub OAuth, `repo`-scoped)
-connects their own private repo → the brain verifies **with the caller's own
-token** that they can actually read it (`evals/github_access.py`) → clones it
-leak-safe (`evals/ingest.py`'s `token=`, via subprocess **env**, never argv/URL)
-→ answers **only** through a paid, billing-confirmed writer
-(`evals.provider.PaidGeminiProvider`) → gated by a **deterministic trust
-interlock** (`evals/trust.py`'s `assert_safe_for_private`) that refuses any
-provider not explicitly flagged `private_safe = True` — never inferred from a key
-string. Every user's active repo, corpus, and pipeline are isolated per GitHub
-identity (`demo/registry.py`'s `LibraryRegistry`), proven at the real HTTP
-boundary and **mutation-tested** (`demo/test_isolation.py` — a reviewer broke
-isolation two different ways and confirmed the suite catches both). A companion
-suite (`evals/test_egress_invariants.py`) proves private text reaches the writer
-and nothing else. `POST /disconnect` deletes a user's own data. `/ask`+`/connect`
-are per-identity rate-limited (`demo/ratelimit.py`).
+## 1. THE THING TO CHECK FIRST NEXT SESSION
 
-**The one thing every task was checked against, re-verified independently by
-SHA-256 (not just `git diff`): `evals/gate.py` — the deterministic cite-or-abstain
-honesty gate — is byte-for-byte unchanged across the entire effort.**
+A scheduled task, **`retry-brick-c-live-embedding-proof`**, is set to fire at
+**2026-07-08T00:15:00Z** (UTC). Check whether it already ran:
 
-**After merging** (`a237ab2` → `95aeda6` fast-forward), this session also:
-- **Pushed to `origin` and deployed to Render** with `GEMINI_PAID_API_KEY` set —
-  confirmed live (`GET /status` on the hosted brain returns the new `"private"`
-  field).
-- **Ran both live proofs for real**, not just self-skip-checked:
-  - `evals.test_paid_writer_eval` — hit a real, transient Google "high demand"
-    503 on the old `gemini-2.5-flash-lite` default. Verified `gemini-3.1-flash-lite`
-    is a real, stable model id via the live `/v1beta/models` list before bumping
-    the default (`evals/provider.py`, commit `7510c4b` — a single shared default,
-    so this also bumped the free writer and the judge). Board: gates 100%,
-    citation correctness 100%, answer correctness 100%.
-  - `evals.test_private_ingest_live` — run against Icarus's own private repo.
-    Found and fixed a genuine, pre-existing bug along the way: `evals/ingest.py`'s
-    `fetch_code` compared an unresolved temp-dir path against an already-resolved
-    one; on macOS `/var` symlinks to `/private/var`, so any real clone with a
-    nested directory raised `ValueError` — invisible until now because every
-    offline test mocks `subprocess.run`, and this was the first genuine
-    end-to-end clone into a real temp dir. Fixed in `ab305b3` (resolve the clone
-    root once; `simonw/llm`'s committed corpus ref format is unaffected). All 3
-    sub-tests then passed for real: access check, authenticated clone, a
-    paid-writer answer holding the honesty gate, and the interlock genuinely
-    refusing a real free provider.
-- **Closed the two remaining test-coverage gaps** the final review flagged
-  (neither was a bug — both proven already-correct, just untested):
-  `demo/test_library.py::test_interlock_refusal_inside_connect_sync_leaves_state_untouched`
-  (the interlock raising *inside* `connect_sync`, not just via a direct call,
-  leaves the previously-connected repo/pipeline/private-flag completely
-  untouched) and `demo/test_registry.py`'s two `..._resume_never_calls_ingest`
-  tests (LRU eviction-resume — public and private — is provably always a cache
-  hit, pinning why it's safe to sit outside the rate limiter's reach).
+```bash
+# from any Claude session with the scheduled-tasks tool:
+mcp__scheduled-tasks__list_scheduled_tasks
+```
 
-## 3. What works today
-- **Brain** (`evals/` + `demo/`): ingest a public repo → BM25 retrieval →
-  cite-or-abstain prompt → free hosted writer → **deterministic honesty gate** →
-  cited answer or honest unknown. Eval board GREEN on the free stack.
-- **Private repos:** the same brain, gated per user, proven end-to-end live — see §2.
-- **Web demo** (`demo/server.py`): `ThreadingHTTPServer` over the brain. `GET /`,
-  `/health`, `/status`, `/auth/github/callback`; `POST /ask`, `/connect`,
-  `/disconnect`, `/auth/github/begin`, `/auth/github/redeem`. Loopback Host/Origin
-  guard, 64 KB body cap, optional GitHub bearer gate, per-identity rate limits,
-  loads `.env` on start.
-- **Typed web staging link** (`demo/index.html`, branch `feat/web-staging-link`):
-  the hosted brain now doubles as a **browser** try-it surface — engineers sign
-  in with GitHub in the page (web-mode OAuth: `/auth/github/begin {"mode":"web"}`
-  → callback returns to `/?session=` → redeem → token in **sessionStorage** →
-  `Authorization: Bearer` on `/ask`+`/connect`+`/status`), connect their own
-  public or private repo, and see a public/private writer badge. No DMG needed.
-  Typed only (no voice/overlay — those are native-only, and browser voice would
-  break the on-device-audio promise). **Same infra/bill/no-training caveats as
-  the DMG — a link is easier to pass around, so don't post it publicly, and close
-  the paid-key no-training-policy checkbox before real private code.** The Mac-app
-  OAuth flow (`icarus://`) is unchanged. Deploying this needs a Render redeploy
-  (it's a brain change). See `docs/plans/2026-07-06-web-staging-link.md`.
-- **macOS app** (`mac/Icarus/`, SwiftPM): the **primary windowed shell** (five
-  surfaces) + ⌘⇧I overlay + hold-⌥ voice. **Web GitHub login**, **Keychain-
-  persisted** session, **Sign out**, **voice in/out**, packaged as a signed
-  `.app`. **48 Swift unit tests pass.** Brick G (private-repo UI) is built:
-  private/public trust-tier badge, Disconnect-repo control, repo persistence
-  across launches, and an explicit lost-connection banner when the server drops
-  the session (restart / LRU eviction) — with one-click Reconnect (the app holds
-  the caller's bearer, so it CAN legitimately re-connect a private repo the
-  server-side registry couldn't resume).
-- **Security**: per-commit secrets gate (`.githooks/pre-commit`,
-  block on secret / warn on failing tests) + CI (`.github/workflows/security.yml`).
-- **Cloud deployment:** `Dockerfile` + `render.yaml` + `.dockerignore` deploy the
-  brain to Render. `demo/server.py` binds from `$HOST`/`$PORT`, has a
-  configurable Host guard (`ICARUS_ALLOWED_HOSTS`; `*` = cloud, trust TLS proxy +
-  rely on the bearer gate), and builds the OAuth callback from
-  `ICARUS_PUBLIC_URL`. Auth is **mandatory** in the cloud
-  (`ICARUS_REQUIRE_GITHUB_AUTH=1`). Live at `icarus-brain.onrender.com`.
-- **Distribution:** `mac/Icarus/scripts/package_dmg.sh` builds a shareable
-  `Icarus.dmg` — ad-hoc signed, stamps the hosted brain URL into the bundle,
-  drag-to-Applications + a `READ ME FIRST.txt`. The app resolves its brain from
-  the bundle's `ICARUS_BRAIN_URL` (`IcarusKit/BrainEndpoint.swift` +
-  `Icarus/AppConfig.swift`); dev builds fall back to `127.0.0.1:8000`.
-- **Static app icon:** baked into the bundle (`IconExport.swift` +
-  `bundle.sh --render-iconset`), so Finder/DMG/Dock never show a blank tile.
-- **End-to-end proven, twice over:** the hosted sign-in → cited-answer flow for
-  public repos, and now the full private-repo path (§2) — both work live, not
-  just in tests.
+If `enabled: false` and `lastRunAt` is set, it fired — check the result:
+1. `cd "/Users/alankritghosh/JARVIS /jarvis_engineering/.worktrees/brick-c-semantic-retrieval"` (if it still exists — the task was instructed to merge to `main` and remove the worktree/branch on success) and `git log --oneline -10`.
+2. If the branch/worktree is GONE and `main`'s log shows a Brick C merge commit — **it worked**, Brick C is merged, tests should be green on `main`. Confirm with `python3 -m unittest discover -t . -s evals` from the repo root — expect the test count to have risen from 180 (roughly matching the branch's 225, since the merge should bring those tests over).
+3. If the branch/worktree STILL exists — the task either didn't run yet, or ran and hit another blocker (read `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`'s Brick C section, near the bottom, for whatever it recorded).
 
-## 4. The macOS app — architecture & files
-**Shape (current):** the **shell is the primary window** — no separate onboarding
-window. Its **Home** surface is a **setup gate**: signed-out → "Sign in with
-GitHub"; signed-in-but-not-connected → "connect a repo"; ready → the dashboard.
-The **menu-bar `☉` glyph** opens the shell and the **⌘⇧I overlay** is for asking.
-GitHub is the login; there is no Icarus account backend. The app is a **thin
-client** — it renders the brain's verdict verbatim and never re-implements the
-honesty gate.
+**If it hasn't fired yet** (still `enabled: true`, `nextRunAt` in the future),
+just wait for it or check back later — don't manually re-trigger it or start a
+duplicate live run; that risks burning more of the same daily embedding quota
+this whole chain of blockers was about (see §2).
 
-**Build system:** **Swift Package Manager**, two targets:
-- `IcarusKit` (testable, UI-free): `Models.swift` (Ask/Citation/Verdict/RepoStatus/
-  `IndexCounts`), `BrainClient.swift` (`/ask`,`/connect`,`/status`,`/auth/github/
-  begin`,`/auth/github/redeem`; injectable URLSession; sends the bearer),
-  `WebAuth.swift` (`WebAuthenticating` protocol + `parseCallbackSession`),
-  `TokenStore.swift` (protocol + in-memory double), `SpeechRecognizer.swift`,
-  `VoiceModel.swift`, `AskHistory.swift` (real in-session ask record), `ShellNav.swift`
-  (the five `ShellSurface`s).
-- `Icarus` (the app): `IcarusApp.swift` (@main), `AppDelegate.swift` (activation
-  policy, menu bar, hotkey, push-to-talk, shared models, **primary shell window**),
-  `AppleWebAuth.swift` (**real `ASWebAuthenticationSession`** sheet),
-  `KeychainTokenStore.swift` (**the real, persistent `TokenStore`**),
-  `AuthModel.swift`/`AskModel.swift`/`ConnectModel.swift`, `OverlayController.swift`
-  + `FloatingPanel.swift` + `OverlayView.swift` (the ⌘⇧I overlay), `IconArt.swift`,
-  `Theme.swift` (v2 tokens + shared views), `AppleSpeechRecognizer.swift`,
-  `PushToTalkMonitor.swift`, `Speaker.swift`, and **`Shell/`**: `ShellView.swift`
-  (router), `SidebarView.swift` (nav + repo footer + **Sign out**), `HomeView.swift`
-  (gate → dashboard), `SetupView.swift` (in-shell sign-in/connect), `ShellSurfaces.swift`
-  (Decision history / Unknowns / Privacy boundary / Ask-by-voice), `ShellComponents.swift`,
-  `StatusModel.swift` (polls `/status`), `MainWindowController.swift` (chromeless
-  title bar).
-- Dependency: **KeyboardShortcuts** only (⌘⇧I). Voice-in is Apple's built-in
-  **Speech** framework (on-device). Packaging: `scripts/bundle.sh` → signed
-  `Icarus.app` (mic TCC needs the bundle + Info.plist usage strings + a signature).
+**What the scheduled task does autonomously if quota has genuinely reset:** runs
+the real `evals.test_retrieval_eval` live test (`HybridRetrievalEvalTests`),
+which embeds all 243 real committed corpus chunks via the real Gemini API
+(paced at ~0.7s/call to respect the 100 req/min free-tier cap) and checks hybrid
+retrieval's recall@k against a same-run BM25 baseline, with both gates still at
+100%. If that holds, it records the real numbers in the plan doc, runs an
+independent spec review + code-quality review + a final whole-brick review of
+all of Brick C (mirroring how Bricks 0/A/B were closed out earlier in this
+branch's history — see git log for the exact review-dispatch pattern used
+throughout), fixes anything those reviews flag, and merges to `main`. It was
+explicitly instructed: **never weaken the test's assertion to force a pass** —
+if hybrid genuinely underperforms BM25 on the real labelled set, it's supposed
+to stop and record that as a real, honest finding instead.
 
-**GitHub login (web OAuth):**
-1. App `POST /auth/github/begin` → brain returns the GitHub authorize URL (CSRF
-   `state` minted server-side).
-2. `ASWebAuthenticationSession` opens GitHub's login in a sheet
-   (`callbackURLScheme: "icarus"`, **ephemeral** so Sign out → pick another account).
-3. GitHub redirects to the brain's callback — **the hosted URL for a shipped build**
-   (`https://icarus-brain.onrender.com/auth/github/callback`, from `ICARUS_PUBLIC_URL`)
-   or the loopback callback in local dev. The brain **exchanges the code using the
-   client SECRET** (held only in its env) and **302s to `icarus://auth?session=…`**
-   so the sheet closes. The GitHub OAuth app's callback URL must match this exactly.
-4. App `POST /auth/github/redeem {session}` → the token; it's stored in the
-   **login Keychain** (`KeychainTokenStore`, `WhenUnlocked`) so **sign-in persists
-   across launches**, and sent as `Authorization: Bearer` on `/ask`+`/connect`.
-   **Sign out** (sidebar) deletes it. The client secret is **never in the app**.
+---
 
-**Voice:** voice-in is real-time on-device Apple Speech (`requiresOnDeviceRecognition
-= true`; fails rather than using Apple's servers), hold **Right Option (⌥)**. Speak-
-back is `AVSpeechSynthesizer` in `Speaker.swift`, which picks the **best-quality
-installed English voice** (premium > enhanced > default, preferring en-US) and never
-a novelty voice. For a natural sound, download a **Premium** voice: System Settings →
-Accessibility → Spoken Content → System Voice → **Manage Voices** → an English
-"(Premium)" voice — the app then uses it automatically (relaunch to pick it up). No
-premium voice installed = falls back to the standard en-US voice.
+## 2. Why C3b got stuck (read before touching Gemini keys/quota again)
 
-## 5. Constraints & decisions (the operating rules)
-- **Public repos: free hosted models** (Groq writer + Gemini judge, now on
-  `gemini-3.1-flash-lite`). **Private repos: only the paid, billing-confirmed
-  `PaidGeminiProvider`** — the free/paid split is enforced in code by the
-  deterministic trust interlock (`evals/trust.py`), not by convention.
-- **Positioning:** Icarus is **organizational memory**; explanation is the wedge.
-- The non-negotiable: **cite-or-unknown, deterministic, never bluff** — preserved,
-  byte-for-byte, through the entire private-repo effort (§2).
-- **GitHub login needs a client secret** (GitHub requires it even with PKCE), so
-  the exchange runs on the **brain**, never the app. Loopback callback per GitHub's
-  native-app guidance.
+Three real, escalating discoveries, all recorded in the plan doc's Brick C
+section (search for "Scoped before dispatch" and the nested status notes under
+it) — summarizing here so you don't have to reconstruct it from commit history:
 
-## 6. How to run it (exact)
-Keys + the GitHub OAuth app live in a **gitignored `.env`** at the repo root (copy
-`.env.example`). It holds `GROQ_API_KEY`, `GEMINI_API_KEY`, `GITHUB_CLIENT_ID`,
-`GITHUB_CLIENT_SECRET`, and now **`GEMINI_PAID_API_KEY`** (currently the same
-underlying key as `GEMINI_API_KEY`, with billing enabled — see §7). The GitHub
-OAuth App's **Authorization callback URL** must be
-`http://127.0.0.1:8000/auth/github/callback`.
+1. **`SemanticRetriever` embeds every corpus chunk serially at construction**
+   (no batching — explicitly deferred, by design, out of this brick's scope).
+   243 chunks × 1 call each hits Gemini's free-tier **100 requests/minute** cap
+   partway through every time.
+2. **Alankrit supplied a new `GEMINI_API_KEY` value** hoping a fresh key would
+   have fresh quota. It didn't — a single probe call still 429'd, and the error
+   body's `quotaId` (`...PerProject...`) revealed why: **the quota is scoped to
+   the Google Cloud project, not the individual key.** A new key from the same
+   project shares the same exhausted budget.
+3. **This also sharpened an earlier, separate finding worth flagging beyond
+   Brick C**: `GEMINI_API_KEY` and `GEMINI_PAID_API_KEY` in `.env` were
+   discovered to hold the **identical value** — not two distinct credentials.
+   Given point 2, genuine billing-enabled status is a property of the
+   underlying Google Cloud *project* (which would show a different quota
+   metric entirely, not one literally named `_free_tier_requests`), not
+   something a differently-named env var alone can confer. **This touches the
+   private-repo writer path** (`PaidGeminiProvider`, used to answer questions
+   about a user's private repo) — if that key is *also* not genuinely
+   billing-separated in production, the "private repos only reach a paid,
+   no-training model" guarantee documented elsewhere may not currently hold as
+   described. Alankrit's explicit call: flag it, don't investigate further this
+   session. **Worth a real look before onboarding anyone else's private code.**
 
-**Start the brain** (reads `.env`, no inline keys needed):
+Net effect: the retry is gated purely on the **daily** project-wide quota
+resetting (not per-key, not fixable by swapping keys), which is why the
+scheduled task waits for a clean UTC-day boundary rather than retrying sooner.
+
+**If you're debugging this fresh and quota is STILL exhausted after the
+reset**: don't keep burning probe calls. Check `https://ai.google.dev/gemini-api/docs/rate-limits`
+for the real per-day number for `gemini-embedding-001` (it was `1000` as of this
+session), and consider whether OTHER things are also consuming the same
+project's quota (the demo server, another test, etc.) before assuming the code
+is broken.
+
+---
+
+## 3. What's actually built in Brick C (if you need to pick up C3b/C4 manually)
+
+All in `evals/retriever.py` / `evals/provider.py`, on the `brick-c-semantic-retrieval`
+branch (not yet in `main` — see §1 for whether that's changed):
+
+- **`evals/provider.py`**: `EmbeddingProvider` (base, `private_safe=False`,
+  `.embed(text) -> list`), `GeminiEmbeddingProvider` (model `gemini-embedding-001`,
+  real REST API verified live before building, key in header not URL, reuses
+  `_with_retry`), `StaticEmbeddingProvider` (content-addressable test double —
+  dict-or-callable, NOT a sequential queue, since `.embed()` is called
+  per-chunk/per-query in no fixed order), `PaidGeminiEmbeddingProvider` (mirrors
+  `PaidGeminiProvider` exactly — built for C3b's now-moot paid-tier attempt, kept
+  since it's correct and precedented, just currently unused by any test).
+  `make_embedding_provider`/`has_embedding_provider_key` factories.
+- **`evals/retriever.py`**: `SemanticRetriever(chunks, provider)` — cosine
+  similarity, embeds every chunk ONCE at construction, vectors keyed by
+  `chunk.ref` in a dict (NOT a list parallel to `chunks` — an early version had
+  a silent-misalignment footgun there, fixed before merge). `HybridRetriever
+  (lexical, semantic, rrf_constant=60)` — reciprocal-rank fusion, generic over
+  any two `.search(query, k) -> List[str]`-compatible retrievers (proven with a
+  fake, not just the two real classes), with a per-list dedup guard (an
+  untrusted retriever returning a duplicate ref used to silently double-count
+  its score — fixed, with a test that re-simulates the exact pre-fix bug).
+- **`evals/test_retrieval_eval.py`**: `HybridRetrievalEvalTests` — the
+  self-skipping live proof (see §1/§2), currently gated on `GEMINI_API_KEY` +
+  the corpus existing, using a test-local `_PacedEmbeddingProvider` wrapper
+  (sleeps ~0.7s/call) around the real `GeminiEmbeddingProvider`.
+
+**Explicitly out of scope for C3/C4** (recorded in the plan doc, not silently
+skipped): ingest-time vector persistence/caching for the demo (re-embedding 243+
+chunks on every server start is a real product cost, but a separate concern
+from proving the retrieval technique works), and wiring embeddings into the
+demo's actual private-repo connect flow (no embedding provider touches
+`demo/library.py` yet at all — C1/C2/C3 only touch the eval harness).
+
+**C4 (gate untouched proof) has not been started** — it's the last item in
+Brick C's original task list (explicitly assert the honesty gate + abstention
+recall stay 100% with semantic retrieval on). Given `HybridRetrievalEvalTests`
+already asserts both gates at 100% as part of its own test, C4 may turn out to
+be largely already covered — verify this explicitly rather than assuming, the
+same way Brick A/B repeatedly found "verify what's really needed" was cheaper
+than blindly building more.
+
+---
+
+## 4. What's NOT started (the rest of the plan)
+
+Full detail in `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`
+— read the relevant "Brick" section before starting any of these.
+
+- **Brick Q — query-understanding layer** (any framing/grammar/spelling).
+  Rides on Brick C (embeddings absorb most paraphrase/typo tolerance; a thin
+  normalization layer covers the rest). Fixes nothing on its own in the
+  tester-remarks table but is core to the refined north star ("answer any
+  question... regardless of framing, grammar, or spelling").
+- **Brick D — line-select → explain** (remark 3). Depends on Brick A's
+  line-addressable refs (already done) and benefits from Brick C's semantic
+  neighbors. Not started.
+- **Brick S — structural comprehension** (AST/call-graph, the deep "reads the
+  code" capability). **Deferred-gated** — CLAUDE.md lists this under
+  "post-Phase-4 unless a task says so." Needs Alankrit's **explicit go** before
+  any code, and the plan calls for a cheap stdlib-`ast` probe first to justify
+  the investment. Do not start this without asking.
+- **Brick E — richer "why" sources** (commit-message/blame provenance). Optional,
+  sketched but not task-broken. After Brick C.
+- **Remark 9** (Icarus writing/modifying real code) — **permanently off the
+  table**, Alankrit's explicit, recorded decision. Do not build this or suggest
+  it; a reopening would need its own deliberate strategy-pivot decision doc,
+  post-Phase-4 at the earliest.
+
+---
+
+## 5. How this session worked (process note for continuity)
+
+Every task in Bricks 0/A/B/C was built via **subagent-driven development**: a
+fresh implementer subagent per task (TDD, self-review, commit), then an
+independent spec-compliance reviewer (explicitly told not to trust the
+implementer's report — re-run tests, re-derive claims, verify math/logic by
+hand), then an independent code-quality reviewer, with follow-up fix rounds
+dispatched back to the same implementer when either review found something
+real. Each brick got a **final whole-brick review** across its entire diff
+before merging. This pattern is worth continuing for Bricks Q/D/S/E — read the
+git log on `main` (`git log --oneline --grep="Task "`) for concrete examples of
+the review-prompt rigor used (independent re-verification, hand-recomputing
+math, live-reproducing claims rather than trusting reports).
+
+**Isolation convention**: one worktree per brick, at `.worktrees/<branch-name>`,
+branched off `main`, merged via fast-forward when done, worktree removed +
+branch deleted after merge. `.worktrees/` is gitignored.
+
+---
+
+## 6. Commands
+
 ```bash
 cd "/Users/alankritghosh/JARVIS /jarvis_engineering"
-python3 -m demo.server          # prints "web login on" when GitHub creds are set
+
+# Full offline suite (main, post-Brick-B): 180 tests, 13 skipped
+python3 -m unittest discover -t . -s evals
+python3 -m unittest discover -t . -s demo
+
+# On the brick-c-semantic-retrieval branch/worktree (if still unmerged): 225 tests, 15 skipped
+cd .worktrees/brick-c-semantic-retrieval && python3 -m unittest discover -t . -s evals
+
+# Check the scheduled retry's status
+# (via the scheduled-tasks MCP tool: mcp__scheduled-tasks__list_scheduled_tasks)
+
+# The live proof itself, once quota allows (DO NOT run repeatedly — costs real quota):
+python3 -m unittest evals.test_retrieval_eval -v
 ```
-**Build + launch the app** (the bundle is required for the mic; `open` is fine —
-the brain builds the authorize URL, the app needs no GitHub client id):
-```bash
-cd "/Users/alankritghosh/JARVIS /jarvis_engineering/mac/Icarus"
-./scripts/bundle.sh && open ./Icarus.app
-```
-In the app: **Sign in with GitHub** → authorize in the sheet → connect
-**`simonw/llm`** → **⌘⇧I** → ask. Known cited question: *"Why did llm implement the
-OpenAI Responses API as a new model class instead of modifying the existing chat
-completions class?"* → cites `pr:1435`.
 
-**To run it HOSTED / build the shareable DMG** see **`docs/DISTRIBUTION.md`**:
-deploy to Render, set env vars, point the GitHub OAuth callback at the Render URL,
-then `ICARUS_BRAIN_URL=https://icarus-brain.onrender.com ./scripts/package_dmg.sh`
-→ `mac/Icarus/Icarus.dmg`. Local dev still uses the loopback `.env` + `bundle.sh`.
+---
 
-**To connect a private repo:** sign in (or sign out/in again if your token
-predates the `repo`-scope widening, §9), `POST /connect` with your own repo — the
-brain verifies you can read it, clones it with your token (never logged, never on
-disk after the process exits), and routes you to the paid writer. `POST
-/disconnect` deletes your data. `GET /status` shows `private: true/false`. **No
-app-side UI for this yet** — it's a raw HTTP call today (curl/Postman/the demo
-page), not a Mac app button (§7, Brick G).
+## 7. Key files this session touched/created
 
-**Tests:** `cd mac/Icarus && swift test` (**35**). Brain:
-`python3 -m unittest discover -t . -s evals` (**118, 12 self-skip**) and
-`... -s demo` (**120, 2 self-skip**) — up from 85+70 before the private-repo
-effort began. Live proofs (skip without keys, both **actually run this session
-with real credentials, both GREEN** — see §2):
-```bash
-GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_paid_writer_eval
-RUN_PRIVATE_INGEST=1 ICARUS_TEST_PRIVATE_REPO=owner/repo GITHUB_TOKEN=… \
-  GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_private_ingest_live
-```
-Note on `GITHUB_TOKEN`: if it's a GitHub **fine-grained PAT**, it must have the
-target repo explicitly selected in its own Repository access settings when
-created — a repo you own but didn't select still 404s (indistinguishable from
-"doesn't exist," which is the correct fail-safe behavior, not a bug).
+- `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md` — the plan.
+  **This is the primary source of truth for Bricks 0/A/B/C/Q/D/S/E** — richer
+  and more current than this handoff for anything brick-specific. Read it.
+- `evals/comprehension_questions.json` + `evals/test_comprehension_questions.py`
+  — Brick 0's probe set (the RED baseline).
+- `evals/ingest.py` — `classify_file` (A1), `chunk_text` (A2), whole-repo walk
+  wiring (A3), `resolve_code_dir`, `fetch_all_issue_ids` (B1), `--state all` PR
+  fetch (B2).
+- `demo/links.py` — line-ranged + `doc:`/`config:` citation links (A4).
+- `evals/test_ingest_smoke.py` — the live non-Python-repo proof (A5), against
+  `sindresorhus/is-online`.
+- `evals/provider.py`, `evals/retriever.py` — Brick C, see §3.
+- `.env` — `GEMINI_API_KEY` was updated this session (see §2 for why the
+  duplication with `GEMINI_PAID_API_KEY` matters); never committed, gitignored.
 
-## 7. What is NOT done (next work)
+---
 
-**Private-repo effort — only two items left, neither is code:**
-1. **Record the written no-training policy link** for the paid Gemini key.
-   Billing is confirmed enabled, but the actual policy-link verification is
-   still an open checkbox in
-   `docs/plans/2026-07-04-private-repos-per-user-isolation.md`. Close this
-   before onboarding real private code from other people (not just your own).
-2. **Rotate the credentials used to prove the live tests this session** — a
-   Gemini paid key and a GitHub fine-grained PAT were typed directly into the
-   chat transcript to run the live proofs (§2). Neither was written to disk or
-   echoed back by the assistant, but a chat transcript isn't the designated
-   home for live secrets. Regenerate both if you haven't already.
+## 8. Gotchas specific to this effort
 
-**Brick G — DONE (2026-07-06, same-day update to this handoff):** built per
-`docs/plans/2026-07-06-brick-g-private-repo-ui.md`, TDD, app-only. The
-`RepoStatus` model decodes `private`, `BrainClient` has `disconnect()`, a new
-`IcarusKit/SavedConnection.swift` persists the last connection + implements the
-pure `isLost` downgrade check, and the shell shows the trust-tier badge, the
-Disconnect control, and the lost-connection banner (the previously-flagged
-"no explicit signal" gap — solved client-side: the app remembers what it
-connected and flags a ready-on-a-different-repo status, with one-click
-Reconnect using the caller's own bearer). Remaining for Brick G: a live
-end-to-end run with a real signed-in user + private repo (needs your
-credentials; unit + contract-level checks are green).
-
-**Older, smaller items (predate this session, still open):**
-1. **Notarization / Developer-ID signing.** The app is ad-hoc signed. This is the
-   biggest gap: it (a) makes the Keychain "sign in once" seamless (no repeated
-   prompts) and (b) lets the app open on someone else's Mac. Enrollment has lead
-   time — start it before any investor touches the binary.
-2. **Confirm Groq/Gemini keys are rotated** if an even earlier transcript than
-   this session ever exposed them (the GitHub client secret rotation from a
-   prior session is already done — see §8).
-3. **Harden the hosted brain if it goes beyond a controlled demo:** `/ask` and
-   `/connect` now have per-identity rate limits (`demo/ratelimit.py`), but auth
-   is still the only ban/throttle lever otherwise — don't post the URL publicly.
-   The free instance sleeps; repo-switching ingests arbitrary public repos on
-   the server (prompt-injection surface, disclosed). The OAuth CSRF state is
-   in-memory (§9).
-4. **Bundle real fonts** (Geist + JetBrains Mono) — UI uses SF stand-ins.
-5. ~~Persist the connected repo across launches~~ — **done in Brick G**
-   (`SavedConnection` + auto-resume at launch when signed in; a Render restart
-   now surfaces the explicit lost-connection banner instead of a silent revert).
-6. **Record the demo** (script in `docs/plans/2026-06-28-brick-6-recordable-demo.md`).
-7. **Multi-repo, non-GitHub sources, stale-decision detection** — post-v1
-   roadmap, gated/deferred.
-
-## 8. Security posture
-- Brain: loopback Host/Origin guard, 64 KB body cap, GitHub bearer gate on
-  `/ask`+`/connect`+`/disconnect`, per-identity rate limits, ingest subprocess
-  timeouts + size caps + path-traversal guard, generic (non-leaking) ingest
-  errors, provider keys in headers not URLs, the deterministic trust interlock
-  gating every private-repo answer.
-- Prompt-injection via ingested content is **disclosed** (see `docs/EVALUATION.md`);
-  the gate proves provenance, not faithfulness — connect only vetted repos on stage.
-- Per-commit: `.githooks/pre-commit` (secret hard-blocks; failing tests warn),
-  installed via `scripts/install_hooks.sh` (`core.hooksPath` → `.githooks`).
-- CI backstop: `.github/workflows/security.yml` (scan + Python suites + Swift).
-- Fix plans: `docs/plans/2026-07-02-security-hardening.md` (server hardening),
-  `docs/plans/2026-07-04-private-repos-per-user-isolation.md` +
-  `docs/plans/2026-07-04-private-repos-implementation.md` (private-repo trust
-  model, fully built).
-
-## 9. Gotchas
-- **Ad-hoc signing re-prompts the Keychain on every rebuild.** Each `swift build`
-  changes the signature, so the first launch after a rebuild that reads an existing
-  token shows a "Icarus wants to use your keychain" prompt — click **Always Allow**.
-  A properly **notarized** build prompts once ever, then never. (A fresh/empty
-  Keychain doesn't prompt; `security delete-generic-password -s ai.icarus.github`
-  clears a stale token for a clean slate.)
-- **`ASWebAuthenticationSession`'s completion handler fires on a background thread.**
-  It must be `@Sendable`/non-isolated (not `@MainActor`) or the app **traps
-  (EXC_BREAKPOINT)** on sign-in. Only hop to `@MainActor` to `start()` the session.
-- **`open Icarus.app` launches the registered bundle, not `.build/debug/Icarus`.**
-  Rebuild the bundle (`scripts/bundle.sh`) after code changes, or `open` runs stale
-  code.
-- **The GitHub auth sheet / SecurityAgent / Keychain prompts are separate system
-  processes** — invisible to computer-use screenshots (compositor filters non-
-  allowlisted apps). Their absence in a screenshot ≠ they didn't appear.
-- **Restart the brain to pick up `.env` changes** (it loads `.env` once at start).
-  Restarting also resets the brain's active repo to the default; reconnect in the app.
-- **`/status` returns `counts` as an object** (`{pr,issue,code}`), and now also
-  `private: true/false`.
-- **`swift test`** must be run, not `unittest discover` for Python without `-t .`
-  (relative imports need the repo root as top-level).
-- **`incorrect_client_credentials` on sign-in = the Render `GITHUB_CLIENT_SECRET`
-  doesn't match the OAuth app** whose Client ID the brain sends
-  (`Ov23liVZXvv6V5vX2x1Y`). The brain logs the real reason to stderr — look in
-  **Render → Logs** for `github callback failed: <reason>`. `/auth/github/begin`
-  succeeds even with a wrong secret (only needs it non-empty), so a working
-  authorize URL doesn't prove the secret.
-- **OAuth CSRF `state`/sessions are in-memory.** Any Render redeploy (every
-  env-var save triggers one) or the free-tier ~15-min idle sleep **wipes them
-  mid-sign-in** → "expired." Don't change Render settings while signing in;
-  retry once warm.
-- **Pushing `.github/workflows/*` needs the `workflow` token scope.** `gh`'s
-  default OAuth token lacks it; `gh auth refresh -h github.com -s workflow` fixes it.
-- **Ad-hoc Keychain prompt is a one-time "Always Allow," not a bug.** Run Icarus
-  from **/Applications** (not the DMG/Downloads — App Translocation randomizes the
-  path each launch so "Always Allow" can't stick) and clear quarantine
-  (`xattr -dr com.apple.quarantine /Applications/Icarus.app`). Every rebuild
-  changes the cdhash → one re-prompt. Only notarization removes it entirely.
-- **The GitHub OAuth scope widened `read:user` → `repo`** so a signed-in user's
-  own token can read their private repos. Anyone who signed in **before** this
-  change is holding a stale `read:user`-scoped token — private-repo connect
-  fails for them until they **sign out and sign back in**. There is **no
-  server-side token migration**; this is a real, one-time, user-visible step.
-- **Render injects `$PORT`** (observed `10000`) and expects `0.0.0.0`; the
-  Dockerfile sets `HOST=0.0.0.0` and `serve()` reads `$PORT`.
-  `ICARUS_ALLOWED_HOSTS=*` opens the Host guard so the Render hostname + health
-  check pass.
-- **A code-only Dock icon shows a blank tile until launch.** The bundle needs a
-  static `AppIcon.icns` + `CFBundleIconFile` — `bundle.sh` already bakes this;
-  don't reintroduce a runtime-only icon.
-- **A GitHub fine-grained PAT 404s on a repo you own but never selected** when
-  creating the token — Repository access must explicitly include that repo (or
-  be "All repositories"). This 404 is indistinguishable from "repo doesn't
-  exist," which is the correct fail-safe behavior of `evals/github_access.py`'s
-  access check, not a bug to work around in code.
-- **On macOS, `/var` is a symlink to `/private/var`.** Any code that clones into
-  a `tempfile.TemporaryDirectory()` and later resolves paths within it (e.g. for
-  `Path.relative_to()`) must resolve BOTH sides consistently, or comparisons
-  silently fail on real runs even though every mocked-`subprocess.run` test
-  passes. Fixed once in `evals/ingest.py` (`ab305b3`) — watch for the same
-  pattern anywhere else that walks a real clone.
-
-## 10. Plans & decisions (docs/)
-- `docs/plans/2026-07-04-private-repos-per-user-isolation.md` — the private-repo
-  scoping doc (per-user isolation, trust interlock, decisions). One open
-  checkbox: the written no-training policy link (§7).
-- `docs/plans/2026-07-04-private-repos-implementation.md` — the executable
-  16-task plan, all done. Brick G (app) is outlined there but not yet turned
-  into its own detailed plan.
-- `docs/plans/2026-07-02-full-app-shell.md` — the windowed shell (Home gate +
-  five surfaces, all real data).
-- `docs/plans/2026-07-02-security-hardening.md` — the security-audit fixes.
-- `docs/plans/2026-07-03-web-github-login.md` — the web login (brain exchange +
-  ASWebAuthenticationSession).
-- `docs/plans/2026-06-30-macos-app.md`, `docs/plans/2026-06-30-github-auth-workflow.md`
-  — earlier app/auth plans (device flow now superseded by web login).
-- `docs/decisions/` — hosting model + org-memory positioning. `docs/DESIGN_VISION.md`
-  / `docs/UI_UX_BRIEF.md` — design intent (Figma file `SbmCti2rnsog2rwrzzCWm0`,
-  frame `5:2` "Quiet Native Memory v2").
-
-## 11. Key files
-- Brain: `evals/*.py`, `demo/*.py`. Private-repo pieces:
-  `demo/registry.py` (per-user isolation), `demo/ratelimit.py`, `evals/trust.py`,
-  `evals/github_access.py`, `evals/provider.py`'s `PaidGeminiProvider` (model
-  default now `gemini-3.1-flash-lite`), `evals/ingest.py`'s leak-safe `token=`
-  support (and its macOS-symlink fix, `ab305b3`). Proof suites:
-  `demo/test_isolation.py`, `evals/test_egress_invariants.py`,
-  `evals/test_paid_writer_eval.py`, `evals/test_private_ingest_live.py`. Full
-  map: `general_index.md`/`detailed_index.md`.
-- App: `mac/Icarus/` (SwiftPM) — see §4. **No private-repo UI yet** — Brick G is next.
-- Security: `.githooks/`, `.github/workflows/security.yml`, `scripts/`.
-- Docs: `docs/plans/`, `docs/decisions/`, `docs/EVALUATION.md`.
-
-## 12. Git state
-**`main` == `origin/main`**, both pushed and current as of this handoff. Merged
-`feat/private-repos` into `main` via fast-forward (`a237ab2` → `95aeda6`, no
-merge commit, clean history), then landed several more commits directly on
-`main`: the model bump to Gemini 3.1 (`7510c4b`), the macOS-symlink ingest fix
-(`ab305b3`), the two pinning tests (`3def661`), and a few HANDOFF refreshes in
-between. All pushed.
-
-The `feat/private-repos` branch still exists locally (only its worktree at
-`.claude/worktrees/private-repos` was removed, since it's fully merged) — safe
-to `git branch -d feat/private-repos` whenever convenient, or leave it as a
-historical marker. `.env` and `.codex/` are untracked (leave them);
-`Icarus.app`/`Icarus.dmg` are gitignored build artifacts. The old `mac-app`
-branch still exists locally (same history line, unrelated to this work).
+- **`evals/ingest.py`'s `--code-dir` default is now conditional**
+  (`resolve_code_dir`): `None` → `"llm"` only for the pinned `simonw/llm` repo,
+  `"."` (whole root) for any other repo. Explicit `--code-dir` always wins.
+- **The committed `simonw/llm` corpus (`evals/corpus/chunks.jsonl`,
+  `evals/corpus/meta.json`) is FROZEN** — no task in this entire effort ever
+  overwrites it or runs a real ingest against it; all real-corpus proofs (A5,
+  C3b) either use a scratch temp dir or read the committed corpus read-only.
+  Don't break this invariant.
+- **`ISSUE_LIMIT=500`/`PR_LIMIT=200` are silent, unguarded caps** — a repo with
+  more issues/PRs than the limit truncates without any visible signal. Known,
+  recorded, deliberately deferred (would need a return-shape change to
+  `fetch_prs`/`fetch_all_issue_ids`).
+- **`.json` is absent from the file-classifier's extension allowlist**
+  (`evals/ingest.py`'s `_EXTENSION_SOURCES`) — `package.json`/`tsconfig.json`
+  etc. are silently NOT ingested. A conspicuous gap for a "whole codebase, all
+  languages" brick; recorded as a known limitation, not yet fixed.
+- **`SemanticRetriever` has no batching or caching** — every construction
+  re-embeds every chunk from scratch via a real network call each. Fine for a
+  one-off eval run; a real cost/latency problem if wired into the demo's
+  server-start path without first building the deferred caching layer (§3).
+- **`GEMINI_API_KEY` == `GEMINI_PAID_API_KEY`** in `.env` as of this handoff —
+  see §2, point 3. Flagged, not fixed.
