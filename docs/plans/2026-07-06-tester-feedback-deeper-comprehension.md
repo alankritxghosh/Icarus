@@ -578,13 +578,43 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
   (reciprocal-rank fusion). Prove recall@k rises on the labelled set **without
   dropping either honesty gate** — the red→green retrieval eval already exists
   (`test_retrieval_eval.py`); extend it.
+
+  **Scoped before dispatch (real corpus is 243 chunks, checked directly):**
+  splitting into two ordered pieces —
+  1. **Pure hybrid ranker** (reciprocal-rank fusion combining `LexicalRetriever`
+     + `SemanticRetriever` results), offline-testable with static providers,
+     same rigor as C2.
+  2. **The live proof** — extend `test_retrieval_eval.py` with a self-skipping
+     test mirroring `test_gated_eval.py`'s exact pattern (`skipUnless(key and
+     CORPUS.exists())`): embed the real 243-chunk committed corpus with
+     `GeminiEmbeddingProvider`, run the hybrid ranker, confirm recall@k beats
+     BM25-alone with both gates still 100%. No caching needed for THIS test —
+     matches the existing precedent (`test_gated_eval.py` already re-calls the
+     real writer on every invocation, uncached; this is the established
+     convention for self-skipping live-model tests, not a new gap).
+  **Explicitly deferred past C3** (neither is required by Brick C's own
+  Definition of Done as literally stated below — both are demo/production
+  concerns, not part of proving the core technical claim):
+  - **Ingest-time vector persistence + demo loading** (C2's original text).
+    Re-embedding 243+ chunks on every demo server start is a real product
+    cost, but building that caching layer is separate from proving semantic
+    retrieval works — track as a follow-up once Brick C's core claim lands.
+  - **Private-repo embedding via the trust interlock.** No embedding provider
+    is wired into `demo/library.py`'s actual repo-connect flow yet — C1/C2
+    only touch the eval harness's retriever, not the live product's private-
+    repo path. There is no live private-repo embedding call to interlock
+    *yet*, so "private repos only reach the private-safe embedder" and the
+    egress-invariants extension are vacuous until that demo-integration work
+    exists — deferred to when it does, not silently skipped.
 - **C4 — gate untouched.** Explicitly assert the honesty gate + abstention recall
   stay 100% with semantic retrieval on (`grader`/`gate` tests). Retrieval getting
   smarter must never let a bluff through.
 
-**Definition of done:** recall@k on `phase1_questions.json` beats BM25 with both
-gates at 100%; private repos still only reach the private-safe embedder via the
-interlock; the egress invariants test extended to cover the embedder.
+**Definition of done (narrowed to what C1-C4 actually build, per the scoping
+above):** recall@k on `phase1_questions.json` beats BM25 with both gates at
+100%, proven live against the real committed corpus. The private-interlock and
+egress-invariants extension roll into whichever later task actually wires
+embeddings into the demo's private-repo path.
 
 **Honest limits:** embeddings improve *recall*, not truthfulness — the
 deterministic gate is still the only thing standing between retrieval and a claim.
