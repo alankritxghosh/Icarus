@@ -389,14 +389,30 @@ code, 2 doc, 1 config) — independently reproduced by two different reviewer
 subagents making the real network call themselves, not just trusting the
 implementer's report.
 
-**Gap flagged by A5's code-quality review, worth carrying into the final
-whole-brick review:** no test yet proves the **citation-link layer**
-(`demo/links.py`) correctly renders a clickable URL for a non-`.py` `code:`
-ref with a `#Lstart-Lend` window pulled from a REAL non-Python ingest — A4's
-own tests prove the link logic is correct for synthetic refs, and A5 proves
-ingestion produces real non-Python refs, but nothing yet chains the two live.
-Likely fine to defer (Brick A is scoped to ingest, not the demo UI path), but
-recording it here rather than letting it go unstated.
+**Gap flagged by A5's code-quality review, resolved by the final whole-brick
+review:** no test chained a REAL non-Python ingest (A5) through `ref_to_url`
+(A4). The final review independently traced the whole `classify_file` →
+`chunk_text` → `fetch_code` → `ref_to_url` pipeline by hand and found no
+mismatch, but concluded the gap was real against Brick A's own stated
+Definition of Done ("citation links point at the right file and lines") and
+cheap enough to close outright rather than defer — reusing A5's own
+already-captured live refs, no new network call needed. Closed as a small
+follow-up to A5.
+
+**Two Minor findings recorded for later, not blocking:**
+- **`.json` is absent from `_EXTENSION_SOURCES`**, so `package.json`/
+  `tsconfig.json`/`.eslintrc.json` are silently dropped from ingest — a
+  conspicuous gap for a "whole codebase, all languages" brick, since these are
+  extremely common in JS/TS repos (confirmed: `sindresorhus/is-online`'s own
+  `package.json` isn't counted in A5's live 10-chunk result). Consistent with
+  the plan's "finalize the list" framing, but worth an explicit decision in a
+  follow-up rather than staying an implicit omission.
+- **`ingest_repo`'s `code_dir="llm"` parameter default is now dead/misleading**
+  (`evals/ingest.py`) — both real callers always pass `code_dir` explicitly
+  now, so a future direct caller omitting it would silently only walk `llm/`
+  even for an unrelated repo, quietly contradicting "whole repo by default."
+  Not urgent (nothing in the codebase hits this today); consider tightening
+  when next touching this function.
 
 ---
 
