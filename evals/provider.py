@@ -239,3 +239,116 @@ def make_provider(name: str) -> Provider:
 def has_provider_key(name: str) -> bool:
     """True if the env key for this provider is set (so we can run it)."""
     return bool(os.environ.get(_KEY_ENV.get(name, "")))
+
+
+class EmbeddingProvider:
+    """Abstraction for the embedder used by semantic retrieval (Brick C).
+
+    Same trust semantics as Provider: private_safe is a construction-time class
+    attribute, never inferred from a key string, and is what evals/trust.py's
+    interlock checks before letting private code reach an embedder."""
+
+    private_safe: bool = False
+
+    def embed(self, text: str) -> list:  # pragma: no cover - interface
+        raise NotImplementedError
+
+
+class GeminiEmbeddingProvider(EmbeddingProvider):
+    """Calls Google Gemini's embedContent REST endpoint. Network. Stdlib only.
+
+    Same free tier / same GEMINI_API_KEY as GeminiProvider (the writer) -- this
+    is the free embeddings tier, so private_safe stays False, same reasoning as
+    GeminiProvider. Model id verified against the live /v1beta/models list
+    before being hardcoded (see PaidGeminiProvider's docstring for why this
+    project never guesses a model id from training data): gemini-embedding-001
+    is the stable, non-preview production embedding model."""
+
+    BASE = GeminiProvider.BASE
+    KEY_ENV = "GEMINI_API_KEY"
+
+    def __init__(self, model: str = "gemini-embedding-001", timeout: float = 60.0):
+        self.model = model
+        self.timeout = timeout
+
+    def _build_request(self, text: str, key: str) -> urllib.request.Request:
+        # Key goes in the x-goog-api-key header, NOT the URL -- same reasoning
+        # as GeminiProvider._build_request.
+        url = f"{self.BASE}/{self.model}:embedContent"
+        body = json.dumps({"content": {"parts": [{"text": text}]}}).encode()
+        return urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": _USER_AGENT,
+                "x-goog-api-key": key,
+            },
+        )
+
+    @staticmethod
+    def _parse_embedding(data: dict) -> list:
+        return data["embedding"]["values"]
+
+    def embed(self, text: str) -> list:
+        key = os.environ.get(self.KEY_ENV)
+        if not key:
+            raise RuntimeError(f"{self.KEY_ENV} not set")
+        req = self._build_request(text, key)
+
+        def _do():
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                return json.loads(resp.read())
+
+        return self._parse_embedding(_with_retry(_do))
+
+
+class StaticEmbeddingProvider(EmbeddingProvider):
+    """Test double: deterministic, content-addressable vectors for testing.
+
+    Unlike StaticProvider (a sequential queue -- fine for one writer call per
+    question), embed() is called once per chunk at ingest time and once per
+    query at retrieval time, out of any fixed order and against arbitrary
+    texts. A queue would be meaningless here; callers need "what vector does
+    THIS text map to," so this takes either:
+      - a dict[str, list[float]] of exact text -> vector (raises KeyError on
+        an unmapped text, so a test's intent -- "this exact chunk" -- is
+        explicit and a typo/omission fails loudly), or
+      - a callable text -> list[float], for tests that want a vector derived
+        from the text (e.g. length-based) rather than a fixed table.
+
+    private_safe = True: an offline test double, nothing ever leaves the
+    process, same reasoning as StaticProvider."""
+
+    private_safe = True
+
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def embed(self, text: str) -> list:
+        if callable(self._mapping):
+            return self._mapping(text)
+        return self._mapping[text]
+
+
+_EMBEDDING_PROVIDERS = {
+    "gemini": GeminiEmbeddingProvider,
+}
+_EMBEDDING_KEY_ENV = {
+    "gemini": "GEMINI_API_KEY",
+}
+
+
+def make_embedding_provider(name: str) -> EmbeddingProvider:
+    """Build an embedding provider by name (default-configured). Raises on an
+    unknown name -- mirrors make_provider."""
+    try:
+        return _EMBEDDING_PROVIDERS[name]()
+    except KeyError:
+        raise ValueError(f"unknown provider: {name}")
+
+
+def has_embedding_provider_key(name: str) -> bool:
+    """True if the env key for this embedding provider is set -- mirrors
+    has_provider_key."""
+    return bool(os.environ.get(_EMBEDDING_KEY_ENV.get(name, "")))
