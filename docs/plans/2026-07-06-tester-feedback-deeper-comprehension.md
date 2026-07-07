@@ -424,6 +424,19 @@ their linked issues. Confirm or refute the title report first.
 **Why:** remark 5. Coverage gap: a standalone issue (never linked from a merged PR)
 is invisible today, which *looks* like "titles not picked up."
 
+**B0 result (repro'd, 2026-07-07):** Alankrit's tester feedback traced to
+`benawad/vsinder` issue `#253` ("Android app not displaying new matches and
+messages," state OPEN). Ran the real `ingest_repo` against this repo into a
+scratch dir (never touched the committed corpus): `{"pr": 26, "issue": 12,
+"code": 0}`. Grepped the output — **issue #253 is completely absent**; only 12
+low-numbered issues (5–166) were captured, all with clean, correct titles
+(e.g. "Rust as a flair", "Age calculation is a month off"). This confirms the
+diagnosis exactly: it's a **coverage gap**, not a title bug — `fetch_issues`
+only ever sees issues linked from a *merged* PR, and #253 is open/unresolved,
+so it's never even attempted. Title-inclusion itself (`{title}\n\n{body}`) is
+proven correct for every issue that does get fetched. **B1 (fetch all issues
+via `gh issue list`) is confirmed as the right fix — proceed.**
+
 **Tasks (red→green):**
 - **B0 — repro (human + Claude).** Get the tester's repo + the specific issue that
   "lost its title." Re-ingest, grep `chunks.jsonl`. If the title is present → it
