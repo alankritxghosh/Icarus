@@ -584,6 +584,15 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
   1. **Pure hybrid ranker** (reciprocal-rank fusion combining `LexicalRetriever`
      + `SemanticRetriever` results), offline-testable with static providers,
      same rigor as C2.
+
+     **Done — `HybridRetriever(lexical, semantic, rrf_constant=60)`, generic
+     over any `.search()`-compatible retriever (proven with a fake), recall
+     pool `max(k,20)`. Ready to merge, no Critical issues; one Important
+     finding (a duplicate ref from an untrusted retriever would silently
+     double-count its score) fixed with a per-list dedup guard + a test that
+     re-simulated the exact pre-fix buggy value to prove the fix closes it.
+     Spec review independently rebuilt the whole fixture against the real
+     BM25/cosine code and got identical numbers end to end.**
   2. **The live proof** — extend `test_retrieval_eval.py` with a self-skipping
      test mirroring `test_gated_eval.py`'s exact pattern (`skipUnless(key and
      CORPUS.exists())`): embed the real 243-chunk committed corpus with
