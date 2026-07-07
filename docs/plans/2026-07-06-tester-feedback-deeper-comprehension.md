@@ -620,6 +620,30 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      is that moment. Register it in `make_embedding_provider`/
      `has_embedding_provider_key` too, mirroring `make_provider`'s existing
      `"gemini-paid"` registration, for symmetry with the chat-provider family.
+
+     **`PaidGeminiEmbeddingProvider` built correctly, but the paid-tier
+     switch didn't actually reach a different tier — flagging beyond C3b.**
+     The code is right (mirrors `PaidGeminiProvider` exactly, correctly
+     never infers "paid" from a key string). But the live run hit the SAME
+     `embed_content_free_tier_requests` quota metric (1000/day) as the free
+     key, because **`GEMINI_API_KEY` and `GEMINI_PAID_API_KEY` in this
+     environment's `.env` are the identical string** — not two distinct
+     credentials. This is worth recording beyond Brick C: `PaidGeminiProvider`
+     (the writer used for private-repo answers) already carries a docstring
+     caveat that its no-training billing status is "NOT YET recorded... before
+     treating this as a settled, audited fact" — this discovery is concrete
+     evidence supporting that caution, not a new, unrelated problem. Flagged
+     per Alankrit's call, not investigated further this session — worth a
+     check outside Brick C on whether production's real credential setup
+     differs from this local `.env`.
+
+     **C3b's live proof re-scoped:** stay on the free `GeminiEmbeddingProvider`
+     (`GEMINI_API_KEY`), add a small rate-limiting wrapper LOCAL to the test
+     file (sleep to respect the known 100/min cap), and re-attempt once
+     today's 1000/day allowance has room — this session's several attempts
+     across both rounds have likely consumed a meaningful share of today's
+     quota, so this may need to wait for tomorrow's reset rather than running
+     immediately.**
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
