@@ -12,6 +12,7 @@ from unittest import mock
 
 from . import ingest
 from .corpus_meta import load_meta
+from demo.links import ref_to_url
 
 SMOKE_REPO = "simonw/json-flatten"  # tiny pure-Python repo
 
@@ -62,6 +63,19 @@ class IngestSmokeTests(unittest.TestCase):
                 if r.startswith("code:") and not r.split("#", 1)[0].endswith(".py")
             ]
             self.assertTrue(non_python_code_refs, f"expected a non-.py code ref, got: {refs}")
+
+            # Chain a real non-Python ref through to a real rendered citation
+            # link (demo/links.py) -- proves classify_file -> chunk_text ->
+            # fetch_code -> ref_to_url actually connects end to end, not just
+            # each half in isolation.
+            ref = non_python_code_refs[0]
+            path, hash_sep, line_range = ref[len("code:"):].partition("#")
+            url = ref_to_url(ref, NON_PYTHON_SMOKE_REPO, m["commit"])
+            self.assertIsNotNone(url)
+            self.assertIn(NON_PYTHON_SMOKE_REPO, url)
+            self.assertIn(path, url)
+            if hash_sep:
+                self.assertTrue(url.endswith(f"#{line_range}"))
 
 
 if __name__ == "__main__":
