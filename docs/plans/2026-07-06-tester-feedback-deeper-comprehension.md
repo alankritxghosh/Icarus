@@ -299,6 +299,26 @@ almost no code evidence.
    `--code-dir` still narrows the subtree when passed. No-arg `simonw/llm` run must
    stay byte-reproducible — so keep its default `code_dir="llm"` for the pinned
    corpus path, but make the general path walk the root.
+
+   **Clarified before A3 (resolves a real conflict, checked against the actual
+   committed corpus):** "byte-reproducible" here means the no-arg run still
+   targets the **same repo/commit/code_dir scope** (`simonw/llm` @ `94769b8`,
+   subtree `llm/`) — matching the precedent already established in Brick 7's plan
+   ("re-ingesting is never bit-identical... this brick does not regenerate
+   [the committed corpus]"). It does **not** mean the new classify/chunk logic
+   must reproduce today's exact chunk boundaries. Checked: **8 of the 18 code
+   chunks in the committed corpus already exceed 300 lines** (`llm/cli.py` is
+   4166 lines), so applying Task A2's chunker for real would split them
+   differently than today's whole-file chunks — that's fine and expected, it is
+   NOT a regression. What must never happen: this task (or any test in it)
+   actually running `python3 -m evals.ingest` for real / overwriting
+   `evals/corpus/chunks.jsonl` or `evals/corpus/meta.json`. All new-path testing
+   is via monkeypatched network calls into a temp output dir, exactly like the
+   existing `evals/test_ingest_repo.py` pattern — never touching the real
+   committed files. `--code-dir`'s DEFAULT VALUE resolution (not the chunking
+   logic) is what stays scoped: `None` sentinel → resolves to `"llm"` only when
+   `repo == REPO` and no override was given; otherwise resolves to `"."` (walk
+   the whole clone root).
 4. **Citation source tag.** Keep `code:` for source, `doc:` for prose (`.md/.rst/
    .txt`); add `config:` for config-ish files so citations read honestly. One-line
    `_FILE_SOURCES`-style mapping extension → source.
