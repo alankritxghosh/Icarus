@@ -10,6 +10,7 @@ from .provider import _parse_gemini, make_provider, has_provider_key, _with_retr
 from .provider import (
     EmbeddingProvider,
     GeminiEmbeddingProvider,
+    PaidGeminiEmbeddingProvider,
     StaticEmbeddingProvider,
     make_embedding_provider,
     has_embedding_provider_key,
@@ -293,6 +294,24 @@ class EmbeddingPrivateSafeFlagTests(unittest.TestCase):
     def test_base_embedding_provider_embed_not_implemented(self):
         with self.assertRaises(NotImplementedError):
             EmbeddingProvider().embed("x")
+
+    def test_paid_gemini_embedding_is_private_safe_and_uses_its_own_key(self):
+        p = PaidGeminiEmbeddingProvider()
+        self.assertTrue(p.private_safe)
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "free-key"}, clear=True):
+            with mock.patch(
+                "urllib.request.urlopen",
+                side_effect=AssertionError("should not reach network"),
+            ):
+                with self.assertRaises(RuntimeError):  # the FREE key must not satisfy it
+                    p.embed("hi")
+
+    def test_make_embedding_provider_knows_gemini_paid(self):
+        self.assertIsInstance(make_embedding_provider("gemini-paid"), PaidGeminiEmbeddingProvider)
+        with mock.patch.dict(os.environ, {"GEMINI_PAID_API_KEY": "k"}, clear=True):
+            self.assertTrue(has_embedding_provider_key("gemini-paid"))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(has_embedding_provider_key("gemini-paid"))
 
 
 if __name__ == "__main__":

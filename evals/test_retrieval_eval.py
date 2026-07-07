@@ -10,7 +10,7 @@ from pathlib import Path
 from .corpus import load_chunks
 from .grader import grade
 from .retriever import LexicalRetriever, SemanticRetriever, HybridRetriever
-from .provider import GeminiEmbeddingProvider
+from .provider import PaidGeminiEmbeddingProvider
 from .pipeline import RetrievalPipeline
 
 ROOT = Path(__file__).resolve().parent
@@ -32,21 +32,27 @@ class RetrievalEvalTests(unittest.TestCase):
         self.assertGreater(self.board["quality"]["retrieval_recall_at_k"], 0.0)
 
 
-@unittest.skipUnless(os.environ.get("GEMINI_API_KEY") and CORPUS.exists(),
-                     "needs GEMINI_API_KEY and the corpus")
+@unittest.skipUnless(os.environ.get("GEMINI_PAID_API_KEY") and CORPUS.exists(),
+                     "needs GEMINI_PAID_API_KEY and the corpus")
 class HybridRetrievalEvalTests(unittest.TestCase):
     """Real-model proof (Task C3b): hybrid (BM25 + real Gemini embeddings, fused
     via RRF) must hold both honesty gates at 100% and must not retrieve worse
     than a same-run BM25-only baseline on the labelled set. Embeds every one of
     the committed corpus's chunks with one real network call each (serial, no
     batching/caching -- see evals/retriever.py and the Brick C plan), so this is
-    slow and costs real API calls; skipped entirely without GEMINI_API_KEY."""
+    slow and costs real API calls; skipped entirely without GEMINI_PAID_API_KEY.
+
+    Uses the PAID embedding provider (GEMINI_PAID_API_KEY), not the free tier:
+    the free tier's EmbedContentRequestsPerMinutePerUserPerProjectPerModel quota
+    is hard-capped at 100 req/min, well below the ~243 serial calls this needs
+    to embed the full committed corpus, and repeatedly, reproducibly exhausted
+    _with_retry's backoff budget in practice -- see the Task C3b execution log."""
 
     @classmethod
     def setUpClass(cls):
         chunks = load_chunks(CORPUS)
         lexical = LexicalRetriever(chunks)
-        semantic = SemanticRetriever(chunks, GeminiEmbeddingProvider())
+        semantic = SemanticRetriever(chunks, PaidGeminiEmbeddingProvider())
         hybrid = HybridRetriever(lexical, semantic)
         cls.hybrid_board = grade(QUESTIONS, RetrievalPipeline(hybrid), k=5)
         # Same-run baseline (not a hardcoded historical number) so the comparison

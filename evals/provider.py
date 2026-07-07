@@ -303,6 +303,22 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         return self._parse_embedding(_with_retry(_do))
 
 
+class PaidGeminiEmbeddingProvider(GeminiEmbeddingProvider):
+    """Gemini embeddings on a BILLING-ENABLED key. Billing is confirmed enabled
+    (2026-07-04, project owner); the written no-training policy link is NOT YET
+    recorded -- see the open checklist item in
+    docs/plans/2026-07-04-private-repos-per-user-isolation.md before treating
+    this as a settled, audited fact. The dedicated KEY_ENV is deliberate: code
+    cannot tell a free key string from a paid one, so placing a key in
+    GEMINI_PAID_API_KEY is the operator's attestation that it is billed. Model
+    default follows the free provider; the eval board picks upgrades (Gemini 3.x
+    welcome -- verify the exact model id against the live API before changing
+    the default)."""
+
+    KEY_ENV = "GEMINI_PAID_API_KEY"
+    private_safe = True
+
+
 class StaticEmbeddingProvider(EmbeddingProvider):
     """Test double: deterministic, content-addressable vectors for testing.
 
@@ -333,9 +349,11 @@ class StaticEmbeddingProvider(EmbeddingProvider):
 
 _EMBEDDING_PROVIDERS = {
     "gemini": GeminiEmbeddingProvider,
+    "gemini-paid": PaidGeminiEmbeddingProvider,
 }
 _EMBEDDING_KEY_ENV = {
     "gemini": "GEMINI_API_KEY",
+    "gemini-paid": "GEMINI_PAID_API_KEY",
 }
 
 
