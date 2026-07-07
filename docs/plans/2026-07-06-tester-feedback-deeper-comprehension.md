@@ -528,6 +528,20 @@ dependency, which CLAUDE.md forbids without asking.** Two routes:
 keep C-route-2 as the private/on-box option later. **Get Alankrit's sign-off on the
 dependency/route before building.**
 
+**Decided (Alankrit, 2026-07-07): C-route-1, hosted embeddings.** Checked
+`evals/provider.py` before committing to a design: `GeminiProvider` already
+calls Google's REST API over stdlib `urllib` (same `GEMINI_API_KEY`, same
+`_with_retry` 429-backoff helper, same `x-goog-api-key` header pattern) — and
+Gemini has a REST embeddings endpoint (`models/{model}:embedContent`) reachable
+the exact same way. So this route needs **zero new pip dependencies** (better
+than this brick originally assumed) — just a new `GeminiEmbeddingProvider`
+class mirroring `GeminiProvider`'s existing shape, reusing `_with_retry`
+directly. **Per this project's own established discipline** (see
+`PaidGeminiProvider`'s docstring precedent: "verify the exact model id against
+the live API before changing the default"), **the exact embedding model id
+must be verified against the live `/v1beta/models` list before being hardcoded**
+— do not guess a model name from training data.
+
 **Tasks (red→green), route-1 shape:**
 - **C1 — `EmbeddingProvider` abstraction** with a `StaticEmbeddingProvider` test
   double (deterministic vectors); no-key error path; 429 backoff — mirror
