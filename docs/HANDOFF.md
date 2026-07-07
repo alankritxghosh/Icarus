@@ -25,6 +25,36 @@ ad hoc implementation:
   need (e.g. the quota-blocked retry in §1) — not `ScheduleWakeup`, which is
   scoped to `/loop` dynamic-pacing mode and doesn't apply here.
 
+**Also required — the `playbook-*` reasoning skills, applied throughout, not
+just invoked once:**
+- `playbook-software-engineering` — scope minimally, verify with evidence, never
+  green-wash.
+- `playbook-debugging` — reproduce → localize → falsifiable hypotheses → prove
+  cause by toggle (this is exactly how the `benawad/vsinder#253` bug in Brick B
+  was confirmed before writing any fix code).
+- `playbook-architecture` — constraints first, invariants enforced in code,
+  walking skeleton before deep design.
+- `playbook-product-design` — one promise + anti-promise, hero moment, written
+  deferred list (the north star's honesty boundary and the Brick-by-brick
+  not-doing lists are this in practice).
+- `playbook-ux` — design the user's moment, truthful state, unhappy paths as
+  first-class surfaces.
+- `playbook-research` — research serves a decision, provenance per claim,
+  explicit disconfirmation pass.
+- `playbook-planning` — plan backward from the demo, risk-first bricks with
+  binary done criteria.
+- `playbook-decision-making` — reversibility classification, criteria before
+  options, pre-mortem, reopen-triggers.
+- `playbook-writing` — lead with the point, revise by deletion, readable over
+  merely short.
+- `playbook-startup-strategy` — wedge then expand, own the moat / rent the
+  commodity, sequence by proof.
+- `playbook-ai-agents` — evals before features, deterministic gates around the
+  probabilistic core, fail safe not impressive (this is the honesty-gate
+  discipline running through every brick in this effort).
+- `playbook-systems-thinking` — behavior from structure, loops/stocks/
+  incentives, leverage points, expect pushback.
+
 If a skill listed above isn't available in a future session's `~/.claude/skills`,
 say so explicitly rather than silently improvising a substitute.
 
