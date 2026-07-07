@@ -601,6 +601,25 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      matches the existing precedent (`test_gated_eval.py` already re-calls the
      real writer on every invocation, uncached; this is the established
      convention for self-skipping live-model tests, not a new gap).
+
+     **Done, then genuinely blocked, then re-scoped — recorded honestly:** the
+     test itself was written correctly and self-skips as specified, but 5
+     real live attempts against the FREE tier all failed with the same
+     diagnosed root cause: `gemini-embedding-001`'s free tier caps at
+     **100 requests/minute**, and 243 serial embed calls (no batching, by
+     design) structurally exceeds `_with_retry`'s backoff budget every time —
+     never a fabricated pass, never a weakened assertion, reported exactly as
+     found. **Alankrit's call: switch to the paid tier** (`GEMINI_PAID_API_KEY`,
+     confirmed present, higher RPM). This needs a new
+     `PaidGeminiEmbeddingProvider(GeminiEmbeddingProvider)` — `KEY_ENV =
+     "GEMINI_PAID_API_KEY"`, mirroring `PaidGeminiProvider`'s exact pattern
+     (including its docstring's honest caveat: billing is confirmed enabled,
+     but the written no-training policy link is not yet recorded/audited —
+     copy that caveat verbatim, don't overstate confidence). C1 had explicitly
+     NOT built this, correctly flagging it as "a later task's concern" — this
+     is that moment. Register it in `make_embedding_provider`/
+     `has_embedding_provider_key` too, mirroring `make_provider`'s existing
+     `"gemini-paid"` registration, for symmetry with the chat-provider family.
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
