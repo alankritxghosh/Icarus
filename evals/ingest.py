@@ -281,7 +281,7 @@ def _gh_json(args, token=None):
 
 def fetch_prs(repo, token=None):
     nums = [pr["number"] for pr in _gh_json(
-        ["pr", "list", "-R", repo, "--state", "merged", "--limit", str(PR_LIMIT), "--json", "number"],
+        ["pr", "list", "-R", repo, "--state", "all", "--limit", str(PR_LIMIT), "--json", "number"],
         token=token,
     )]
     chunks, issue_ids = [], set()

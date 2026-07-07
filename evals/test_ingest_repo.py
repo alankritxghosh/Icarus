@@ -228,6 +228,91 @@ class AllIssuesCoverageTests(unittest.TestCase):
         mock_fetch_issues.assert_called_once()
 
 
+class FetchPRsAllStatesTests(unittest.TestCase):
+    """Brick B2: fetch_prs must fetch PRs of ALL states (open+closed+merged),
+    not just merged -- closes the coverage gap where an open PR (and any issue
+    it alone references) was invisible. Guarded by the same PR_LIMIT, no new
+    limit constant."""
+
+    def test_pr_list_call_requests_state_all_not_merged(self):
+        """Proves the literal `gh pr list --state all ...` args reach the
+        subprocess call -- the exact test gap B1's review flagged for the
+        analogous `gh issue list` change, closed here from day one."""
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            if args[0] == "gh" and "list" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]")
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            ingest.fetch_prs("octo/repo")
+
+        pr_list_calls = [c for c in calls if c[0] == "gh" and "list" in c]
+        self.assertEqual(len(pr_list_calls), 1)
+        call = pr_list_calls[0]
+        self.assertIn("--state", call)
+        self.assertEqual(call[call.index("--state") + 1], "all")
+        self.assertNotIn("merged", call)
+        # PR_LIMIT is still the only cap on this call.
+        self.assertIn("--limit", call)
+        self.assertEqual(call[call.index("--limit") + 1], str(ingest.PR_LIMIT))
+
+    def test_open_and_merged_prs_both_produce_pr_chunks(self):
+        """Integration-style: mixed-state PR fixture data (one open, one
+        merged) must both surface as pr: chunks with source 'pr'."""
+        pr_list_result = [{"number": 1}, {"number": 2}]
+        pr_views = {
+            1: {"title": "Open PR title", "body": "closes #10", "closingIssuesReferences": []},
+            2: {"title": "Merged PR title", "body": "fixes #20",
+                "closingIssuesReferences": [{"number": 20}]},
+        }
+
+        def fake_gh_json(args, token=None):
+            if "list" in args:
+                return pr_list_result
+            if "view" in args:
+                n = int(args[args.index("view") + 1])
+                return pr_views[n]
+            raise AssertionError(f"unexpected _gh_json call: {args}")
+
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json):
+            chunks, issue_ids = ingest.fetch_prs("octo/repo")
+
+        by_ref = {c["ref"]: c for c in chunks}
+        self.assertIn("pr:1", by_ref)
+        self.assertIn("pr:2", by_ref)
+        self.assertEqual(by_ref["pr:1"]["source"], "pr")
+        self.assertEqual(by_ref["pr:2"]["source"], "pr")
+        self.assertIn("Open PR title", by_ref["pr:1"]["text"])
+        self.assertIn("Merged PR title", by_ref["pr:2"]["text"])
+
+    def test_issue_reference_scanning_works_uniformly_on_open_pr(self):
+        """The closingIssuesReferences + #N regex scan must not have any
+        hidden assumption that only worked because every PR used to be
+        merged -- prove it fires correctly for an OPEN PR alone."""
+        pr_list_result = [{"number": 5}]
+        pr_view = {
+            "title": "WIP: fix login",
+            "body": "This will close #99 once reviewed. Also relates to #100.",
+            "closingIssuesReferences": [{"number": 99}],
+        }
+
+        def fake_gh_json(args, token=None):
+            if "list" in args:
+                return pr_list_result
+            if "view" in args:
+                return pr_view
+            raise AssertionError(f"unexpected _gh_json call: {args}")
+
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json):
+            chunks, issue_ids = ingest.fetch_prs("octo/repo")
+
+        self.assertEqual(issue_ids, {99, 100})
+        self.assertEqual(chunks[0]["ref"], "pr:5")
+
+
 class ResolveCodeDirIntegrationTests(unittest.TestCase):
     """The no-arg / default-repo path resolves code_dir to "llm"; any other
     repo resolves to "." -- verified via the resolve_code_dir helper itself
