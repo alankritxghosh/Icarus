@@ -564,6 +564,16 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
   the static provider: a paraphrased query ranks the right chunk above a
   keyword-only match. Precompute + cache vectors at ingest (persist next to
   `chunks.jsonl`); the demo loads them.
+
+  **Scoped before dispatch:** this bundles two concerns — the retriever's core
+  cosine logic (pure, offline, testable with `StaticEmbeddingProvider` today)
+  and ingest-time vector persistence/loading (which needs something to
+  actually CALL `SemanticRetriever` in production first, to justify the file
+  format — that wiring is C3's job). Splitting: **C2 builds the core
+  `SemanticRetriever` class only**, proven via the pure paraphrase-beats-BM25
+  test; the persist/load-at-ingest mechanism is deferred to C3, where it's
+  wired into the real corpus for the first time (YAGNI — no speculative cache
+  format before something needs it).
 - **C3 — hybrid rank (optional but recommended).** Blend BM25 + semantic
   (reciprocal-rank fusion). Prove recall@k rises on the labelled set **without
   dropping either honesty gate** — the red→green retrieval eval already exists
