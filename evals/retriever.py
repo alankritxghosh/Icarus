@@ -157,7 +157,19 @@ class HybridRetriever:
 
         scores: dict = {}
         for ranked in (lexical_ranked, semantic_ranked):
+            # A ref repeating WITHIN one list is a bug in that retriever (a
+            # legitimate retriever never returns the same ref twice) -- since
+            # HybridRetriever accepts ANY .search()-compatible object, not
+            # just our two trusted concrete classes, we can't assume that
+            # holds. Track refs already credited from THIS list so a
+            # duplicate is silently ignored rather than double-counted; a ref
+            # appearing in both the lexical AND semantic lists is fine and
+            # intentional (that's two separate lists, each contributing once).
+            seen_in_this_list: set = set()
             for rank, ref in enumerate(ranked, start=1):
+                if ref in seen_in_this_list:
+                    continue
+                seen_in_this_list.add(ref)
                 scores[ref] = scores.get(ref, 0.0) + 1.0 / (self.rrf_constant + rank)
 
         fused = sorted(scores.items(), key=lambda x: (-x[1], x[0]))

@@ -272,6 +272,53 @@ class HybridRetrieverTests(unittest.TestCase):
         # combine two contributions and not be dropped.
         self.assertIn("x:2", result)
 
+    def test_duplicate_ref_within_one_list_is_not_double_counted(self):
+        # HybridRetriever accepts ANY .search()-compatible retriever, not
+        # just our two trusted concrete classes (proven above) -- so it
+        # can't assume every retriever it's handed dedupes internally. A
+        # hostile/buggy retriever returning the same ref twice in ONE list
+        # must not get its score doubled.
+        class DupeRetriever:
+            def search(self, query, k=20):
+                return ["x:1", "x:1", "x:2"][:k]
+
+        class EmptyRetriever:
+            def search(self, query, k=20):
+                return []
+
+        rrf_constant = 60
+        result = HybridRetriever(DupeRetriever(), EmptyRetriever(), rrf_constant=rrf_constant).search(
+            "anything", k=10
+        )
+        self.assertEqual(result, ["x:1", "x:2"])
+
+        # Rebuild the raw scores the same way HybridRetriever does internally
+        # to assert the exact (non-doubled) value, not just the ordering.
+        expected_x1 = 1.0 / (rrf_constant + 1)  # only the FIRST occurrence counts (rank 1)
+        expected_x2 = 1.0 / (rrf_constant + 3)  # rank 3: enumerate still advances past the dupe
+        buggy_x1_if_double_counted = 1.0 / (rrf_constant + 1) + 1.0 / (rrf_constant + 2)
+        self.assertAlmostEqual(expected_x1, 0.01639344262295082)
+        self.assertAlmostEqual(expected_x2, 0.015873015873015872)
+        self.assertNotAlmostEqual(expected_x1, buggy_x1_if_double_counted)
+        # x:1 (deduped, rank 1) must still outrank x:2 (rank 3) -- confirming
+        # the guard didn't drop x:1's contribution entirely, only its dupe.
+        self.assertGreater(expected_x1, expected_x2)
+
+    def test_k_zero_returns_empty_list_no_crash(self):
+        self.assertEqual(self.hybrid.search(self.query, k=0), [])
+
+    def test_both_retrievers_empty_returns_empty_list(self):
+        # Pure-fake aggregation-over-nothing case, isolated from any real
+        # retrieval semantics (BM25/cosine cutoffs etc.) -- distinct from
+        # test_empty_when_neither_retriever_finds_anything above, which
+        # exercises the realistic LexicalRetriever/SemanticRetriever path.
+        class EmptyRetriever:
+            def search(self, query, k=20):
+                return []
+
+        result = HybridRetriever(EmptyRetriever(), EmptyRetriever()).search("anything", k=5)
+        self.assertEqual(result, [])
+
 
 if __name__ == "__main__":
     unittest.main()
