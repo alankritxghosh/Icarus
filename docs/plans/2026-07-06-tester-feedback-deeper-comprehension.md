@@ -546,6 +546,20 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
 - **C1 — `EmbeddingProvider` abstraction** with a `StaticEmbeddingProvider` test
   double (deterministic vectors); no-key error path; 429 backoff — mirror
   `evals/provider.py` + `test_provider.py`.
+
+  **Done — `GeminiEmbeddingProvider` (model `gemini-embedding-001`, verified
+  live against the real API before coding: `POST .../embedContent`, key in
+  header, `{"embedding":{"values":[...]}}` response, 3072-dim by default) +
+  content-addressable `StaticEmbeddingProvider` (dict-or-callable, not a
+  sequential queue — `embed()` is called per-chunk/per-query in no fixed
+  order). Ready to merge, no Critical issues. Two notes for C2, both
+  pre-existing patterns faithfully mirrored rather than regressions: (1) a
+  malformed API response surfaces as a bare `KeyError` from inside
+  `provider.py` — identical to the existing `_parse_gemini`'s behavior on a
+  malformed chat response, not a new gap; (2) `embed("")` on an empty string
+  is untested end-to-end (builds a valid request locally, real API behavior
+  unverified) — worth an empirical check if C2 might ever embed a blank
+  chunk.**
 - **C2 — `SemanticRetriever`** (cosine over cached chunk vectors). Pure test with
   the static provider: a paraphrased query ranks the right chunk above a
   keyword-only match. Precompute + cache vectors at ingest (persist next to
