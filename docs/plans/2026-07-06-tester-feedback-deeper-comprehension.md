@@ -461,6 +461,23 @@ via `gh issue list`) is confirmed as the right fix — proceed.**
 - **B3 — counts + meta.** Extend `ingest_repo` counts and `meta.json`; update
   tests.
 
+  **Done — turned out to need zero production-code changes:** `counts["pr"]`/
+  `counts["issue"]` already automatically reflected B1/B2's broader coverage
+  (they're just `len()` of the now-expanded lists), so B3's real job was a
+  genuine end-to-end proof — one integration test exercising the real
+  `fetch_all_issue_ids` union (mocked one level lower than B1's own test, at
+  the raw `gh issue list` response) through to both the returned `counts` AND
+  the on-disk `meta.json` round-trip, including the literal `benawad/
+  vsinder#253` shape (a standalone issue, isolated from any PR reference in
+  the fixture, proven to survive union → counts → meta). Ready to merge, no
+  Critical/Important issues. **The optional truncation-signal enhancement
+  (silent `PR_LIMIT`/`ISSUE_LIMIT` caps) was evaluated and deliberately
+  deferred** — adding it would change `fetch_prs`'s/`fetch_all_issue_ids`'s
+  return shape across 5+ call sites, correctly judged as more than the "near
+  one-line" addition that was optional; left for a human decision, not built.
+  Both reviews independently confirmed this reasoning was accurate, not an
+  excuse.
+
 **Definition of done:** a repo's standalone issues and open PRs appear in the
 corpus with titles; dedupe verified; no-arg `simonw/llm` corpus untouched (its
 counts are frozen — this brick changes the *general* path, and if it would alter
