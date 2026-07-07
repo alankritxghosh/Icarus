@@ -643,7 +643,23 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      today's 1000/day allowance has room — this session's several attempts
      across both rounds have likely consumed a meaningful share of today's
      quota, so this may need to wait for tomorrow's reset rather than running
-     immediately.**
+     immediately.
+
+     **Status: code done, live numbers still pending.** `_PacedEmbeddingProvider`
+     built (test-local, sleeps 0.7s/call, ~86 req/min sustained — real margin
+     under the 100/min cap), `HybridRetrievalEvalTests` reverted to the free
+     key + wired through the pacer, self-skip behavior confirmed correct, full
+     offline suite green (225 tests, 15 skipped). Before running the full
+     243-chunk paced live test, did a single-call quota-headroom check first
+     (per instruction, to avoid burning more quota on a run that would just
+     fail) — **that single call itself hit `HTTP 429 (limit: 1000,
+     EmbedContentRequestsPerDayPerUserPerProjectPerModel-FreeTier)`: today's
+     daily allowance is already exhausted** from this session's own probing
+     across both rounds. Correctly stopped rather than retrying. **No real
+     hybrid-vs-BM25 recall@k numbers exist yet** — this is an external quota
+     constraint, not a code or design gap; the test is ready to run for real
+     as soon as the daily quota resets (or a genuinely distinct paid key
+     appears — see the finding above).**
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
