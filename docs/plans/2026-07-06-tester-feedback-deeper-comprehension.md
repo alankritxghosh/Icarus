@@ -487,6 +487,19 @@ frozen behavior" rule Brick 7 established).
 **Honest limits:** issue/PR *comments* still deferred (noise/volume); `PR_LIMIT`
 still caps very large repos.
 
+**Brick B status: DONE.** All three tasks (B1, B2, B3) implemented, independently
+spec- and code-quality-reviewed, plus a final whole-brick review that
+independently re-verified the fix **live** against the real `benawad/vsinder`
+repo: traced `fetch_all_issue_ids` → the union in `ingest_repo` →
+`fetch_issues` → `counts["issue"]` by hand, confirmed issue
+`#253` genuinely flows through every link with no gap, and confirmed
+`ISSUE_LIMIT=500` is safe (vsinder's real issue count is 224, 2.2x headroom).
+One gap the whole-brick review caught — B2 got a literal-CLI-args regression
+test but B1's equivalent never did, despite B1's own review flagging it — was
+closed as a same-day follow-up. Frozen `simonw/llm` corpus and
+`comprehension_questions.json` board confirmed byte-identical throughout; no
+secret leakage. Definition of done fully met.
+
 ---
 
 ## Brick C — Semantic retrieval (context, not keywords)
