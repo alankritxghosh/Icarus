@@ -114,7 +114,7 @@ Brick A  Whole-codebase ingest         fixes 1,2,4 · unblocks D,Q,S · small
 Brick B  PR/Issue coverage + bug       fixes 5                       · small
 Brick C  Semantic retrieval            fixes 6,8 · lifts 7           · needs a dependency decision
 Brick Q  Query-understanding layer     "any framing/grammar/spelling" · rides on C
-Brick D  Line-select → explain         fixes 3 · after A+C
+Brick D  Explain a line on GitHub      fixes 3 · browser extension, connected repos only · after A+C
 Brick S  Structural comprehension      the deep "reads the code" · LARGE · needs explicit go (deferred-gated)
 Brick E  Richer "why" sources          lifts 7 · optional, after C
 ```
@@ -634,33 +634,93 @@ closed).
 
 ---
 
-## Brick D — Select a line → explain it
+## Brick D — Explain a line on GitHub
 
-**Goal:** in the app, select a file+line range and ask "what does this do / why is
-it here" → a cited answer grounded in that code plus the PRs/issues/docs that
-touch it. Honest unknown when the *why* was never written.
+**Goal:** while reading a file on **github.com** (not inside the Icarus app),
+select a line or range in a repo you've **already connected to Icarus**, and ask
+"what is this / why is it here / <anything>" → a cited answer grounded in that
+code plus the PRs/issues/docs that touch it, rendered as an overlay on the GitHub
+page. Honest unknown when the *why* was never written.
 
-**Why:** remark 3. High-signal demo moment; depends on A (line-addressable chunks)
-and benefits from C (semantic neighbors).
+**Why:** remark 3, refined by Alankrit (2026-07-08): the explanation must meet the
+developer where they already read code — their GitHub tab — not require them to
+re-paste the line into the Icarus app. This is the high-signal demo moment;
+depends on A (line-addressable chunks) and benefits from C (semantic neighbors).
+
+### Route decision (2026-07-08) — browser extension, GitHub, connected repos only
+
+- **Context:** remark 3 asked for "select a line → get an explanation." The
+  original Brick D assumed an in-app (Mac) SwiftUI surface. Alankrit clarified the
+  real workflow: he reads code on github.com and wants to select a line *there*.
+- **Reversibility:** the brain endpoint (D1/D2) is UI-agnostic — a two-way door,
+  it serves any client. The *client* is a browser extension (a new distribution
+  surface); mostly reversible, but Chrome Web Store packaging/review is real work.
+- **Criteria (ranked):** (absolute) never weakens cite-or-unknown; never sends
+  code content out of the user's trust boundary beyond what's already ingested.
+  Then: matches the real read-code-on-GitHub workflow > reuses the existing
+  `/explain` brain path > distribution cost.
+- **Options considered:** (a) in-app SwiftUI line-select — rejected: the Mac app
+  has no code editor, so there is no line to select there; wrong surface. (b) IDE
+  extension (VS Code) — deferred: a different reader than the tester's stated
+  GitHub workflow. (c) **browser extension on GitHub** — chosen. (d) null (paste a
+  line into the web demo) — rejected: it *is* the friction remark 3 is about.
+- **Scope guard:** the extension only activates on repos already connected to
+  Icarus (it has an index → something to cite). On any other repo it stays
+  dormant — no "answer anything on any GitHub page," which would have nothing to
+  cite and would collide with cite-or-unknown.
+- **Privacy invariant (load-bearing):** the extension sends only **coordinates**
+  (`{repo, path, start, end}`) to the brain, never the code text. The brain
+  answers from its **already-ingested** corpus for that repo (public → free
+  writer, private → paid private-safe writer via the trust interlock, unchanged).
+  Asking about private code does not re-expose it.
+- **Pre-mortem (top risk):** GitHub's DOM is not a stable API — the content script
+  parsing repo/path/line-range could break across the blob view, the PR-diff view,
+  and GitHub's React code view. Mitigation: **D0 is a probe** that proves
+  deterministic extraction before any extension UI is built (risk-first).
+- **Reopen trigger:** revisit an in-app or IDE surface only if testers ask for the
+  explain-a-line moment somewhere other than GitHub.
 
 **Tasks (red→green):**
-- **D1 — brain endpoint.** `POST /explain {repo, path, start, end}` → resolve the
-  chunk(s) covering those lines (A2 refs), retrieve neighbors (semantic + the PRs/
-  issues that reference the file), run the same cite-or-abstain writer → gate →
-  `Result`. New handler test in `demo/test_server.py`; **reuses the gate — no new
-  honesty path.**
+- **D0 — GitHub extraction probe (do first).** A throwaway content script that, on
+  a real connected repo's file page, deterministically reads `{owner, repo, path,
+  start, end}` from a user's line selection. **Binary done:** it logs the correct
+  four values for a selected range on the standard blob view, and this doc records
+  which GitHub views work vs. don't (blob / PR-diff / React code view). If
+  extraction isn't deterministic on the blob view, stop and rescope — the whole
+  brick rests on this.
+- **D1 — brain endpoint.** `POST /explain {repo, path, start, end[, question]}` →
+  resolve the chunk(s) covering those lines (A2 refs) from the *ingested commit*,
+  retrieve neighbors (semantic + the PRs/issues referencing the file), run the
+  same cite-or-abstain writer → gate → `Result`. Handler test in
+  `demo/test_server.py`; **reuses the gate — no new honesty path.** Free/paid
+  writer routed by the repo's existing public/private tier via the trust
+  interlock — no new provider.
 - **D2 — payload/links** for the explain shape (`demo/payload.py`,
-  `demo/test_payload.py`).
-- **D3 — app surface** (`mac/`): a line-selection → explain call in the overlay/
-  shell, rendering the cited answer or the honest unknown. IcarusKit client method
-  + test; SwiftUI wiring.
+  `demo/test_payload.py`); citations link to GitHub at the pinned ingested commit.
+- **D3 — extension: capture + call.** Content script gated to connected repos
+  (checks a cheap `/status`-style "is this repo indexed" call), turns a line
+  selection into an "Ask Icarus" trigger, sends coordinates + the bearer token to
+  `/explain`. Unit-test the pure parse/gate logic.
+- **D4 — extension: render.** An overlay panel on the GitHub page showing the
+  cited answer or the honest unknown, citations clickable to GitHub at the pinned
+  commit; the public/private writer badge carried through so the user sees which
+  tier answered.
+- **D5 — end-to-end proof.** One live guard: on a connected repo, a real selection
+  returns a cited explanation and (on a why-not-recorded line) an honest unknown.
 
-**Definition of done:** selecting real lines returns a cited explanation or an
-honest unknown, proven end-to-end (brain test + one live guard); no new gate.
+**Definition of done:** on github.com, selecting real lines in a connected repo
+returns a cited explanation or an honest unknown, overlaid on the page, proven
+end-to-end (brain test + extension parse test + one live guard); no new gate.
 
-**Honest limits:** explanation quality rides on A+C; without language-aware parsing
-the "neighbors" are retrieval-based, not call-graph-based (deep structural
-understanding stays post-Phase-4 per CLAUDE.md).
+**Honest limits:**
+- Explanation quality rides on A+C; without language-aware parsing the "neighbors"
+  are retrieval-based, not call-graph-based (structural understanding stays Brick
+  S, post-Phase-4 per CLAUDE.md).
+- **Line-number drift:** the user views github.com at HEAD; the corpus is pinned
+  to the ingested commit (`meta.json`). If the file changed since ingestion, the
+  selected line may not map to the same corpus line. D1 resolves from the ingested
+  commit and the citation names that commit; a content-match fallback is deferred.
+- Chrome first; Firefox/Safari ports and non-GitHub hosts deferred (see not-doing).
 
 ---
 
@@ -708,6 +768,18 @@ before building.**
   never.
 - **Issue/PR comment ingestion, incremental sync.** *Reopen trigger:* a repo where
   the answer provably lives in comments and Bricks A/B/C miss it.
+- **In-app (Mac) or IDE (VS Code) line-select surface for Brick D.** The explain-a-
+  line moment ships as a GitHub browser extension only. *Reopen trigger:* testers
+  ask for it somewhere other than GitHub.
+- **Brick D on non-Chrome browsers / non-GitHub code hosts (GitLab, Bitbucket).**
+  *Reopen trigger:* the Chrome+GitHub extension lands and a user asks for another
+  browser or host.
+- **Brick D extension activating on unconnected repos.** It only wakes on repos
+  Icarus has indexed. *Reopen trigger:* never without a deliberate product
+  decision — an unconnected repo has nothing to cite.
+- **Content-match line resolution (drift-proofing Brick D).** D1 answers from the
+  ingested commit and cites it. *Reopen trigger:* a tester hits a wrong-line
+  explanation caused by the file changing since ingestion.
 
 ## Re-planning checkpoints
 - After **Brick 0**: record the RED baseline. If comprehension is already high on

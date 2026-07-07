@@ -93,7 +93,7 @@ is the orientation layer on top of it.
 - **C3b (the live proof) is the ONE thing blocking Brick C's merge** — see §1.
 
 **Not started yet:** Brick Q (query-understanding: framing/grammar/spelling
-robustness), Brick D (line-select → explain, remark 3), Brick S (structural
+robustness), Brick D (explain a line on GitHub via a browser extension, remark 3), Brick S (structural
 comprehension, deferred-gated, needs explicit go), Brick E (richer "why"
 sources). See §4.
 
@@ -232,9 +232,16 @@ Full detail in `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`
   normalization layer covers the rest). Fixes nothing on its own in the
   tester-remarks table but is core to the refined north star ("answer any
   question... regardless of framing, grammar, or spelling").
-- **Brick D — line-select → explain** (remark 3). Depends on Brick A's
-  line-addressable refs (already done) and benefits from Brick C's semantic
-  neighbors. Not started.
+- **Brick D — explain a line on GitHub** (remark 3). **Route decided 2026-07-08
+  (recorded in the plan doc's Brick D section):** a **Chrome browser extension**
+  on github.com, active **only on repos already connected to Icarus** — select a
+  line → cited explanation overlaid on the page, or an honest unknown. NOT an
+  in-app Mac surface (the Mac app has no code editor). The extension sends only
+  coordinates (`{repo, path, start, end}`), never code text; the brain answers
+  from its already-ingested corpus. Task order is probe-first: **D0** proves the
+  content script can deterministically read repo/path/line-range off GitHub's DOM
+  before any UI is built. Depends on Brick A's line-addressable refs (done) +
+  Brick C's semantic neighbors. Not started.
 - **Brick S — structural comprehension** (AST/call-graph, the deep "reads the
   code" capability). **Deferred-gated** — CLAUDE.md lists this under
   "post-Phase-4 unless a task says so." Needs Alankrit's **explicit go** before
