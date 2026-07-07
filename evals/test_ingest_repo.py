@@ -227,6 +227,34 @@ class AllIssuesCoverageTests(unittest.TestCase):
         mock_all_ids.assert_called_once_with("octo/repo", token="tok")
         mock_fetch_issues.assert_called_once()
 
+    def test_issue_list_call_requests_state_all_and_issue_limit(self):
+        """Proves the literal `gh issue list --state all --limit ISSUE_LIMIT
+        ...` args reach the subprocess call -- the exact test gap B1's own
+        code-quality review flagged (every other test in this class mocks
+        fetch_all_issue_ids out entirely, so none of them would catch a future
+        edit that silently narrowed --state or dropped the limit). Mirrors
+        FetchPRsAllStatesTests.test_pr_list_call_requests_state_all_not_merged's
+        technique: patch subprocess.run directly and call the real function,
+        not a mock of it, so the literal argv is captured."""
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            if args[0] == "gh" and "list" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="[]")
+            raise AssertionError(f"unexpected subprocess call: {args}")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            ingest.fetch_all_issue_ids("octo/repo")
+
+        issue_list_calls = [c for c in calls if c[0] == "gh" and "list" in c]
+        self.assertEqual(len(issue_list_calls), 1)
+        call = issue_list_calls[0]
+        self.assertIn("--state", call)
+        self.assertEqual(call[call.index("--state") + 1], "all")
+        self.assertIn("--limit", call)
+        self.assertEqual(call[call.index("--limit") + 1], str(ingest.ISSUE_LIMIT))
+
 
 class FetchPRsAllStatesTests(unittest.TestCase):
     """Brick B2: fetch_prs must fetch PRs of ALL states (open+closed+merged),
