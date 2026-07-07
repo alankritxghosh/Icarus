@@ -351,6 +351,18 @@ deleted once Brick A lands.
 - **A4 — links.** Update `demo/links.py` (`ref_to_url`) so a `code:path#L10-L40`
   ref deep-links to the right lines on GitHub at the pinned commit; extend
   `demo/test_links.py`.
+
+  **Scope clarified before dispatch:** today `ref_to_url` returns `None` for
+  `doc:`/`config:` sources entirely (never implemented — the unmerged, superseded
+  `feat/ingest-markdown` branch had added `doc:` support, but that branch is not
+  merged in, per the A1 decision). Now that A3 landed real `doc:`/`config:`
+  ingestion, leaving them unlinked would mean whole-repo ingest produces citations
+  that render as dead plain text — a real regression, not a neutral gap. `doc:`
+  and `config:` use the exact same GitHub blob URL as `code:` (`blob/{commit}/
+  {rest}`), so A4's scope now includes routing all three through the same
+  line-range-aware blob-URL logic; `pr:`/`issue:` stay untouched. Visual chip
+  styling for `doc:`/`config:` in `demo/index.html` is explicitly deferred (not
+  required for correctness, purely a color-coding nicety) — out of scope for A4.
 - **A5 — skippable live smoke.** Extend `test_ingest_smoke.py` to ingest a tiny
   **non-Python** public repo behind `RUN_INGEST_SMOKE=1` and assert non-`.py`
   chunks appear.
