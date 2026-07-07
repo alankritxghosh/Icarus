@@ -11,6 +11,7 @@ from unittest import mock
 
 from . import ingest
 from .corpus_meta import load_meta
+from .ingest import _MAX_FILE_BYTES, _MAX_TOTAL_BYTES, REPO
 
 
 class IngestRepoTests(unittest.TestCase):
@@ -29,6 +30,127 @@ class IngestRepoTests(unittest.TestCase):
             m = load_meta(Path(d) / "meta.json")
             self.assertEqual(m["repo"], "octo/repo")
             self.assertEqual(m["commit"], "abc123")
+
+
+def _write(root, rel_path, content, binary=False):
+    path = Path(root) / rel_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if binary:
+        path.write_bytes(content)
+    else:
+        path.write_text(content)
+    return path
+
+
+def _fake_run_cloning_fixture(fixture_root):
+    """Build a subprocess.run fake that, on `git clone`, populates the clone
+    destination from `fixture_root` (copying real files) instead of touching
+    the network -- so fetch_code walks a real fixture tree on disk without a
+    live clone. `git checkout` and any `gh` calls are no-ops/empty."""
+    import shutil
+
+    def fake_run(args, **kwargs):
+        prog = args[0]
+        if prog == "git" and args[1] == "clone":
+            dest = Path(args[-1])
+            shutil.copytree(fixture_root, dest, dirs_exist_ok=True)
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if prog == "git" and args[1] == "-C" and "checkout" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        raise AssertionError(f"unexpected subprocess call in fetch_code test: {args}")
+
+    return fake_run
+
+
+class FetchCodeWholeRepoWalkTests(unittest.TestCase):
+    """fetch_code (Task A3): walks every file under code_dir (not just *.py),
+    classifies each via classify_file, chunks via chunk_text, and re-adds the
+    "source" key chunk_text deliberately omits. All offline: `git clone` is
+    monkeypatched to copy a fixture tree instead of hitting the network."""
+
+    def _fetch(self, fixture_root, code_dir="."):
+        with mock.patch("evals.ingest.subprocess.run",
+                         side_effect=_fake_run_cloning_fixture(fixture_root)):
+            return ingest.fetch_code("octo/repo", "deadbeef", code_dir)
+
+    def test_walks_mixed_file_types_with_correct_source_tags(self):
+        with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory():
+            _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
+            _write(fixture, "README.md", "# Title\n\nSome docs.\n")
+            _write(fixture, "config/app.yaml", "name: icarus\n")
+            chunks = self._fetch(fixture)
+            by_ref = {c["ref"]: c for c in chunks}
+            self.assertEqual(by_ref["code:pkg/main.go"]["source"], "code")
+            self.assertEqual(by_ref["doc:README.md"]["source"], "doc")
+            self.assertEqual(by_ref["config:config/app.yaml"]["source"], "config")
+            self.assertEqual(len(chunks), 3)
+
+    def test_deny_listed_binary_and_oversized_files_excluded(self):
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "node_modules/left-pad/index.js", "module.exports = 1;\n")
+            _write(fixture, "pkg/blob.py", b"\x00\x01binary junk", binary=True)
+            _write(fixture, "pkg/huge.py", "x = 1\n" * (_MAX_FILE_BYTES // 6 + 1000))
+            _write(fixture, "pkg/ok.py", "x = 1\n")
+            chunks = self._fetch(fixture)
+            refs = {c["ref"] for c in chunks}
+            self.assertEqual(refs, {"code:pkg/ok.py"})
+
+    def test_large_file_produces_multiple_windowed_chunks_with_source(self):
+        with tempfile.TemporaryDirectory() as fixture:
+            big_text = "\n".join(f"line {i}" for i in range(1, 501)) + "\n"  # > 300 lines
+            _write(fixture, "pkg/big.py", big_text)
+            chunks = self._fetch(fixture)
+            self.assertGreater(len(chunks), 1)
+            for c in chunks:
+                self.assertEqual(c["source"], "code")
+                self.assertTrue(c["ref"].startswith("code:pkg/big.py#L"))
+            # first window starts at line 1, last window ends at line 500
+            self.assertTrue(chunks[0]["ref"].endswith("#L1-L300"))
+            self.assertTrue(chunks[-1]["ref"].endswith("-L500"))
+
+    def test_total_byte_budget_stops_ingestion_across_mixed_sources(self):
+        with tempfile.TemporaryDirectory() as fixture, \
+                mock.patch("evals.ingest._MAX_TOTAL_BYTES", 100):
+            # Each file is well under _MAX_FILE_BYTES but together exceed the
+            # patched small total budget -- some files must be skipped.
+            _write(fixture, "a.py", "x = 1\n" * 20)     # ~120 bytes
+            _write(fixture, "b.md", "# doc\n" * 20)      # ~120 bytes
+            _write(fixture, "c.yaml", "k: v\n" * 20)      # ~100 bytes
+            chunks = self._fetch(fixture)
+            total = sum(len(c["text"].encode("utf-8")) for c in chunks)
+            # Budget enforced: not all three files' bytes made it in.
+            self.assertLessEqual(len(chunks), 2)
+            self.assertLess(total, 400)  # far less than all three files combined
+
+    def test_counts_reflect_mixed_sources_via_ingest_repo(self):
+        prs = ([], set())
+        issues = []
+        with tempfile.TemporaryDirectory() as fixture, tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(ingest, "fetch_prs", return_value=prs), \
+                mock.patch.object(ingest, "fetch_issues", return_value=issues), \
+                mock.patch("evals.ingest.subprocess.run",
+                           side_effect=_fake_run_cloning_fixture(fixture)):
+            _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
+            _write(fixture, "README.md", "# Title\n\nSome docs.\n")
+            _write(fixture, "config/app.yaml", "name: icarus\n")
+            counts = ingest.ingest_repo("octo/repo", out, commit="deadbeef", code_dir=".")
+            self.assertEqual(counts.get("code"), 1)
+            self.assertEqual(counts.get("doc"), 1)
+            self.assertEqual(counts.get("config"), 1)
+            self.assertEqual(counts.get("pr"), 0)
+            self.assertEqual(counts.get("issue"), 0)
+
+
+class ResolveCodeDirIntegrationTests(unittest.TestCase):
+    """The no-arg / default-repo path resolves code_dir to "llm"; any other
+    repo resolves to "." -- verified via the resolve_code_dir helper itself
+    (the pure logic ingest_repo's caller, main(), relies on)."""
+
+    def test_default_repo_resolves_to_llm_subtree(self):
+        self.assertEqual(ingest.resolve_code_dir(REPO, None), "llm")
+
+    def test_other_repo_resolves_to_whole_root(self):
+        self.assertEqual(ingest.resolve_code_dir("someone/other-repo", None), ".")
 
 
 class AuthenticatedIngestTests(unittest.TestCase):

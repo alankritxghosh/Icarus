@@ -237,7 +237,9 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Ingest a public GitHub repo into the corpus")
     p.add_argument("--repo", default=REPO, help="owner/name of a public repo")
     p.add_argument("--commit", default=None, help="commit SHA to pin (default: repo HEAD)")
-    p.add_argument("--code-dir", default="llm", help="subtree to glob for *.py")
+    p.add_argument("--code-dir", default=None,
+                    help="subtree to walk (default: 'llm' for the pinned repo, "
+                         "the whole clone root for any other repo)")
     return p.parse_args(argv)
 
 
@@ -254,6 +256,18 @@ def resolve_commit(repo: str, commit, token=None) -> str:
         env=_git_env(token),
     ).stdout
     return out.split()[0]
+
+
+def resolve_code_dir(repo: str, code_dir) -> str:
+    """Explicit --code-dir wins; the default repo without one keeps its
+    historical 'llm' subtree (byte-scope-reproducible board -- same repo,
+    commit, and subtree, per the resolved Brick A ambiguity); any other repo
+    walks the whole clone root. Mirrors resolve_commit's shape exactly."""
+    if code_dir:
+        return code_dir
+    if repo == REPO:
+        return "llm"
+    return "."
 
 
 def _gh_json(args, token=None):
@@ -309,24 +323,31 @@ def fetch_code(repo, commit, code_dir, token=None):
         # relative to the clone root (unchanged format) while fixing that.
         root = Path(d).resolve()
         base = _safe_code_dir(d, code_dir)
-        for path in sorted(base.rglob("*.py")):
-            if path.stat().st_size > _MAX_FILE_BYTES:
-                continue  # skip an oversized single file
+        for path in sorted(base.rglob("*")):
+            if not path.is_file():
+                continue
+            source = classify_file(path, root)
+            if source is None:
+                continue  # not ingestable (deny-listed, wrong extension, binary, oversized, ...)
             if total > _MAX_TOTAL_BYTES:
-                break  # stop once we've read enough code
+                break  # stop once we've read enough across all sources
             rel = path.relative_to(root).as_posix()
             text = path.read_text(errors="replace")
             total += len(text.encode("utf-8", "replace"))
-            chunks.append({"ref": f"code:{rel}", "source": "code", "text": text})
+            for sub in chunk_text(text, f"{source}:{rel}"):
+                chunks.append({"ref": sub["ref"], "source": source, "text": sub["text"]})
     return chunks
 
 
 def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     """Fetch a repo and write chunks.jsonl + meta.json into out_dir.
 
-    Returns the {pr, issue, code} counts. Reusable by the CLI (default corpus)
-    and the demo's per-repo cache. Network (gh + git); public repos by default.
-    An optional caller token (never from the CLI -- programmatic callers only)
+    Returns counts keyed by every source tag actually ingested -- always "pr"
+    and "issue" (0 if none), "code" (0 if none, kept present for backward
+    compatibility), plus "doc"/"config" whenever fetch_code's whole-repo walk
+    finds files of those kinds. Reusable by the CLI (default corpus) and the
+    demo's per-repo cache. Network (gh + git); public repos by default. An
+    optional caller token (never from the CLI -- programmatic callers only)
     authenticates git/gh as that caller for a private repo, via env only."""
     commit = resolve_commit(repo, commit, token=token)
     prs, issue_ids = fetch_prs(repo, token=token)
@@ -338,17 +359,24 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     with (out_dir / "chunks.jsonl").open("w") as f:
         for c in all_chunks:
             f.write(json.dumps(c) + "\n")
-    counts = {"pr": len(prs), "issue": len(issues), "code": len(code)}
+    # code may now yield "code"/"doc"/"config" chunks (Task A3's whole-repo
+    # walk), not just "code" -- bucket by whatever source tags actually
+    # appeared, so every chunk's source is reflected in the counts.
+    counts = {"pr": len(prs), "issue": len(issues)}
+    for c in code:
+        counts[c["source"]] = counts.get(c["source"], 0) + 1
+    counts.setdefault("code", 0)
     write_meta(out_dir / "meta.json", repo=repo, commit=commit, code_dir=code_dir, counts=counts)
     return counts
 
 
 def main(argv=None):
     args = parse_args(argv)
-    counts = ingest_repo(args.repo, OUT.parent, commit=args.commit, code_dir=args.code_dir)
+    code_dir = resolve_code_dir(args.repo, args.code_dir)
+    counts = ingest_repo(args.repo, OUT.parent, commit=args.commit, code_dir=code_dir)
     total = sum(counts.values())
-    print(f"wrote {total} chunks ({counts['pr']} pr, {counts['issue']} issue, {counts['code']} code) "
-          f"from {args.repo} -> {OUT}")
+    breakdown = ", ".join(f"{n} {k}" for k, n in counts.items())
+    print(f"wrote {total} chunks ({breakdown}) from {args.repo} -> {OUT}")
 
 
 if __name__ == "__main__":
