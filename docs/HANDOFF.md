@@ -6,6 +6,28 @@ active body of work as of this handoff. (The private-repo effort from 2026-07-06
 is a separate, already-shipped feature area; its history lives in
 `docs/plans/2026-07-04-private-repos-*.md` and git log, not repeated here.)
 
+**Required: use the `~/.claude/skills` this session used — do not freelance the
+process.** Every brick in this effort was built with this skill set, in this
+order, and the next session must continue the same way rather than reverting to
+ad hoc implementation:
+- `using-git-worktrees` — one isolated worktree per brick, at
+  `.worktrees/<branch-name>`, before any task work starts (§5).
+- `subagent-driven-development` — fresh implementer subagent per task (TDD,
+  self-review, commit), never edited by the orchestrating session directly.
+- `requesting-code-review` — every task gets an independent spec-compliance
+  review (explicitly told not to trust the implementer's report) **then** a
+  separate code-quality review, in that order — never combined, never skipped.
+- `finishing-a-development-branch` — verify tests, then merge/clean up a brick's
+  branch + worktree only once its final whole-brick review is clean.
+- `playbook-planning` — risk-first sequencing, a probe before the build (Brick 0
+  is the concrete example), a written not-doing list with reopen-triggers.
+- `schedule` — for any genuine "resume this later, outside the current session"
+  need (e.g. the quota-blocked retry in §1) — not `ScheduleWakeup`, which is
+  scoped to `/loop` dynamic-pacing mode and doesn't apply here.
+
+If a skill listed above isn't available in a future session's `~/.claude/skills`,
+say so explicitly rather than silently improvising a substitute.
+
 ---
 
 ## 0. TL;DR — where we are
