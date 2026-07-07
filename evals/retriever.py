@@ -92,14 +92,16 @@ class SemanticRetriever:
 
     def __init__(self, chunks: List[Chunk], provider):
         self.chunks = chunks
-        self._vectors = [provider.embed(c.text) for c in chunks]
+        # Keyed by ref, not a list parallel to `chunks` -- `chunks` is a public
+        # attribute (matching LexicalRetriever's convention), so a caller (e.g.
+        # a future hybrid ranker) mutating/reordering it post-construction must
+        # never silently pair the wrong vector with the wrong ref.
+        self._vectors = {c.ref: provider.embed(c.text) for c in chunks}
         self._provider = provider
 
     def search(self, query: str, k: int = 20) -> List[str]:
         q_vec = self._provider.embed(query)
-        scored = [
-            (_cosine(q_vec, self._vectors[i]), self.chunks[i].ref) for i in range(len(self.chunks))
-        ]
+        scored = [(_cosine(q_vec, self._vectors[c.ref]), c.ref) for c in self.chunks]
         # rank by similarity desc, ref asc for determinism (mirrors LexicalRetriever).
         # Cosine's natural range is [-1, 1], where 0 means "no relationship" and
         # negative means "opposite" -- both are non-matches, so "> 0" (not ">=
