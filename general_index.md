@@ -338,9 +338,14 @@ removing, or renaming files). For class/function-level detail see
   (default scope `repo`, so a caller's token can read their own private repos —
   existing `read:user`-scoped sign-ins must re-authenticate once), `exchange_code`
   (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
-  state/session, TTL). `begin(mode)` tags each login `app` (Mac app) or `web`
-  (browser); `complete` returns `(session_id, mode)` so the callback knows where
-  to send the user. The secret lives only here, never in the app.
+  state/session, TTL). `begin(mode, redirect_target=None)` tags each login
+  `app` (Mac app), `web` (browser), or Brick D's `extension` (a browser
+  extension's `chrome.identity.launchWebAuthFlow`, which needs its own
+  `redirect_target` -- validated by `_CHROMIUMAPP_REDIRECT` against
+  `https://<32 a-p chars>.chromiumapp.org/` so a caller can never turn this
+  into an open redirect to an arbitrary URL); `complete` returns `(session_id,
+  mode, redirect_target)` so the callback knows where to send the user. The
+  secret lives only here, never in the app or extension.
 - `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
@@ -350,7 +355,9 @@ removing, or renaming files). For class/function-level detail see
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
   caller's token before any private clone),`/disconnect`,`/auth/github/begin`
   (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
-  `icarus://`),`/auth/github/redeem`. `POST /explain` (Brick D, `_handle_explain`)
+  `icarus://`, Brick D's `extension` → the caller-supplied, validated
+  `redirect_target`; a bad/missing `redirect_target` for `extension` mode is a
+  clean 400, not a crash),`/auth/github/redeem`. `POST /explain` (Brick D, `_handle_explain`)
   — `{repo, path, start, end[, question]}` for a GitHub line selection; shares
   `/ask`'s billed-writer rate limit; refuses (409) unless `repo` matches the
   caller's currently connected repo, never silently answering about or
@@ -368,7 +375,9 @@ removing, or renaming files). For class/function-level detail see
   token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
 - `demo/test_github_oauth.py` — the web-login flow: authorize-url building
   (including the `repo` scope), offline token exchange, and the single-use
-  state/session lifecycle.
+  state/session lifecycle. Brick D's `extension` mode: the redirect_target
+  carried through `begin`→`complete`, and the open-redirect guard rejecting a
+  missing/non-chromiumapp.org/malformed-id target.
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
   single-flight concurrent connect, generic (non-leaking) ingest errors, and
   private connect (token/private routing, refusal without the paid writer,

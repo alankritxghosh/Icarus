@@ -163,8 +163,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(404, {"error": "not found"})
 
         def _github_callback(self):
-            """GitHub's redirect lands here (inside the app's auth sheet). Exchange
-            the code, then 302 to the app's `icarus://` scheme so the sheet closes."""
+            """GitHub's redirect lands here (inside the app's auth sheet, or the
+            extension's launchWebAuthFlow tab). Exchange the code, then 302 to
+            the login surface's own callback target so it closes/completes."""
             if oauth is None or not oauth.configured:
                 self._send(503, b"GitHub login is not configured.", "text/plain; charset=utf-8")
                 return
@@ -172,7 +173,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             code = (q.get("code") or [""])[0]
             state = (q.get("state") or [""])[0]
             try:
-                session_id, mode = oauth.complete(state, code)
+                session_id, mode, redirect_target = oauth.complete(state, code)
             except Exception as e:
                 # Surface the cause in the server log (safe: GitHub's error string
                 # or "unknown/expired state" — never the code or client secret) so a
@@ -182,9 +183,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                            "text/html; charset=utf-8")
                 return
             # Web logins return to the same-origin page; the Mac app keeps its
-            # icarus:// custom scheme (which closes its auth sheet). The token is
-            # NOT in the URL — only the single-use session id is.
-            location = f"/?session={session_id}" if mode == "web" else f"icarus://auth?session={session_id}"
+            # icarus:// custom scheme (which closes its auth sheet); the browser
+            # extension's chrome.identity.launchWebAuthFlow is watching for a
+            # navigation to ITS OWN validated chromiumapp.org redirect_target
+            # (oauth.begin already refused any other value for this mode — see
+            # github_oauth.py's _CHROMIUMAPP_REDIRECT). The token is NOT in the
+            # URL for any mode — only the single-use session id is.
+            if mode == "web":
+                location = f"/?session={session_id}"
+            elif mode == "extension":
+                location = f"{redirect_target}?session={session_id}"
+            else:
+                location = f"icarus://auth?session={session_id}"
             self.send_response(302)
             self.send_header("Location", location)
             self.send_header("Content-Length", "0")
@@ -204,12 +214,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(503, {"error": "github login not configured"})
                     return
                 try:
-                    mode = (self._body() or {}).get("mode", "app")
+                    body = self._body() or {}
                 except (ValueError, AttributeError):
+                    body = {}
+                mode = body.get("mode", "app")
+                if mode not in ("app", "web", "extension"):
                     mode = "app"
-                if mode not in ("app", "web"):
-                    mode = "app"
-                _, url = oauth.begin(mode)
+                redirect_target = body.get("redirect_target") if mode == "extension" else None
+                try:
+                    _, url = oauth.begin(mode, redirect_target=redirect_target)
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
                 self._send_json(200, {"authorize_url": url})
                 return
             if self.path == "/auth/github/redeem":

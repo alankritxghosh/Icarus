@@ -561,10 +561,13 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())["authorize_url"]
 
-    def _begin_mode(self, mode):
+    def _begin_mode(self, mode, redirect_target=None):
+        body = {"mode": mode}
+        if redirect_target is not None:
+            body["redirect_target"] = redirect_target
         req = urllib.request.Request(
             self.base + "/auth/github/begin",
-            data=json.dumps({"mode": mode}).encode(),
+            data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())["authorize_url"]
@@ -581,6 +584,57 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         self.assertEqual(r.status, 302)
         self.assertTrue(loc.startswith("/?session="),
                         f"web login must return to the page, got {loc!r}")
+
+    # --- Brick D: extension mode ---
+
+    _EXT_TARGET = "https://" + "a" * 32 + ".chromiumapp.org/"
+
+    def test_extension_mode_begin_requires_a_redirect_target(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._begin_mode("extension")
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_extension_mode_begin_rejects_a_non_chromiumapp_target(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._begin_mode("extension", redirect_target="https://evil.example.com/")
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_extension_mode_callback_redirects_to_the_chromiumapp_target(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(
+            urlparse(self._begin_mode("extension", redirect_target=self._EXT_TARGET)).query
+        )["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEX&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertTrue(
+            loc.startswith(self._EXT_TARGET + "?session="),
+            f"extension login must return to its own chromiumapp.org target, got {loc!r}",
+        )
+
+    def test_extension_mode_full_flow_redeems_the_real_token(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(
+            urlparse(self._begin_mode("extension", redirect_target=self._EXT_TARGET)).query
+        )["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEEXT&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        session = parse_qs(urlparse(loc).query)["session"][0]
+        req = urllib.request.Request(self.base + "/auth/github/redeem",
+                                     data=json.dumps({"session": session}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(json.loads(resp.read())["token"], "tok-CODEEXT")
 
     def test_app_mode_callback_still_uses_custom_scheme(self):
         from urllib.parse import urlparse, parse_qs

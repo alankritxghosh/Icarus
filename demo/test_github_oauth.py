@@ -73,23 +73,68 @@ class OAuthFlowTests(unittest.TestCase):
         flow = self._flow()
         state, url = flow.begin()
         self.assertIn(f"state={state}", url)
-        session, mode = flow.complete(state, "CODE1")
+        session, mode, target = flow.complete(state, "CODE1")
         self.assertEqual(mode, "app")
+        self.assertIsNone(target)
         self.assertEqual(flow.redeem(session), "token-for-CODE1")
 
     def test_begin_defaults_to_app_mode(self):
         flow = self._flow()
         state, _ = flow.begin()
-        session, mode = flow.complete(state, "CODE_A")
+        session, mode, target = flow.complete(state, "CODE_A")
         self.assertEqual(mode, "app")
+        self.assertIsNone(target)
         self.assertEqual(flow.redeem(session), "token-for-CODE_A")
 
     def test_begin_web_mode_flows_through_complete(self):
         flow = self._flow()
         state, _ = flow.begin("web")
-        session, mode = flow.complete(state, "CODE_W")
+        session, mode, target = flow.complete(state, "CODE_W")
         self.assertEqual(mode, "web")
+        self.assertIsNone(target)
         self.assertEqual(flow.redeem(session), "token-for-CODE_W")
+
+    # --- Brick D: extension mode (chrome.identity.launchWebAuthFlow) ---
+
+    _EXT_TARGET = "https://" + "a" * 32 + ".chromiumapp.org/"
+
+    def test_begin_extension_mode_carries_the_redirect_target_through_complete(self):
+        flow = self._flow()
+        state, _ = flow.begin("extension", redirect_target=self._EXT_TARGET)
+        session, mode, target = flow.complete(state, "CODE_E")
+        self.assertEqual(mode, "extension")
+        self.assertEqual(target, self._EXT_TARGET)
+        self.assertEqual(flow.redeem(session), "token-for-CODE_E")
+
+    def test_begin_extension_mode_without_a_target_is_rejected(self):
+        # Meaningless/unsafe to proceed: nowhere to send the user back to.
+        with self.assertRaises(ValueError):
+            self._flow().begin("extension")
+
+    def test_begin_extension_mode_rejects_a_non_chromiumapp_target(self):
+        # The open-redirect guard: a caller must not be able to make the
+        # server redirect a real logged-in session anywhere it likes after a
+        # successful GitHub login -- only a genuine chrome-extension redirect
+        # target (https://<32 a-p letters>.chromiumapp.org/) is accepted.
+        with self.assertRaises(ValueError):
+            self._flow().begin("extension", redirect_target="https://evil.example.com/steal")
+
+    def test_begin_extension_mode_rejects_a_malformed_chromiumapp_id(self):
+        # Right domain, wrong id shape (extension ids are exactly 32 chars in
+        # a-p) -- still refused, not just a bare substring/suffix check.
+        with self.assertRaises(ValueError):
+            self._flow().begin("extension", redirect_target="https://short.chromiumapp.org/")
+
+    def test_app_and_web_modes_ignore_a_redirect_target_if_somehow_supplied(self):
+        # redirect_target is only meaningful for "extension" -- passing one to
+        # another mode must not be silently honored (it's never used for the
+        # actual redirect for those modes), so complete() must still report
+        # None for them regardless.
+        flow = self._flow()
+        state, _ = flow.begin("web", redirect_target=self._EXT_TARGET)
+        _, mode, target = flow.complete(state, "CODE_IGNORED")
+        self.assertEqual(mode, "web")
+        self.assertIsNone(target)
 
     def test_unknown_state_rejected(self):
         with self.assertRaises(ValueError):
@@ -98,7 +143,7 @@ class OAuthFlowTests(unittest.TestCase):
     def test_redeem_is_single_use(self):
         flow = self._flow()
         state, _ = flow.begin()
-        session, _ = flow.complete(state, "CODE2")
+        session, _, _ = flow.complete(state, "CODE2")
         self.assertEqual(flow.redeem(session), "token-for-CODE2")
         self.assertIsNone(flow.redeem(session))  # second time: gone
 

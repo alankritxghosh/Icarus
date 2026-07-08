@@ -1168,6 +1168,27 @@ Full suite: 295 evals (+21 tests) + 146 demo (+10 tests), all green.
 **D2 status: effectively absorbed into D1** — see above. No separate payload
 work was needed.
 
+**D3 auth foundation status: DONE (2026-07-09).** D3's task text assumed "the
+bearer token" already exists to send with `/explain` — it doesn't: a browser
+extension is a separate origin from the web demo's login (no shared storage),
+and no auth path existed for it. **Decision (Alankrit, 2026-07-09): extend the
+existing web OAuth flow** rather than build a manual-token stopgap or defer.
+Added a third `extension` mode to `demo/github_oauth.py`'s `OAuthFlow`
+(`begin(mode, redirect_target=None)` / `complete()` now returns
+`(session_id, mode, redirect_target)`), matching `chrome.identity.
+launchWebAuthFlow`'s pattern: GitHub still redirects only to our own
+registered `/auth/github/callback` (unchanged), which then 302s a THIRD time
+to the extension's own `https://<id>.chromiumapp.org/` target — the URL
+Chrome's identity API watches for to hand control back to the extension.
+**Security-critical addition:** `_CHROMIUMAPP_REDIRECT` validates that target
+against `^https://[a-p]{32}\.chromiumapp\.org/$` (Chrome's exact extension-id
+format) before `begin()` will store it, and refuses (raises `ValueError` →
+clean 400 at `/auth/github/begin`) a missing or non-matching target — without
+this, a caller could turn extension-mode login into an open redirect to an
+arbitrary attacker URL after a real user's successful GitHub sign-in. The
+`redeem` step is reused completely unchanged from the web flow. Full suite:
+295 evals + 155 demo (+9 tests), all green.
+
 **Definition of done:** on github.com, selecting real lines in a connected repo
 returns a cited explanation or an honest unknown, overlaid on the page, proven
 end-to-end (brain test + extension parse test + one live guard); no new gate.
