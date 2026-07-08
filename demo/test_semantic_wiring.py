@@ -2,8 +2,13 @@
 """Proves Brick C's semantic retrieval is actually wired into the demo's serving
 pipeline (not just the eval harness): the demo builds a HybridRetriever (BM25 +
 local semantic) when the local embedder is available, and degrades gracefully to
-LexicalRetriever (never crashes) when fastembed/the model is not."""
+LexicalRetriever (never crashes) when fastembed/the model is not.
 
+Hermetic: every test resets the process-global shared-embedder singleton, and the
+live tests build over a TEMP COPY of the corpus so nothing writes vectors.json
+into the committed corpus dir -- no cross-test state to bleed."""
+
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,19 +17,6 @@ from unittest import mock
 from evals.corpus import Chunk
 from evals.retriever import LexicalRetriever, HybridRetriever
 from demo import library
-
-
-class _SpyEmbedder:
-    """A stub embedder that records which texts it embeds, so a test can prove
-    the cache prevents re-embedding chunks on a second build."""
-    model_name = "spy-model-v1"
-
-    def __init__(self):
-        self.embedded = []
-
-    def embed(self, text):
-        self.embedded.append(text)
-        return [float(len(text)), 1.0]
 
 try:
     import fastembed  # noqa: F401
@@ -39,7 +31,31 @@ _FAKE_CHUNKS = [
 ]
 
 
+def _reset_shared_embedder():
+    # The shared embedder is a process-global singleton; reset it so no test
+    # leaks a (real or None) provider into another and every test is hermetic.
+    library._embedder_state.clear()
+    library._embedder_state.update(tried=False, provider=None)
+
+
+class _SpyEmbedder:
+    """A stub embedder that records which texts it embeds, so a test can prove
+    the cache prevents re-embedding chunks on a second build."""
+    model_name = "spy-model-v1"
+
+    def __init__(self):
+        self.embedded = []
+
+    def embed(self, text):
+        self.embedded.append(text)
+        return [float(len(text)), 1.0]
+
+
 class SemanticWiringFallbackTests(unittest.TestCase):
+    def setUp(self):
+        _reset_shared_embedder()
+        self.addCleanup(_reset_shared_embedder)
+
     def test_falls_back_to_lexical_when_embedder_unavailable(self):
         # Graceful degradation: no embedder -> lexical-only, never a crash.
         with mock.patch.object(library, "_shared_embedder", return_value=None):
@@ -83,14 +99,32 @@ class SemanticWiringFallbackTests(unittest.TestCase):
 @unittest.skipUnless(_HAS_FASTEMBED and (CORPUS_DIR / "chunks.jsonl").exists(),
                      "needs fastembed and the committed corpus")
 class SemanticWiringLiveTests(unittest.TestCase):
-    def test_default_pipeline_wires_hybrid_over_the_committed_corpus(self):
-        pipe = library._default_build_pipeline(CORPUS_DIR)
+    @classmethod
+    def setUpClass(cls):
+        _reset_shared_embedder()
+        # Build over a TEMP COPY of the corpus so the vector cache is written to
+        # tmp (and cleaned up), never into the committed evals/corpus dir.
+        cls._tmp = tempfile.TemporaryDirectory()
+        d = Path(cls._tmp.name)
+        shutil.copy(CORPUS_DIR / "chunks.jsonl", d / "chunks.jsonl")
+        meta = CORPUS_DIR / "meta.json"
+        if meta.exists():
+            shutil.copy(meta, d / "meta.json")
+        cls.corpus = d
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+        _reset_shared_embedder()
+
+    def test_default_pipeline_wires_hybrid_over_the_corpus(self):
+        pipe = library._default_build_pipeline(self.corpus)
         self.assertIsInstance(pipe._retriever, HybridRetriever)
 
     def test_semantic_retrieval_finds_a_paraphrase_bm25_would_miss(self):
         # The whole point of wiring semantic in: a query phrased unlike the code
         # still retrieves. Sanity that the wired hybrid returns results.
-        pipe = library._default_build_pipeline(CORPUS_DIR)
+        pipe = library._default_build_pipeline(self.corpus)
         hits = pipe._retriever.search("how are command line arguments parsed", 5)
         self.assertTrue(hits)
 

@@ -103,6 +103,13 @@ class SemanticRetriever:
         # caller owns that guarantee. The provider is still kept for embedding
         # the QUERY at search time, so a real embedder is always required.
         if vectors is not None:
+            missing = {c.ref for c in chunks} - set(vectors)
+            if missing:
+                # Fail LOUD at construction rather than KeyError at query time:
+                # search() indexes self._vectors[c.ref] for every chunk.
+                raise ValueError(
+                    f"vectors missing {len(missing)} of {len(chunks)} chunk ref(s)"
+                )
             self._vectors = vectors
         else:
             self._vectors = {c.ref: provider.embed(c.text) for c in chunks}

@@ -73,6 +73,14 @@ class SemanticRetrieverVectorsParamTests(unittest.TestCase):
         SemanticRetriever(chunks, provider)
         self.assertEqual(set(embedded), {"alpha", "beta"})
 
+    def test_incomplete_vectors_raise_at_construction_not_query_time(self):
+        # A vectors= that doesn't cover every chunk ref must fail LOUD at build,
+        # not KeyError later at search() time.
+        chunks = [Chunk("code:a#L1-L2", "code", "alpha"), Chunk("code:b#L1-L2", "code", "beta")]
+        provider = StaticEmbeddingProvider(lambda t: [1.0, 0.0])
+        with self.assertRaises(ValueError):
+            SemanticRetriever(chunks, provider, vectors={"code:a#L1-L2": [1.0, 0.0]})
+
 
 if __name__ == "__main__":
     unittest.main()
