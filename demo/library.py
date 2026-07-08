@@ -48,12 +48,24 @@ def _shared_embedder():
 
 def _build_retriever(chunks, corpus_dir):
     """Hybrid (BM25 + local semantic) retrieval when the embedder is available,
-    else lexical-only. `corpus_dir` locates the on-disk vector cache."""
+    else lexical-only. Chunk embeddings are read from / written to an on-disk
+    cache under `corpus_dir` so a server restart or repo reconnect doesn't
+    re-embed the whole corpus (the query is still embedded live)."""
     lexical = LexicalRetriever(chunks)
     embedder = _shared_embedder()
     if embedder is None:
         return lexical
-    return HybridRetriever(lexical, SemanticRetriever(chunks, embedder))
+    from evals.vector_cache import load_vectors, save_vectors
+    model = getattr(embedder, "model_name", "unknown")
+    cache_path = Path(corpus_dir) / "vectors.json"
+    refs = [c.ref for c in chunks]
+    cached = load_vectors(cache_path, model, refs)
+    if cached is not None:
+        semantic = SemanticRetriever(chunks, embedder, vectors=cached)
+    else:
+        semantic = SemanticRetriever(chunks, embedder)  # embeds every chunk now
+        save_vectors(cache_path, model, semantic.vectors)
+    return HybridRetriever(lexical, semantic)
 
 
 def _pick_writer():

@@ -90,14 +90,29 @@ class SemanticRetriever:
     never need to construct or isinstance-check it.
     """
 
-    def __init__(self, chunks: List[Chunk], provider):
+    def __init__(self, chunks: List[Chunk], provider, vectors=None):
         self.chunks = chunks
         # Keyed by ref, not a list parallel to `chunks` -- `chunks` is a public
         # attribute (matching LexicalRetriever's convention), so a caller (e.g.
         # a future hybrid ranker) mutating/reordering it post-construction must
         # never silently pair the wrong vector with the wrong ref.
-        self._vectors = {c.ref: provider.embed(c.text) for c in chunks}
+        #
+        # `vectors` lets a caller supply precomputed chunk embeddings (e.g. from
+        # an on-disk cache) to skip the expensive embed-every-chunk pass. It MUST
+        # cover every chunk's ref (search() indexes self._vectors[c.ref]); the
+        # caller owns that guarantee. The provider is still kept for embedding
+        # the QUERY at search time, so a real embedder is always required.
+        if vectors is not None:
+            self._vectors = vectors
+        else:
+            self._vectors = {c.ref: provider.embed(c.text) for c in chunks}
         self._provider = provider
+
+    @property
+    def vectors(self):
+        """The {ref: embedding} map -- exposed so a caller can persist it to a
+        cache after construction (see demo/library.py's vector cache)."""
+        return self._vectors
 
     def search(self, query: str, k: int = 20) -> List[str]:
         q_vec = self._provider.embed(query)
