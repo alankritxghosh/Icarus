@@ -1069,6 +1069,50 @@ depends on A (line-addressable chunks) and benefits from C (semantic neighbors).
 - **D5 — end-to-end proof.** One live guard: on a connected repo, a real selection
   returns a cited explanation and (on a why-not-recorded line) an honest unknown.
 
+**D0 status: DONE (2026-07-08).** Probed live against the real, pinned corpus
+repo (`simonw/llm` @ `94769b8`) in an actual browser, not assumed. Decisive
+findings, which set D3's real design:
+
+- **Blob view (`/owner/repo/blob/{ref}/path`) — deterministic, confirmed live.**
+  GitHub's current blob view is React-rendered: line-number cells are
+  `<div class="react-line-number" data-line-number="N">` (not the old
+  `<td id="LN">` anchors — a real DOM change from GitHub's older markup, exactly
+  the kind of drift the pre-mortem worried about). Clicking a line number sets
+  `location.hash` to `#L5` (single line); **shift**-clicking a second line
+  number extends it to `#L1-L4` (a range) — GitHub's own native "link to these
+  lines" feature. Both are simple, reliable regex extractions:
+  `location.hash` → `/^#L(\d+)(?:-L(\d+))?$/` for `{start, end}`, and
+  `location.pathname` → `/^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/` for
+  `{owner, repo, ref, path}`. Verified on both a single-line click and a
+  multi-line shift-click range, on a real file, in a real tab.
+- **Real, load-bearing UX finding: drag-selecting line numbers does NOT update
+  `location.hash`** (tested live — a click-and-drag over line numbers left
+  `location.hash` empty). Only the click-then-shift-click gesture (GitHub's own
+  existing "select a line range" feature, which many developers already know)
+  produces the hash. **Design decision for D3: use click+shift-click as the
+  primary, and only, v1 selection gesture** — it's a real GitHub feature users
+  already have muscle memory for, not something the extension invents, and it's
+  the one gesture proven to produce a clean, parseable signal.
+- **PR-diff view (`/owner/repo/pull/N/files`) — a genuinely different DOM,
+  confirmed NOT the same extraction path.** Line-number cells there are
+  `<td class="focusable-grid-cell new-diff-line-number ...">`, structurally
+  unrelated to the blob view's markup. Worse than a DOM mismatch: a diff view is
+  **semantically ambiguous** for this brick's purpose — it shows old-file and
+  new-file line numbers side by side, and added/removed lines don't map onto a
+  single canonical `{path, start, end}` in the ingested-commit corpus the way a
+  blob view's lines do. **Scope decision: PR-diff view is explicitly OUT of
+  scope for D3/v1** (not attempted, not a broken promise — documented here
+  before any code assumed otherwise). Reopen only if a tester specifically asks
+  to explain a line from a diff.
+- **"React code view" (mentioned as a third case in the original task text) is
+  not actually a separate thing** — GitHub's blob view for text files IS the
+  React-rendered view by default today; there is no separate classic/React
+  split left to test. That phrase in the original task list was anticipating a
+  UI transition that has since fully shipped.
+
+**Net: D0's binary criterion is met** — extraction is deterministic on the
+blob view. Proceeding to D1-D5, scoped to blob view + click+shift-click only.
+
 **Definition of done:** on github.com, selecting real lines in a connected repo
 returns a cited explanation or an honest unknown, overlaid on the page, proven
 end-to-end (brain test + extension parse test + one live guard); no new gate.
