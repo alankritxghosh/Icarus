@@ -97,15 +97,20 @@ is the orientation layer on top of it.
   new dependency is `fastembed` (`requirements.txt`; run the suite from a venv —
   `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`).
   **Caveat: proven in the eval harness only — `demo/library.py` is still
-  lexical-only, so the shipping product does NOT do semantic retrieval yet. See
-  the next-brick note below.**
+  lexical-only... — NO LONGER TRUE as of the follow-up below.**
 
-**Recommended next brick (Brick C follow-up):** wire the `HybridRetriever` +
-`LocalEmbeddingProvider` into `demo/library.py` (currently `LexicalRetriever`
-only) and persist/cache the chunk vectors at ingest so the server doesn't
-re-embed the whole corpus on every start. This is what turns the proven-on-the-
-bench semantic win into something a real demo user actually gets. Explicitly
-deferred out of Brick C (recorded in the plan doc's "Explicitly deferred past C3").
+- **Brick C follow-up (demo wiring) — DONE and MERGED 2026-07-08 (merge commit
+  `22a19ba`).** `demo/library.py` now builds a `HybridRetriever` (BM25 + local
+  semantic) for both public and private paths via `_build_retriever`, backed by a
+  process-shared embedder singleton (the fastembed model loads ONCE; graceful
+  lexical fallback if unavailable) and an on-disk vector cache
+  (`evals/vector_cache.py`, gitignored `vectors.json` sidecar) so restarts/
+  reconnects don't re-embed. So the shipping demo now DOES do semantic retrieval.
+  Two independent adversarial reviews; a latent test-fragility flake was found and
+  fixed (hermetic tests + a robust body-cap assertion), suite now deterministic
+  (0 failures across 8 interleaved + 10 isolated runs). 246 evals + 136 demo green.
+  Run the suite from a venv: `python3 -m venv .venv && .venv/bin/pip install -r
+  requirements.txt`.
 
 **Not started yet:** Brick Q (query-understanding: framing/grammar/spelling
 robustness), Brick D (explain a line on GitHub via a browser extension, remark 3), Brick S (structural
