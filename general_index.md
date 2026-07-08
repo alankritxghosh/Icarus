@@ -19,6 +19,9 @@ removing, or renaming files). For class/function-level detail see
   committed `.env.example` is explicitly un-ignored.
 - `.env.example` — committed template (NO real keys) to copy to a gitignored
   `.env`; the brain/eval harness load it on startup for provider keys.
+- `requirements.txt` — the sole Python dependency: `fastembed` (local, free,
+  offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
+  imported, so everything else runs pure-stdlib without it. Install into a venv.
 
 ## Cloud deployment (host the brain on Render)
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
@@ -125,13 +128,20 @@ removing, or renaming files). For class/function-level detail see
   `gh` + `git`.
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links.
-- `evals/retriever.py` — `LexicalRetriever`, a stdlib BM25 keyword retriever, plus
-  a `tokenize` helper.
+- `evals/retriever.py` — `LexicalRetriever` (stdlib BM25 keyword retriever) plus
+  a `tokenize` helper, and `SemanticRetriever` (cosine similarity over an
+  `EmbeddingProvider`'s vectors) with its `_cosine` helper -- same
+  `.search(query, k) -> List[str]` contract, a drop-in for the lexical one.
 - `evals/provider.py` — the `Provider` abstraction for the rented writer/judge:
   `GroqProvider`, `GeminiProvider` (key in the `x-goog-api-key` header, not the
   URL), `OpenRouterProvider`, `StaticProvider`, and `PaidGeminiProvider` (a
   billing-enabled, `private_safe=True` Gemini on its own `GEMINI_PAID_API_KEY`);
-  `make_provider` factory + 429 backoff. Stdlib `urllib`; keys from env.
+  `make_provider` factory + 429 backoff. Stdlib `urllib`; keys from env. Also the
+  `EmbeddingProvider` family for semantic retrieval: `GeminiEmbeddingProvider`/
+  `PaidGeminiEmbeddingProvider` (hosted, quota-limited — deprecated for this use),
+  `StaticEmbeddingProvider` (test double), and **`LocalEmbeddingProvider`** (the
+  decided FREE route: local ONNX transformer via `fastembed` (bge-small-en-v1.5), `private_safe=True`, no
+  key/network/quota, lazily imported); `make_embedding_provider` factory.
 - `evals/trust.py` — the deterministic trust interlock: `assert_safe_for_private`
   raises `PrivateDataError` unless a provider declares `private_safe=True`
   (never inferred from a key string) — private code's only gate to a writer.
@@ -165,7 +175,9 @@ removing, or renaming files). For class/function-level detail see
 - `evals/test_env_file.py` — the `.env` loader: parses KEY=VALUE, doesn't override
   real env, tolerates comments/quotes/export, no-ops on a missing file.
 - `evals/test_retriever.py` — tokenization + BM25 ranking, truncation, zero-score
-  dropping, deterministic tie-breaking.
+  dropping, deterministic tie-breaking; plus `SemanticRetriever`/`_cosine` tests,
+  including the core proof that cosine similarity finds a paraphrased chunk with
+  zero keyword overlap where BM25 provably returns nothing.
 - `evals/test_pipeline.py` — `RetrievalPipeline` populates `retrieved` yet still
   abstains.
 - `evals/test_provider.py` — `StaticProvider` queuing, no-key errors, the retry
@@ -182,6 +194,12 @@ removing, or renaming files). For class/function-level detail see
   abstention on everything ambiguous.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
+- `evals/test_gated_semantic.py` — the honesty-gate proof for the SEMANTIC/HYBRID
+  retrieval path (Brick C): a `GatedPipeline` + real writer over
+  `SemanticRetriever`/`HybridRetriever` evidence emits a grounded answer but
+  forces an ungrounded citation to abstention. Deterministic
+  `StaticEmbeddingProvider` (offline, always-on), so it proves the gate is
+  retriever-agnostic without needing fastembed.
 - `evals/test_grader.py` — the harness conscience: gates hold for an honest
   abstainer/oracle and fire for a bluffer.
 - `evals/test_retrieval_eval.py` — end-to-end red→green: retrieval recall@k rises

@@ -546,21 +546,271 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
 - **C1 — `EmbeddingProvider` abstraction** with a `StaticEmbeddingProvider` test
   double (deterministic vectors); no-key error path; 429 backoff — mirror
   `evals/provider.py` + `test_provider.py`.
+
+  **Done — `GeminiEmbeddingProvider` (model `gemini-embedding-001`, verified
+  live against the real API before coding: `POST .../embedContent`, key in
+  header, `{"embedding":{"values":[...]}}` response, 3072-dim by default) +
+  content-addressable `StaticEmbeddingProvider` (dict-or-callable, not a
+  sequential queue — `embed()` is called per-chunk/per-query in no fixed
+  order). Ready to merge, no Critical issues. Two notes for C2, both
+  pre-existing patterns faithfully mirrored rather than regressions: (1) a
+  malformed API response surfaces as a bare `KeyError` from inside
+  `provider.py` — identical to the existing `_parse_gemini`'s behavior on a
+  malformed chat response, not a new gap; (2) `embed("")` on an empty string
+  is untested end-to-end (builds a valid request locally, real API behavior
+  unverified) — worth an empirical check if C2 might ever embed a blank
+  chunk.**
 - **C2 — `SemanticRetriever`** (cosine over cached chunk vectors). Pure test with
   the static provider: a paraphrased query ranks the right chunk above a
   keyword-only match. Precompute + cache vectors at ingest (persist next to
   `chunks.jsonl`); the demo loads them.
+
+  **Scoped before dispatch:** this bundles two concerns — the retriever's core
+  cosine logic (pure, offline, testable with `StaticEmbeddingProvider` today)
+  and ingest-time vector persistence/loading (which needs something to
+  actually CALL `SemanticRetriever` in production first, to justify the file
+  format — that wiring is C3's job). Splitting: **C2 builds the core
+  `SemanticRetriever` class only**, proven via the pure paraphrase-beats-BM25
+  test; the persist/load-at-ingest mechanism is deferred to C3, where it's
+  wired into the real corpus for the first time (YAGNI — no speculative cache
+  format before something needs it).
 - **C3 — hybrid rank (optional but recommended).** Blend BM25 + semantic
   (reciprocal-rank fusion). Prove recall@k rises on the labelled set **without
   dropping either honesty gate** — the red→green retrieval eval already exists
   (`test_retrieval_eval.py`); extend it.
+
+  **Scoped before dispatch (real corpus is 243 chunks, checked directly):**
+  splitting into two ordered pieces —
+  1. **Pure hybrid ranker** (reciprocal-rank fusion combining `LexicalRetriever`
+     + `SemanticRetriever` results), offline-testable with static providers,
+     same rigor as C2.
+
+     **Done — `HybridRetriever(lexical, semantic, rrf_constant=60)`, generic
+     over any `.search()`-compatible retriever (proven with a fake), recall
+     pool `max(k,20)`. Ready to merge, no Critical issues; one Important
+     finding (a duplicate ref from an untrusted retriever would silently
+     double-count its score) fixed with a per-list dedup guard + a test that
+     re-simulated the exact pre-fix buggy value to prove the fix closes it.
+     Spec review independently rebuilt the whole fixture against the real
+     BM25/cosine code and got identical numbers end to end.**
+  2. **The live proof** — extend `test_retrieval_eval.py` with a self-skipping
+     test mirroring `test_gated_eval.py`'s exact pattern (`skipUnless(key and
+     CORPUS.exists())`): embed the real 243-chunk committed corpus with
+     `GeminiEmbeddingProvider`, run the hybrid ranker, confirm recall@k beats
+     BM25-alone with both gates still 100%. No caching needed for THIS test —
+     matches the existing precedent (`test_gated_eval.py` already re-calls the
+     real writer on every invocation, uncached; this is the established
+     convention for self-skipping live-model tests, not a new gap).
+
+     **Done, then genuinely blocked, then re-scoped — recorded honestly:** the
+     test itself was written correctly and self-skips as specified, but 5
+     real live attempts against the FREE tier all failed with the same
+     diagnosed root cause: `gemini-embedding-001`'s free tier caps at
+     **100 requests/minute**, and 243 serial embed calls (no batching, by
+     design) structurally exceeds `_with_retry`'s backoff budget every time —
+     never a fabricated pass, never a weakened assertion, reported exactly as
+     found. **Alankrit's call: switch to the paid tier** (`GEMINI_PAID_API_KEY`,
+     confirmed present, higher RPM). This needs a new
+     `PaidGeminiEmbeddingProvider(GeminiEmbeddingProvider)` — `KEY_ENV =
+     "GEMINI_PAID_API_KEY"`, mirroring `PaidGeminiProvider`'s exact pattern
+     (including its docstring's honest caveat: billing is confirmed enabled,
+     but the written no-training policy link is not yet recorded/audited —
+     copy that caveat verbatim, don't overstate confidence). C1 had explicitly
+     NOT built this, correctly flagging it as "a later task's concern" — this
+     is that moment. Register it in `make_embedding_provider`/
+     `has_embedding_provider_key` too, mirroring `make_provider`'s existing
+     `"gemini-paid"` registration, for symmetry with the chat-provider family.
+
+     **`PaidGeminiEmbeddingProvider` built correctly, but the paid-tier
+     switch didn't actually reach a different tier — flagging beyond C3b.**
+     The code is right (mirrors `PaidGeminiProvider` exactly, correctly
+     never infers "paid" from a key string). But the live run hit the SAME
+     `embed_content_free_tier_requests` quota metric (1000/day) as the free
+     key, because **`GEMINI_API_KEY` and `GEMINI_PAID_API_KEY` in this
+     environment's `.env` are the identical string** — not two distinct
+     credentials. This is worth recording beyond Brick C: `PaidGeminiProvider`
+     (the writer used for private-repo answers) already carries a docstring
+     caveat that its no-training billing status is "NOT YET recorded... before
+     treating this as a settled, audited fact" — this discovery is concrete
+     evidence supporting that caution, not a new, unrelated problem. Flagged
+     per Alankrit's call, not investigated further this session — worth a
+     check outside Brick C on whether production's real credential setup
+     differs from this local `.env`.
+
+     **C3b's live proof re-scoped:** stay on the free `GeminiEmbeddingProvider`
+     (`GEMINI_API_KEY`), add a small rate-limiting wrapper LOCAL to the test
+     file (sleep to respect the known 100/min cap), and re-attempt once
+     today's 1000/day allowance has room — this session's several attempts
+     across both rounds have likely consumed a meaningful share of today's
+     quota, so this may need to wait for tomorrow's reset rather than running
+     immediately.
+
+     **Status: code done, live numbers still pending.** `_PacedEmbeddingProvider`
+     built (test-local, sleeps 0.7s/call, ~86 req/min sustained — real margin
+     under the 100/min cap), `HybridRetrievalEvalTests` reverted to the free
+     key + wired through the pacer, self-skip behavior confirmed correct, full
+     offline suite green (225 tests, 15 skipped). Before running the full
+     243-chunk paced live test, did a single-call quota-headroom check first
+     (per instruction, to avoid burning more quota on a run that would just
+     fail) — **that single call itself hit `HTTP 429 (limit: 1000,
+     EmbedContentRequestsPerDayPerUserPerProjectPerModel-FreeTier)`: today's
+     daily allowance is already exhausted** from this session's own probing
+     across both rounds. Correctly stopped rather than retrying. **No real
+     hybrid-vs-BM25 recall@k numbers exist yet** — this is an external quota
+     constraint, not a code or design gap; the test is ready to run for real
+     as soon as the daily quota resets (or a genuinely distinct paid key
+     appears — see the finding above).**
+
+     **Follow-up (same day): Alankrit supplied a new `GEMINI_API_KEY` value in
+     `.env`, replacing the old one; `GEMINI_PAID_API_KEY` left untouched
+     (still the prior duplicated value).** A single-call probe with the new
+     key STILL hit the identical `429`. The error body clarifies why, and
+     refines the earlier finding: `quotaId:
+     EmbedContentRequestsPerDayPerProjectPerModel-FreeTier` — this quota is
+     scoped **per Google Cloud project**, not per key. A new key string from
+     the same underlying project shares the exact same exhausted daily
+     budget; swapping keys within one project cannot grant fresh quota. This
+     also sharpens the earlier `GEMINI_API_KEY`/`GEMINI_PAID_API_KEY`
+     duplication finding: genuine billing-enabled status is a property of the
+     *project* (which would surface a different quota metric entirely, not
+     one literally named `_free_tier_requests`) — not something a
+     differently-named env var alone can confer. **The scheduled retry
+     (`retry-brick-c-live-embedding-proof`, fires ~2026-07-08T00:15:00Z)
+     remains the correct path** — this is a genuine per-day reset, unaffected
+     by which key within the project makes the call. A real unblock would
+     need either that reset, or a key from a genuinely different, billing-
+     enabled Google Cloud project (not just a new key from the same one).**
+
+     **Manual retry attempt (2026-07-08 ~12:39 IST / 07:09 UTC, at Alankrit's
+     request):** a two-call headroom probe (models-list HTTP 200 + one live
+     `gemini-embedding-001` embedContent HTTP 200, 3072-dim vector) passed, so
+     the full paced 243-chunk `HybridRetrievalEvalTests` was run for real. It
+     ran **371.948s (~6 min), embedding chunks, then hit HTTP 429 and exhausted
+     the retry budget → `setUpClass` ERROR, 0 tests ran, no live numbers.**
+     Two lessons recorded honestly: (1) **a 2-call probe is insufficient
+     evidence** that a 250-call run will complete — there was partial headroom,
+     not a full corpus's worth; the AI Studio dashboard confirmed the free-tier
+     embedding limits directly (RPM 100, TPM 30K, **RPD 1000**, peak 1000/1000
+     over the trailing day). (2) The 429 was **sustained across ~6 minutes**,
+     which is the daily-RPD wall, not a transient per-minute spike (an RPM block
+     clears within the minute) — and it hit **just past the apparent Pacific-
+     midnight reset**, so the reset-timing assumption is itself suspect. This
+     strengthens the case that the durable unblock is a **genuinely separate
+     billing-enabled Google Cloud project**, not repeated waiting on a quota
+     that keeps reading exhausted. The scheduled retry was re-armed for
+     **2026-07-09T08:30:00Z** as a fallback, but waiting is now the *lower*-
+     confidence path; the billing/project question (handoff §2.3) is the one
+     worth resolving before onboarding any private code.
+
+     **ROUTE CHANGED to local free embeddings (2026-07-08, Alankrit's explicit
+     call: "remove any dependency on billing, we will do this free of cost").**
+     Reopened the locked "hosted Gemini embeddings" decision — its fatal
+     free-tier quota constraint is the reopen-trigger. New route: a **local,
+     offline `model2vec` static embedding model** (`LocalEmbeddingProvider`,
+     default `minishlab/potion-retrieval-32M`; numpy + tokenizers, NO PyTorch),
+     lazily imported so the rest of the harness stays stdlib-only. Runs
+     server-side in the brain → retrieval never depends on the end user's
+     hardware; no key, no quota, no per-request cost, no egress (so
+     `private_safe=True`, honestly). Probed first (playbook-planning): verified
+     model2vec installs + embeds on this Python 3.14 box and that a
+     zero-keyword-overlap paraphrase scores 0.45 vs 0.10 for an unrelated
+     sentence. C3b repointed off Gemini → local; it now runs **offline in ~1.4s
+     with both gates 100%** (was 6 min + a 429). Full offline suite green (230
+     evals + 131 demo, no regressions).
+
+     **HONEST QUALITY FINDING — semantic does NOT yet beat BM25 (do not merge as
+     a remarks-6/8 win).** The C3b assertion (hybrid ≥ BM25) passes on the
+     `phase1` board only because BM25 already ceilings there (all three
+     retrievers = 100% recall@5). On the set that actually stresses semantic
+     retrieval — Brick 0's **comprehension** set (real what/how questions) —
+     measured recall@5 (both gates 100% throughout):
+
+     | phrasing | BM25 | Semantic-only | Hybrid (RRF) |
+     |----------|------|---------------|--------------|
+     | clean    | **53.8%** | 38.5% | 38.5% |
+     | messy    | 30.8% | 30.8% | **38.5%** |
+
+     Two real problems: (1) the local static model **underperforms BM25 on
+     clean** code questions (38.5% < 53.8%). (2) Unweighted RRF drags the strong
+     BM25 down to the weak semantic's level rather than staying ≥ its best input
+     — a weak retriever's noisy "votes" boost wrong-but-consensus chunks over a
+     gold chunk only BM25 ranked #1 (a known RRF failure mode with mismatched
+     retriever strength, not a fusion bug — the fusion code is correct). Semantic
+     only *helps* on **messy** phrasing (hybrid 38.5% > BM25 30.8%), i.e. it buys
+     typo/grammar robustness (Brick Q territory), not clean-question lift. This
+     was recorded honestly and surfaced to Alankrit rather than merged.
+
+     **RESOLVED — stronger local model (2026-07-08, Alankrit chose "try a
+     stronger local model").** Swapped the static `model2vec` embedder for a real
+     ONNX transformer via **`fastembed`** (still local, still free, still NO
+     PyTorch — ONNX Runtime + tokenizers), default **`BAAI/bge-small-en-v1.5`**.
+     Probed first (installs + embeds on Python 3.14). The static model was simply
+     too weak; a proper small transformer flips the result. Re-measured recall@5
+     on the comprehension board (both gates 100% throughout):
+
+     | phrasing | BM25 | Semantic-only | Hybrid (RRF) |
+     |----------|------|---------------|--------------|
+     | clean    | 53.8% | 61.5% | **69.2%** |
+     | messy    | 30.8% | 61.5% | **61.5%** |
+
+     Now semantic **beats** BM25 on clean (61.5 > 53.8), hybrid **beats both**
+     (69.2 — RRF works once the semantic signal is strong), and on messy phrasing
+     hybrid is **double** BM25 (61.5 vs 30.8) with near-zero degradation from the
+     clean number. That is the genuine remarks-6/8 win: retrieval by meaning, and
+     robustness to grammar/spelling. Both honesty gates stay 100% on both
+     phrasings. The C3b proof was strengthened accordingly: `test_retrieval_eval`
+     now adds `HybridComprehensionEvalTests`, which asserts (same-run baselines,
+     never hardcoded) that hybrid **strictly** beats BM25 on BOTH clean and messy
+     phrasing with gates at 100% — a real red→green lift proof, not the ceiling'd
+     phase1 tie. Full offline suite green (**232 evals + 131 demo**, no
+     regressions). The one dependency is `fastembed` (requirements.txt +
+     Dockerfile).
+
+     **Whole-brick review (2026-07-08): two independent adversarial reviewers.**
+     Both independently reproduced the comprehension numbers (69.2/61.5 vs
+     53.8/30.8), confirmed no torch, lazy import keeps the harness stdlib-only,
+     `gate.py`/`grader.py`/`trust.py` untouched, frozen data untouched, the
+     `private_safe=True` local embedder is honest (no egress) and opens no bluff
+     path, and no assertion was loosened. Two real findings, both fixed: (1) the
+     "gates 100%" assertions in the *retrieval-only* eval tests are structurally
+     vacuous (`RetrievalPipeline` always abstains, so groundedness over zero
+     answered questions is trivially 100%) — so a new `evals/test_gated_semantic.py`
+     now proves the honesty gate for real: a `GatedPipeline` with a real writer
+     (`StaticProvider`) over SEMANTIC and HYBRID evidence emits a grounded answer
+     but **forces an ungrounded citation to abstention** (mirrors the lexical-path
+     `test_gated_pipeline.py`; deterministic, always-on). (2) stale `model2vec`
+     comments corrected to `fastembed`.
+
+     **Scope truth (do not let this drift):** Brick C proves semantic retrieval
+     **in the eval harness**. It is NOT yet wired into the running product —
+     `demo/library.py` still builds pipelines with `LexicalRetriever` only, so a
+     real demo user still retrieves by keyword. Remarks 6/8 are proven *on the
+     bench*, not *shipped*, until the deferred demo-integration + ingest-time
+     vector-persistence follow-up lands (see "Explicitly deferred past C3"
+     below). Brick C is merge-ready as a proven brick on that honest reading.
+  **Explicitly deferred past C3** (neither is required by Brick C's own
+  Definition of Done as literally stated below — both are demo/production
+  concerns, not part of proving the core technical claim):
+  - **Ingest-time vector persistence + demo loading** (C2's original text).
+    Re-embedding 243+ chunks on every demo server start is a real product
+    cost, but building that caching layer is separate from proving semantic
+    retrieval works — track as a follow-up once Brick C's core claim lands.
+  - **Private-repo embedding via the trust interlock.** No embedding provider
+    is wired into `demo/library.py`'s actual repo-connect flow yet — C1/C2
+    only touch the eval harness's retriever, not the live product's private-
+    repo path. There is no live private-repo embedding call to interlock
+    *yet*, so "private repos only reach the private-safe embedder" and the
+    egress-invariants extension are vacuous until that demo-integration work
+    exists — deferred to when it does, not silently skipped.
 - **C4 — gate untouched.** Explicitly assert the honesty gate + abstention recall
   stay 100% with semantic retrieval on (`grader`/`gate` tests). Retrieval getting
   smarter must never let a bluff through.
 
-**Definition of done:** recall@k on `phase1_questions.json` beats BM25 with both
-gates at 100%; private repos still only reach the private-safe embedder via the
-interlock; the egress invariants test extended to cover the embedder.
+**Definition of done (narrowed to what C1-C4 actually build, per the scoping
+above):** recall@k on `phase1_questions.json` beats BM25 with both gates at
+100%, proven live against the real committed corpus. The private-interlock and
+egress-invariants extension roll into whichever later task actually wires
+embeddings into the demo's private-repo path.
 
 **Honest limits:** embeddings improve *recall*, not truthfulness — the
 deterministic gate is still the only thing standing between retrieval and a claim.
