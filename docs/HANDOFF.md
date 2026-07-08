@@ -133,6 +133,38 @@ semantic honesty-gate proof (`test_gated_semantic.py`) run offline with no key.
 
 ---
 
+## 2a. Billing / private-repo writer — RESOLVED BY DECISION (2026-07-08)
+
+Investigated to ground truth this session and **decided**, so it does not get
+re-litigated:
+- **Authoritative finding (from AI Studio → Billing):** the Gemini billing
+  account ("My Billing Account", ID `010D47-…`) is on the **● Free** tier with
+  **no prepayment method** set up, across all 3 projects (OpenClaw, Tempo,
+  Gemini API). `GEMINI_PAID_API_KEY` is now a *distinct* 53-char key (a different
+  project from the free `AIza…` key) and it authenticates — **but it is still
+  free-tier**, because no project has billing enabled. So there is **no genuinely
+  paid, no-training writer** right now. Billing status is NOT detectable from the
+  key string or from key-distinctness (a distinct key can still be free), so no
+  code check can verify it — only "Set up prepay" on that billing page fixes it,
+  which is Alankrit's payment action (Claude cannot enter payment details).
+- **Alankrit's decision (explicit):** *"I am okay with the private repos working
+  using the free model itself, it does not matter."* So: **do not build the
+  paid-tier gate; do not disable private repos.** Private repos may be answered by
+  the free Gemini model (which may train on inputs) for this pre-revenue demo
+  stage. No functional code change was made.
+- **The one honesty guardrail (do NOT ship past this):** because private repos
+  now use the free model, the app's **`PRIVATE · paid` badge and any "private,
+  no-training" claim are FALSE** and must not be presented to a real user as a
+  guarantee — that would be the product bluffing about the one thing it promises
+  never to bluff about. Known inaccuracy; correct the badge/positioning to be
+  truthful *before* it matters.
+- **Hard reopen-trigger:** before ANY real external customer's private code is
+  connected, this MUST be revisited — genuine billing (prepay) on a no-training
+  tier AND truthful private-safe labeling. Not optional at that point.
+
+Below (§2, §2.3) is the earlier historical trail that led here — kept for
+context; the decision above supersedes its "worth a real look" framing.
+
 ## 2. Why C3b got stuck (read before touching Gemini keys/quota again)
 
 Three real, escalating discoveries, all recorded in the plan doc's Brick C
