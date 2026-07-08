@@ -1,7 +1,10 @@
-# Icarus brain — container for cloud hosting (Render). The brain itself is pure
-# Python stdlib (no pip installs); we only add git + gh because the brain shells
-# out to them to ingest a public repo when a user switches repos in the app
-# (see evals/ingest.py). Public repos only, on free hosted models.
+# Icarus brain — container for cloud hosting (Render). The brain is almost pure
+# Python stdlib; the ONE dependency is model2vec (requirements.txt) for local,
+# free, offline semantic-retrieval embeddings — the embedder runs server-side in
+# this container, so retrieval never depends on the end user's hardware. We also
+# add git + gh because the brain shells out to them to ingest a public repo when
+# a user switches repos in the app (see evals/ingest.py). Public repos on free
+# hosted writers; embeddings are always local (no key, no quota, no egress).
 FROM python:3.12-slim
 
 # git (clone the code subtree) + gh (fetch PRs/issues via the GitHub API).
@@ -19,6 +22,12 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY . /app
+
+# The one Python dependency: model2vec (local embeddings). numpy + tokenizers,
+# no PyTorch, so the image stays small. The embedding model itself is fetched
+# from the HuggingFace hub on first use and cached; a future optimization can
+# bake it into the image to remove the cold-start download.
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Render (and most PaaS) inject $PORT and expect the process to bind 0.0.0.0.
 # The Host guard is opened via ICARUS_ALLOWED_HOSTS=* and the GitHub bearer gate

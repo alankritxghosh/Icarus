@@ -1,0 +1,8 @@
+# Icarus brain — Python dependencies.
+#
+# The core harness/demo are pure stdlib. The ONE exception is semantic
+# retrieval (Brick C), which uses a local, free, offline embedding model via
+# model2vec (numpy + tokenizers, NO PyTorch). It is lazily imported inside
+# evals.provider.LocalEmbeddingProvider, so everything else still runs without
+# it installed; installing this is what enables semantic/hybrid retrieval.
+model2vec==0.8.2

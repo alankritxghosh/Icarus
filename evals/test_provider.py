@@ -12,9 +12,16 @@ from .provider import (
     GeminiEmbeddingProvider,
     PaidGeminiEmbeddingProvider,
     StaticEmbeddingProvider,
+    LocalEmbeddingProvider,
     make_embedding_provider,
     has_embedding_provider_key,
 )
+
+try:
+    import model2vec  # noqa: F401
+    _HAS_MODEL2VEC = True
+except ImportError:
+    _HAS_MODEL2VEC = False
 
 
 def _http(code):
@@ -312,6 +319,57 @@ class EmbeddingPrivateSafeFlagTests(unittest.TestCase):
             self.assertTrue(has_embedding_provider_key("gemini-paid"))
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertFalse(has_embedding_provider_key("gemini-paid"))
+
+    def test_local_embedding_provider_is_private_safe(self):
+        # A class-level declaration checkable without constructing (which would
+        # load the model): the local embedder never egresses text, so it is the
+        # strongest private-safe case -- stronger than any hosted tier.
+        self.assertTrue(LocalEmbeddingProvider.private_safe)
+
+    @unittest.skipUnless(_HAS_MODEL2VEC, "model2vec not installed")
+    def test_make_embedding_provider_builds_local(self):
+        # 'local' is registered in the factory (constructing it loads the model,
+        # so this needs model2vec).
+        self.assertIsInstance(make_embedding_provider("local"), LocalEmbeddingProvider)
+
+    def test_local_embedding_provider_needs_no_key(self):
+        # The local route's whole point: no API key to satisfy, so the key check
+        # is False -- and that is correct, not a missing-config error.
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(has_embedding_provider_key("local"))
+
+
+@unittest.skipUnless(_HAS_MODEL2VEC, "model2vec not installed")
+class LocalEmbeddingProviderLiveTests(unittest.TestCase):
+    """Real, offline proof (no network after the one-time model cache, no key,
+    no quota) that LocalEmbeddingProvider produces genuine SEMANTIC embeddings:
+    a paraphrase with ZERO keyword overlap must land closer to the query than an
+    unrelated sentence -- the exact property BM25 cannot deliver and the reason
+    Brick C exists. Self-skips where model2vec isn't installed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.p = LocalEmbeddingProvider()
+
+    @staticmethod
+    def _cos(a, b):
+        import math
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(x * x for x in b))
+        return dot / (na * nb) if na and nb else 0.0
+
+    def test_embed_returns_plain_list_of_floats(self):
+        v = self.p.embed("authenticate the user")
+        self.assertIsInstance(v, list)
+        self.assertGreater(len(v), 0)
+        self.assertTrue(all(isinstance(x, float) for x in v))
+
+    def test_paraphrase_beats_unrelated_with_zero_keyword_overlap(self):
+        q = self.p.embed("how does the tool authenticate a user")
+        related = self.p.embed("the login flow verifies credentials and issues a session token")
+        unrelated = self.p.embed("the recipe calls for two cups of flour and a pinch of salt")
+        self.assertGreater(self._cos(q, related), self._cos(q, unrelated))
 
 
 if __name__ == "__main__":

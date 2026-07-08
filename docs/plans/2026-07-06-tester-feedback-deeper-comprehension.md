@@ -701,6 +701,52 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      **2026-07-09T08:30:00Z** as a fallback, but waiting is now the *lower*-
      confidence path; the billing/project question (handoff §2.3) is the one
      worth resolving before onboarding any private code.
+
+     **ROUTE CHANGED to local free embeddings (2026-07-08, Alankrit's explicit
+     call: "remove any dependency on billing, we will do this free of cost").**
+     Reopened the locked "hosted Gemini embeddings" decision — its fatal
+     free-tier quota constraint is the reopen-trigger. New route: a **local,
+     offline `model2vec` static embedding model** (`LocalEmbeddingProvider`,
+     default `minishlab/potion-retrieval-32M`; numpy + tokenizers, NO PyTorch),
+     lazily imported so the rest of the harness stays stdlib-only. Runs
+     server-side in the brain → retrieval never depends on the end user's
+     hardware; no key, no quota, no per-request cost, no egress (so
+     `private_safe=True`, honestly). Probed first (playbook-planning): verified
+     model2vec installs + embeds on this Python 3.14 box and that a
+     zero-keyword-overlap paraphrase scores 0.45 vs 0.10 for an unrelated
+     sentence. C3b repointed off Gemini → local; it now runs **offline in ~1.4s
+     with both gates 100%** (was 6 min + a 429). Full offline suite green (230
+     evals + 131 demo, no regressions).
+
+     **HONEST QUALITY FINDING — semantic does NOT yet beat BM25 (do not merge as
+     a remarks-6/8 win).** The C3b assertion (hybrid ≥ BM25) passes on the
+     `phase1` board only because BM25 already ceilings there (all three
+     retrievers = 100% recall@5). On the set that actually stresses semantic
+     retrieval — Brick 0's **comprehension** set (real what/how questions) —
+     measured recall@5 (both gates 100% throughout):
+
+     | phrasing | BM25 | Semantic-only | Hybrid (RRF) |
+     |----------|------|---------------|--------------|
+     | clean    | **53.8%** | 38.5% | 38.5% |
+     | messy    | 30.8% | 30.8% | **38.5%** |
+
+     Two real problems: (1) the local static model **underperforms BM25 on
+     clean** code questions (38.5% < 53.8%). (2) Unweighted RRF drags the strong
+     BM25 down to the weak semantic's level rather than staying ≥ its best input
+     — a weak retriever's noisy "votes" boost wrong-but-consensus chunks over a
+     gold chunk only BM25 ranked #1 (a known RRF failure mode with mismatched
+     retriever strength, not a fusion bug — the fusion code is correct). Semantic
+     only *helps* on **messy** phrasing (hybrid 38.5% > BM25 30.8%), i.e. it buys
+     typo/grammar robustness (Brick Q territory), not clean-question lift. **Net:
+     the billing dependency is eliminated and the free local route is proven and
+     honest, but Brick C does not yet deliver the retrieval-quality improvement
+     remarks 6/8 asked for. Merging it as-is would green-wash.** Open decision
+     for Alankrit: (a) accept the free route now for its messy-phrasing robustness
+     + weight RRF so hybrid is never < BM25 on clean (defensible ship, no new
+     dep); (b) try a stronger embedding model (likely reintroduces a heavier,
+     torch-class dependency); or (c) reassess whether static embeddings are the
+     right tool for keyword-rich code retrieval at all. **Not merged pending that
+     call.**
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):

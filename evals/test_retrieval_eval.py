@@ -3,16 +3,20 @@
 lift retrieval recall@k above zero WITHOUT dropping either honesty gate."""
 
 import json
-import os
-import time
 import unittest
 from pathlib import Path
 
 from .corpus import load_chunks
 from .grader import grade
 from .retriever import LexicalRetriever, SemanticRetriever, HybridRetriever
-from .provider import GeminiEmbeddingProvider
+from .provider import LocalEmbeddingProvider
 from .pipeline import RetrievalPipeline
+
+try:
+    import model2vec  # noqa: F401
+    _HAS_MODEL2VEC = True
+except ImportError:
+    _HAS_MODEL2VEC = False
 
 ROOT = Path(__file__).resolve().parent
 QUESTIONS = json.loads((ROOT / "phase1_questions.json").read_text())["questions"]
@@ -33,55 +37,26 @@ class RetrievalEvalTests(unittest.TestCase):
         self.assertGreater(self.board["quality"]["retrieval_recall_at_k"], 0.0)
 
 
-class _PacedEmbeddingProvider:
-    """Test-local wrapper: paces real GeminiEmbeddingProvider.embed() calls to
-    stay safely under the free tier's known 100 requests/minute cap.
-
-    Sleeps `min_interval` seconds before every call (including the first --
-    simplest to reason about, and the cost is negligible next to the network
-    round-trip). 0.7s/call caps a sustained rate at ~86 req/min, with real
-    margin under 100: bursts count against the per-minute window too, not just
-    steady-state rate, and an earlier live probe hit a 429 at the 102nd call in
-    a tight loop, so this leaves headroom rather than cutting it close.
-
-    Local to this test file only -- not a general-purpose provider, doesn't
-    implement `private_safe` or anything else `evals/provider.py`'s real
-    Provider/EmbeddingProvider classes do; SemanticRetriever only ever calls
-    `.embed(text) -> list`, so that's all this needs to duck-type."""
-
-    def __init__(self, inner, min_interval: float = 0.7):
-        self._inner = inner
-        self._min_interval = min_interval
-
-    def embed(self, text: str) -> list:
-        time.sleep(self._min_interval)
-        return self._inner.embed(text)
-
-
-@unittest.skipUnless(os.environ.get("GEMINI_API_KEY") and CORPUS.exists(),
-                     "needs GEMINI_API_KEY and the corpus")
+@unittest.skipUnless(_HAS_MODEL2VEC and CORPUS.exists(),
+                     "needs model2vec (pip install -r requirements.txt) and the corpus")
 class HybridRetrievalEvalTests(unittest.TestCase):
-    """Real-model proof (Task C3b): hybrid (BM25 + real Gemini embeddings, fused
-    via RRF) must hold both honesty gates at 100% and must not retrieve worse
-    than a same-run BM25-only baseline on the labelled set. Embeds every one of
-    the committed corpus's chunks with one real network call each (serial, no
-    batching/caching -- see evals/retriever.py and the Brick C plan), paced by
-    _PacedEmbeddingProvider to stay under the free tier's 100 req/min cap, so
-    this is slow (minutes) and costs real API calls; skipped entirely without
-    GEMINI_API_KEY.
+    """Real-model proof (Task C3b): hybrid (BM25 + real local model2vec
+    embeddings, fused via RRF) must hold both honesty gates at 100% and must
+    not retrieve worse than a same-run BM25-only baseline on the labelled set.
 
-    Uses the FREE embedding provider (GEMINI_API_KEY), paced client-side --
-    not PaidGeminiEmbeddingProvider (kept in evals/provider.py as a legitimate,
-    reviewed addition, just not used here): there is no genuinely separate
-    billing-enabled Gemini key available in this environment right now (see
-    the Task C3b execution log), so the only viable path today is pacing calls
-    under the free tier's own limits rather than assuming a paid tier exists."""
+    Uses LocalEmbeddingProvider -- the decided FREE route: a local, offline
+    static embedding model (no API key, no network after the one-time model
+    cache, no quota, no per-request cost). Embeds every committed corpus chunk
+    once at construction on plain CPU (milliseconds each, no pacing needed --
+    the earlier Gemini path had to pace under a 100 req/min free-tier cap and
+    kept exhausting a 1000/day quota; the local model has neither limit). Self-
+    skips where model2vec isn't installed."""
 
     @classmethod
     def setUpClass(cls):
         chunks = load_chunks(CORPUS)
         lexical = LexicalRetriever(chunks)
-        semantic = SemanticRetriever(chunks, _PacedEmbeddingProvider(GeminiEmbeddingProvider()))
+        semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
         hybrid = HybridRetriever(lexical, semantic)
         cls.hybrid_board = grade(QUESTIONS, RetrievalPipeline(hybrid), k=5)
         # Same-run baseline (not a hardcoded historical number) so the comparison
