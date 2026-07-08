@@ -6,7 +6,8 @@
   "permissions": ["identity", "storage"],
   "host_permissions": [
     "https://github.com/*",
-    "http://127.0.0.1:8000/*"
+    "http://127.0.0.1:8000/*",
+    "https://icarus-brain.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js"

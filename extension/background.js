@@ -7,7 +7,7 @@
 // https://<id>.chromiumapp.org/ redirect_target, which is what
 // launchWebAuthFlow is watching for).
 
-const BRAIN_URL = "http://127.0.0.1:8000"; // TODO: configurable once the brain is hosted (post-demo per CLAUDE.md)
+const BRAIN_URL = "https://icarus-brain.onrender.com"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Render deploy for D5 live testing
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.action === "signIn") {

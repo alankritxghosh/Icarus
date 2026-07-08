@@ -24,7 +24,7 @@
 //    something to cite. Everywhere else it stays dormant, per the plan's
 //    scope guard: no "answer anything on any GitHub page."
 
-const BRAIN_URL = "http://127.0.0.1:8000"; // TODO: configurable once the brain is hosted (post-demo per CLAUDE.md)
+const BRAIN_URL = "https://icarus-brain.onrender.com"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Render deploy for D5 live testing
 
 let lastOwnerRepo = null; // "owner/repo" last checked, so /status is only
 let connectedRepoStatus = null; // {repo, private} | null -- re-fetched when
