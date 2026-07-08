@@ -13,6 +13,8 @@ do-nothing stub, so we can stand up an honest red baseline first.
 from dataclasses import dataclass, field
 from typing import List
 
+from .corpus import chunk_covers_lines
+
 
 @dataclass
 class Result:
@@ -79,6 +81,10 @@ class GatedPipeline(Pipeline):
     recall@k stays measurable regardless of the verdict.
     """
 
+    # Brick D's default writer prompt when a GitHub selection carries no typed
+    # question (the common case: select a line, click "Ask Icarus").
+    _DEFAULT_EXPLAIN_QUESTION = "What does this code do, and why is it here?"
+
     def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 6):
         self._retriever = retriever
         self._by_ref = {c.ref: c for c in chunks}
@@ -87,10 +93,55 @@ class GatedPipeline(Pipeline):
         self._writer_k = writer_k
 
     def answer(self, question: str) -> Result:
-        from .synth import build_prompt   # local imports avoid a circular import
-        from .gate import gate
         retrieved = self._retriever.search(question, self._recall_n)
         top = [self._by_ref[r] for r in retrieved[: self._writer_k] if r in self._by_ref]
+        return self._answer_from(question, top, retrieved)
+
+    def explain(self, path: str, start: int, end: int, question: str = None) -> Result:
+        """Brick D: explain a GitHub line selection, not a free-text question.
+
+        Resolves evidence by LOCATION -- the chunk(s) covering [start, end] in
+        `path` (evals/corpus.chunk_covers_lines) -- rather than by `.search()`,
+        since a line selection isn't a query. Adds semantic neighbors for
+        surrounding context, same as a real /ask: when the caller supplied a
+        `question`, neighbors are searched using THAT question -- proven live
+        against the real corpus to reproduce .answer()'s exact top-k for the
+        identical question (an earlier version always searched on the anchor's
+        own code text, which measurably found WORSE neighbors than searching
+        the actual question and caused real, reproducible under-answering: the
+        writer honestly abstained on a question /ask answers confidently, not
+        because evidence didn't exist, but because explain() fed it worse
+        evidence). With no question (the common "just click Explain" case),
+        there is no natural-language query to search with, so the anchor's own
+        text is the best available signal. Then goes through the IDENTICAL
+        writer -> gate() path as .answer() via `_answer_from` -- no new
+        honesty logic, no special-cased error path. No coverage at all for
+        this location -> the gate's ordinary "no top chunks" abstention (an
+        honest unknown), exactly like an unanswerable question today.
+        """
+        anchor = [c for c in self._by_ref.values() if chunk_covers_lines(c, path, start, end)]
+        neighbor_query = question or (anchor[0].text if anchor else path)
+        neighbor_refs = self._retriever.search(neighbor_query, self._recall_n)
+
+        anchor_refs = [c.ref for c in anchor]
+        # Anchor first (most relevant), then neighbors, de-duplicated (the
+        # anchor's own text search can find itself) -- one ordered de-dup
+        # drives both `top` (Chunk objects, capped at writer_k by the caller)
+        # and `retrieved` (refs, for recall@k), so they can never disagree.
+        ordered_refs = list(dict.fromkeys(anchor_refs + neighbor_refs))
+        top = [self._by_ref[r] for r in ordered_refs if r in self._by_ref]
+        retrieved = ordered_refs
+
+        return self._answer_from(
+            question or self._DEFAULT_EXPLAIN_QUESTION, top[: self._writer_k], retrieved
+        )
+
+    def _answer_from(self, question: str, top: List, retrieved: List[str]) -> Result:
+        """The shared writer -> gate() core both .answer() and .explain() go
+        through -- one honesty path, two ways of assembling the evidence
+        (search vs. location resolution) that feed it."""
+        from .synth import build_prompt   # local imports avoid a circular import
+        from .gate import gate
         if not top:
             return Result(verdict="unknown", retrieved=retrieved)
         result = gate(self._provider.complete(build_prompt(question, top)), retrieved)

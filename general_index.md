@@ -118,8 +118,11 @@ removing, or renaming files). For class/function-level detail see
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
   conscience (cited-answer correctness + honest abstention).
-- `evals/corpus.py` — the `Chunk` dataclass and `load_chunks` (read the committed
-  corpus, one evidence unit per line with a citation ref).
+- `evals/corpus.py` — the `Chunk` dataclass, `load_chunks` (read the committed
+  corpus, one evidence unit per line with a citation ref), and
+  `chunk_covers_lines(chunk, path, start, end)` (Brick D: does a chunk cover a
+  GitHub line selection? Handles both a windowed `#Lstart-Lend` ref and a
+  whole-file ref with no suffix -- the committed corpus's actual shape).
 - `evals/ingest.py` — corpus generator from a public **or private** repo (PRs,
   linked issues, Python source) → `chunks.jsonl` + `meta.json`. Subprocess
   timeouts, per-file/total size caps, a `code_dir` path-traversal guard, and an
@@ -180,13 +183,20 @@ removing, or renaming files). For class/function-level detail see
 - `evals/judge.py` — the answer-correctness judge (quality dial, NOT a gate):
   `build_judge_prompt`, `parse_verdict` (fails safe to "incorrect"), `Judge`.
 - `evals/pipeline.py` — the `Result`/`Pipeline` contract, plus `StubPipeline`,
-  `RetrievalPipeline`, and `GatedPipeline` (retrieve → writer → gate → Result).
+  `RetrievalPipeline`, and `GatedPipeline` (retrieve → writer → gate → Result;
+  `.answer()` and Brick D's `.explain(path, start, end, question=None)` --
+  location-resolved evidence instead of a `.search()` query -- both funnel
+  through the shared `_answer_from` writer→gate core, so `.explain()` opens no
+  new honesty path). `.explain()`'s neighbor search uses the caller's
+  `question` when given (proven live to reproduce `.answer()`'s exact top-k
+  for the same question), else the anchor chunk's own text.
 - `evals/grader.py` — deterministic grading against the labelled set: the two
   honesty gates + quality dials; optional `judge` fills answer_correctness.
 - `evals/run.py` — CLI that runs the eval board and prints it (loads `.env`
   first); exits non-zero only when a gate breaks. `--pipeline/--writer/--judge`.
 - `evals/test_corpus.py` — `load_chunks` parses JSONL into `Chunk`s (tolerates
-  blank lines).
+  blank lines); `chunk_covers_lines` across windowed/whole-file/malformed refs,
+  path mismatches, and non-file-addressable (pr/issue) sources.
 - `evals/test_corpus_meta.py` — `write_meta`/`load_meta` round-trip; missing meta
   returns None.
 - `evals/test_ingest_args.py` — ingest CLI defaults/overrides, commit resolution,
@@ -217,6 +227,15 @@ removing, or renaming files). For class/function-level detail see
   abstention on everything ambiguous.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
+- `evals/test_gated_explain.py` — Brick D's `.explain()`: anchor resolution
+  (windowed + whole-file chunks), semantic neighbors, honest unknown with no
+  coverage, the shared honesty gate (grounded answer / forced-unknown bluff /
+  writer abstention -- proves no new honesty path), the default vs. caller-
+  supplied question, question-preferred-over-anchor-text neighbor search (the
+  real bug this brick found+fixed: an earlier version always searched on the
+  anchor's own code text even with a real question, live-verified to find
+  measurably worse neighbors than /ask), and a regression guard that
+  `.answer()`'s behavior is byte-identical after the `_answer_from` refactor.
 - `evals/test_vector_cache.py` — the embedding cache round-trips and fails safe
   to None (re-embed) on every mismatch/corruption; the `SemanticRetriever`
   `vectors=` param skips chunk embedding yet still embeds the query live.
@@ -319,9 +338,14 @@ removing, or renaming files). For class/function-level detail see
   (default scope `repo`, so a caller's token can read their own private repos —
   existing `read:user`-scoped sign-ins must re-authenticate once), `exchange_code`
   (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
-  state/session, TTL). `begin(mode)` tags each login `app` (Mac app) or `web`
-  (browser); `complete` returns `(session_id, mode)` so the callback knows where
-  to send the user. The secret lives only here, never in the app.
+  state/session, TTL). `begin(mode, redirect_target=None)` tags each login
+  `app` (Mac app), `web` (browser), or Brick D's `extension` (a browser
+  extension's `chrome.identity.launchWebAuthFlow`, which needs its own
+  `redirect_target` -- validated by `_CHROMIUMAPP_REDIRECT` against
+  `https://<32 a-p chars>.chromiumapp.org/` so a caller can never turn this
+  into an open redirect to an arbitrary URL); `complete` returns `(session_id,
+  mode, redirect_target)` so the callback knows where to send the user. The
+  secret lives only here, never in the app or extension.
 - `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
@@ -331,7 +355,14 @@ removing, or renaming files). For class/function-level detail see
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
   caller's token before any private clone),`/disconnect`,`/auth/github/begin`
   (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
-  `icarus://`),`/auth/github/redeem`.
+  `icarus://`, Brick D's `extension` → the caller-supplied, validated
+  `redirect_target`; a bad/missing `redirect_target` for `extension` mode is a
+  clean 400, not a crash),`/auth/github/redeem`. `POST /explain` (Brick D, `_handle_explain`)
+  — `{repo, path, start, end[, question]}` for a GitHub line selection; shares
+  `/ask`'s billed-writer rate limit; refuses (409) unless `repo` matches the
+  caller's currently connected repo, never silently answering about or
+  switching to a different one; calls `lib.current_pipeline().explain(...)`
+  and reuses `build_payload` unchanged (identical response shape to `/ask`).
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, an `owner/repo` connect control, and **browser GitHub
   sign-in** (web-mode OAuth → session redeemed for a token held in
@@ -344,7 +375,9 @@ removing, or renaming files). For class/function-level detail see
   token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
 - `demo/test_github_oauth.py` — the web-login flow: authorize-url building
   (including the `repo` scope), offline token exchange, and the single-use
-  state/session lifecycle.
+  state/session lifecycle. Brick D's `extension` mode: the redirect_target
+  carried through `begin`→`complete`, and the open-redirect guard rejecting a
+  missing/non-chromiumapp.org/malformed-id target.
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
   single-flight concurrent connect, generic (non-leaking) ingest errors, and
   private connect (token/private routing, refusal without the paid writer,
@@ -357,6 +390,10 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_server.py` — routing against a stub registry, plus the Origin guard
   (403), body cap (413), bearer-auth gate (401), per-request identity, rate
   limiting (429), `/disconnect`, concurrency, and index.html smoke checks.
+  `/explain` (Brick D): cited answer with a line-ranged citation URL, honest
+  unknown for uncovered locations, optional-question pass-through, wrong-repo
+  refusal (409, never reaches the pipeline), and input validation (missing
+  fields, non-integer/non-positive/inverted start-end, blank path).
 - `demo/test_isolation.py` — cross-user isolation proven at the HTTP boundary: a
   real `LibraryRegistry` behind a real server with two authenticated identities
   — connect, storage, disconnect, and provenance all stay disjoint.
@@ -367,6 +404,54 @@ removing, or renaming files). For class/function-level detail see
   is present, falls back to `LexicalRetriever` when it isn't, and a second build
   over the same corpus dir embeds zero chunks (cache hit). Live tests self-skip
   without fastembed/the corpus.
+
+## extension/ (Brick D — Chrome browser extension, Manifest V3, no build step)
+- `extension/manifest.json` — MV3 manifest: `identity`+`storage` permissions,
+  host permissions for `github.com` and the local brain (`127.0.0.1:8000` --
+  TODO once hosted), a content script matching `github.com/*/*/blob/*` pages
+  loading `lib.js` then `content.js`, a background service worker
+  (`background.js`), and a toolbar popup (`popup.html`).
+- `extension/lib.js` — the pure, DOM-free parse/gate functions
+  `parseLineHash`, `parseBlobPath`, `isConnectedRepo` -- dual CommonJS/browser-
+  global export so the SAME file runs unmodified as a plain `<script>` in the
+  extension and under `node --test` (no bundler, no npm install).
+- `extension/render.js` — Brick D4's pure HTML-string builders
+  (`renderAnswerHtml`, `renderUnknownHtml`, `renderLoadingHtml`,
+  `renderSignedOutHtml`, `renderErrorHtml`), same dual-export pattern as
+  `lib.js`. Mirrors `demo/index.html`'s voice/structure (citation chips by
+  source type, "No one wrote this down."), but DELIBERATELY drops that
+  page's "paid writer — 0 trained on your code" claim (not yet true per the
+  2026-07-08 billing investigation, `docs/HANDOFF.md`) in favor of a plain
+  "private repo"/"public repo" fact -- guarded by a unit test so it can't be
+  silently reintroduced.
+- `extension/content.js` — the on-page logic: gates on the caller's connected
+  repo (`GET /status`, cached per repo not per line-selection, also carrying
+  the `private` flag for D4's badge), listens for a real line selection via
+  the Navigation API's `navigate` event (live-verified: covers both SPA
+  file-to-file navigation and hash-only line changes; GitHub's `popstate`/
+  Turbo/pjax events do NOT fire for this -- checked live, none did), and
+  drives a real state machine (trigger -> loading -> answer/unknown/error/
+  signed-out) via `showTrigger`/`showPanel`, with a close button. Two real
+  bugs found via live testing and fixed: the stylesheet was injected lazily
+  only inside `showPanel` (the first trigger a user ever saw was completely
+  unstyled), and an inline `panel.style.position="relative"` silently
+  overrode the CSS class's `position:fixed` (the panel rendered off-screen,
+  `left:-24px` in a 1440px viewport) -- both confirmed live via
+  `getBoundingClientRect()`/`getComputedStyle`, not guessed from a screenshot.
+- `extension/background.js` — MV3 service worker: the GitHub sign-in flow via
+  `chrome.identity.launchWebAuthFlow`, using `demo/github_oauth.py`'s new
+  `extension` OAuth mode; stores the token in `chrome.storage.local`.
+- `extension/popup.html` / `extension/popup.js` — a minimal "Sign in with
+  GitHub" toolbar popup (a real user gesture is required to open the sign-in
+  flow -- it can never happen silently).
+- `extension/lib.test.js` — `node --test` (Node's built-in test runner, zero
+  npm installs, mirrors the Python side's stdlib-only ethos): 13 tests over
+  `parseLineHash`/`parseBlobPath`/`isConnectedRepo`, including the D0-derived
+  edge cases (inverted range, PR-diff-view path, case-insensitive repo match).
+- `extension/render.test.js` — 16 tests over `render.js`: HTML-escaping,
+  every citation shape (with/without a URL), the private/public repo label,
+  and the guard against reintroducing the "paid writer"/"trained" claim.
+  Run both: `node --test extension/*.test.js`.
 
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.

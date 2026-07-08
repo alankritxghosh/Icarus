@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Icarus — Explain This Line",
+  "version": "0.1.0",
+  "description": "Select a line of code on GitHub and ask Icarus what it does or why it's here — for repos you've already connected to Icarus.",
+  "permissions": ["identity", "storage"],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://127.0.0.1:8000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/*/blob/*"],
+      "js": ["lib.js", "render.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

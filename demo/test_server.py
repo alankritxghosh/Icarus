@@ -25,6 +25,17 @@ class _StubPipeline(Pipeline):
                           citations=["pr:1435"], retrieved=["pr:1435", "code:llm/x.py"])
         return Result(verdict="unknown", retrieved=["code:llm/x.py", "code:llm/y.py"])
 
+    def explain(self, path, start, end, question=None):
+        """Brick D: a line-covered location answers; anywhere else abstains --
+        mirrors GatedPipeline.explain's real "no coverage -> honest unknown"
+        contract, not a special-cased error, from a fixed known location."""
+        self.last_explain_call = (path, start, end, question)
+        if path == "llm/tools.py" and start <= 20 <= end:
+            return Result(verdict="answer", answer="It returns the current time.",
+                          citations=["code:llm/tools.py#L10-L40"],
+                          retrieved=["code:llm/tools.py#L10-L40", "pr:99"])
+        return Result(verdict="unknown", retrieved=["code:llm/tools.py#L10-L40"])
+
 
 class _StubLibrary:
     """Stand-in for demo.library.Library: fixed pipeline, records connects."""
@@ -127,6 +138,82 @@ class ServerTests(unittest.TestCase):
     def test_ask_missing_question_is_400(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             _post(self.base + "/ask", {"nope": "x"})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    # --- Brick D: POST /explain ---
+
+    def test_explain_answer(self):
+        status, payload = _post(self.base + "/explain",
+                                {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["verdict"], "answer")
+        self.assertEqual(
+            payload["citations"][0]["url"],
+            f"https://github.com/{REPO}/blob/{COMMIT}/llm/tools.py#L10-L40",
+        )
+
+    def test_explain_no_coverage_is_honest_unknown(self):
+        # A location the pipeline has no evidence for -- 200 with an honest
+        # unknown, not an error (mirrors cite-or-unknown, not a 404/500).
+        status, payload = _post(self.base + "/explain",
+                                {"repo": REPO, "path": "llm/other.py", "start": 1, "end": 5})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["verdict"], "unknown")
+        self.assertEqual(payload["answer"], "")
+
+    def test_explain_passes_optional_question_through(self):
+        _post(self.base + "/explain",
+             {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20,
+              "question": "why does this return UTC?"})
+        self.assertEqual(
+            self.lib._pipe.last_explain_call,
+            ("llm/tools.py", 15, 20, "why does this return UTC?"),
+        )
+
+    def test_explain_without_question_passes_none(self):
+        _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertIsNone(self.lib._pipe.last_explain_call[3])
+
+    def test_explain_wrong_repo_refuses_without_calling_pipeline(self):
+        # A stale extension tab pointing at a DIFFERENT repo than the one
+        # currently connected must refuse, never silently answer about it.
+        self.lib._pipe.last_explain_call = None
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain",
+                 {"repo": "octocat/hello", "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertEqual(cm.exception.code, 409)
+        cm.exception.close()
+        self.assertIsNone(self.lib._pipe.last_explain_call)  # never reached the pipeline
+
+    def test_explain_missing_field_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 15})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_non_integer_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain",
+                 {"repo": REPO, "path": "llm/tools.py", "start": "fifteen", "end": 20})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_end_before_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 20, "end": 15})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_non_positive_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 0, "end": 5})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_blank_path_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "  ", "start": 1, "end": 5})
         self.assertEqual(cm.exception.code, 400)
         cm.exception.close()
 
@@ -474,10 +561,13 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())["authorize_url"]
 
-    def _begin_mode(self, mode):
+    def _begin_mode(self, mode, redirect_target=None):
+        body = {"mode": mode}
+        if redirect_target is not None:
+            body["redirect_target"] = redirect_target
         req = urllib.request.Request(
             self.base + "/auth/github/begin",
-            data=json.dumps({"mode": mode}).encode(),
+            data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read())["authorize_url"]
@@ -494,6 +584,57 @@ class GitHubLoginEndpointTests(unittest.TestCase):
         self.assertEqual(r.status, 302)
         self.assertTrue(loc.startswith("/?session="),
                         f"web login must return to the page, got {loc!r}")
+
+    # --- Brick D: extension mode ---
+
+    _EXT_TARGET = "https://" + "a" * 32 + ".chromiumapp.org/"
+
+    def test_extension_mode_begin_requires_a_redirect_target(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._begin_mode("extension")
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_extension_mode_begin_rejects_a_non_chromiumapp_target(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._begin_mode("extension", redirect_target="https://evil.example.com/")
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_extension_mode_callback_redirects_to_the_chromiumapp_target(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(
+            urlparse(self._begin_mode("extension", redirect_target=self._EXT_TARGET)).query
+        )["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEX&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertTrue(
+            loc.startswith(self._EXT_TARGET + "?session="),
+            f"extension login must return to its own chromiumapp.org target, got {loc!r}",
+        )
+
+    def test_extension_mode_full_flow_redeems_the_real_token(self):
+        from urllib.parse import urlparse, parse_qs
+        import http.client
+        state = parse_qs(
+            urlparse(self._begin_mode("extension", redirect_target=self._EXT_TARGET)).query
+        )["state"][0]
+        conn = http.client.HTTPConnection("127.0.0.1", self.port)
+        conn.request("GET", f"/auth/github/callback?code=CODEEXT&state={state}")
+        r = conn.getresponse()
+        loc = r.getheader("Location")
+        r.read(); conn.close()
+        session = parse_qs(urlparse(loc).query)["session"][0]
+        req = urllib.request.Request(self.base + "/auth/github/redeem",
+                                     data=json.dumps({"session": session}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(json.loads(resp.read())["token"], "tok-CODEEXT")
 
     def test_app_mode_callback_still_uses_custom_scheme(self):
         from urllib.parse import urlparse, parse_qs

@@ -163,8 +163,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(404, {"error": "not found"})
 
         def _github_callback(self):
-            """GitHub's redirect lands here (inside the app's auth sheet). Exchange
-            the code, then 302 to the app's `icarus://` scheme so the sheet closes."""
+            """GitHub's redirect lands here (inside the app's auth sheet, or the
+            extension's launchWebAuthFlow tab). Exchange the code, then 302 to
+            the login surface's own callback target so it closes/completes."""
             if oauth is None or not oauth.configured:
                 self._send(503, b"GitHub login is not configured.", "text/plain; charset=utf-8")
                 return
@@ -172,7 +173,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             code = (q.get("code") or [""])[0]
             state = (q.get("state") or [""])[0]
             try:
-                session_id, mode = oauth.complete(state, code)
+                session_id, mode, redirect_target = oauth.complete(state, code)
             except Exception as e:
                 # Surface the cause in the server log (safe: GitHub's error string
                 # or "unknown/expired state" — never the code or client secret) so a
@@ -182,9 +183,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                            "text/html; charset=utf-8")
                 return
             # Web logins return to the same-origin page; the Mac app keeps its
-            # icarus:// custom scheme (which closes its auth sheet). The token is
-            # NOT in the URL — only the single-use session id is.
-            location = f"/?session={session_id}" if mode == "web" else f"icarus://auth?session={session_id}"
+            # icarus:// custom scheme (which closes its auth sheet); the browser
+            # extension's chrome.identity.launchWebAuthFlow is watching for a
+            # navigation to ITS OWN validated chromiumapp.org redirect_target
+            # (oauth.begin already refused any other value for this mode — see
+            # github_oauth.py's _CHROMIUMAPP_REDIRECT). The token is NOT in the
+            # URL for any mode — only the single-use session id is.
+            if mode == "web":
+                location = f"/?session={session_id}"
+            elif mode == "extension":
+                location = f"{redirect_target}?session={session_id}"
+            else:
+                location = f"icarus://auth?session={session_id}"
             self.send_response(302)
             self.send_header("Location", location)
             self.send_header("Content-Length", "0")
@@ -204,12 +214,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(503, {"error": "github login not configured"})
                     return
                 try:
-                    mode = (self._body() or {}).get("mode", "app")
+                    body = self._body() or {}
                 except (ValueError, AttributeError):
+                    body = {}
+                mode = body.get("mode", "app")
+                if mode not in ("app", "web", "extension"):
                     mode = "app"
-                if mode not in ("app", "web"):
-                    mode = "app"
-                _, url = oauth.begin(mode)
+                redirect_target = body.get("redirect_target") if mode == "extension" else None
+                try:
+                    _, url = oauth.begin(mode, redirect_target=redirect_target)
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
                 self._send_json(200, {"authorize_url": url})
                 return
             if self.path == "/auth/github/redeem":
@@ -255,6 +271,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 repo, commit = lib.provenance()
                 payload = build_payload(lib.current_pipeline().answer(question), repo, commit)
                 self._send_json(200, payload)
+            elif self.path == "/explain":
+                self._handle_explain(lib, identity)
             elif self.path == "/connect":
                 # Same reasoning as /ask: check the limiter first, before the body
                 # is even parsed, so a rate-limited caller never reaches the real
@@ -287,6 +305,53 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
+
+        def _handle_explain(self, lib, identity):
+            """Brick D: POST /explain {repo, path, start, end[, question]} -> a
+            cited answer or honest unknown for a GitHub line selection.
+
+            Reuses `ask_limiter` -- /explain reaches the same billed writer as
+            /ask, so it shares that budget rather than getting its own. `repo`
+            must match the caller's CURRENTLY connected repo (refuses, never
+            silently answers about a repo the caller isn't connected to, and
+            never switches repos as a side effect of asking)."""
+            if not ask_limiter.allow(identity):
+                self._send_json(429, {"error": "slow down -- try again in a minute"})
+                return
+            try:
+                body = self._body()
+                repo = body["repo"]
+                path = body["path"]
+                start = body["start"]
+                end = body["end"]
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "missing repo/path/start/end"})
+                return
+            if not isinstance(repo, str) or not repo.strip():
+                self._send_json(400, {"error": "missing repo"})
+                return
+            if not isinstance(path, str) or not path.strip():
+                self._send_json(400, {"error": "missing path"})
+                return
+            # bool is an int subclass in Python; explicitly excluded so a
+            # stray true/false body value fails validation rather than being
+            # silently coerced into 0/1.
+            if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) \
+                    or not isinstance(end, int) or start < 1 or end < start:
+                self._send_json(400, {"error": "start/end must be positive integers with end >= start"})
+                return
+            question = body.get("question")
+            if question is not None:
+                if not isinstance(question, str):
+                    self._send_json(400, {"error": "question must be a string"})
+                    return
+                question = question.strip() or None
+            active_repo, commit = lib.provenance()
+            if repo.strip() != active_repo:
+                self._send_json(409, {"error": "that repo isn't your currently connected repo"})
+                return
+            result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
+            self._send_json(200, build_payload(result, active_repo, commit))
 
     return Handler
 

@@ -12,6 +12,7 @@ GitHub token never travels in a redirect URL — only the opaque session id does
 """
 
 import json
+import re
 import secrets
 import threading
 import time
@@ -21,6 +22,14 @@ import urllib.request
 AUTHORIZE_URL = "https://github.com/login/oauth/authorize"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 _USER_AGENT = "icarus/0.1"
+
+# A Chrome extension's chrome.identity.launchWebAuthFlow redirect target is
+# always https://<32-char id>.chromiumapp.org/ -- ids are exactly 32 lowercase
+# letters in a-p (a base16-like alphabet Chrome uses for extension ids). This
+# is the open-redirect guard for "extension" mode: without it, a caller could
+# make the server redirect a just-completed login session to an arbitrary
+# attacker-controlled URL instead of the genuine extension.
+_CHROMIUMAPP_REDIRECT = re.compile(r"^https://[a-p]{32}\.chromiumapp\.org/$")
 
 
 def new_state() -> str:
@@ -88,7 +97,9 @@ class OAuthFlow:
         self._redirect = redirect_uri
         self._ttl = ttl
         self._exchange = exchanger
-        self._pending: dict[str, tuple[float, str]] = {}   # state -> (created_at, mode)
+        # state -> (created_at, mode, redirect_target); redirect_target is
+        # only ever non-None for mode == "extension".
+        self._pending: dict[str, tuple[float, str, str | None]] = {}
         self._sessions: dict[str, tuple[str, float]] = {}  # session_id -> (token, created_at)
         self._lock = threading.Lock()
 
@@ -96,33 +107,43 @@ class OAuthFlow:
     def configured(self) -> bool:
         return bool(self._cid and self._secret)
 
-    def begin(self, mode: str = "app") -> tuple[str, str]:
+    def begin(self, mode: str = "app", redirect_target: str | None = None) -> tuple[str, str]:
         """Mint a CSRF state (tagged with the login surface) and return
-        (state, authorize_url). `mode` is "app" (Mac app → icarus:// callback)
-        or "web" (browser → same-origin page); the callback reads it back to
-        decide where to send the user."""
+        (state, authorize_url). `mode` is "app" (Mac app -> icarus:// callback),
+        "web" (browser -> same-origin page), or "extension" (a browser
+        extension's chrome.identity.launchWebAuthFlow -> its own
+        https://<id>.chromiumapp.org/ redirect target, required and validated
+        for that mode -- see _CHROMIUMAPP_REDIRECT's docstring for why).
+        `redirect_target` is ignored (never stored) for any mode other than
+        "extension" -- only that mode's callback ever reads it back."""
+        if mode == "extension":
+            if not redirect_target or not _CHROMIUMAPP_REDIRECT.match(redirect_target):
+                raise ValueError("extension mode requires a valid chromiumapp.org redirect_target")
+        else:
+            redirect_target = None
         state = new_state()
         with self._lock:
             self._sweep()
-            self._pending[state] = (time.time(), mode)
+            self._pending[state] = (time.time(), mode, redirect_target)
         return state, authorize_url(self._cid, self._redirect, state)
 
-    def complete(self, state: str, code: str) -> tuple[str, str]:
+    def complete(self, state: str, code: str) -> tuple[str, str, str | None]:
         """Validate the state, exchange the code, store the token under a fresh
-        session id, and return (session_id, mode). Raises ValueError on an
-        unknown/expired state."""
+        session id, and return (session_id, mode, redirect_target).
+        `redirect_target` is None except for "extension" mode. Raises
+        ValueError on an unknown/expired state."""
         with self._lock:
             self._sweep()
             entry = self._pending.pop(state, None)
             if entry is None:
                 raise ValueError("unknown or expired state")
-        _created, mode = entry
+        _created, mode, redirect_target = entry
         token = self._exchange(  # network happens outside the lock
             code, client_id=self._cid, client_secret=self._secret, redirect_uri=self._redirect)
         session_id = new_state()
         with self._lock:
             self._sessions[session_id] = (token, time.time())
-        return session_id, mode
+        return session_id, mode, redirect_target
 
     def redeem(self, session_id: str) -> str | None:
         """Return the token for a session id exactly once, else None."""
