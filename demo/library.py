@@ -8,15 +8,64 @@ A lock guards the swap so /ask always sees a consistent pipeline; during a slow
 ingest the previous repo stays answerable (status just reads "indexing").
 """
 
+import logging
 import threading
 from pathlib import Path
 
 from evals.corpus import load_chunks
 from evals.corpus_meta import load_meta
-from evals.retriever import LexicalRetriever
+from evals.retriever import LexicalRetriever, SemanticRetriever, HybridRetriever
 from evals.provider import make_provider, has_provider_key
 from evals.pipeline import GatedPipeline
 from evals.ingest import ingest_repo
+
+_log = logging.getLogger(__name__)
+
+# The local embedding model is loaded ONCE per process and shared across every
+# repo/pipeline (loading it is the expensive part; a query embed is cheap). If
+# fastembed or the model is unavailable, retrieval degrades to lexical-only
+# rather than crashing -- the demo still works, just without semantic recall.
+_embedder_lock = threading.Lock()
+_embedder_state = {"tried": False, "provider": None}
+
+
+def _shared_embedder():
+    with _embedder_lock:
+        if _embedder_state["tried"]:
+            return _embedder_state["provider"]
+        _embedder_state["tried"] = True
+        try:
+            from evals.provider import LocalEmbeddingProvider
+            _embedder_state["provider"] = LocalEmbeddingProvider()
+        except Exception as e:  # fastembed missing / model load failed
+            _log.warning(
+                "local embedder unavailable (%s); using lexical-only retrieval",
+                type(e).__name__,
+            )
+            _embedder_state["provider"] = None
+        return _embedder_state["provider"]
+
+
+def _build_retriever(chunks, corpus_dir):
+    """Hybrid (BM25 + local semantic) retrieval when the embedder is available,
+    else lexical-only. Chunk embeddings are read from / written to an on-disk
+    cache under `corpus_dir` so a server restart or repo reconnect doesn't
+    re-embed the whole corpus (the query is still embedded live)."""
+    lexical = LexicalRetriever(chunks)
+    embedder = _shared_embedder()
+    if embedder is None:
+        return lexical
+    from evals.vector_cache import load_vectors, save_vectors
+    model = getattr(embedder, "model_name", "unknown")
+    cache_path = Path(corpus_dir) / "vectors.json"
+    refs = [c.ref for c in chunks]
+    cached = load_vectors(cache_path, model, refs)
+    if cached is not None:
+        semantic = SemanticRetriever(chunks, embedder, vectors=cached)
+    else:
+        semantic = SemanticRetriever(chunks, embedder)  # embeds every chunk now
+        save_vectors(cache_path, model, semantic.vectors)
+    return HybridRetriever(lexical, semantic)
 
 
 def _pick_writer():
@@ -25,7 +74,7 @@ def _pick_writer():
 
 def _default_build_pipeline(corpus_dir):
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
-    return GatedPipeline(LexicalRetriever(chunks), chunks, make_provider(_pick_writer()))
+    return GatedPipeline(_build_retriever(chunks, corpus_dir), chunks, make_provider(_pick_writer()))
 
 
 def _default_build_private_pipeline(corpus_dir):
@@ -35,7 +84,7 @@ def _default_build_private_pipeline(corpus_dir):
     provider = make_provider("gemini-paid")
     assert_safe_for_private(provider)
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
-    return GatedPipeline(LexicalRetriever(chunks), chunks, provider)
+    return GatedPipeline(_build_retriever(chunks, corpus_dir), chunks, provider)
 
 
 def _default_private_ready():

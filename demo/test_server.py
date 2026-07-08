@@ -346,10 +346,19 @@ class BodyCapTests(unittest.TestCase):
         big = json.dumps({"question": "x" * 200_000}).encode()
         req = urllib.request.Request(self.base + "/ask", data=big,
                                      headers={"Content-Type": "application/json"})
-        with self.assertRaises(urllib.error.HTTPError) as cm:
-            urllib.request.urlopen(req)
-        self.assertEqual(cm.exception.code, 413)
-        cm.exception.close()
+        try:
+            resp = urllib.request.urlopen(req)
+            resp.close()
+            self.fail("server accepted an oversized body")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 413)  # the clean rejection
+            e.close()
+        except (urllib.error.URLError, ConnectionError):
+            # Also a valid rejection, and a real race under load: the server
+            # sends its 413 and closes the socket before the client finishes
+            # streaming the 200KB body, so urllib surfaces the connection reset
+            # instead of reading the response. Either way the body never got in.
+            pass
 
 
 class ConcurrencyTests(unittest.TestCase):

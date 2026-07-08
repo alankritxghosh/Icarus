@@ -129,9 +129,16 @@ removing, or renaming files). For class/function-level detail see
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links.
 - `evals/retriever.py` — `LexicalRetriever` (stdlib BM25 keyword retriever) plus
-  a `tokenize` helper, and `SemanticRetriever` (cosine similarity over an
-  `EmbeddingProvider`'s vectors) with its `_cosine` helper -- same
-  `.search(query, k) -> List[str]` contract, a drop-in for the lexical one.
+  a `tokenize` helper, `SemanticRetriever` (cosine similarity over an
+  `EmbeddingProvider`'s vectors; optional `vectors=` param + `.vectors` property
+  to supply/persist precomputed chunk embeddings), and `HybridRetriever` (RRF
+  fusion of BM25 + semantic) -- all share the `.search(query, k) -> List[str]`
+  contract, drop-in for each other.
+- `evals/vector_cache.py` — `load_vectors`/`save_vectors`: the on-disk embedding
+  cache (JSON sidecar tagged by model name) so the demo doesn't re-embed a corpus
+  on every start. Pure optimization, fail-safe: any miss/model-change/corpus-
+  change/corrupt file returns None → re-embed. Cache (`vectors.json`) is derived,
+  gitignored, never committed.
 - `evals/provider.py` — the `Provider` abstraction for the rented writer/judge:
   `GroqProvider`, `GeminiProvider` (key in the `x-goog-api-key` header, not the
   URL), `OpenRouterProvider`, `StaticProvider`, and `PaidGeminiProvider` (a
@@ -194,6 +201,9 @@ removing, or renaming files). For class/function-level detail see
   abstention on everything ambiguous.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
+- `evals/test_vector_cache.py` — the embedding cache round-trips and fails safe
+  to None (re-embed) on every mismatch/corruption; the `SemanticRetriever`
+  `vectors=` param skips chunk embedding yet still embeds the query live.
 - `evals/test_gated_semantic.py` — the honesty-gate proof for the SEMANTIC/HYBRID
   retrieval path (Brick C): a `GatedPipeline` + real writer over
   `SemanticRetriever`/`HybridRetriever` evidence emits a grounded answer but
@@ -241,7 +251,11 @@ removing, or renaming files). For class/function-level detail see
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
 - `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON.
-- `demo/library.py` — `Library`: one active repo's state + pipeline. `connect_sync`
+- `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
+  `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, backed by a
+  process-shared `_shared_embedder` (the fastembed model loads ONCE; falls back
+  to lexical-only if fastembed is unavailable) and the `evals/vector_cache`
+  on-disk cache so restarts/reconnects don't re-embed. `connect_sync`
   reuses a cache or ingests once, single-flight and thread-safe, serving a
   generic error on failure; now takes an optional caller `token` + `private`
   flag — a private connect resolves a separate on-disk path, refuses (before any
@@ -312,6 +326,11 @@ removing, or renaming files). For class/function-level detail see
   — connect, storage, disconnect, and provenance all stay disjoint.
 - `demo/test_demo_live.py` — end-to-end live guard over the real pipeline; skips
   without a key or the corpus.
+- `demo/test_semantic_wiring.py` — proves Brick C's semantic retrieval is wired
+  into the SERVING pipeline: the demo builds a `HybridRetriever` when the embedder
+  is present, falls back to `LexicalRetriever` when it isn't, and a second build
+  over the same corpus dir embeds zero chunks (cache hit). Live tests self-skip
+  without fastembed/the corpus.
 
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.
