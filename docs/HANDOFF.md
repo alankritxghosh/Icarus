@@ -82,15 +82,30 @@ is the orientation layer on top of it.
   issue never linked from a merged PR) was completely invisible to ingestion.
   Confirmed live against the real repo, both before and after the fix.
 
-**Built + reviewed, sitting on an UNMERGED branch (not yet in `main`):**
-- **Brick C** (semantic retrieval, fixes remarks 6/8) — branch/worktree
-  `brick-c-semantic-retrieval` at `.worktrees/brick-c-semantic-retrieval`, HEAD
-  `eef8e6d`. Tasks C1 (`EmbeddingProvider`/`GeminiEmbeddingProvider`/
-  `StaticEmbeddingProvider`), C2 (`SemanticRetriever`, cosine similarity), C3a
-  (`HybridRetriever`, reciprocal-rank fusion of BM25 + semantic) are all built,
-  independently spec- and code-quality-reviewed, hardened via real follow-up
-  fixes. **225 tests pass on this branch (vs. 180 on `main`), 15 self-skip.**
-- **C3b (the live proof) is the ONE thing blocking Brick C's merge** — see §1.
+- **Brick C** (semantic retrieval, fixes remarks 6/8) — **DONE and MERGED to
+  `main` 2026-07-08 (merge commit `8c3273e`).** Route CHANGED mid-effort: the
+  hosted-Gemini-embeddings path was abandoned (its free-tier quota kept blocking
+  the live proof — see §2), and at Alankrit's call ("do this free of cost")
+  replaced with **local, free, offline embeddings** — `LocalEmbeddingProvider`
+  using `fastembed` (ONNX, `BAAI/bge-small-en-v1.5`, NO PyTorch, no key, no quota,
+  no egress; lazily imported so the harness stays stdlib-only otherwise). Runs
+  server-side in the brain, so retrieval never depends on the user's hardware.
+  On Brick 0's comprehension board hybrid beats BM25 on clean (69.2 vs 53.8) and
+  doubles it on messy phrasing (61.5 vs 30.8), both honesty gates 100%; the gate
+  is proven intact on the semantic path by `evals/test_gated_semantic.py`. Two
+  independent adversarial reviewers reproduced every number before merge. The one
+  new dependency is `fastembed` (`requirements.txt`; run the suite from a venv —
+  `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`).
+  **Caveat: proven in the eval harness only — `demo/library.py` is still
+  lexical-only, so the shipping product does NOT do semantic retrieval yet. See
+  the next-brick note below.**
+
+**Recommended next brick (Brick C follow-up):** wire the `HybridRetriever` +
+`LocalEmbeddingProvider` into `demo/library.py` (currently `LexicalRetriever`
+only) and persist/cache the chunk vectors at ingest so the server doesn't
+re-embed the whole corpus on every start. This is what turns the proven-on-the-
+bench semantic win into something a real demo user actually gets. Explicitly
+deferred out of Brick C (recorded in the plan doc's "Explicitly deferred past C3").
 
 **Not started yet:** Brick Q (query-understanding: framing/grammar/spelling
 robustness), Brick D (explain a line on GitHub via a browser extension, remark 3), Brick S (structural
@@ -99,39 +114,22 @@ sources). See §4.
 
 ---
 
-## 1. THE THING TO CHECK FIRST NEXT SESSION
+## 1. Brick C is DONE — the old quota blocker is resolved (historical, §2/§3)
 
-A scheduled task, **`retry-brick-c-live-embedding-proof`**, is set to fire at
-**2026-07-08T00:15:00Z** (UTC). Check whether it already ran:
+**Resolved 2026-07-08.** The whole "check the scheduled retry first" workflow that
+used to live here is obsolete: Brick C shipped by **abandoning the Gemini
+embedding route entirely** and going **local + free** (see §0). The scheduled
+task `retry-brick-c-live-embedding-proof` has been **disabled** (marked OBSOLETE)
+so it will not fire — no action needed on it. Sections §2 and §3 below are kept
+as **historical context** (why the route changed, and the billing/trust finding
+in §2.3 that is still worth acting on before onboarding private code) — they no
+longer describe live work.
 
-```bash
-# from any Claude session with the scheduled-tasks tool:
-mcp__scheduled-tasks__list_scheduled_tasks
-```
-
-If `enabled: false` and `lastRunAt` is set, it fired — check the result:
-1. `cd "/Users/alankritghosh/JARVIS /jarvis_engineering/.worktrees/brick-c-semantic-retrieval"` (if it still exists — the task was instructed to merge to `main` and remove the worktree/branch on success) and `git log --oneline -10`.
-2. If the branch/worktree is GONE and `main`'s log shows a Brick C merge commit — **it worked**, Brick C is merged, tests should be green on `main`. Confirm with `python3 -m unittest discover -t . -s evals` from the repo root — expect the test count to have risen from 180 (roughly matching the branch's 225, since the merge should bring those tests over).
-3. If the branch/worktree STILL exists — the task either didn't run yet, or ran and hit another blocker (read `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`'s Brick C section, near the bottom, for whatever it recorded).
-
-**If it hasn't fired yet** (still `enabled: true`, `nextRunAt` in the future),
-just wait for it or check back later — don't manually re-trigger it or start a
-duplicate live run; that risks burning more of the same daily embedding quota
-this whole chain of blockers was about (see §2).
-
-**What the scheduled task does autonomously if quota has genuinely reset:** runs
-the real `evals.test_retrieval_eval` live test (`HybridRetrievalEvalTests`),
-which embeds all 243 real committed corpus chunks via the real Gemini API
-(paced at ~0.7s/call to respect the 100 req/min free-tier cap) and checks hybrid
-retrieval's recall@k against a same-run BM25 baseline, with both gates still at
-100%. If that holds, it records the real numbers in the plan doc, runs an
-independent spec review + code-quality review + a final whole-brick review of
-all of Brick C (mirroring how Bricks 0/A/B were closed out earlier in this
-branch's history — see git log for the exact review-dispatch pattern used
-throughout), fixes anything those reviews flag, and merges to `main`. It was
-explicitly instructed: **never weaken the test's assertion to force a pass** —
-if hybrid genuinely underperforms BM25 on the real labelled set, it's supposed
-to stop and record that as a real, honest finding instead.
+**Verify Brick C on `main` if you want:** from a venv with the one dependency,
+`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`, then
+`.venv/bin/python -m unittest discover -t . -s evals` — expect **238 tests OK,
+13 skipped**. The live semantic proof (`HybridComprehensionEvalTests`) and the
+semantic honesty-gate proof (`test_gated_semantic.py`) run offline with no key.
 
 ---
 
