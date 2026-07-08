@@ -1189,6 +1189,71 @@ arbitrary attacker URL after a real user's successful GitHub sign-in. The
 `redeem` step is reused completely unchanged from the web flow. Full suite:
 295 evals + 155 demo (+9 tests), all green.
 
+**D3 status: BUILT, partially live-verified (2026-07-09).** New `extension/`
+directory (Chrome, Manifest V3), no build step, no new npm dependency —
+`node --test` (built-in, zero installs) for the pure logic, matching the
+project's own stdlib-only philosophy:
+
+- `extension/lib.js` — the pure, DOM-free parse/gate functions (`parseLineHash`,
+  `parseBlobPath`, `isConnectedRepo`), exported via a dual CommonJS/browser-
+  global pattern so the identical file runs unmodified both as a plain
+  `<script>` in the extension and under Node. 13 unit tests
+  (`extension/lib.test.js`), all green.
+- `extension/content.js` — the on-page logic: gates on a connected repo (one
+  `/status` check per repo change, not per line-selection), listens for
+  selections, shows/removes an "Ask Icarus" trigger, calls `/explain` on
+  click. D3 is explicitly "capture + call," not render — the response is
+  stashed on `window.__icarusLastExplain` for D4 to render, not silently
+  discarded or fake-rendered.
+- **A real navigation-detection finding from live testing, not assumption:**
+  probed GitHub's actual SPA behavior (clicking a different file in the
+  sidebar navigates without a full reload) against 4 candidate events
+  (`popstate`, `turbo:load`, `turbo:render`, `pjax:end`) — **none fired**
+  (confirmed live: `pushState` alone never dispatches `popstate`, and
+  GitHub's internal SPA event names, if any, aren't these). The standards-
+  based **Navigation API**'s `navigate` event was then tested and **does**
+  fire reliably for both SPA file-to-file navigation and hash-only line-
+  selection changes (both live-verified against the real GitHub UI) — one
+  listener covers everything, no polling. Chrome-only today, which matches
+  this extension's own "Chrome first" v1 scope. `content.js` reads
+  `event.destination.url` directly rather than deferring and re-reading
+  `location` (the event fires *during* navigation, before `location` itself
+  necessarily updates — using the destination URL avoids a timing
+  assumption).
+- `extension/background.js` (MV3 service worker: the sign-in flow via
+  `chrome.identity.launchWebAuthFlow`, using the new `extension` OAuth mode)
+  and `extension/popup.html`/`popup.js` (a minimal "Sign in with GitHub"
+  toolbar popup — sign-in requires a real user gesture, matching "never
+  capture/act silently").
+
+**Live verification actually performed (honest about what this does and
+doesn't cover):** injected the real `lib.js` plus a stripped `content.js`
+(only the `chrome.storage`/`fetch` calls swapped for fakes, since those APIs
+don't exist outside a loaded extension's context) into the real, live
+`simonw/llm` GitHub page and drove it with real clicks:
+1. No selection → correctly dormant (no trigger).
+2. A real click on line 1 → correctly parsed `{owner: simonw, repo: llm,
+   path: llm/cli.py, start: 1, end: 1}`, real trigger button created in the
+   live DOM.
+3. A real shift-click extending to line 5 → correctly parsed `start: 1,
+   end: 5`.
+4. Navigating to `octocat/Hello-World` (NOT the connected repo) with a
+   *real, valid* line selection (`#L1`) → correctly stayed dormant (the
+   scope guard holds against a real page, not just in a unit test).
+
+**Honest gap, not glossed over:** this proves the navigation-detection and
+parse/gate logic against the real GitHub DOM. It does **not** prove the
+extension loads correctly as a real packaged Chrome extension, nor that
+`chrome.storage.local`, `chrome.identity.launchWebAuthFlow`, or the real
+`fetch`-with-bearer-token calls work end-to-end — those only exist inside an
+actual loaded-extension context, which requires `chrome://extensions` (load
+unpacked, enable developer mode). That page is a Chrome-internal page
+automated remote-debugging tooling is deliberately barred from navigating to
+— confirmed by trying (`chrome://extensions` came back as an error page).
+**Closing this gap needs a human to load the unpacked `extension/` directory
+in a real Chrome and click through it once** — this is D5's live guard, not
+yet done.
+
 **Definition of done:** on github.com, selecting real lines in a connected repo
 returns a cited explanation or an honest unknown, overlaid on the page, proven
 end-to-end (brain test + extension parse test + one live guard); no new gate.

@@ -405,6 +405,37 @@ removing, or renaming files). For class/function-level detail see
   over the same corpus dir embeds zero chunks (cache hit). Live tests self-skip
   without fastembed/the corpus.
 
+## extension/ (Brick D — Chrome browser extension, Manifest V3, no build step)
+- `extension/manifest.json` — MV3 manifest: `identity`+`storage` permissions,
+  host permissions for `github.com` and the local brain (`127.0.0.1:8000` --
+  TODO once hosted), a content script matching `github.com/*/*/blob/*` pages
+  loading `lib.js` then `content.js`, a background service worker
+  (`background.js`), and a toolbar popup (`popup.html`).
+- `extension/lib.js` — the pure, DOM-free parse/gate functions
+  `parseLineHash`, `parseBlobPath`, `isConnectedRepo` -- dual CommonJS/browser-
+  global export so the SAME file runs unmodified as a plain `<script>` in the
+  extension and under `node --test` (no bundler, no npm install).
+- `extension/content.js` — the on-page logic (D3: "capture + call," not
+  render): gates on the caller's connected repo (`GET /status`, cached per
+  repo not per line-selection), listens for a real line selection via the
+  Navigation API's `navigate` event (live-verified: covers both SPA file-to-
+  file navigation and hash-only line changes; GitHub's `popstate`/Turbo/pjax
+  events do NOT fire for this -- checked live, none did), shows/removes an
+  "Ask Icarus" trigger, and calls `POST /explain` with the stored bearer
+  token on click. Stashes the result on `window.__icarusLastExplain` for D4
+  to render.
+- `extension/background.js` — MV3 service worker: the GitHub sign-in flow via
+  `chrome.identity.launchWebAuthFlow`, using `demo/github_oauth.py`'s new
+  `extension` OAuth mode; stores the token in `chrome.storage.local`.
+- `extension/popup.html` / `extension/popup.js` — a minimal "Sign in with
+  GitHub" toolbar popup (a real user gesture is required to open the sign-in
+  flow -- it can never happen silently).
+- `extension/lib.test.js` — `node --test` (Node's built-in test runner, zero
+  npm installs, mirrors the Python side's stdlib-only ethos): 13 tests over
+  `parseLineHash`/`parseBlobPath`/`isConnectedRepo`, including the D0-derived
+  edge cases (inverted range, PR-diff-view path, case-insensitive repo match).
+  Run: `node --test extension/lib.test.js`.
+
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.
 - `mac/Icarus/Package.swift` — SwiftPM manifest: `IcarusKit` (testable logic) +
