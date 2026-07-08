@@ -1254,6 +1254,72 @@ automated remote-debugging tooling is deliberately barred from navigating to
 in a real Chrome and click through it once** — this is D5's live guard, not
 yet done.
 
+**D4 status: BUILT, live-verified, TWO real bugs found and fixed
+(2026-07-09).** `extension/render.js` — pure HTML-string builders
+(`renderAnswerHtml`, `renderUnknownHtml`, `renderLoadingHtml`,
+`renderSignedOutHtml`, `renderErrorHtml`), dual CommonJS/browser-global
+export like `lib.js`, 16 unit tests (`extension/render.test.js`), all green
+before any live testing. Mirrors `demo/index.html`'s own voice ("grounded
+answer" / "No one wrote this down." / citation chips by source type) so the
+extension and the web demo read as the same product.
+
+**Deliberate divergence from `demo/index.html`, recorded so it isn't mistaken
+for a gap:** that page's badge reads "private · paid writer — 0 trained on
+your code". The 2026-07-08 billing investigation (`docs/HANDOFF.md`) found
+the paid/no-training guarantee does not currently hold as described. Rather
+than copy a known-inaccurate claim into a third surface, the extension's
+badge states only the verifiable fact ("private repo" / "public repo") and
+drops the paid/training claim — with a unit test
+(`does NOT claim 'paid writer' or 'trained'`) guarding against silently
+reintroducing it later.
+
+`content.js` extended: `showPanel`/`showTrigger` now drive a real state
+machine (trigger → loading → answer/unknown/error/signed-out), a close
+button, and the `private` flag threaded through from the same `/status` call
+already made for the connected-repo check (no extra request).
+
+**Live verification (same method as D3 — injecting the real files into the
+real, live `simonw/llm` GitHub page, chrome.storage/fetch swapped for fakes
+only where those APIs don't exist outside a loaded extension) found TWO real
+bugs neither the 45 unit tests nor a code read caught:**
+
+1. **Style-injection timing.** `ensureStyleInjected()` was only called inside
+   `showPanel()`, not `showTrigger()` — so the FIRST "Ask Icarus" trigger a
+   user ever sees on a fresh page load rendered with zero CSS applied
+   (confirmed live: `getComputedStyle(el).zIndex` read `"auto"`, not the
+   declared `2147483647`). Fixed: inject the stylesheet once, unconditionally,
+   at script load — not lazily inside either show function.
+2. **A silently-overridden `position: fixed`.** `showPanel()` set
+   `panel.style.position = "relative"` inline, intending to anchor the close
+   button — but an inline style always beats a stylesheet rule, so this
+   silently overrode `.icarus-panel`'s `position:fixed`, making the whole
+   panel render in its normal document-flow position instead of fixed to the
+   viewport. Confirmed live via `getBoundingClientRect()`: the panel's left
+   edge was at `-24px` (partially off-screen) in a 1440px viewport, and the
+   screenshot showed every line of text with its first 1-2 characters
+   clipped. Fixed by deleting the inline style entirely — `position:fixed`
+   is already a valid containing block for the close button's
+   `position:absolute`, so the line was not just wrong, it was unnecessary.
+   Re-verified live after the fix: `panelLeft: 1076, panelRight: 1416` in a
+   1440px viewport — exactly `right: 24px`, `width: 340px`, correctly
+   anchored to the bottom-right corner, fully legible.
+
+Both fixes re-verified live: the trigger renders correctly styled on first
+appearance; the answer panel (real captured `/explain` payload: ModelError/
+NeedsKeyException) and the honest-unknown panel (real `searched` array,
+correct singular/plural) both render fully legible, correctly positioned,
+with working citation links and a working close button (mouse-coordinate
+clicks hit a DPI-mapping issue in the remote-automation tooling itself,
+unrelated to the code — verified by dispatching the same click event
+directly at the element instead, which correctly removed the panel).
+
+**Same honest gap as D3, not resolved by this either:** the real
+`chrome.storage`/`fetch`-with-bearer-token network path is still unverified
+outside a loaded extension (confirmed again: a plain page script fetching
+`http://127.0.0.1:8000/status` hit `TypeError: Failed to fetch` — CORS,
+exactly the boundary a real extension's `host_permissions` exists to cross).
+D5's live guard remains the one thing only a human can close.
+
 **Definition of done:** on github.com, selecting real lines in a connected repo
 returns a cited explanation or an honest unknown, overlaid on the page, proven
 end-to-end (brain test + extension parse test + one live guard); no new gate.

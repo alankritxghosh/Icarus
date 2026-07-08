@@ -17,7 +17,7 @@
   "content_scripts": [
     {
       "matches": ["https://github.com/*/*/blob/*"],
-      "js": ["lib.js", "content.js"],
+      "js": ["lib.js", "render.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

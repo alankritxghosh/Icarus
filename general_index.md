@@ -415,15 +415,29 @@ removing, or renaming files). For class/function-level detail see
   `parseLineHash`, `parseBlobPath`, `isConnectedRepo` -- dual CommonJS/browser-
   global export so the SAME file runs unmodified as a plain `<script>` in the
   extension and under `node --test` (no bundler, no npm install).
-- `extension/content.js` — the on-page logic (D3: "capture + call," not
-  render): gates on the caller's connected repo (`GET /status`, cached per
-  repo not per line-selection), listens for a real line selection via the
-  Navigation API's `navigate` event (live-verified: covers both SPA file-to-
-  file navigation and hash-only line changes; GitHub's `popstate`/Turbo/pjax
-  events do NOT fire for this -- checked live, none did), shows/removes an
-  "Ask Icarus" trigger, and calls `POST /explain` with the stored bearer
-  token on click. Stashes the result on `window.__icarusLastExplain` for D4
-  to render.
+- `extension/render.js` — Brick D4's pure HTML-string builders
+  (`renderAnswerHtml`, `renderUnknownHtml`, `renderLoadingHtml`,
+  `renderSignedOutHtml`, `renderErrorHtml`), same dual-export pattern as
+  `lib.js`. Mirrors `demo/index.html`'s voice/structure (citation chips by
+  source type, "No one wrote this down."), but DELIBERATELY drops that
+  page's "paid writer — 0 trained on your code" claim (not yet true per the
+  2026-07-08 billing investigation, `docs/HANDOFF.md`) in favor of a plain
+  "private repo"/"public repo" fact -- guarded by a unit test so it can't be
+  silently reintroduced.
+- `extension/content.js` — the on-page logic: gates on the caller's connected
+  repo (`GET /status`, cached per repo not per line-selection, also carrying
+  the `private` flag for D4's badge), listens for a real line selection via
+  the Navigation API's `navigate` event (live-verified: covers both SPA
+  file-to-file navigation and hash-only line changes; GitHub's `popstate`/
+  Turbo/pjax events do NOT fire for this -- checked live, none did), and
+  drives a real state machine (trigger -> loading -> answer/unknown/error/
+  signed-out) via `showTrigger`/`showPanel`, with a close button. Two real
+  bugs found via live testing and fixed: the stylesheet was injected lazily
+  only inside `showPanel` (the first trigger a user ever saw was completely
+  unstyled), and an inline `panel.style.position="relative"` silently
+  overrode the CSS class's `position:fixed` (the panel rendered off-screen,
+  `left:-24px` in a 1440px viewport) -- both confirmed live via
+  `getBoundingClientRect()`/`getComputedStyle`, not guessed from a screenshot.
 - `extension/background.js` — MV3 service worker: the GitHub sign-in flow via
   `chrome.identity.launchWebAuthFlow`, using `demo/github_oauth.py`'s new
   `extension` OAuth mode; stores the token in `chrome.storage.local`.
@@ -434,7 +448,10 @@ removing, or renaming files). For class/function-level detail see
   npm installs, mirrors the Python side's stdlib-only ethos): 13 tests over
   `parseLineHash`/`parseBlobPath`/`isConnectedRepo`, including the D0-derived
   edge cases (inverted range, PR-diff-view path, case-insensitive repo match).
-  Run: `node --test extension/lib.test.js`.
+- `extension/render.test.js` — 16 tests over `render.js`: HTML-escaping,
+  every citation shape (with/without a URL), the private/public repo label,
+  and the guard against reintroducing the "paid writer"/"trained" claim.
+  Run both: `node --test extension/*.test.js`.
 
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.
