@@ -196,3 +196,27 @@ class HybridRetriever:
 
         fused = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
         return [ref for ref, _ in fused[:k]]
+
+
+class NormalizingRetriever:
+    """Wraps any `.search(query, k) -> List[str]`-compatible retriever, running
+    Brick Q's stdlib fuzzy-spelling normalization (evals/query_normalize.py) on
+    the query BEFORE delegating -- "wire ahead of the retriever" per the plan.
+
+    Duck-typed like every other retriever here, so it composes freely, e.g.
+    `NormalizingRetriever(HybridRetriever(lexical, semantic), vocabulary)`.
+    Only the text used to SEARCH is normalized; the caller's original question
+    (e.g. what GatedPipeline hands to the writer) is untouched -- this class
+    never sees or returns anything but retrieval results.
+    """
+
+    def __init__(self, retriever, vocabulary, cutoff: float = 0.8):
+        self._retriever = retriever
+        self._vocabulary = vocabulary
+        self._cutoff = cutoff
+
+    def search(self, query: str, k: int = 20) -> List[str]:
+        from .query_normalize import normalize_query  # local: avoids a circular
+        # import (query_normalize imports retriever.tokenize at module level).
+        normalized = normalize_query(query, self._vocabulary, self._cutoff)
+        return self._retriever.search(normalized, k)

@@ -3,7 +3,14 @@ import unittest
 
 from .corpus import Chunk
 from .provider import StaticEmbeddingProvider
-from .retriever import HybridRetriever, LexicalRetriever, SemanticRetriever, _cosine, tokenize
+from .retriever import (
+    HybridRetriever,
+    LexicalRetriever,
+    NormalizingRetriever,
+    SemanticRetriever,
+    _cosine,
+    tokenize,
+)
 
 
 class TokenizeTests(unittest.TestCase):
@@ -318,6 +325,53 @@ class HybridRetrieverTests(unittest.TestCase):
 
         result = HybridRetriever(EmptyRetriever(), EmptyRetriever()).search("anything", k=5)
         self.assertEqual(result, [])
+
+
+class NormalizingRetrieverTests(unittest.TestCase):
+    """Q2: wraps any .search()-compatible retriever, normalizing the query
+    (Q1's normalize_query) before delegating. Wiring "ahead of the retriever"
+    per the plan -- the wrapped retriever, and everything else in the pipeline
+    (the writer prompt), never sees the normalized text, only the original
+    inner retriever gets the corrected query for SEARCH purposes."""
+
+    def setUp(self):
+        self.vocab = frozenset({"function", "authenticate"})
+
+    def test_delegates_with_the_normalized_query(self):
+        seen = []
+
+        class _Spy:
+            def search(self, query, k=20):
+                seen.append(query)
+                return ["ref:1"]
+
+        r = NormalizingRetriever(_Spy(), self.vocab)
+        result = r.search("fuction authh", k=5)
+        self.assertEqual(len(seen), 1)  # exactly one delegated call
+        self.assertNotIn("fuction", seen[0].split())  # the INNER retriever saw the correction
+        self.assertEqual(result, ["ref:1"])  # and the inner retriever's result passes through
+
+    def test_passes_k_through_unchanged(self):
+        seen_k = []
+
+        class _Spy:
+            def search(self, query, k=20):
+                seen_k.append(k)
+                return []
+
+        NormalizingRetriever(_Spy(), self.vocab).search("function", k=7)
+        self.assertEqual(seen_k, [7])
+
+    def test_composes_with_a_real_retriever(self):
+        chunks = [Chunk("code:a#L1-L2", "code", "def authenticate(user): pass")]
+        lexical = LexicalRetriever(chunks)
+        vocab = frozenset({"authenticate"})
+        r = NormalizingRetriever(lexical, vocab)
+        # "authenicate" is a typo for "authenticate" (one letter dropped) --
+        # close enough to correct, and BM25 alone finds nothing for the typo'd
+        # token (no keyword overlap), so this only passes if normalization ran.
+        self.assertNotIn("code:a#L1-L2", lexical.search("authenicate", k=5))  # BM25 alone: miss
+        self.assertIn("code:a#L1-L2", r.search("authenicate", k=5))  # normalized: hit
 
 
 if __name__ == "__main__":

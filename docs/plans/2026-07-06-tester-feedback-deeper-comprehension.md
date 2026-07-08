@@ -113,7 +113,7 @@ Brick 0  Code-comprehension eval set   PROVES the vision · buildable now · RED
 Brick A  Whole-codebase ingest         fixes 1,2,4 · unblocks D,Q,S · small
 Brick B  PR/Issue coverage + bug       fixes 5                       · small
 Brick C  Semantic retrieval            fixes 6,8 · lifts 7           · needs a dependency decision
-Brick Q  Query-understanding layer     "any framing/grammar/spelling" · rides on C
+Brick Q  Query-understanding layer     DONE · stdlib normalizer, no new dep · aggregate recall +7-8pp
 Brick D  Explain a line on GitHub      fixes 3 · browser extension, connected repos only · after A+C
 Brick S  Structural comprehension      the deep "reads the code" · LARGE · needs explicit go (deferred-gated)
 Brick E  Richer "why" sources          lifts 7 · optional, after C
@@ -849,6 +849,117 @@ untouched.
 
 **Honest limits:** extreme gibberish or ambiguous questions still legitimately get
 "can you clarify / no evidence" — robustness is not mind-reading.
+
+**Status: DONE (2026-07-08), Q1+Q2 only — see scope note below.**
+
+**Probe first (playbook-planning):** before writing any code, measured exactly
+which Brick 0 comprehension questions diverge between clean and messy phrasing
+under the already-merged hybrid retriever. Of 13 answerable questions, only 3
+diverged; only 2 were genuine regressions (messy lost a hit clean had). This
+sized the brick precisely instead of guessing.
+
+**Q1 — `evals/query_normalize.py` (stdlib only, no new dependency):**
+`build_vocabulary(chunks)` builds the correction target from the corpus itself
+(reusing `retriever.tokenize()` exactly), and `normalize_query(text, vocabulary,
+cutoff=0.8)` fuzzy-corrects (stdlib `difflib`) any query word not already in that
+vocabulary — so a "correction" is always a real term that appears in THIS
+codebase, never a guess from an external dictionary. A word with no close match
+is left alone rather than force a low-confidence guess. 10 unit tests, offline,
+always run (no fastembed needed).
+
+**Q2 — `evals/retriever.py`'s `NormalizingRetriever`:** wraps any
+`.search(query, k)`-compatible retriever, normalizing the query before
+delegating — "wired ahead of the retriever" exactly as specified, composing with
+`HybridRetriever` without touching `pipeline.py` at all. Only the SEARCH text is
+normalized; `GatedPipeline` still hands the writer the user's original,
+unmangled question. 3 unit tests + a live board proof
+(`evals/test_query_normalization_eval.py`, self-skips without fastembed/corpus).
+
+**A real bug found and fixed mid-build (playbook-debugging):** the first
+version preserved dotted filenames ("tools.py") as one compound token for
+"readability." That backfired — `retriever.tokenize()` (which builds the
+vocabulary) splits on periods too, so a compound token could never exist in the
+vocabulary verbatim, forcing EVERY filename reference through fuzzy-matching
+against single-word vocabulary and silently corrupting it (measured:
+`llm/templates.py?` → `llm templates`, losing the `.py` extension entirely).
+This was caught by the live board test regressing clean-phrasing recall
+(69.2%→61.5%), not by unit tests with a hand-picked vocabulary — a reminder that
+the live board is load-bearing, not decorative. Fix: tokenize identically to
+`retriever.tokenize()` (no dot-preservation special case), so real words land in
+the vocabulary verbatim and pass through unmangled.
+
+**Real, measured numbers** (Brick 0 comprehension board, recall@5, same-run,
+both gates 100% throughout):
+
+| phrasing | before normalization | after normalization |
+|----------|----------------------|----------------------|
+| clean    | 69.2%                | **76.9%** |
+| messy    | 61.5%                | **69.2%** |
+
+Normalization helped BOTH phrasings (not just messy) once the tokenization bug
+was fixed, and closed the messy-vs-clean gap exactly to the pre-Q clean
+baseline.
+
+**Scope note — honest reading of the success criterion:** the literal
+per-question "every messy variant returns the IDENTICAL citation as its clean
+twin" is NOT fully met — one case (the `llm/tools.py` "what does llm_time
+return" question) fails on both clean and messy phrasing for a reason unrelated
+to spelling: extra filler wording ("list everything in it") dilutes the query
+relative to the concise clean phrasing. That's a query-length/dilution problem,
+not a framing/grammar/spelling problem — outside a query-normalizer's designed
+scope. The proven, honest claim is **aggregate recall parity** (measured above),
+not per-question identical retrieval on every case. Tests assert exactly that
+claim, nothing stronger.
+
+**Explicitly out of scope for this brick (mirrors Brick C's precedent):**
+wiring `NormalizingRetriever` into `demo/library.py`'s serving pipeline. Q1/Q2
+prove the technique in the eval harness only, same as Brick C did before its own
+follow-up brick wired it into the product. A natural next brick, not yet
+greenlit.
+
+**Not built:** the "optional LLM restate" path mentioned in the original design
+sketch — the stdlib normalizer alone closed the gap; no LLM call (cost, latency)
+was needed. Revisit only if a future harder case proves the fuzzy-match
+normalizer insufficient.
+
+**Whole-brick review (2026-07-08): two independent adversarial reviewers.**
+Verdict MERGE-READY / GO on both, after two real, small fixes: (1) a stdlib,
+always-run `TokenizerLockstepTests` guard was added so a future edit that
+reintroduces the filename-tokenization bug is caught even without fastembed
+installed (previously only the live board test would have caught it). (2) A
+determinism test was found to be effectively vacuous (no genuine `difflib`
+scoring tie in its fixture, so it couldn't distinguish a correctly-deterministic
+implementation from a broken one) — replaced with a fixture engineered to a
+verified real tie. Investigating that gap also surfaced that `normalize_query`'s
+`sorted(vocab_set)` call was unnecessary (`difflib.get_close_matches` already
+tie-breaks deterministically via its own `(score, candidate)` tuple comparison,
+independent of input order — verified empirically across repeated `frozenset`
+instances with varied insertion order); removed the redundant sort and
+corrected the comment that had wrongly claimed it was required.
+
+**Third-party comparison (2026-07-08, Alankrit's request):** added
+`evals/baseline_retriever.py`'s `GrepBaselineRetriever` — the honest yardstick
+for "how much is Icarus's retrieval actually worth over what a developer
+already gets by grepping the repo today?" Deliberately dumb (keyword-presence
+OR-match only, no ranking sophistication, no semantics, no typo tolerance),
+implemented in pure Python rather than shelling out to a real `grep`/`rg`
+binary so the comparison is reproducible anywhere without requiring ripgrep
+installed. `evals/test_grep_comparison_eval.py` proves Icarus's retrieval
+(hybrid + normalized) beats it on the comprehension board, same-run, gates
+100% throughout:
+
+| phrasing | grep baseline | Icarus (hybrid + normalized) |
+|----------|---------------|-------------------------------|
+| clean    | 46.2% | **76.9%** (+30.7pp) |
+| messy    | 53.8% | **69.2%** (+15.4pp) |
+
+Honest note: the gap is *larger* on clean phrasing than messy, which is the
+opposite of the initial hypothesis (that grep's zero typo-tolerance would make
+the messy gap largest) — an early code comment asserted that unverified
+hypothesis as fact and was corrected once the real numbers contradicted it.
+With only 13 answerable questions this is a small sample; read the direction
+(Icarus meaningfully beats grep on both) as solid, not the precise magnitude of
+which phrasing shows a bigger gap.
 
 ---
 
