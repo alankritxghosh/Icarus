@@ -329,7 +329,7 @@ class EmbeddingPrivateSafeFlagTests(unittest.TestCase):
     @unittest.skipUnless(_HAS_FASTEMBED, "fastembed not installed")
     def test_make_embedding_provider_builds_local(self):
         # 'local' is registered in the factory (constructing it loads the model,
-        # so this needs model2vec).
+        # so this needs fastembed).
         self.assertIsInstance(make_embedding_provider("local"), LocalEmbeddingProvider)
 
     def test_local_embedding_provider_needs_no_key(self):
@@ -345,7 +345,7 @@ class LocalEmbeddingProviderLiveTests(unittest.TestCase):
     no quota) that LocalEmbeddingProvider produces genuine SEMANTIC embeddings:
     a paraphrase with ZERO keyword overlap must land closer to the query than an
     unrelated sentence -- the exact property BM25 cannot deliver and the reason
-    Brick C exists. Self-skips where model2vec isn't installed."""
+    Brick C exists. Self-skips where fastembed isn't installed."""
 
     @classmethod
     def setUpClass(cls):

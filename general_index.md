@@ -194,6 +194,12 @@ removing, or renaming files). For class/function-level detail see
   abstention on everything ambiguous.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
+- `evals/test_gated_semantic.py` — the honesty-gate proof for the SEMANTIC/HYBRID
+  retrieval path (Brick C): a `GatedPipeline` + real writer over
+  `SemanticRetriever`/`HybridRetriever` evidence emits a grounded answer but
+  forces an ungrounded citation to abstention. Deterministic
+  `StaticEmbeddingProvider` (offline, always-on), so it proves the gate is
+  retriever-agnostic without needing fastembed.
 - `evals/test_grader.py` — the harness conscience: gates hold for an honest
   abstainer/oracle and fire for a bluffer.
 - `evals/test_retrieval_eval.py` — end-to-end red→green: retrieval recall@k rises

@@ -1,5 +1,5 @@
 # Icarus brain — container for cloud hosting (Render). The brain is almost pure
-# Python stdlib; the ONE dependency is model2vec (requirements.txt) for local,
+# Python stdlib; the ONE dependency is fastembed (requirements.txt) for local,
 # free, offline semantic-retrieval embeddings — the embedder runs server-side in
 # this container, so retrieval never depends on the end user's hardware. We also
 # add git + gh because the brain shells out to them to ingest a public repo when
@@ -23,10 +23,10 @@ RUN apt-get update \
 WORKDIR /app
 COPY . /app
 
-# The one Python dependency: model2vec (local embeddings). numpy + tokenizers,
-# no PyTorch, so the image stays small. The embedding model itself is fetched
-# from the HuggingFace hub on first use and cached; a future optimization can
-# bake it into the image to remove the cold-start download.
+# The one Python dependency: fastembed (local embeddings). ONNX Runtime +
+# tokenizers, no PyTorch, so the image stays small. The embedding model itself
+# is fetched from the HuggingFace hub on first use and cached; a future
+# optimization can bake it into the image to remove the cold-start download.
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Render (and most PaaS) inject $PORT and expect the process to bind 0.0.0.0.

@@ -764,8 +764,30 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      phrasing with gates at 100% — a real red→green lift proof, not the ceiling'd
      phase1 tie. Full offline suite green (**232 evals + 131 demo**, no
      regressions). The one dependency is `fastembed` (requirements.txt +
-     Dockerfile). **Brick C now delivers remarks 6/8, free, and is ready for the
-     final whole-brick review before merge.**
+     Dockerfile).
+
+     **Whole-brick review (2026-07-08): two independent adversarial reviewers.**
+     Both independently reproduced the comprehension numbers (69.2/61.5 vs
+     53.8/30.8), confirmed no torch, lazy import keeps the harness stdlib-only,
+     `gate.py`/`grader.py`/`trust.py` untouched, frozen data untouched, the
+     `private_safe=True` local embedder is honest (no egress) and opens no bluff
+     path, and no assertion was loosened. Two real findings, both fixed: (1) the
+     "gates 100%" assertions in the *retrieval-only* eval tests are structurally
+     vacuous (`RetrievalPipeline` always abstains, so groundedness over zero
+     answered questions is trivially 100%) — so a new `evals/test_gated_semantic.py`
+     now proves the honesty gate for real: a `GatedPipeline` with a real writer
+     (`StaticProvider`) over SEMANTIC and HYBRID evidence emits a grounded answer
+     but **forces an ungrounded citation to abstention** (mirrors the lexical-path
+     `test_gated_pipeline.py`; deterministic, always-on). (2) stale `model2vec`
+     comments corrected to `fastembed`.
+
+     **Scope truth (do not let this drift):** Brick C proves semantic retrieval
+     **in the eval harness**. It is NOT yet wired into the running product —
+     `demo/library.py` still builds pipelines with `LexicalRetriever` only, so a
+     real demo user still retrieves by keyword. Remarks 6/8 are proven *on the
+     bench*, not *shipped*, until the deferred demo-integration + ingest-time
+     vector-persistence follow-up lands (see "Explicitly deferred past C3"
+     below). Brick C is merge-ready as a proven brick on that honest reading.
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
