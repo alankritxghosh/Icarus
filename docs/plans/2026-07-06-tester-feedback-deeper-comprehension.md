@@ -1113,6 +1113,61 @@ findings, which set D3's real design:
 **Net: D0's binary criterion is met** — extraction is deterministic on the
 blob view. Proceeding to D1-D5, scoped to blob view + click+shift-click only.
 
+**D1 status: DONE (2026-07-09).** `POST /explain {repo, path, start, end[,
+question]}` built (`demo/server.py::_handle_explain`), reusing the gate — no
+new honesty path:
+
+- `evals/corpus.py::chunk_covers_lines(chunk, path, start, end)` — the
+  location-resolution primitive. Handles both real ref shapes
+  `evals/ingest.py::chunk_text` produces: a windowed `#Lstart-Lend` chunk
+  (overlap-tested) and a whole-file chunk with no suffix (matches any line in
+  that file — the committed corpus's actual shape, since it predates
+  line-window chunking; see D0's note). Only code/doc/config sources are
+  file-addressable; a malformed line suffix fails closed (no match, never
+  raises).
+- `evals/pipeline.py::GatedPipeline.explain(path, start, end, question=None)`
+  — resolves the anchor chunk(s) by location instead of `.search()`, adds
+  semantic neighbors, then funnels through a new shared `_answer_from(question,
+  top, retrieved)` core that `.answer()` was refactored to use too (regression-
+  tested: `.answer()`'s behavior is byte-identical after the refactor). No new
+  honesty logic — the identical writer → `gate()` path both methods already
+  had. No coverage for the requested location → the gate's ordinary "no top
+  chunks" abstention, not a special-cased error.
+- **A real bug found and fixed via live testing against the actual server, not
+  just unit tests (playbook-debugging):** the first version searched for
+  neighbors using the anchor chunk's own code text, even when the caller
+  supplied a real question. Live-testing `/explain` against the real corpus
+  with a known-good question (`"What are ModelError and NeedsKeyException in
+  llm/errors.py, and how are they related?"`) reproducibly abstained, while
+  the *identical question* via `/ask` answered confidently. Localized by
+  comparing the exact top-6 evidence sets both paths assembled — genuinely
+  different, and explain's set was measurably worse for this question, not a
+  writer/gate malfunction. Fix: `.explain()` now searches neighbors using the
+  caller's `question` when one is supplied (verified live to reproduce
+  `.answer()`'s exact top-6 for the identical question), falling back to the
+  anchor's own text only when no question was given (the common "just click
+  Explain" case, with no natural-language query to search with). Re-verified
+  live after the fix: the same question now answers correctly via `/explain`,
+  matching `/ask`.
+- Server wiring (`demo/server.py`): validates repo/path/start/end/question,
+  shares `/ask`'s billed-writer rate limit, and — a deliberate safety
+  decision — refuses (409) unless `repo` matches the caller's **currently
+  connected** repo, never silently answering about (or switching to) a
+  different one; a stale extension tab pointing at the wrong repo fails
+  loudly rather than mixing evidence. Reuses `build_payload`/`ref_to_url`
+  unchanged (D2's task, it turns out, needed zero new code — the explain
+  response is identical in shape to `/ask`'s, and `ref_to_url` already
+  supports line-ranged citation fragments).
+- Live-verified end-to-end against the real server + real committed corpus
+  (not just stubs): a cited answer for a well-grounded question, an honest
+  unknown for the generic no-question default and for an uncovered location,
+  and a clean 409 refusal for an unconnected repo.
+
+Full suite: 295 evals (+21 tests) + 146 demo (+10 tests), all green.
+
+**D2 status: effectively absorbed into D1** — see above. No separate payload
+work was needed.
+
 **Definition of done:** on github.com, selecting real lines in a connected repo
 returns a cited explanation or an honest unknown, overlaid on the page, proven
 end-to-end (brain test + extension parse test + one live guard); no new gate.

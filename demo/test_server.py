@@ -25,6 +25,17 @@ class _StubPipeline(Pipeline):
                           citations=["pr:1435"], retrieved=["pr:1435", "code:llm/x.py"])
         return Result(verdict="unknown", retrieved=["code:llm/x.py", "code:llm/y.py"])
 
+    def explain(self, path, start, end, question=None):
+        """Brick D: a line-covered location answers; anywhere else abstains --
+        mirrors GatedPipeline.explain's real "no coverage -> honest unknown"
+        contract, not a special-cased error, from a fixed known location."""
+        self.last_explain_call = (path, start, end, question)
+        if path == "llm/tools.py" and start <= 20 <= end:
+            return Result(verdict="answer", answer="It returns the current time.",
+                          citations=["code:llm/tools.py#L10-L40"],
+                          retrieved=["code:llm/tools.py#L10-L40", "pr:99"])
+        return Result(verdict="unknown", retrieved=["code:llm/tools.py#L10-L40"])
+
 
 class _StubLibrary:
     """Stand-in for demo.library.Library: fixed pipeline, records connects."""
@@ -127,6 +138,82 @@ class ServerTests(unittest.TestCase):
     def test_ask_missing_question_is_400(self):
         with self.assertRaises(urllib.error.HTTPError) as cm:
             _post(self.base + "/ask", {"nope": "x"})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    # --- Brick D: POST /explain ---
+
+    def test_explain_answer(self):
+        status, payload = _post(self.base + "/explain",
+                                {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["verdict"], "answer")
+        self.assertEqual(
+            payload["citations"][0]["url"],
+            f"https://github.com/{REPO}/blob/{COMMIT}/llm/tools.py#L10-L40",
+        )
+
+    def test_explain_no_coverage_is_honest_unknown(self):
+        # A location the pipeline has no evidence for -- 200 with an honest
+        # unknown, not an error (mirrors cite-or-unknown, not a 404/500).
+        status, payload = _post(self.base + "/explain",
+                                {"repo": REPO, "path": "llm/other.py", "start": 1, "end": 5})
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["verdict"], "unknown")
+        self.assertEqual(payload["answer"], "")
+
+    def test_explain_passes_optional_question_through(self):
+        _post(self.base + "/explain",
+             {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20,
+              "question": "why does this return UTC?"})
+        self.assertEqual(
+            self.lib._pipe.last_explain_call,
+            ("llm/tools.py", 15, 20, "why does this return UTC?"),
+        )
+
+    def test_explain_without_question_passes_none(self):
+        _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertIsNone(self.lib._pipe.last_explain_call[3])
+
+    def test_explain_wrong_repo_refuses_without_calling_pipeline(self):
+        # A stale extension tab pointing at a DIFFERENT repo than the one
+        # currently connected must refuse, never silently answer about it.
+        self.lib._pipe.last_explain_call = None
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain",
+                 {"repo": "octocat/hello", "path": "llm/tools.py", "start": 15, "end": 20})
+        self.assertEqual(cm.exception.code, 409)
+        cm.exception.close()
+        self.assertIsNone(self.lib._pipe.last_explain_call)  # never reached the pipeline
+
+    def test_explain_missing_field_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 15})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_non_integer_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain",
+                 {"repo": REPO, "path": "llm/tools.py", "start": "fifteen", "end": 20})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_end_before_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 20, "end": 15})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_non_positive_start_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "llm/tools.py", "start": 0, "end": 5})
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def test_explain_blank_path_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(self.base + "/explain", {"repo": REPO, "path": "  ", "start": 1, "end": 5})
         self.assertEqual(cm.exception.code, 400)
         cm.exception.close()
 

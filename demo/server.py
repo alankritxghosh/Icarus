@@ -255,6 +255,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 repo, commit = lib.provenance()
                 payload = build_payload(lib.current_pipeline().answer(question), repo, commit)
                 self._send_json(200, payload)
+            elif self.path == "/explain":
+                self._handle_explain(lib, identity)
             elif self.path == "/connect":
                 # Same reasoning as /ask: check the limiter first, before the body
                 # is even parsed, so a rate-limited caller never reaches the real
@@ -287,6 +289,53 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
+
+        def _handle_explain(self, lib, identity):
+            """Brick D: POST /explain {repo, path, start, end[, question]} -> a
+            cited answer or honest unknown for a GitHub line selection.
+
+            Reuses `ask_limiter` -- /explain reaches the same billed writer as
+            /ask, so it shares that budget rather than getting its own. `repo`
+            must match the caller's CURRENTLY connected repo (refuses, never
+            silently answers about a repo the caller isn't connected to, and
+            never switches repos as a side effect of asking)."""
+            if not ask_limiter.allow(identity):
+                self._send_json(429, {"error": "slow down -- try again in a minute"})
+                return
+            try:
+                body = self._body()
+                repo = body["repo"]
+                path = body["path"]
+                start = body["start"]
+                end = body["end"]
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "missing repo/path/start/end"})
+                return
+            if not isinstance(repo, str) or not repo.strip():
+                self._send_json(400, {"error": "missing repo"})
+                return
+            if not isinstance(path, str) or not path.strip():
+                self._send_json(400, {"error": "missing path"})
+                return
+            # bool is an int subclass in Python; explicitly excluded so a
+            # stray true/false body value fails validation rather than being
+            # silently coerced into 0/1.
+            if isinstance(start, bool) or isinstance(end, bool) or not isinstance(start, int) \
+                    or not isinstance(end, int) or start < 1 or end < start:
+                self._send_json(400, {"error": "start/end must be positive integers with end >= start"})
+                return
+            question = body.get("question")
+            if question is not None:
+                if not isinstance(question, str):
+                    self._send_json(400, {"error": "question must be a string"})
+                    return
+                question = question.strip() or None
+            active_repo, commit = lib.provenance()
+            if repo.strip() != active_repo:
+                self._send_json(409, {"error": "that repo isn't your currently connected repo"})
+                return
+            result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
+            self._send_json(200, build_payload(result, active_repo, commit))
 
     return Handler
 

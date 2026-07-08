@@ -118,8 +118,11 @@ removing, or renaming files). For class/function-level detail see
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
   conscience (cited-answer correctness + honest abstention).
-- `evals/corpus.py` — the `Chunk` dataclass and `load_chunks` (read the committed
-  corpus, one evidence unit per line with a citation ref).
+- `evals/corpus.py` — the `Chunk` dataclass, `load_chunks` (read the committed
+  corpus, one evidence unit per line with a citation ref), and
+  `chunk_covers_lines(chunk, path, start, end)` (Brick D: does a chunk cover a
+  GitHub line selection? Handles both a windowed `#Lstart-Lend` ref and a
+  whole-file ref with no suffix -- the committed corpus's actual shape).
 - `evals/ingest.py` — corpus generator from a public **or private** repo (PRs,
   linked issues, Python source) → `chunks.jsonl` + `meta.json`. Subprocess
   timeouts, per-file/total size caps, a `code_dir` path-traversal guard, and an
@@ -180,13 +183,20 @@ removing, or renaming files). For class/function-level detail see
 - `evals/judge.py` — the answer-correctness judge (quality dial, NOT a gate):
   `build_judge_prompt`, `parse_verdict` (fails safe to "incorrect"), `Judge`.
 - `evals/pipeline.py` — the `Result`/`Pipeline` contract, plus `StubPipeline`,
-  `RetrievalPipeline`, and `GatedPipeline` (retrieve → writer → gate → Result).
+  `RetrievalPipeline`, and `GatedPipeline` (retrieve → writer → gate → Result;
+  `.answer()` and Brick D's `.explain(path, start, end, question=None)` --
+  location-resolved evidence instead of a `.search()` query -- both funnel
+  through the shared `_answer_from` writer→gate core, so `.explain()` opens no
+  new honesty path). `.explain()`'s neighbor search uses the caller's
+  `question` when given (proven live to reproduce `.answer()`'s exact top-k
+  for the same question), else the anchor chunk's own text.
 - `evals/grader.py` — deterministic grading against the labelled set: the two
   honesty gates + quality dials; optional `judge` fills answer_correctness.
 - `evals/run.py` — CLI that runs the eval board and prints it (loads `.env`
   first); exits non-zero only when a gate breaks. `--pipeline/--writer/--judge`.
 - `evals/test_corpus.py` — `load_chunks` parses JSONL into `Chunk`s (tolerates
-  blank lines).
+  blank lines); `chunk_covers_lines` across windowed/whole-file/malformed refs,
+  path mismatches, and non-file-addressable (pr/issue) sources.
 - `evals/test_corpus_meta.py` — `write_meta`/`load_meta` round-trip; missing meta
   returns None.
 - `evals/test_ingest_args.py` — ingest CLI defaults/overrides, commit resolution,
@@ -217,6 +227,15 @@ removing, or renaming files). For class/function-level detail see
   abstention on everything ambiguous.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
+- `evals/test_gated_explain.py` — Brick D's `.explain()`: anchor resolution
+  (windowed + whole-file chunks), semantic neighbors, honest unknown with no
+  coverage, the shared honesty gate (grounded answer / forced-unknown bluff /
+  writer abstention -- proves no new honesty path), the default vs. caller-
+  supplied question, question-preferred-over-anchor-text neighbor search (the
+  real bug this brick found+fixed: an earlier version always searched on the
+  anchor's own code text even with a real question, live-verified to find
+  measurably worse neighbors than /ask), and a regression guard that
+  `.answer()`'s behavior is byte-identical after the `_answer_from` refactor.
 - `evals/test_vector_cache.py` — the embedding cache round-trips and fails safe
   to None (re-embed) on every mismatch/corruption; the `SemanticRetriever`
   `vectors=` param skips chunk embedding yet still embeds the query live.
@@ -331,7 +350,12 @@ removing, or renaming files). For class/function-level detail see
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
   caller's token before any private clone),`/disconnect`,`/auth/github/begin`
   (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
-  `icarus://`),`/auth/github/redeem`.
+  `icarus://`),`/auth/github/redeem`. `POST /explain` (Brick D, `_handle_explain`)
+  — `{repo, path, start, end[, question]}` for a GitHub line selection; shares
+  `/ask`'s billed-writer rate limit; refuses (409) unless `repo` matches the
+  caller's currently connected repo, never silently answering about or
+  switching to a different one; calls `lib.current_pipeline().explain(...)`
+  and reuses `build_payload` unchanged (identical response shape to `/ask`).
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, an `owner/repo` connect control, and **browser GitHub
   sign-in** (web-mode OAuth → session redeemed for a token held in
@@ -357,6 +381,10 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_server.py` — routing against a stub registry, plus the Origin guard
   (403), body cap (413), bearer-auth gate (401), per-request identity, rate
   limiting (429), `/disconnect`, concurrency, and index.html smoke checks.
+  `/explain` (Brick D): cited answer with a line-ranged citation URL, honest
+  unknown for uncovered locations, optional-question pass-through, wrong-repo
+  refusal (409, never reaches the pipeline), and input validation (missing
+  fields, non-integer/non-positive/inverted start-end, blank path).
 - `demo/test_isolation.py` — cross-user isolation proven at the HTTP boundary: a
   real `LibraryRegistry` behind a real server with two authenticated identities
   — connect, storage, disconnect, and provenance all stay disjoint.
