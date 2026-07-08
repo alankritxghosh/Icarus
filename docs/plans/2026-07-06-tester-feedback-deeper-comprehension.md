@@ -680,6 +680,27 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      by which key within the project makes the call. A real unblock would
      need either that reset, or a key from a genuinely different, billing-
      enabled Google Cloud project (not just a new key from the same one).**
+
+     **Manual retry attempt (2026-07-08 ~12:39 IST / 07:09 UTC, at Alankrit's
+     request):** a two-call headroom probe (models-list HTTP 200 + one live
+     `gemini-embedding-001` embedContent HTTP 200, 3072-dim vector) passed, so
+     the full paced 243-chunk `HybridRetrievalEvalTests` was run for real. It
+     ran **371.948s (~6 min), embedding chunks, then hit HTTP 429 and exhausted
+     the retry budget → `setUpClass` ERROR, 0 tests ran, no live numbers.**
+     Two lessons recorded honestly: (1) **a 2-call probe is insufficient
+     evidence** that a 250-call run will complete — there was partial headroom,
+     not a full corpus's worth; the AI Studio dashboard confirmed the free-tier
+     embedding limits directly (RPM 100, TPM 30K, **RPD 1000**, peak 1000/1000
+     over the trailing day). (2) The 429 was **sustained across ~6 minutes**,
+     which is the daily-RPD wall, not a transient per-minute spike (an RPM block
+     clears within the minute) — and it hit **just past the apparent Pacific-
+     midnight reset**, so the reset-timing assumption is itself suspect. This
+     strengthens the case that the durable unblock is a **genuinely separate
+     billing-enabled Google Cloud project**, not repeated waiting on a quota
+     that keeps reading exhausted. The scheduled retry was re-armed for
+     **2026-07-09T08:30:00Z** as a fallback, but waiting is now the *lower*-
+     confidence path; the billing/project question (handoff §2.3) is the one
+     worth resolving before onboarding any private code.
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):
