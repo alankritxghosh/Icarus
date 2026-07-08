@@ -19,8 +19,8 @@ removing, or renaming files). For class/function-level detail see
   committed `.env.example` is explicitly un-ignored.
 - `.env.example` — committed template (NO real keys) to copy to a gitignored
   `.env`; the brain/eval harness load it on startup for provider keys.
-- `requirements.txt` — the sole Python dependency: `model2vec` (local, free,
-  offline semantic-retrieval embeddings; numpy + tokenizers, no PyTorch). Lazily
+- `requirements.txt` — the sole Python dependency: `fastembed` (local, free,
+  offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
   imported, so everything else runs pure-stdlib without it. Install into a venv.
 
 ## Cloud deployment (host the brain on Render)
@@ -140,7 +140,7 @@ removing, or renaming files). For class/function-level detail see
   `EmbeddingProvider` family for semantic retrieval: `GeminiEmbeddingProvider`/
   `PaidGeminiEmbeddingProvider` (hosted, quota-limited — deprecated for this use),
   `StaticEmbeddingProvider` (test double), and **`LocalEmbeddingProvider`** (the
-  decided FREE route: local `model2vec` static model, `private_safe=True`, no
+  decided FREE route: local ONNX transformer via `fastembed` (bge-small-en-v1.5), `private_safe=True`, no
   key/network/quota, lazily imported); `make_embedding_provider` factory.
 - `evals/trust.py` — the deterministic trust interlock: `assert_safe_for_private`
   raises `PrivateDataError` unless a provider declares `private_safe=True`

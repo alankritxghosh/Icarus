@@ -737,16 +737,35 @@ must be verified against the live `/v1beta/models` list before being hardcoded**
      gold chunk only BM25 ranked #1 (a known RRF failure mode with mismatched
      retriever strength, not a fusion bug — the fusion code is correct). Semantic
      only *helps* on **messy** phrasing (hybrid 38.5% > BM25 30.8%), i.e. it buys
-     typo/grammar robustness (Brick Q territory), not clean-question lift. **Net:
-     the billing dependency is eliminated and the free local route is proven and
-     honest, but Brick C does not yet deliver the retrieval-quality improvement
-     remarks 6/8 asked for. Merging it as-is would green-wash.** Open decision
-     for Alankrit: (a) accept the free route now for its messy-phrasing robustness
-     + weight RRF so hybrid is never < BM25 on clean (defensible ship, no new
-     dep); (b) try a stronger embedding model (likely reintroduces a heavier,
-     torch-class dependency); or (c) reassess whether static embeddings are the
-     right tool for keyword-rich code retrieval at all. **Not merged pending that
-     call.**
+     typo/grammar robustness (Brick Q territory), not clean-question lift. This
+     was recorded honestly and surfaced to Alankrit rather than merged.
+
+     **RESOLVED — stronger local model (2026-07-08, Alankrit chose "try a
+     stronger local model").** Swapped the static `model2vec` embedder for a real
+     ONNX transformer via **`fastembed`** (still local, still free, still NO
+     PyTorch — ONNX Runtime + tokenizers), default **`BAAI/bge-small-en-v1.5`**.
+     Probed first (installs + embeds on Python 3.14). The static model was simply
+     too weak; a proper small transformer flips the result. Re-measured recall@5
+     on the comprehension board (both gates 100% throughout):
+
+     | phrasing | BM25 | Semantic-only | Hybrid (RRF) |
+     |----------|------|---------------|--------------|
+     | clean    | 53.8% | 61.5% | **69.2%** |
+     | messy    | 30.8% | 61.5% | **61.5%** |
+
+     Now semantic **beats** BM25 on clean (61.5 > 53.8), hybrid **beats both**
+     (69.2 — RRF works once the semantic signal is strong), and on messy phrasing
+     hybrid is **double** BM25 (61.5 vs 30.8) with near-zero degradation from the
+     clean number. That is the genuine remarks-6/8 win: retrieval by meaning, and
+     robustness to grammar/spelling. Both honesty gates stay 100% on both
+     phrasings. The C3b proof was strengthened accordingly: `test_retrieval_eval`
+     now adds `HybridComprehensionEvalTests`, which asserts (same-run baselines,
+     never hardcoded) that hybrid **strictly** beats BM25 on BOTH clean and messy
+     phrasing with gates at 100% — a real red→green lift proof, not the ceiling'd
+     phase1 tie. Full offline suite green (**232 evals + 131 demo**, no
+     regressions). The one dependency is `fastembed` (requirements.txt +
+     Dockerfile). **Brick C now delivers remarks 6/8, free, and is ready for the
+     final whole-brick review before merge.**
   **Explicitly deferred past C3** (neither is required by Brick C's own
   Definition of Done as literally stated below — both are demo/production
   concerns, not part of proving the core technical claim):

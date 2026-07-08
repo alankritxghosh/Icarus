@@ -18,10 +18,10 @@ from .provider import (
 )
 
 try:
-    import model2vec  # noqa: F401
-    _HAS_MODEL2VEC = True
+    import fastembed  # noqa: F401
+    _HAS_FASTEMBED = True
 except ImportError:
-    _HAS_MODEL2VEC = False
+    _HAS_FASTEMBED = False
 
 
 def _http(code):
@@ -326,7 +326,7 @@ class EmbeddingPrivateSafeFlagTests(unittest.TestCase):
         # strongest private-safe case -- stronger than any hosted tier.
         self.assertTrue(LocalEmbeddingProvider.private_safe)
 
-    @unittest.skipUnless(_HAS_MODEL2VEC, "model2vec not installed")
+    @unittest.skipUnless(_HAS_FASTEMBED, "fastembed not installed")
     def test_make_embedding_provider_builds_local(self):
         # 'local' is registered in the factory (constructing it loads the model,
         # so this needs model2vec).
@@ -339,7 +339,7 @@ class EmbeddingPrivateSafeFlagTests(unittest.TestCase):
             self.assertFalse(has_embedding_provider_key("local"))
 
 
-@unittest.skipUnless(_HAS_MODEL2VEC, "model2vec not installed")
+@unittest.skipUnless(_HAS_FASTEMBED, "fastembed not installed")
 class LocalEmbeddingProviderLiveTests(unittest.TestCase):
     """Real, offline proof (no network after the one-time model cache, no key,
     no quota) that LocalEmbeddingProvider produces genuine SEMANTIC embeddings:

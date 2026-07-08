@@ -348,51 +348,54 @@ class StaticEmbeddingProvider(EmbeddingProvider):
 
 
 class LocalEmbeddingProvider(EmbeddingProvider):
-    """Embeds text with a local model2vec static model -- no network, no API
-    key, no per-request cost, no quota. This is the decided free route for
-    semantic retrieval (Brick C).
+    """Embeds text with a local ONNX transformer model via fastembed -- no
+    network, no API key, no per-request cost, no quota. This is the decided free
+    route for semantic retrieval (Brick C).
 
     The embedder runs inside the brain (server-side, wherever the brain runs),
     NOT on the end user's device: retrieval quality and speed depend on OUR
     host and are identical for every user regardless of their hardware. Chunks
-    are embedded once at ingest; each query embeds one short string in
-    milliseconds on plain CPU.
+    are embedded once at ingest; each query embeds one short string on CPU.
 
-    model2vec is a lightweight static-embedding library (numpy + tokenizers, NO
-    PyTorch). The default `minishlab/potion-retrieval-32M` is tuned for
-    retrieval (our exact use); pass `model` so the eval board can pick another.
-    The model file is fetched once from the HuggingFace hub and cached on disk;
-    every embed after that is fully offline.
+    fastembed runs sentence-transformer models through ONNX Runtime -- a real
+    transformer embedding (far stronger than static token embeddings), yet NO
+    PyTorch, so the footprint stays modest and CPU-only. The default
+    `BAAI/bge-small-en-v1.5` was chosen by measurement, not guess: on Brick 0's
+    comprehension board it lifts hybrid recall@5 to 69.2% (clean) / 61.5%
+    (messy) vs BM25's 53.8% / 30.8% -- semantic finally *beats* keyword search
+    and is far more robust to messy phrasing. Pass `model` so the eval board can
+    pick another (bge-base etc.). The model is fetched once from the HuggingFace
+    hub and cached on disk; every embed after that is fully offline.
 
     private_safe = True: the vector is computed in-process and the input text
     never leaves the machine -- the strongest possible private-safe claim,
     stronger than any hosted tier, and (like every provider here) a static
-    class declaration, never inferred from a key. An open static model also
-    does no training on its inputs, reinforcing "never train on customer code".
+    class declaration, never inferred from a key. An open local model also does
+    no training on its inputs, reinforcing "never train on customer code".
 
-    The model2vec import is deferred into __init__ so that importing
+    The fastembed import is deferred into __init__ so that importing
     evals.provider stays pure-stdlib for everyone who doesn't use semantic
-    retrieval; a caller without model2vec installed gets a clear error only when
+    retrieval; a caller without fastembed installed gets a clear error only when
     they actually construct this."""
 
     private_safe = True
 
-    def __init__(self, model: str = "minishlab/potion-retrieval-32M"):
+    def __init__(self, model: str = "BAAI/bge-small-en-v1.5"):
         try:
-            from model2vec import StaticModel
+            from fastembed import TextEmbedding
         except ImportError as e:  # pragma: no cover - environment-dependent
             raise RuntimeError(
-                "LocalEmbeddingProvider requires the 'model2vec' package "
+                "LocalEmbeddingProvider requires the 'fastembed' package "
                 "(pip install -r requirements.txt)"
             ) from e
         self.model_name = model
-        self._model = StaticModel.from_pretrained(model)
+        self._model = TextEmbedding(model_name=model)
 
     def embed(self, text: str) -> list:
-        # encode returns a numpy array; .tolist() yields the plain-Python list
-        # of floats the EmbeddingProvider contract and evals/retriever.py's
-        # pure-Python cosine expect.
-        return self._model.encode([text])[0].tolist()
+        # fastembed.embed yields one numpy array per input; .tolist() yields the
+        # plain-Python list of floats the EmbeddingProvider contract and
+        # evals/retriever.py's pure-Python cosine expect.
+        return next(self._model.embed([text])).tolist()
 
 
 _EMBEDDING_PROVIDERS = {
