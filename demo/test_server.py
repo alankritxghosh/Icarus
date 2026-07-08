@@ -900,5 +900,105 @@ def _post_with_auth(url, obj, token):
         return resp.status, json.loads(resp.read())
 
 
+class LazyRegistryTests(unittest.TestCase):
+    """_LazyRegistry: the fix for a real deploy failure (docs/HANDOFF.md's D5
+    section) where LibraryRegistry's cold corpus-embed blocked serve() from
+    ever binding its port, timing out Render's post-bind port-scan gate."""
+
+    def test_raises_warming_until_build_completes(self):
+        from .server import _LazyRegistry, _RegistryWarming
+        release = threading.Event()
+        built = _StubRegistry(_StubLibrary())
+
+        def slow_build():
+            release.wait(timeout=5)
+            return built
+
+        reg = _LazyRegistry(slow_build)
+        with self.assertRaises(_RegistryWarming):
+            reg.library_for("alice")
+        with self.assertRaises(_RegistryWarming):
+            reg.disconnect("alice")
+
+        release.set()
+        # Poll briefly for the background thread to finish -- no fixed sleep.
+        import time
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                reg.library_for("alice")
+                break
+            except _RegistryWarming:
+                time.sleep(0.01)
+        self.assertEqual(reg.library_for("alice"), built.lib)
+        reg.disconnect("alice")
+        self.assertEqual(built.disconnected, ["alice"])
+
+    def test_build_failure_is_raised_not_swallowed(self):
+        from .server import _LazyRegistry
+        import time
+
+        def failing_build():
+            raise RuntimeError("boom")
+
+        reg = _LazyRegistry(failing_build)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                reg.library_for("alice")
+            except RuntimeError as e:
+                self.assertEqual(str(e), "boom")
+                return
+            except Exception:
+                time.sleep(0.01)
+        self.fail("build failure was never raised")
+
+
+class RegistryWarmupHttpTests(unittest.TestCase):
+    """The HTTP-level wiring: while the registry is still warming, the port
+    is already accepting connections (proven by every request below actually
+    completing), /health answers 200 (a PaaS liveness check shouldn't flap
+    mid-warmup), and every registry-dependent route answers an honest 503
+    instead of hanging. Once warmup completes, normal routing resumes."""
+
+    def test_health_ok_during_warmup_then_status_503_then_ready(self):
+        from .server import _LazyRegistry
+        import time
+
+        release = threading.Event()
+        built = _StubRegistry(_StubLibrary())
+
+        def slow_build():
+            release.wait(timeout=5)
+            return built
+
+        lazy = _LazyRegistry(slow_build)
+        fx = _ServerFixture(lazy)
+        try:
+            # /health is up immediately and answers honestly that it's still starting.
+            with urllib.request.urlopen(fx.base + "/health", timeout=3) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(json.loads(resp.read())["state"], "starting")
+
+            # /status needs a real registry -- honest 503, not a hang or a crash.
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(fx.base + "/status", timeout=3)
+            self.assertEqual(cm.exception.code, 503)
+            cm.exception.close()
+
+            release.set()
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                with urllib.request.urlopen(fx.base + "/status", timeout=3) as resp:
+                    if resp.status == 200:
+                        break
+                time.sleep(0.01)
+            with urllib.request.urlopen(fx.base + "/health", timeout=3) as resp:
+                body = json.loads(resp.read())
+                self.assertEqual(body["repo"], REPO)
+        finally:
+            fx.close()
+
+
 if __name__ == "__main__":
     unittest.main()

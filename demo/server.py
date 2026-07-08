@@ -56,6 +56,54 @@ def _parse_allowed_hosts(raw):
     return hosts or None
 
 
+class _RegistryWarming(Exception):
+    """Raised by _LazyRegistry while the real LibraryRegistry is still
+    building on a background thread (see _LazyRegistry's docstring)."""
+
+
+class _LazyRegistry:
+    """Builds a LibraryRegistry on a background thread so `serve()` can bind
+    the listening socket immediately instead of blocking on it first.
+
+    LibraryRegistry's constructor cold-embeds the ENTIRE default corpus via
+    the local semantic embedder whenever no on-disk vector cache exists --
+    true on every fresh checkout/deploy, since the cache is git-ignored (see
+    evals/vector_cache.py) and, on a PaaS like Render, the disk is wiped on
+    every deploy/restart/idle-sleep too. That embed can take long enough that
+    a PaaS's post-bind port-scan gate times out waiting for it, which fails
+    the deploy outright -- discovered live deploying Brick D's branch to
+    Render (docs/HANDOFF.md's D5 section). Binding first and building the
+    registry in the background fixes that: `library_for`/`disconnect` raise
+    `_RegistryWarming` until the build finishes, which the handler turns into
+    an honest 'still starting up' response (200 for /health so a liveness
+    check doesn't flap during normal warmup, 503 for routes that actually
+    need a working registry) rather than hanging the whole process."""
+
+    def __init__(self, build):
+        self._registry = None
+        self._error = None
+        threading.Thread(target=self._build, args=(build,), daemon=True).start()
+
+    def _build(self, build):
+        try:
+            self._registry = build()
+        except Exception as e:  # surfaced on every call via _get, never swallowed
+            self._error = e
+
+    def _get(self):
+        if self._error is not None:
+            raise self._error
+        if self._registry is None:
+            raise _RegistryWarming()
+        return self._registry
+
+    def library_for(self, user_id):
+        return self._get().library_for(user_id)
+
+    def disconnect(self, user_id):
+        return self._get().disconnect(user_id)
+
+
 def _resolve_storage_root(raw, default):
     """ICARUS_STORAGE_ROOT, falling back to `default` when unset OR set-but-
     blank (a PaaS env-var UI can easily leave a value blank rather than unset;
@@ -151,11 +199,21 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if route == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
             elif route == "/health":
-                lib = registry.library_for(self._identity())
-                repo, commit = lib.provenance()
-                self._send_json(200, {"ok": True, "repo": repo, "commit": commit})
+                try:
+                    lib = registry.library_for(self._identity())
+                    repo, commit = lib.provenance()
+                    self._send_json(200, {"ok": True, "repo": repo, "commit": commit})
+                except _RegistryWarming:
+                    # 200, not 503: the process is alive, just still cold-embedding
+                    # the default corpus -- a PaaS liveness check shouldn't flap
+                    # (and possibly restart-loop the container) during normal warmup.
+                    self._send_json(200, {"ok": True, "state": "starting"})
             elif route == "/status":
-                lib = registry.library_for(self._identity())
+                try:
+                    lib = registry.library_for(self._identity())
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
                 self._send_json(200, lib.status_snapshot())
             elif route == "/auth/github/callback":
                 self._github_callback()
@@ -248,10 +306,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
             if self.path == "/disconnect":
-                registry.disconnect(identity)
-                self._send_json(200, registry.library_for(identity).status_snapshot())
+                try:
+                    registry.disconnect(identity)
+                    self._send_json(200, registry.library_for(identity).status_snapshot())
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
                 return
-            lib = registry.library_for(identity)
+            try:
+                lib = registry.library_for(identity)
+            except _RegistryWarming:
+                self._send_json(503, {"error": "starting up, try again shortly"})
+                return
             if self.path == "/ask":
                 # Rate-limit BEFORE parsing/validating the body: a caller must not
                 # be able to dodge the limiter by sending bodies that fail cheap
@@ -374,7 +439,7 @@ def serve(host: str = None, port: int = None):
     port = int(port) if port is not None else int(os.environ.get("PORT", "8000"))
     default_repo, commit = resolve_provenance(CORPUS_META, QUESTIONS)
     storage_root = _resolve_storage_root(os.environ.get("ICARUS_STORAGE_ROOT"), REPO_ROOT / "data")
-    registry = LibraryRegistry(CORPUS_DIR, storage_root, default_repo)
+    registry = _LazyRegistry(lambda: LibraryRegistry(CORPUS_DIR, storage_root, default_repo))
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
     allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
