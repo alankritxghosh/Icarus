@@ -131,9 +131,17 @@ removing, or renaming files). For class/function-level detail see
 - `evals/retriever.py` — `LexicalRetriever` (stdlib BM25 keyword retriever) plus
   a `tokenize` helper, `SemanticRetriever` (cosine similarity over an
   `EmbeddingProvider`'s vectors; optional `vectors=` param + `.vectors` property
-  to supply/persist precomputed chunk embeddings), and `HybridRetriever` (RRF
-  fusion of BM25 + semantic) -- all share the `.search(query, k) -> List[str]`
-  contract, drop-in for each other.
+  to supply/persist precomputed chunk embeddings), `HybridRetriever` (RRF
+  fusion of BM25 + semantic), and `NormalizingRetriever` (Brick Q: wraps any
+  retriever, running `query_normalize.normalize_query` on the query before
+  delegating -- "wire ahead of the retriever") -- all share the
+  `.search(query, k) -> List[str]` contract, drop-in for each other.
+- `evals/query_normalize.py` — Brick Q's query-understanding layer:
+  `build_vocabulary(chunks)` (reuses `retriever.tokenize()` exactly) and
+  `normalize_query(text, vocabulary, cutoff=0.8)`, a stdlib-only (`difflib`)
+  fuzzy spelling corrector toward real corpus terms -- never an external
+  dictionary. Retrieval-only preprocessing; the writer/user still see the
+  original question text.
 - `evals/vector_cache.py` — `load_vectors`/`save_vectors`: the on-disk embedding
   cache (JSON sidecar tagged by model name) so the demo doesn't re-embed a corpus
   on every start. Pure optimization, fail-safe: any miss/model-change/corpus-
@@ -210,6 +218,15 @@ removing, or renaming files). For class/function-level detail see
   forces an ungrounded citation to abstention. Deterministic
   `StaticEmbeddingProvider` (offline, always-on), so it proves the gate is
   retriever-agnostic without needing fastembed.
+- `evals/test_query_normalize.py` — Brick Q's `normalize_query`/
+  `build_vocabulary`: corrects real typos, leaves correct/unmatched/common-short
+  words alone, preserves BM25's own tokenization exactly, deterministic. Stdlib
+  only, always runs (no fastembed).
+- `evals/test_query_normalization_eval.py` — Brick Q's live board proof: wrapping
+  hybrid retrieval with `NormalizingRetriever` never regresses recall on either
+  phrasing and closes messy-phrasing recall@5 up to the clean baseline in
+  aggregate (same-run boards, gates 100% throughout). Self-skips without
+  fastembed/the corpus/comprehension set.
 - `evals/test_grader.py` — the harness conscience: gates hold for an honest
   abstainer/oracle and fire for a bluffer.
 - `evals/test_retrieval_eval.py` — end-to-end red→green: retrieval recall@k rises
