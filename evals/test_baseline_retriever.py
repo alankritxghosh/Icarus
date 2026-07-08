@@ -64,14 +64,28 @@ class GrepBaselineRetrieverTests(unittest.TestCase):
         # THE SAME as one mentioning it once -- no term-frequency weighting,
         # unlike BM25. This is what distinguishes it as a fair "grep" baseline
         # rather than an accidental second BM25 implementation.
+        #
+        # Refs are deliberately chosen so ref-ascending order and frequency-
+        # descending order DISAGREE ("aaa_once" < "zzz_many" alphabetically,
+        # but "zzz_many" has far more raw occurrences) -- an earlier version
+        # used refs ("code:once"/"code:many") where the two orderings
+        # coincidentally agreed, so a term-frequency-weighted (buggy)
+        # implementation would have produced the identical expected output and
+        # this test could not have told the difference. Verified: mutating the
+        # implementation to `text_lower.count(w)` (frequency-weighted) makes
+        # this exact assertion fail, where the old fixture did not.
         chunks = [
-            Chunk("code:once#L1-L2", "code", "authenticate"),
-            Chunk("code:many#L1-L2", "code", " ".join(["authenticate"] * 50)),
+            Chunk("code:aaa_once#L1-L2", "code", "authenticate"),
+            Chunk("code:zzz_many#L1-L2", "code", " ".join(["authenticate"] * 50)),
         ]
         r = GrepBaselineRetriever(chunks)
-        # Both match on the same single keyword -> tie -> ref-ascending order,
-        # NOT frequency order (which would put "many" first).
-        self.assertEqual(r.search("authenticate", k=5), ["code:many#L1-L2", "code:once#L1-L2"])
+        # Both match on the same single keyword -> tie -> ref-ascending order
+        # ("aaa_once" first), NOT frequency order (which would put "zzz_many",
+        # the 50-occurrence chunk, first).
+        self.assertEqual(
+            r.search("authenticate", k=5),
+            ["code:aaa_once#L1-L2", "code:zzz_many#L1-L2"],
+        )
 
 
 if __name__ == "__main__":
