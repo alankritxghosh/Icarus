@@ -28,7 +28,7 @@ from .retriever import tokenize
 # a legitimate short word could get fuzzy-matched into an unrelated corpus
 # token purely by edit-distance coincidence. Deliberately small, stdlib-only,
 # and orthogonal to the corpus vocabulary (never removed/tuned per-repo).
-_COMMON_SHORT_WORDS = frozenset({
+COMMON_SHORT_WORDS = frozenset({
     "a", "an", "as", "at", "by", "do", "he", "if", "in", "is", "it",
     "of", "on", "or", "the", "to", "we", "so", "up",
 })
@@ -73,16 +73,19 @@ def normalize_query(text: str, vocabulary, cutoff: float = 0.8) -> str:
     if not words:
         return ""
     vocab_set = vocabulary if isinstance(vocabulary, (set, frozenset)) else set(vocabulary)
-    # Sorted once per call (not per word): difflib.get_close_matches ranks by
-    # score, but ties break on iteration order, which is undefined for a
-    # set/frozenset -- sorting makes every call deterministic.
-    candidates = sorted(vocab_set)
+    # No candidate ordering/sorting needed for determinism: difflib.get_close_
+    # matches ranks candidates as (score, candidate_string) tuples and its
+    # internal nlargest selection compares those tuples directly, so a tie on
+    # score is ALREADY broken deterministically by the candidate string itself
+    # -- independent of the iteration order we hand it (verified empirically
+    # across repeated frozenset instances with varied insertion order; see
+    # test_query_normalize.py's determinism test for the proof case).
     out = []
     for w in words:
         lw = w.lower()
-        if lw in vocab_set or lw in _COMMON_SHORT_WORDS:
+        if lw in vocab_set or lw in COMMON_SHORT_WORDS:
             out.append(w)
             continue
-        match = difflib.get_close_matches(lw, candidates, n=1, cutoff=cutoff)
+        match = difflib.get_close_matches(lw, vocab_set, n=1, cutoff=cutoff)
         out.append(match[0] if match else w)
     return " ".join(out)

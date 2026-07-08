@@ -922,6 +922,45 @@ sketch — the stdlib normalizer alone closed the gap; no LLM call (cost, latenc
 was needed. Revisit only if a future harder case proves the fuzzy-match
 normalizer insufficient.
 
+**Whole-brick review (2026-07-08): two independent adversarial reviewers.**
+Verdict MERGE-READY / GO on both, after two real, small fixes: (1) a stdlib,
+always-run `TokenizerLockstepTests` guard was added so a future edit that
+reintroduces the filename-tokenization bug is caught even without fastembed
+installed (previously only the live board test would have caught it). (2) A
+determinism test was found to be effectively vacuous (no genuine `difflib`
+scoring tie in its fixture, so it couldn't distinguish a correctly-deterministic
+implementation from a broken one) — replaced with a fixture engineered to a
+verified real tie. Investigating that gap also surfaced that `normalize_query`'s
+`sorted(vocab_set)` call was unnecessary (`difflib.get_close_matches` already
+tie-breaks deterministically via its own `(score, candidate)` tuple comparison,
+independent of input order — verified empirically across repeated `frozenset`
+instances with varied insertion order); removed the redundant sort and
+corrected the comment that had wrongly claimed it was required.
+
+**Third-party comparison (2026-07-08, Alankrit's request):** added
+`evals/baseline_retriever.py`'s `GrepBaselineRetriever` — the honest yardstick
+for "how much is Icarus's retrieval actually worth over what a developer
+already gets by grepping the repo today?" Deliberately dumb (keyword-presence
+OR-match only, no ranking sophistication, no semantics, no typo tolerance),
+implemented in pure Python rather than shelling out to a real `grep`/`rg`
+binary so the comparison is reproducible anywhere without requiring ripgrep
+installed. `evals/test_grep_comparison_eval.py` proves Icarus's retrieval
+(hybrid + normalized) beats it on the comprehension board, same-run, gates
+100% throughout:
+
+| phrasing | grep baseline | Icarus (hybrid + normalized) |
+|----------|---------------|-------------------------------|
+| clean    | 46.2% | **76.9%** (+30.7pp) |
+| messy    | 53.8% | **69.2%** (+15.4pp) |
+
+Honest note: the gap is *larger* on clean phrasing than messy, which is the
+opposite of the initial hypothesis (that grep's zero typo-tolerance would make
+the messy gap largest) — an early code comment asserted that unverified
+hypothesis as fact and was corrected once the real numbers contradicted it.
+With only 13 answerable questions this is a small sample; read the direction
+(Icarus meaningfully beats grep on both) as solid, not the precise magnitude of
+which phrasing shows a bigger gap.
+
 ---
 
 ## Brick S — Structural comprehension (reads the code like a developer)

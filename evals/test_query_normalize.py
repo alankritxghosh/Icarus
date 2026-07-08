@@ -7,7 +7,8 @@ test_query_normalization_eval.py."""
 import unittest
 
 from evals.corpus import Chunk
-from evals.query_normalize import build_vocabulary, normalize_query
+from evals.query_normalize import build_vocabulary, normalize_query, _WORD_RE
+from evals.retriever import tokenize
 
 
 class BuildVocabularyTests(unittest.TestCase):
@@ -19,6 +20,30 @@ class BuildVocabularyTests(unittest.TestCase):
         vocab = build_vocabulary(chunks)
         self.assertIn("authenticate", vocab)
         self.assertIn("verify", vocab)
+
+
+class TokenizerLockstepTests(unittest.TestCase):
+    """The exact invariant whose violation caused a real bug: query_normalize's
+    word-splitter (_WORD_RE) must stay IDENTICAL to retriever.tokenize()'s, or
+    normalize_query's output tokens silently stop matching the vocabulary
+    build_vocabulary produces from that same tokenizer (see
+    evals/query_normalize.py's module docstring for the incident this guards
+    against -- dotted filenames like "tools.py" were once corrupted this way).
+    Always-run and stdlib-only, so this catches a regression even without
+    fastembed/the live board test."""
+
+    def test_word_splitter_matches_retriever_tokenize_on_varied_text(self):
+        probes = [
+            "what does tools.py do",
+            "how does __main__.py run as a script",
+            "Template.evaluate() returns a string",
+            "make_schema_id computes a schema's id",
+            "snake_case, CamelCase, and dotted.identifiers.here",
+        ]
+        for text in probes:
+            got = {w.lower() for w in _WORD_RE.findall(text)}
+            want = set(tokenize(text))
+            self.assertEqual(got, want, f"tokenizer drift on: {text!r}")
 
 
 class NormalizeQueryTests(unittest.TestCase):
@@ -73,9 +98,27 @@ class NormalizeQueryTests(unittest.TestCase):
         # alone rather than guessed.
         self.assertEqual(normalize_query("fnction", self.vocab, cutoff=0.99), "fnction")
 
+    def test_deterministic_on_a_genuine_scoring_tie(self):
+        # A vacuous version of this test (varying only the RNG/hash seed with
+        # a vocab that has one clear winner) would pass even with a genuinely
+        # non-deterministic candidate-ordering bug, since there's nothing to
+        # break a tie on. This vocab is engineered so "function" and
+        # "fanction" score IDENTICALLY against "fnction" (verified:
+        # difflib.SequenceMatcher(None, "fnction", w).ratio() == 0.9333... for
+        # both) -- so this only stays green if ties resolve the same way
+        # regardless of the vocabulary's (frozenset) iteration order, across
+        # many freshly-constructed frozenset instances with varied insertion
+        # order (which perturbs Python's iteration order via hash placement).
+        tie_vocab_a = frozenset({"function", "fanction", "unrelated1"})
+        tie_vocab_b = frozenset({"unrelated2", "fanction", "function"})
+        results = set()
+        for _ in range(20):
+            results.add(normalize_query("fnction", tie_vocab_a, cutoff=0.6))
+            results.add(normalize_query("fnction", tie_vocab_b, cutoff=0.6))
+        self.assertEqual(results, {"function"})
+
     def test_deterministic_across_repeated_calls(self):
-        # Guards against a set/frozenset-iteration-order flake: same input must
-        # give the same output every time.
+        # Same input, same output, every time -- the ordinary (non-tie) case.
         results = {normalize_query("fuction", self.vocab) for _ in range(20)}
         self.assertEqual(results, {"function"})
 

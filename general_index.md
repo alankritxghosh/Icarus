@@ -137,11 +137,19 @@ removing, or renaming files). For class/function-level detail see
   delegating -- "wire ahead of the retriever") -- all share the
   `.search(query, k) -> List[str]` contract, drop-in for each other.
 - `evals/query_normalize.py` — Brick Q's query-understanding layer:
-  `build_vocabulary(chunks)` (reuses `retriever.tokenize()` exactly) and
+  `build_vocabulary(chunks)` (reuses `retriever.tokenize()` exactly),
   `normalize_query(text, vocabulary, cutoff=0.8)`, a stdlib-only (`difflib`)
   fuzzy spelling corrector toward real corpus terms -- never an external
-  dictionary. Retrieval-only preprocessing; the writer/user still see the
-  original question text.
+  dictionary, and `COMMON_SHORT_WORDS` (shared with `baseline_retriever.py`).
+  Retrieval-only preprocessing; the writer/user still see the original
+  question text.
+- `evals/baseline_retriever.py` — `GrepBaselineRetriever`: the third-party
+  comparison yardstick -- what a developer gets by grepping the repo today,
+  with none of Icarus's ranking/semantics. Deliberately dumb (keyword-presence
+  OR-match, no term-frequency weighting, no typo tolerance), pure Python (no
+  subprocess call to a real grep/rg binary, so it's reproducible without
+  ripgrep installed). Same `.search(query, k)` contract, drops into `grade()`
+  for an apples-to-apples comparison; not a shipped retrieval technique.
 - `evals/vector_cache.py` — `load_vectors`/`save_vectors`: the on-disk embedding
   cache (JSON sidecar tagged by model name) so the demo doesn't re-embed a corpus
   on every start. Pure optimization, fail-safe: any miss/model-change/corpus-
@@ -220,8 +228,19 @@ removing, or renaming files). For class/function-level detail see
   retriever-agnostic without needing fastembed.
 - `evals/test_query_normalize.py` — Brick Q's `normalize_query`/
   `build_vocabulary`: corrects real typos, leaves correct/unmatched/common-short
-  words alone, preserves BM25's own tokenization exactly, deterministic. Stdlib
-  only, always runs (no fastembed).
+  words alone, deterministic (incl. a genuine-scoring-tie case, not a vacuous
+  no-tie fixture), and `TokenizerLockstepTests` -- an always-run guard proving
+  `query_normalize`'s word-splitter stays byte-identical to
+  `retriever.tokenize()` (catches the exact filename-corruption bug class this
+  brick fixed, without needing fastembed). Stdlib only, always runs.
+- `evals/test_baseline_retriever.py` — `GrepBaselineRetriever`'s unit tests:
+  keyword OR-matching, count-based ranking (no term-frequency weighting, unlike
+  BM25 -- proven by a chunk repeating a keyword 50x NOT outranking one
+  mentioning it once), case-insensitivity, common-word skipping, determinism.
+- `evals/test_grep_comparison_eval.py` — the third-party comparison proof:
+  Icarus's retrieval (hybrid + normalized) beats the grep baseline on the
+  comprehension board, both phrasings, same-run recall@5, gates 100%
+  throughout. Self-skips without fastembed/the corpus/comprehension set.
 - `evals/test_query_normalization_eval.py` — Brick Q's live board proof: wrapping
   hybrid retrieval with `NormalizingRetriever` never regresses recall on either
   phrasing and closes messy-phrasing recall@5 up to the clean baseline in
