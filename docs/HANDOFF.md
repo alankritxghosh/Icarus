@@ -112,8 +112,23 @@ is the orientation layer on top of it.
   Run the suite from a venv: `python3 -m venv .venv && .venv/bin/pip install -r
   requirements.txt`.
 
-**Not started yet:** Brick Q (query-understanding: framing/grammar/spelling
-robustness), Brick D (explain a line on GitHub via a browser extension, remark 3), Brick S (structural
+- **Brick Q — query-understanding layer — DONE and MERGED 2026-07-08 (merge
+  commit `5a93d3f`).** Stdlib-only fuzzy typo/spelling normalizer
+  (`evals/query_normalize.py` + `NormalizingRetriever`), no new dependency,
+  wired ahead of retrieval (writer still sees the original question). Real
+  measured lift on Brick 0's comprehension board: clean recall@5 69.2%→76.9%,
+  messy 61.5%→69.2%, gates 100% throughout. Also adds a **third-party
+  comparison** yardstick (`evals/baseline_retriever.py`'s
+  `GrepBaselineRetriever`, pure Python, no ripgrep dependency) proving Icarus's
+  retrieval beats a fair grep baseline (clean +30.7pp, messy +15.4pp). Two full
+  rounds of independent adversarial review; a real tokenizer-mismatch bug was
+  found and fixed mid-build, plus two genuine test-honesty gaps found and
+  fixed post-review (each self-verified by injecting the flagged mutation and
+  watching it fail before reverting). Scoped to the eval harness only
+  (mirrors Brick C's precedent) — demo wiring not yet greenlit. 275 evals + 136
+  demo green.
+
+**Not started yet:** Brick D (explain a line on GitHub via a browser extension, remark 3), Brick S (structural
 comprehension, deferred-gated, needs explicit go), Brick E (richer "why"
 sources). See §4.
 
@@ -262,11 +277,6 @@ than blindly building more.
 Full detail in `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`
 — read the relevant "Brick" section before starting any of these.
 
-- **Brick Q — query-understanding layer** (any framing/grammar/spelling).
-  Rides on Brick C (embeddings absorb most paraphrase/typo tolerance; a thin
-  normalization layer covers the rest). Fixes nothing on its own in the
-  tester-remarks table but is core to the refined north star ("answer any
-  question... regardless of framing, grammar, or spelling").
 - **Brick D — explain a line on GitHub** (remark 3). **Route decided 2026-07-08
   (recorded in the plan doc's Brick D section):** a **Chrome browser extension**
   on github.com, active **only on repos already connected to Icarus** — select a
