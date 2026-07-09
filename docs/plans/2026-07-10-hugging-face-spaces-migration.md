@@ -1,11 +1,16 @@
 # Migrate the brain from Render to Hugging Face Spaces
 
-**Goal:** Move the hosted brain (`demo/server.py`) off Render's free tier onto a
-Hugging Face Spaces free Docker Space, so connecting a fresh repo (embedding a
-few hundred code chunks) finishes in a reasonable time instead of hitting the
-15-minute honest-timeout this session added.
+**STATUS: confirmed as next session's #1 priority (Alankrit, explicit).**
+Not "someday" — semantic retrieval is currently NOT WORKING on Render, at
+all, confirmed live (see below). Start at Task 1.
 
-**Why now (verified tonight, not assumed):**
+**Goal:** Move the hosted brain (`demo/server.py`) off Render's free tier
+onto a Hugging Face Spaces free Docker Space, so semantic (context-aware)
+retrieval actually completes and Icarus is genuinely context-aware, not
+running on keyword search as a permanent fallback.
+
+**Why now (verified TWICE — the original diagnosis, then confirmed again
+after a later fix, both live, not assumed):**
 
 | | Render free | HF Spaces free (cpu-basic) |
 |---|---|---|
@@ -14,15 +19,24 @@ few hundred code chunks) finishes in a reasonable time instead of hitting the
 | Idle sleep | 15 min | 48 h |
 | Disk | ephemeral | ephemeral (same posture) |
 
-Root cause of tonight's incident, confirmed live: a private-repo connect to
-`alankritxghosh/Icarus` (216 chunks) ran the fix's new 900s embed timeout to
-completion without finishing — the progress log (fires every ~10%, ~21
-chunks) never printed once. Local timing for the same repo was ~27s total
-(4.4s ingest + 22.7s embed). That's roughly a **400x** slowdown on Render's
-CPU, consistent with 0.1 CPU being the real ceiling, not a code bug. HF
-Spaces' free tier gives 20x more CPU and 32x more RAM for the same $0 — this
-is the single highest-leverage fix available, and it's an infra change, not
-another code patch.
+Original incident: a private-repo connect to `alankritxghosh/Icarus` (216
+chunks) ran a 900s embed timeout to completion without finishing — the
+progress log (fires every ~10%, ~21 chunks) never printed once. Local
+timing for the same repo was ~27s total (4.4s ingest + 22.7s embed). That's
+roughly a **400x** slowdown on Render's CPU, consistent with 0.1 CPU being
+the real ceiling, not a code bug.
+
+**That connect-blocking problem was then fixed separately** (a two-stage
+connect: fast lexical-only pipeline first, semantic upgrade in the
+background — see `docs/HANDOFF.md` §3) — so repos connect fast now
+regardless of this migration. But checking the SAME real connect's
+background semantic upgrade against Render's logs afterward showed it had
+run its own full 900s bound and failed: `semantic upgrade failed for
+'alankritxghosh/Icarus' (TimeoutError); staying on lexical-only search`.
+**Confirmed, not theoretical: on Render, semantic retrieval does not
+complete for a real repo.** HF Spaces' free tier gives 20x more CPU and 32x
+more RAM for the same $0 — this is the single highest-leverage fix
+available, and it's an infra change, not another code patch.
 
 **Scope:** Get the SAME server (`demo/server.py`, unchanged brain logic)
 running on HF Spaces instead of Render. No product changes. Render stays
@@ -201,9 +215,13 @@ minutes, with real progress visible in the (much shorter) embedding log.
 
 - HF Space live, `/health` + `/status` healthy.
 - Sign-in works end to end.
-- A fresh, non-default repo connect (same test repo as tonight's incident)
-  completes in a documented, real amount of time — not just "should be
-  faster."
+- **The actual bar, not just "connect completes fast":** a fresh,
+  non-default repo connect (same test repo as the original incident,
+  `alankritxghosh/Icarus`) reaches a genuine `HybridRetriever` — the
+  semantic upgrade actually succeeds, not just the lexical-only fallback.
+  Verify by inspecting the real retriever type, same method used to verify
+  the connect fix itself (`docs/HANDOFF.md` §3) — a fast "ready" status
+  alone proves nothing about semantic search working.
 - Extension + Mac app point at the new URL.
 - Docs describe what's actually live, not what used to be true.
 - Render fallback question explicitly decided, not left ambiguous.

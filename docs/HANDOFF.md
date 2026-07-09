@@ -30,11 +30,20 @@ Both are fixed and verified live. Don't re-derive any of this — it's below.
   probe that correctly triggered an honest "I don't know" instead of an
   invented answer. This is the first live proof this session that `/ask`
   actually works post-fixes — nobody had tested it end to end before this.
-  §4.
-- **The Hugging Face Spaces migration is scoped, not started.** Still the
-  right long-term fix (2 vCPU / 16GB free vs Render's 0.1 CPU / 512MB) but
-  private repos no longer need it to be usable tonight. Plan:
-  `docs/plans/2026-07-10-hugging-face-spaces-migration.md`. §5.
+  **Caveat found right after, via logs (not guessed): those 5 answers were
+  lexical-only.** The background semantic upgrade for that exact connect
+  ran its full 900s bound and failed (`semantic upgrade failed for
+  'alankritxghosh/Icarus' (TimeoutError); staying on lexical-only search`)
+  — so tonight's `/ask` proof is real, but it did not exercise semantic
+  retrieval at all. §4.
+- **The Hugging Face Spaces migration is next session's #1 priority —
+  confirmed, not optional.** Originally scoped as a "nice to have, no rush"
+  follow-up, but the log line above changes that: semantic retrieval is
+  currently NOT WORKING on Render for any real repo, confirmed live, not
+  theoretical. Alankrit's explicit call: Icarus needs to be context-aware
+  (semantic, not just keyword search) — that's the actual product, and it
+  doesn't work on the current infra. Plan already written:
+  `docs/plans/2026-07-10-hugging-face-spaces-migration.md`. Start here. §5.
 - **D5's actual goal — the extension walkthrough — is still unverified.**
   Select lines on GitHub → click Ask Icarus → a real cited answer in the
   overlay has never been completed successfully, tonight or in any prior
@@ -165,15 +174,18 @@ only changes which *retriever* gets built, never which *writer*.
   logged, and Alankrit confirmed the connect succeeded well within a minute
   — on the exact repo that previously ran 15 minutes to a hard failure.
 
-**Known, honest tradeoff:** for a window after a fresh connect (unmeasured
-on Render specifically — could be anywhere from seconds to the full 900s
-bound depending on how throttled the CPU really is for that request), search
-is keyword-based, not meaning-based. There's currently no client-visible
-signal that this upgrade is in progress or has completed — `/status`'s JSON
-shape wasn't changed, deliberately, to avoid touching any client code
-tonight. A paraphrased question that shares no keywords with the relevant
-code could underperform during that window. Not fixed tonight; a reasonable
-follow-up if it turns out to matter in practice.
+**Known, honest tradeoff — no longer hypothetical, measured live:** the
+background semantic upgrade for tonight's real connect (`alankritxghosh/
+Icarus`) ran its full 900s bound and failed:
+`semantic upgrade failed for 'alankritxghosh/Icarus' (TimeoutError);
+staying on lexical-only search` (Render logs, `19:39:10`). So this isn't "a
+window that might be slow" — on Render's CPU, the semantic upgrade did not
+complete even once tonight, for the one real repo tested. Every `/ask`
+answer verified in §4 was lexical-only, not semantic. There's still no
+client-visible signal of this (`/status`'s JSON shape wasn't touched) — a
+user has no way to know whether they're getting keyword or meaning-based
+search. **This is the confirmed reason the HF Spaces migration (§5) is now
+next session's top priority, not a someday-nice-to-have.**
 
 ---
 
@@ -202,22 +214,33 @@ bluff") and it held up live, tonight, on real infra.
 
 ---
 
-## 5. Scoped, not started: the Hugging Face Spaces migration
+## 5. NEXT SESSION STARTS HERE: the Hugging Face Spaces migration
 
-`docs/plans/2026-07-10-hugging-face-spaces-migration.md` — the verified case
-for moving off Render entirely: HF Spaces' free Docker tier is 2 vCPU/16GB
-vs Render's confirmed 0.1 CPU/512MB, a 20x CPU difference for the same $0.
-Every real touchpoint enumerated by `grep`, not guessed (Dockerfile non-root
-user requirement, 3 hardcoded Render URLs in `extension/`, the GitHub OAuth
-callback needing a second registered URL, docs). Ordered as 5 tasks,
-smallest-loop-first.
+**Confirmed priority, not optional — Alankrit's explicit call.** Originally
+scoped tonight as a "someday, no rush" follow-up once §3's connect fix
+landed. That changed the moment §3's own semantic upgrade was checked
+against real Render logs and found to have **failed** for the one real
+repo tested tonight (see §3/§4's caveat) — meaning semantic, context-aware
+retrieval does not currently work on Render for a real repo, full stop.
+Icarus being context-aware (semantic search, not just keyword matching) is
+the actual product, per Alankrit directly. Lexical-only search papering
+over that with a fast "ready" status is a stopgap that got private repos
+unstuck tonight, not the finished product.
 
-**Why this is no longer urgent:** §3's fix means private repos work on
-Render right now. This migration is still the right move for real semantic-
-search speed and headroom (§3's stage-2 upgrade could still be meaningfully
-faster on better CPU), but it's a quality/speed improvement now, not a
-blocker. Pick it up when there's a clear head and no time pressure — not a
-crisis fix.
+`docs/plans/2026-07-10-hugging-face-spaces-migration.md` — the verified
+case for moving off Render entirely: HF Spaces' free Docker tier is 2
+vCPU/16GB vs Render's confirmed 0.1 CPU/512MB, a 20x CPU difference for the
+same $0. Every real touchpoint enumerated by `grep`, not guessed (Dockerfile
+non-root user requirement, 3 hardcoded Render URLs in `extension/`, the
+GitHub OAuth callback needing a second registered URL, docs). Ordered as 5
+tasks, smallest-loop-first — start at Task 1 (bare `/health` on a fresh
+Space) and don't skip ahead to secrets/OAuth until that's proven.
+
+**What "done" looks like for this, concretely:** a real, non-default repo
+connect on the new infra reaches `HybridRetriever` (semantic upgrade
+actually succeeds, not just lexical fallback) — verified the same way §3
+was verified tonight: inspect the actual retriever type live, don't just
+trust a "ready" status.
 
 ---
 
