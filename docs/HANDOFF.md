@@ -1,288 +1,304 @@
-# Icarus — Session Handoff (2026-07-09, D5 live-testing session)
+# Icarus — Session Handoff (2026-07-09 → 2026-07-10, private repos fixed)
 
-Read this first next session. It supersedes the prior handoff (2026-07-08 →
-2026-07-09, "Brick D D0-D4 done, D5 pending") entirely. That session's D5 was
-picked up tonight and went sideways in an instructive way: what started as
-"load the extension and click a line" turned into finding and fixing two real
-production bugs, deploying to Render for the first time all session, and
-landing at a **currently-broken live state that is the very next thing to
-diagnose.** Don't re-derive any of this — it's all below.
+Read this first next session. It supersedes the prior handoff ("D5 live-testing
+session -- live service is stuck") entirely. That session ended with the brain
+stuck cold-embedding forever on every boot. Tonight fixed that, then found and
+fixed a second, more important problem underneath it: **private repos --
+the actual product -- were not usable at all** on the current hosting tier.
+Both are fixed and verified live. Don't re-derive any of this — it's below.
 
 ---
 
 ## 0. TL;DR — where things stand right now
 
-- **Brick D (D0-D4) is merged to `main`**, not just built on a branch —
-  merged early, explicitly at Alankrit's call, **skipping the two-independent-
-  reviewer pass every other brick this cycle got.** That review is still owed
-  before this is considered done. §1.
-- **Two more fixes landed on `main` tonight, also unreviewed**: a real port-
-  binding bug in the demo server (§2), and a hardcoded-URL bug in the
-  extension (§3). Same review debt applies to both.
-- **The live Render service (`https://icarus-brain.onrender.com`) is up but
-  effectively unusable right now** — sign-in works, but everything else
-  (`/status`, `/connect`, `/ask`, `/explain`) is refusing with "still starting
-  up." This has been true for well over 10 minutes as of the end of this
-  session. **This is the #1 thing to check first next session** — see §4.
-- **D5's actual goal (prove a real line-select → cited-answer round-trip
-  through the loaded extension) was NOT reached.** We got as far as a
-  successful GitHub sign-in through the extension; the moment we tried to
-  actually use it, it broke. Nobody has seen `/explain` answer through the
-  real extension yet.
-- `main` and `origin/main` are in sync (both at `4b7a4df`) — everything
-  described below is already pushed.
+- **The brain boots warm.** `/health`/`/status` on the default `simonw/llm`
+  corpus come up `"ready"` in milliseconds, not stuck `"starting"` — fixed by
+  baking the embedding model + vector cache into the Docker image at build
+  time. Verified live, repeatedly, all night. §1.
+- **Private repos are usable.** This was the real fire tonight: a connect to
+  Alankrit's own `alankritxghosh/Icarus` repo ran a newly-added 15-minute
+  embed timeout to completion on Render's free tier without embedding even
+  10% of the corpus — confirmed root cause is Render's CPU (0.1 vCPU,
+  verified against their pricing page), not a bug. Fixed with a two-stage
+  connect: a fast, lexical-only pipeline publishes "ready" in seconds
+  (verified live: `connect received` → success in well under a minute on the
+  real repo, real infra), and a full semantic pipeline upgrades it silently
+  in the background. §3.
+- **`/ask` is proven live, including the honesty gate.** Alankrit ran five
+  test questions against the connected `alankritxghosh/Icarus` repo tonight
+  — all passed, including a deliberate "what's Icarus's pricing model?"
+  probe that correctly triggered an honest "I don't know" instead of an
+  invented answer. This is the first live proof this session that `/ask`
+  actually works post-fixes — nobody had tested it end to end before this.
+  §4.
+- **The Hugging Face Spaces migration is scoped, not started.** Still the
+  right long-term fix (2 vCPU / 16GB free vs Render's 0.1 CPU / 512MB) but
+  private repos no longer need it to be usable tonight. Plan:
+  `docs/plans/2026-07-10-hugging-face-spaces-migration.md`. §5.
+- **D5's actual goal — the extension walkthrough — is still unverified.**
+  Select lines on GitHub → click Ask Icarus → a real cited answer in the
+  overlay has never been completed successfully, tonight or in any prior
+  session. Not touched tonight; still the biggest untested surface. §6.
+- **The Mac app's timeout fix is source-only, not rebuilt.** The app on
+  Alankrit's machine still has the old 180s connect deadline. Matters much
+  less now that connects land in seconds, but isn't actually verified in the
+  running app. §6.
+- `main` and `origin/main` are in sync at `3a6053b` — everything below is
+  already pushed and live on Render.
 
 ---
 
-## 1. Brick D merge — done, but review debt is real
+## 1. Fix: the brain was stuck cold-embedding on every boot
 
-Merged `brick-d-explain-line` → `main` at commit `aecbda1` (`--no-ff`), full
-297/158/29-test suite green beforehand on both the branch and post-merge.
-**Why merged early, ahead of D5 passing:** Alankrit chose to deploy to Render
-to test the extension's real OAuth flow against the exact URL already
-registered as the GitHub OAuth App's callback (see §3.2's dead end below for
-why that mattered), and Render auto-deploys `main` — merging was the fast
-path to get Brick D's `/explain` endpoint live without a manual Render
-branch-switch. This was flagged explicitly before doing it (see this
-session's transcript) and Alankrit confirmed: **merge now, review-and-
-formalize once D5 fully passes.** D5 has not fully passed yet (§0), so this
-review is still outstanding — don't treat Brick D as done-done.
+**Symptom (start of tonight):** `/health` returned `{"ok": true, "state":
+"starting"}` and `/status` was `503` for 10+ minutes after every deploy.
 
-## 2. Real bug found + fixed: Render deploy never opened a port
+**Root cause, confirmed by reading the code:** `demo/library.py`'s
+`_build_retriever` synchronously embeds the entire default corpus (243
+chunks) via `fastembed` whenever no on-disk `vectors.json` cache exists —
+true on every fresh Render deploy, since the cache is git-ignored and
+Render's disk is wiped on every deploy/restart/idle-sleep.
 
-**Symptom:** pushed `main` (which now included Brick C/Q, freshly caught up
-after being found 35 commits stale on `origin/main` — see §3.1) to Render.
-The build succeeded, the fastembed model downloaded fine, and then... nothing.
-Render's port-scan timed out after 5 minutes with "no open ports detected,"
-and the deploy failed. Full log is in this session's transcript if needed.
-
-**Root cause, confirmed by reading the code, not guessed:**
-`demo/library.py`'s `_build_retriever` synchronously embeds the ENTIRE
-default corpus (243 chunks: 18 code + 141 PR + 84 issue) via `fastembed`
-whenever no on-disk `vectors.json` cache exists. That cache is git-ignored by
-design, and Render's disk is documented (in `render.yaml`'s own comments) as
-wiped on every deploy/restart/idle-sleep — so **every fresh Render deploy
-must cold-embed the whole corpus from scratch, with no way to skip it.** That
-call happens inside `LibraryRegistry.__init__`, which `demo/server.py`'s
-`serve()` was calling BEFORE constructing `ThreadingHTTPServer` — i.e. before
-the port could ever bind. **This is very likely the first time Brick C has
-ever actually been deployed to Render** — the previously-live service
-predated Brick C by 35 commits, so it never had to do this.
-
-**Fix (commit `e89801b`):** `demo/server.py` now has `_LazyRegistry`, which
-builds the real `LibraryRegistry` on a background thread so `serve()` binds
-the port immediately. Registry-dependent routes (`/status`, `/ask`,
-`/explain`, `/connect`, `/disconnect`) return a clean `503 {"error": "starting
-up, try again shortly"}` while warming, instead of hanging. `/health`
-deliberately returns `200 {"ok": true, "state": "starting"}` during warmup
-(not 503) so Render's own health check doesn't flap/restart-loop the
-container during normal startup. New tests: `LazyRegistryTests` (the state
-machine, using a `threading.Event`-gated fake builder — deterministic, no
-real embedding needed) and `RegistryWarmupHttpTests` (the HTTP-level 503/200
-wiring), both in `demo/test_server.py`. Full suite green after the fix (295
-evals + 158 demo + 29 extension JS tests).
-
-**Verified the fix itself works:** redeployed, and this time the port bound
-immediately — `/health` responded within the same request cycle instead of
-timing out, confirmed via direct `curl` against the live URL right after the
-build finished. **What's NOT verified: whether the background corpus embed
-ever actually finishes on Render's free tier.** See §4 — this is the open
-thread.
-
-## 3. Real bug found + fixed: extension pointed at localhost
-
-**Symptom:** "Sign-in failed: TypeError: Failed to fetch," then after fixing
-the code, still the same error even after "reloading" the extension.
-
-**Root cause 1 — hardcoded URL:** `extension/background.js` and
-`extension/content.js` both had `BRAIN_URL = "http://127.0.0.1:8000"`
-hardcoded (a known, commented TODO — "configurable once the brain is hosted,
-post-demo per CLAUDE.md"). Once we stopped the local dev server in favor of
-testing against the deployed Render service, every fetch from the extension
-started failing with connection-refused. **Fix (commit `4b7a4df`):** pointed
-both files' `BRAIN_URL` at `https://icarus-brain.onrender.com`, added it to
-`manifest.json`'s `host_permissions` (kept the `127.0.0.1:8000` permission
-too, for future local dev). This is still a hardcoded swap, not real
-configurability — that remains explicitly deferred post-demo.
-
-**Root cause 2 — stale extension load:** even after that fix landed, Alankrit
-kept seeing the same error. Diagnosed by having him open the service worker's
-DevTools (`chrome://extensions` → the card → "service worker" → Inspect) and
-check the actual loaded source: it still showed the OLD `127.0.0.1:8000`
-constant, and the Network tab showed `net::ERR_CONNECTION_REFUSED` in ~8ms
-(the signature of hitting a dead loopback port, not a real remote host).
-**Why:** the extension had originally been loaded (per this session's own
-earlier instructions, before Brick D was merged) from the WORKTREE's copy —
-`.worktrees/brick-d-explain-line/extension` — a physically different
-directory from `main`'s own `extension/` folder at the repo root, which is
-where all the fixes were actually being made. No amount of reloading a
-worktree-sourced extension would ever pick up edits made to `main`'s files.
-**Fix:** removed the extension, re-loaded unpacked from
-`/Users/alankritghosh/JARVIS /jarvis_engineering/extension` (repo root, not
-the worktree). This is a real footgun worth remembering: **the worktree
-directory (`.worktrees/brick-d-explain-line/`) is now stale/irrelevant** for
-extension testing since Brick D lives on `main` now — don't point Chrome at
-it again. (The worktree itself hasn't been cleaned up yet — still exists on
-disk with its own venv/.env, per the usual per-brick worktree convention, but
-its `extension/` copy specifically should not be reloaded into Chrome again.)
-
-### 3.1 Side-quest: `origin/main` was 35 commits stale
-
-While chasing the OAuth callback-URL problem (§3.2), discovered `origin/main`
-was sitting at `301720c` — 35 commits behind local `main`, missing Brick C
-(semantic retrieval) and Brick Q (query understanding) **entirely**. The live
-Render service was, until tonight, running pre-Brick-C code. Pushed local
-`main` to origin (fast-forward, no rewrite) to fix this — unrelated to Brick
-D, just something we tripped over. If anyone else is depending on that
-service, they now have BM25+typo-tolerant retrieval where they didn't before.
-
-### 3.2 Side-quest: the GitHub OAuth App callback dead end
-
-Before deciding to deploy to Render, we tried three other paths, in order,
-each hitting a real wall:
-1. Local server, default config → extension's `chrome-extension://` origin
-   was rejected by the server's own CSRF/Origin guard (403 "forbidden").
-   **Not a real bug** — `render.yaml` already opens this guard
-   (`ICARUS_ALLOWED_HOSTS=*`) in production; it's a local-dev-only artifact.
-   Restarted the local server with `ICARUS_ALLOWED_HOSTS=* 
-   ICARUS_REQUIRE_GITHUB_AUTH=1` to mirror production, which fixed it.
-2. That got past the Origin guard but hit GitHub itself: "The redirect_uri is
-   not associated with this application" — the registered GitHub OAuth App's
-   callback URL is `https://icarus-brain.onrender.com/auth/github/callback`
-   only (see `docs/DISTRIBUTION.md`), not `http://127.0.0.1:8000/...`. GitHub
-   OAuth Apps only accept redirect URIs you've explicitly registered.
-3. Proposed adding a second, local-only callback URL to the same OAuth App
-   (GitHub supports multiple). **Alankrit explicitly declined** — wanted the
-   production app's registration left untouched. That's what led to "deploy
-   to the real Render URL instead," which is the path documented above.
-
-If local extension testing is ever needed again without deploying, the clean
-option (never executed) is a throwaway second GitHub OAuth App registered
-with `http://127.0.0.1:8000/auth/github/callback`, used only for that.
+**Fix (`b948376`):** `demo/warm_cache.py` (new) bakes the fastembed model
+download AND the default corpus's `vectors.json` into the Docker image at
+`docker build` time (`Dockerfile`'s new `RUN python -m demo.warm_cache`
+step), so the container boots warm instead of cold. Verified with a real
+local `docker build` + `docker run`: `/status` returned `"ready"` in **0.05
+seconds**. Measured the actual speedup too: cold-embedding 243 chunks took
+7.8s on my machine vs 0.04s from the baked cache — 197x. On Render's slower
+CPU the gap was much larger in practice (this is what was causing the
+10+ minute stuck-boot symptom).
 
 ---
 
-## 4. THE OPEN THREAD — start here next session
+## 2. Fix: connect had no timeout and no visibility
 
-**"I signed in but I am unable to use Icarus for anything."** This was never
-diagnosed before the session ended. Best working theory, from what we know:
+Before touching the "private repos don't work" problem, tonight first closed
+an observability gap that made every subsequent diagnosis take far longer
+than it should have:
 
-Every push to `main` tonight (`aecbda1`, then `e89801b`, then `4b7a4df`) is
-`autoDeploy: true` on Render, so each one triggered its OWN fresh deploy —
-and per §2, **every fresh deploy wipes the disk and has to cold-embed the
-corpus again from zero.** As of the last check this session (well after the
-final push), `curl https://icarus-brain.onrender.com/health` was STILL
-returning `{"ok": true, "state": "starting"}`, and `/status` was still `503`.
-That's a long time for embedding 243 short chunks to still be "starting" —
-long enough that it's worth treating as its own possible problem, not just
-"still warming up, be patient." Sign-in works because `/auth/github/begin`
-and `/auth/github/redeem` never touch the registry at all (§2's fix
-deliberately decoupled them) — but literally everything else needs a ready
-registry, which is why Alankrit could sign in and then do nothing else.
+**`2294de4`** — `evals/retriever.py`'s `SemanticRetriever` gained an optional
+`timeout` (raises `TimeoutError` past it) and `on_progress(done, total)`
+param; `demo/library.py` wires a 900s bound + progress logging into the real
+embed path. Before this, a slow embed just hung forever with zero signal —
+proven live tonight (a connect ran 35+ minutes with no way to tell if it was
+almost done or truly stuck).
 
-**Next session, in order:**
-1. `curl https://icarus-brain.onrender.com/health` — if it now shows real
-   `repo`/`commit` fields instead of `"state": "starting"`, the embed finished
-   on its own and this was just slow, not stuck; retry the real D5 walkthrough
-   (`/connect` to `simonw/llm` via the extension, select lines in
-   `llm/errors.py`, click Ask Icarus).
-2. If it's STILL `"starting"`, check the Render dashboard's Logs tab for the
-   `icarus-brain` service — look for a Python exception, an OOM kill, or
-   genuine forward progress (any log line at all after the fastembed model
-   download completes). The background thread's exceptions are NOT currently
-   logged anywhere (`_LazyRegistry._build` catches and stores the exception
-   silently, only re-raising it on the next `library_for`/`disconnect` call —
-   if nothing has called those since the error, it could be sitting caught
-   and invisible). **This might be worth fixing**: have `_LazyRegistry._build`
-   at least `print(..., file=sys.stderr)` the exception immediately when it
-   happens, so a stuck/failed embed shows up in Render's logs without needing
-   an incoming request to surface it.
-3. If it's a genuine slow-CPU problem (not stuck, just very slow), that's a
-   real product question for Render's free tier: if every cold start / wake-
-   from-15-min-idle-sleep means several-plus minutes of "nothing works,"
-   that's not viable for a real demo. Options to weigh: bake a precomputed
-   `vectors.json` into the Docker image at build time (so the container never
-   starts from a truly cold cache), upgrade off the free tier, or accept the
-   degraded window as a known limitation for now.
-4. Once `/explain` is actually reachable, D5's real goal is still untested:
-   sign in → connect `simonw/llm` → select lines on
-   `https://github.com/simonw/llm/blob/94769b8.../llm/errors.py` → click Ask
-   Icarus → confirm a real response renders in the overlay. Note: per the
-   deferred anchor-labeling issue below, the DEFAULT (no free-text question)
-   explain click will likely show "No one wrote this down" even when the
-   pipeline is fully healthy — that's expected today, not a new bug.
-5. Once D5 truly passes, Brick D + the two fixes in §2/§3 all still need the
-   two-independent-reviewer pass that was skipped tonight.
+**`d9f9327`** — added a log line the instant `/connect` is accepted
+(`demo/server.py`). Before this, the server's default request logging is
+deliberately suppressed, so a connect request left literally no trace until
+(if ever) it reached the embed loop's own progress logging. This is what
+made it possible to prove, live, that a click had genuinely reached the
+server vs. a stale browser tab silently polling a server that had since
+redeployed out from under it (this happened at least twice tonight — every
+push triggers a fresh Render deploy, which resets in-flight connects).
+
+Client-side, `demo/index.html` and
+`mac/Icarus/Sources/Icarus/ConnectModel.swift` both had their poll windows
+bumped from 150s/180s to 900s to match the server's bound, and the web page
+now says so honestly if it times out instead of leaving "indexing…" up
+forever (a real bug found live — the old code just silently stopped
+polling).
+
+**This whole layer is now largely superseded by §3** — the 900s timeout and
+progress logging still exist and still matter for the background semantic
+upgrade, but they're no longer the thing standing between a user and a
+working connect.
 
 ---
 
-## 5. Deferred, not forgotten
+## 3. THE REAL FIX: private repos are usable (two-stage connect)
 
-**The `/explain` anchor-labeling gap** (found live-testing D5, before any of
-the above): the default explain question ("What does this code do, and why
-is it here?") reliably abstains even on trivial, clearly-documented code,
-because the shared writer prompt (`evals/synth.py`'s `build_prompt`) has no
-way to mark which evidence chunk is "this code" the user selected — it's a
-flat, undifferentiated list. Confirmed live (not guessed): `llm/errors.py`
-lines 1-3 abstained 3/3 tries, `llm/hookspecs.py` too, and the SAME evidence
-answers fine through `/ask` when the question names the class explicitly
-instead of saying "this." The extension never sends a free-text question, so
-every real click hits this path. **Alankrit's call:** proceed with D5 as-is
-tonight (D5's job is proving the transport mechanics, not writer quality);
-fix separately. **Spawned as background task `task_6ab94816`** ("Fix
-explain's anchor-labeling gap in shared prompt") — Alankrit started it in a
-separate session mid-way through tonight's session; its outcome was never
-reported back before this handoff was written. **Check its status next
-session** — it may already be done, in progress, or need resuming.
+**What actually happened:** with §1 and §2 live, Alankrit tried connecting
+his own `alankritxghosh/Icarus` repo (216 chunks: 144 code, 68 doc, 4
+config, 0 PR/issue). It ran the full 900s embed timeout **to completion,
+with zero progress log lines ever appearing** (the progress log fires every
+~10%, i.e. every ~21 chunks) — meaning it embedded fewer than 21 chunks in
+15 minutes. Locally, the same repo embeds in 22.7s. That's roughly a **400x**
+slowdown, and it's not a fluke: Render's free tier is confirmed at **0.1
+CPU** (a literal tenth of a core) via their own pricing page. **Private
+repos were not usable on this infra, full stop** — no amount of more
+patient timeouts or better logging fixes that; the CPU genuinely isn't fast
+enough to embed a real repo interactively.
+
+**A wrong idea, ruled out before shipping it:** the first hypothesis was
+that `evals/retriever.py`'s per-chunk `provider.embed()` loop (one call per
+chunk) was the bottleneck and batching all chunks into a single call would
+help. Benchmarked directly against the real repo: batching was **~10x
+SLOWER** (261s vs 22.3s), not faster. Good thing this was measured before
+being "fixed" — would have made things worse.
+
+**The actual fix (`fae482c`):** `Library.connect_sync` now connects in two
+stages instead of one:
+- **STAGE 1** builds a lexical-only (BM25) pipeline and publishes it as
+  `"ready"` immediately — pure Python string processing, no CPU-bound ONNX
+  inference at all, so it's fast regardless of how throttled the host's CPU
+  is. This is not a stub or a fake mode — lexical-only is the same
+  real fallback retrieval mode already used whenever the embedder is
+  unavailable at all.
+- **STAGE 2** then builds the full hybrid (lexical + semantic) pipeline in
+  the background and swaps it in once the embed finishes. A slow host or an
+  outright timeout there is explicitly **not a connect failure** anymore —
+  the repo is already answerable via stage 1 — so stage 2 exceptions are
+  logged to stderr and swallowed, never undoing a working connection. The
+  swap only applies if the caller hasn't switched to a different repo in the
+  meantime (a real race — two different repos' `connect_sync` calls can
+  genuinely run concurrently on separate background threads — guarded under
+  the lock and covered by a dedicated test).
+
+`_build_retriever`, `_default_build_pipeline`,
+`_default_build_private_pipeline`, and `LibraryRegistry._build` all gained a
+`fast=False` param threaded through; the private-repo trust interlock
+(`assert_safe_for_private`) is completely unaffected either way — `fast`
+only changes which *retriever* gets built, never which *writer*.
+
+**Verified, not assumed, at every level:**
+- Full test suite: 298 evals + 163 demo, all green (3 new/replaced tests in
+  `demo/test_library.py` covering stage order, a stage-2 timeout not undoing
+  stage 1, and the repo-switch race).
+- Live against the real embedder, real repo (not test doubles): status
+  flipped to `"ready"` with a genuine, searchable `LexicalRetriever` at
+  **4.4s**; upgraded to a real `HybridRetriever` at ~30s once the embed
+  finished — both confirmed by inspecting the actual retriever object type
+  at each point.
+- Live on Render itself, the actual infra that failed: `connect received`
+  logged, and Alankrit confirmed the connect succeeded well within a minute
+  — on the exact repo that previously ran 15 minutes to a hard failure.
+
+**Known, honest tradeoff:** for a window after a fresh connect (unmeasured
+on Render specifically — could be anywhere from seconds to the full 900s
+bound depending on how throttled the CPU really is for that request), search
+is keyword-based, not meaning-based. There's currently no client-visible
+signal that this upgrade is in progress or has completed — `/status`'s JSON
+shape wasn't changed, deliberately, to avoid touching any client code
+tonight. A paraphrased question that shares no keywords with the relevant
+code could underperform during that window. Not fixed tonight; a reasonable
+follow-up if it turns out to matter in practice.
 
 ---
 
-## 6. Carried forward unchanged from the prior handoff
+## 4. Verified live: `/ask` actually works, including the honesty gate
 
-Still true, not re-verified tonight, not re-explained here — see the prior
-handoff's git history (`git log -p -- docs/HANDOFF.md`) for full detail if
-needed:
-- **Brick E** (richer "why" sources — commit-message/git-blame provenance):
-  sketched only, not task-broken. E1/E2 tracked, neither started.
+Nobody — not this session, not any prior one per the last handoff — had
+actually tested `/ask` returning a real cited answer since any of tonight's
+fixes landed. I structurally couldn't test this myself (requires Alankrit's
+own GitHub bearer token). Alankrit ran five questions against the connected
+`alankritxghosh/Icarus` repo:
+
+1. Why one unified cloud instead of self-hosting (tests grounded "why",
+   should cite `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md`)
+2. How the two-stage connect avoids blocking on slow embedding (self-
+   referential — tonight's own fix, should cite `demo/library.py`)
+3. Whether Icarus trains on or retains a customer's code (privacy claim)
+4. What happens when no grounded citation exists (self-referential — the
+   honesty gate explaining itself)
+5. Icarus's pricing model — **deliberately unanswerable**, nothing in the
+   repo documents pricing (pre-revenue, pre-build per CLAUDE.md)
+
+**All five passed**, including #5 triggering an honest "I don't know"
+instead of an invented answer. That's the single most load-bearing proof
+point of the whole product (CLAUDE.md's one non-negotiable: "it cannot
+bluff") and it held up live, tonight, on real infra.
+
+---
+
+## 5. Scoped, not started: the Hugging Face Spaces migration
+
+`docs/plans/2026-07-10-hugging-face-spaces-migration.md` — the verified case
+for moving off Render entirely: HF Spaces' free Docker tier is 2 vCPU/16GB
+vs Render's confirmed 0.1 CPU/512MB, a 20x CPU difference for the same $0.
+Every real touchpoint enumerated by `grep`, not guessed (Dockerfile non-root
+user requirement, 3 hardcoded Render URLs in `extension/`, the GitHub OAuth
+callback needing a second registered URL, docs). Ordered as 5 tasks,
+smallest-loop-first.
+
+**Why this is no longer urgent:** §3's fix means private repos work on
+Render right now. This migration is still the right move for real semantic-
+search speed and headroom (§3's stage-2 upgrade could still be meaningfully
+faster on better CPU), but it's a quality/speed improvement now, not a
+blocker. Pick it up when there's a clear head and no time pressure — not a
+crisis fix.
+
+---
+
+## 6. Open gaps — the real ones, not busywork
+
+**D5's actual goal has never been verified, at all, ever.** Select lines on
+a GitHub blob page → click "Ask Icarus" in the extension → a real cited
+answer renders in the overlay. This has not happened successfully in this
+session or (per the prior handoff) any session before it. Tonight was spent
+on infra reliability, not this. **This is the single biggest untested
+surface going into next session** if the extension is part of the demo
+plan. Start here.
+
+**The Mac app's timeout fix is source-only.** `ConnectModel.swift`'s 900s
+deadline (was 180s) needs `mac/Icarus/scripts/bundle.sh` + a relaunch to
+take effect in the app Alankrit actually runs. Matters less now (connects
+land in seconds via stage 1) but hasn't been verified in the compiled app.
+
+**No visibility into stage-2 (semantic upgrade) SUCCESS**, only failure —
+`demo/library.py`'s stage-2 `except Exception` logs to stderr, but a
+successful upgrade is silent. Fine for tonight; worth a one-line success log
+if this needs debugging again.
+
+**Two-independent-reviewer pass still owed.** Carried debt from Brick D's
+early merge (`aecbda1`, explicitly flagged and approved by Alankrit at the
+time — "review once D5 fully passes"). D5 still hasn't fully passed (see
+above), so this review is still outstanding, and now covers a lot more
+surface (all of tonight's fixes too).
+
+**Render CLI/API access was set up tonight** for live log diagnosis (device-
+auth login, `render whoami` confirms `Alankrit Ghosh`). The API key is
+cached locally at `/tmp/.render_api_key` — a scratch, machine-local,
+never-committed file, not durable across sessions/machines. If log access is
+needed again, re-run `render login` (device-flow, opens a browser) rather
+than assuming that file still exists.
+
+---
+
+## 7. Carried forward unchanged from prior handoffs
+
+Still true, not re-verified tonight:
+- **Brick E** (richer "why" — commit-message/git-blame provenance): sketched
+  only, not task-broken.
 - **Brick S** (structural comprehension): deliberately deferred-gated per
-  CLAUDE.md's "do not build yet" list. Needs Alankrit's explicit, separate
-  go-ahead before any code — not a "just continue the list" item.
+  CLAUDE.md's "do not build yet" list. Needs Alankrit's explicit go-ahead.
 - **Remark 9** (Icarus writing/modifying real code): permanently off the
-  table, a closed decision, not "not started."
-- **Billing/private-repo writer**: private repos currently use the free
-  model (not a genuinely billed/no-training tier despite
-  `GEMINI_PAID_API_KEY`'s name) — acceptable pre-revenue, but the existing
-  UI's "paid writer — 0 trained on your code" badge is still not true and
-  must be revisited before any real external customer's private code
-  connects. (The extension's own badge already avoids this claim — see
-  `extension/render.js`'s guarded test.)
+  table, a closed decision.
+- **Voice**: Phase 3, deliberately deferred by the project's own stated
+  build order (CLAUDE.md) — not an oversight, a sequencing decision. If any
+  demo plan assumes voice interaction, that was never scheduled for this
+  stage.
+- **Billing/private-repo writer**: private repos use `GEMINI_PAID_API_KEY`
+  (a dedicated key, gated by the trust interlock) but this is not yet
+  confirmed as a genuinely billed/no-training tier in practice — acceptable
+  pre-revenue, revisit before any real external customer's private code
+  connects.
 
 ---
 
-## 7. Commands
+## 8. Commands
 
 ```bash
 cd "/Users/alankritghosh/JARVIS /jarvis_engineering"
 
-# Full offline suite on main (now includes Brick D + tonight's two fixes)
-.venv/bin/python -m unittest discover -t . -s evals   # 295 tests, 13 skipped
-.venv/bin/python -m unittest discover -t . -s demo    # 158 tests, 2 skipped
-node --test extension/*.test.js                       # 29 tests
+# Full offline suite on main (298 evals + 163 demo, all green as of 3a6053b)
+.venv/bin/python -m unittest discover -t . -s evals
+.venv/bin/python -m unittest discover -t . -s demo
+node --test extension/*.test.js
 
-# Live service (check warmup state first -- see §4)
+# Live service
 curl https://icarus-brain.onrender.com/health
 curl https://icarus-brain.onrender.com/status
+
+# Render CLI (device-auth login persists locally; re-login if it's expired)
+render login
+render whoami
 
 # Local dev server, matching production's posture (needed for extension testing)
 ICARUS_ALLOWED_HOSTS=* ICARUS_REQUIRE_GITHUB_AUTH=1 .venv/bin/python -m demo.server
 
-# Load the extension in Chrome -- REPO ROOT, not the worktree (see §3):
+# Load the extension in Chrome -- REPO ROOT, not any worktree:
 #   chrome://extensions -> Load unpacked ->
 #   /Users/alankritghosh/JARVIS /jarvis_engineering/extension
-
-# The Brick D worktree still exists on disk but its extension/ copy is stale
-# for testing purposes now that Brick D is merged to main (see §3). Safe to
-# remove once the review debt in §0/§1 is settled and nothing else needs it:
-#   git worktree remove .worktrees/brick-d-explain-line
-#   git branch -d brick-d-explain-line   # already merged, safe
 ```
