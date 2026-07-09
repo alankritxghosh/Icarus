@@ -7,6 +7,18 @@ fixed a second, more important problem underneath it: **private repos --
 the actual product -- were not usable at all** on the current hosting tier.
 Both are fixed and verified live. Don't re-derive any of this — it's below.
 
+**Next session's actual end goal, per Alankrit directly (not just "do the HF
+migration"):** ship a rebuilt, running app that reflects everything —
+context-aware (semantic retrieval genuinely working, not silently falling
+back to lexical-only), every fix from tonight actually live in the app the
+user runs, not just source-committed. Concretely, that means the session
+isn't done at "HF Space is live" — it's done at: HF migration complete AND
+verified (§5) → `mac/Icarus/scripts/bundle.sh` rebuilt with both the 900s
+timeout fix (§2, source-only as of tonight) AND the new HF brain URL
+(§5's Task 4) → the rebuilt app actually launched and used, not just
+compiled. A green test suite and a live curl check are necessary, not
+sufficient — the bar is Alankrit actually running the finished app.
+
 ---
 
 ## 0. TL;DR — where things stand right now

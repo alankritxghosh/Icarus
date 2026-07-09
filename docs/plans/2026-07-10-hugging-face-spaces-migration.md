@@ -165,7 +165,12 @@ from a bare Space, no auth/secrets wired yet.
 **Definition of done:** a fresh repo connect completes well inside a few
 minutes, with real progress visible in the (much shorter) embedding log.
 
-## Task 4: Point the clients at the new brain
+## Task 4: Point the clients at the new brain — including a REAL app rebuild
+
+**This is the actual finish line for the session, not a formality.**
+Alankrit's explicit end goal: a rebuilt, running app reflecting everything
+— not source changes sitting uncompiled. Don't stop at "the code is
+correct"; stop at "the app was rebuilt and launched."
 
 **Steps:**
 1. Swap the 3 hardcoded `onrender.com` references in `extension/` to the
@@ -173,7 +178,16 @@ minutes, with real progress visible in the (much shorter) embedding log.
 2. Update `extension/manifest.json`'s `host_permissions`.
 3. Run `node --test extension/*.test.js` — should be unaffected (these tests
    don't assert on the URL constant, but confirm before assuming).
-4. Next Mac app package/build: pass the Space URL as `ICARUS_BRAIN_URL`.
+4. Rebuild the Mac app for real: `mac/Icarus/scripts/package_dmg.sh`
+   (or `bundle.sh` for a dev build), stamping `ICARUS_BRAIN_URL` to the new
+   HF Space URL. This is ALSO the first time the 900s connect-timeout fix
+   (`ConnectModel.swift`, landed source-only the prior session — see
+   `docs/HANDOFF.md` §2) actually ships in a running app. Two fixes,
+   one rebuild — don't rebuild twice.
+5. **Actually launch the rebuilt app and use it** — connect a real repo,
+   ask a real question, confirm the retriever genuinely upgrades to
+   semantic (same verification method as Task 3). A successful build is
+   not the same as a working app.
 
 ## Task 5: Update docs, decide Render's fate
 
