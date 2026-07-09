@@ -69,10 +69,10 @@ class LibraryRegistry:
         self._last_private: dict[str, bool] = {}  # key -> was that repo private?
         self._lock = threading.Lock()
 
-    def _build(self, corpus_dir):
+    def _build(self, corpus_dir, fast=False):
         if Path(corpus_dir).resolve() == self._default_dir.resolve():
             return self._default_pipeline
-        return self._base_build(corpus_dir)
+        return self._base_build(corpus_dir, fast=fast)
 
     @staticmethod
     def _key(user_id):

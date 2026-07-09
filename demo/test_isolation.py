@@ -147,7 +147,7 @@ class _IsolationTestBase(unittest.TestCase):
         _seed_corpus(self.default_dir, self.DEFAULT_REPO, "94769b8")
         self.storage = root / "storage"
 
-        def fake_build(corpus_dir):
+        def fake_build(corpus_dir, fast=False):
             return _RevealingPipeline(corpus_dir)
 
         def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):

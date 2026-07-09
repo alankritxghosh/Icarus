@@ -27,7 +27,7 @@ class RegistryTests(unittest.TestCase):
         self.storage = root / "storage"
         self.builds = []
 
-        def fake_build(corpus_dir):
+        def fake_build(corpus_dir, fast=False):
             self.builds.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
@@ -84,7 +84,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_lru_evicts_idle_libraries(self):
         reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
-                              build_pipeline=lambda d: f"p::{d}",
+                              build_pipeline=lambda d, fast=False: f"p::{d}",
                               ingest_fn=lambda *a, **k: None, max_live=2)
         first = reg.library_for("1")
         reg.library_for("2")
@@ -172,7 +172,7 @@ class RegistryTests(unittest.TestCase):
         # private_ready/build_private_pipeline fakes mirror that.
         private_builds = []
 
-        def fake_private_build(corpus_dir):
+        def fake_private_build(corpus_dir, fast=False):
             private_builds.append(str(corpus_dir))
             return f"private-pipeline::{corpus_dir}"
 
@@ -208,7 +208,7 @@ class RegistryTests(unittest.TestCase):
         # only place `token` is ever used) is skipped whenever the on-disk
         # cache already exists, so resuming with token=None is safe and
         # correct here -- prove it actually happens rather than falling back.
-        def fake_private_build(corpus_dir):
+        def fake_private_build(corpus_dir, fast=False):
             return f"private-pipeline::{corpus_dir}"
 
         reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
@@ -272,7 +272,7 @@ class RegistryTests(unittest.TestCase):
             _seed_corpus(out_dir, repo)
             return {"pr": 1, "issue": 0, "code": 0}
 
-        def fake_private_build(corpus_dir):
+        def fake_private_build(corpus_dir, fast=False):
             return f"private-pipeline::{corpus_dir}"
 
         reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",

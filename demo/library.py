@@ -9,6 +9,7 @@ ingest the previous repo stays answerable (status just reads "indexing").
 """
 
 import logging
+import sys
 import threading
 from pathlib import Path
 
@@ -64,12 +65,21 @@ def _shared_embedder():
         return _embedder_state["provider"]
 
 
-def _build_retriever(chunks, corpus_dir):
+def _build_retriever(chunks, corpus_dir, fast=False):
     """Hybrid (BM25 + local semantic) retrieval when the embedder is available,
     else lexical-only. Chunk embeddings are read from / written to an on-disk
     cache under `corpus_dir` so a server restart or repo reconnect doesn't
-    re-embed the whole corpus (the query is still embedded live)."""
+    re-embed the whole corpus (the query is still embedded live).
+
+    `fast=True` skips the embedder entirely and returns lexical-only,
+    unconditionally -- used for Library.connect_sync's fast first stage (see
+    its docstring) so a fresh, uncached repo is searchable within seconds
+    regardless of how slow the host's embedder is, instead of blocking on a
+    cold embed that a CPU-throttled host can take many minutes -- or, proven
+    live, never finish inside a bounded timeout at all -- to complete."""
     lexical = LexicalRetriever(chunks)
+    if fast:
+        return lexical
     embedder = _shared_embedder()
     if embedder is None:
         return lexical
@@ -94,19 +104,21 @@ def _pick_writer():
     return "groq" if has_provider_key("groq") else "gemini" if has_provider_key("gemini") else "openrouter"
 
 
-def _default_build_pipeline(corpus_dir):
+def _default_build_pipeline(corpus_dir, fast=False):
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
-    return GatedPipeline(_build_retriever(chunks, corpus_dir), chunks, make_provider(_pick_writer()))
+    return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, make_provider(_pick_writer()))
 
 
-def _default_build_private_pipeline(corpus_dir):
+def _default_build_private_pipeline(corpus_dir, fast=False):
     # The interlock is checked at construction -- the single chokepoint where
-    # the provider is fixed for this pipeline's lifetime.
+    # the provider is fixed for this pipeline's lifetime. Applies identically
+    # regardless of `fast` -- fast only changes which RETRIEVER gets built,
+    # never the writer/trust decision.
     from evals.trust import assert_safe_for_private
     provider = make_provider("gemini-paid")
     assert_safe_for_private(provider)
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
-    return GatedPipeline(_build_retriever(chunks, corpus_dir), chunks, provider)
+    return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider)
 
 
 def _default_private_ready():
@@ -154,8 +166,30 @@ class Library:
         return cache, not (cache / "chunks.jsonl").exists()
 
     def connect_sync(self, repo, token=None, private=False):
-        """Switch the active repo (blocking). Ingests on a cache miss. On failure
-        the previous repo stays active; status becomes 'error'.
+        """Switch the active repo (blocking, from the caller's own thread --
+        demo/server.py backgrounds the whole call so the HTTP request itself
+        never blocks). Ingests on a cache miss, then connects in TWO STAGES:
+
+        STAGE 1 builds a fast, lexical-only (BM25) pipeline and publishes it
+        immediately -- searchable within seconds regardless of corpus size or
+        how slow the host's embedder is. This exists because of a real,
+        live-confirmed incident: a CPU-throttled free-tier host (0.1 CPU) ran
+        a 216-chunk private-repo connect's embed step for the full 15-minute
+        bounded timeout without embedding even 10% of the corpus -- the repo
+        was simply never usable (see docs/HANDOFF.md). Lexical-only is a real,
+        already-supported retrieval mode (the same fallback used when no
+        embedder is available at all), not a stub.
+
+        STAGE 2 then builds the full hybrid (lexical + semantic) pipeline and
+        upgrades to it if/when the embed finishes. A slow host or a timeout
+        there is NOT a connect failure -- the repo is already answerable via
+        stage 1 -- so stage 2's own exceptions are caught and logged, never
+        propagated. The upgrade only applies if the caller hasn't switched to
+        a different repo in the meantime (checked under the lock).
+
+        On a genuine STAGE 1 failure (bad repo, ingest failure, a refused
+        private connect) the previous repo stays active; status becomes
+        'error'.
 
         `token` (the caller's own GitHub token, when connecting a private repo)
         is a LOCAL VARIABLE ONLY -- never stored on self, never logged, never
@@ -181,19 +215,31 @@ class Library:
                 # so glob the whole repo for code (the CLI keeps `llm` as default).
                 self._ingest_fn(repo, corpus_dir, code_dir=".", token=token)
             build_pipeline = self._build_private_pipeline if private else self._build_pipeline
-            pipeline = build_pipeline(corpus_dir)
             meta = load_meta(Path(corpus_dir) / "meta.json") or {}
+            connected_repo = meta.get("repo", repo)
+
+            # STAGE 1 -- fast, lexical-only; publishes "ready" immediately.
+            fast_pipeline = build_pipeline(corpus_dir, fast=True)
             with self._lock:
-                self._pipeline = pipeline
-                self._repo = meta.get("repo", repo)
+                self._pipeline = fast_pipeline
+                self._repo = connected_repo
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
                 self._private = private
                 self._status, self._error = "ready", None
-        except TimeoutError:  # distinct from a bad-repo error -- this repo IS valid,
-            with self._lock:  # the server is just too slow right now; say so honestly
-                self._status = "error"
-                self._error = "Indexing is taking too long on this server right now. Try again shortly, or try a smaller repo."
+
+            # STAGE 2 -- upgrade to hybrid/semantic; never undoes stage 1.
+            try:
+                full_pipeline = build_pipeline(corpus_dir)
+                with self._lock:
+                    if self._repo == connected_repo:  # caller hasn't switched away
+                        self._pipeline = full_pipeline
+            except Exception as e:
+                print(
+                    f"semantic upgrade failed for {connected_repo!r} "
+                    f"({type(e).__name__}); staying on lexical-only search",
+                    file=sys.stderr,
+                )
         except Exception:  # keep the previous repo answerable; never leak internals
             with self._lock:
                 self._status = "error"

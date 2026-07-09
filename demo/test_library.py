@@ -28,7 +28,7 @@ class LibraryTests(unittest.TestCase):
         self.built = []  # dirs build_pipeline was called with
         self.ingested = []  # repos ingest_fn was called with
 
-        def fake_build(corpus_dir):
+        def fake_build(corpus_dir, fast=False):
             self.built.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
@@ -93,21 +93,76 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn("git clone", err)
         self.assertIn("index", err.lower())
 
-    def test_embed_timeout_reports_distinct_honest_message(self):
-        # A TimeoutError (e.g. from SemanticRetriever's embed-timeout, see
-        # evals/retriever.py) is NOT a bad-repo error -- the repo is fine, the
-        # server is just too slow right now. Must not reuse the generic
-        # "public owner/name" message, which would mislead the caller into
-        # thinking the repo itself is the problem.
-        def slow_build(corpus_dir):
+    def test_connect_publishes_the_fast_pipeline_before_the_full_one(self):
+        # STAGE 1 (fast, lexical-only) must land first; STAGE 2 (full/hybrid)
+        # upgrades it. Proves both stages actually run, in the right order,
+        # for a real (non-slow, non-failing) connect.
+        calls = []
+
+        def build(corpus_dir, fast=False):
+            calls.append(fast)
+            return f"fast::{corpus_dir}" if fast else f"full::{corpus_dir}"
+
+        self.lib._build_pipeline = build
+        self.lib.connect_sync("octo/new")
+        s = self.lib.status_snapshot()
+        self.assertEqual(s["state"], "ready")
+        self.assertEqual(s["repo"], "octo/new")
+        self.assertTrue(self.lib.current_pipeline().startswith("full::"))  # upgraded
+        self.assertEqual(calls, [True, False])  # fast, then full -- in that order
+
+    def test_slow_or_failed_semantic_upgrade_does_not_undo_a_working_connect(self):
+        # A TimeoutError from STAGE 2 (e.g. SemanticRetriever's embed-timeout,
+        # see evals/retriever.py -- proven live on a CPU-throttled host: a
+        # 216-chunk connect never finished embedding inside a 15-minute bound)
+        # must NOT undo STAGE 1's already-working connection. The repo stays
+        # "ready" via lexical-only search, not "error".
+        def build(corpus_dir, fast=False):
+            if fast:
+                return f"fast::{corpus_dir}"
             raise TimeoutError("embedding timed out after 900s (10/216 chunks done)")
-        self.lib._build_pipeline = slow_build
+
+        self.lib._build_pipeline = build
         self.lib.connect_sync("octo/big")
         s = self.lib.status_snapshot()
-        self.assertEqual(s["state"], "error")
-        self.assertIn("too long", s["error"].lower())
-        self.assertNotIn("public owner/name", s["error"])
-        self.assertEqual(s["repo"], "simonw/llm")  # stayed on the old repo
+        self.assertEqual(s["state"], "ready")  # NOT "error" -- stage 1 already succeeded
+        self.assertEqual(s["repo"], "octo/big")
+        self.assertTrue(self.lib.current_pipeline().startswith("fast::"))  # stayed lexical-only
+
+    def test_stage_two_completion_does_not_clobber_a_meanwhile_repo_switch(self):
+        # If the caller switches to a DIFFERENT repo while an earlier repo's
+        # slow stage 2 is still running (a real race: /connect backgrounds
+        # each call on its own thread, so two different repos' connect_sync
+        # calls can genuinely overlap), the late-finishing stage 2 must not
+        # clobber the repo the caller actually switched to.
+        import threading
+        import time
+
+        gate = threading.Event()
+
+        def build(corpus_dir, fast=False):
+            if not fast and "first" in str(corpus_dir):
+                gate.wait(timeout=2)  # hold octo/first's stage 2 open
+            return f"{'fast' if fast else 'full'}::{corpus_dir}"
+
+        self.lib._build_pipeline = build
+        t = threading.Thread(target=self.lib.connect_sync, args=("octo/first",))
+        t.start()
+        for _ in range(100):  # wait for octo/first's stage 1 to land
+            if self.lib.status_snapshot()["repo"] == "octo/first":
+                break
+            time.sleep(0.02)
+        else:
+            self.fail("octo/first's stage 1 never became ready")
+
+        self.lib.connect_sync("octo/second")  # switches away; runs both stages fully
+        gate.set()  # now let octo/first's blocked stage 2 finish
+        t.join(timeout=2)
+
+        s = self.lib.status_snapshot()
+        self.assertEqual(s["repo"], "octo/second")
+        self.assertIn("octo__second", self.lib.current_pipeline())
+        self.assertTrue(self.lib.current_pipeline().startswith("full::"))
 
     def test_concurrent_connect_to_same_repo_ingests_once(self):
         import threading
@@ -147,11 +202,11 @@ class PrivateConnectTests(unittest.TestCase):
         self.private_built = []  # (corpus_dir,) build_private_pipeline was called with
         self.ingested = []       # (repo, token) ingest_fn was called with
 
-        def fake_build(corpus_dir):
+        def fake_build(corpus_dir, fast=False):
             self.built.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
-        def fake_private_build(corpus_dir):
+        def fake_private_build(corpus_dir, fast=False):
             self.private_built.append(str(corpus_dir))
             return f"private-pipeline::{corpus_dir}"
 
@@ -180,7 +235,9 @@ class PrivateConnectTests(unittest.TestCase):
         private_dir = self.cache_root.parent / "private" / "acme__secret"
         self.assertTrue((private_dir / "chunks.jsonl").exists())
         self.assertFalse((self.cache_root / "acme__secret").exists())
-        self.assertEqual(self.private_built, [str(private_dir)])
+        # Called twice: STAGE 1 (fast, lexical-only) then STAGE 2 (the
+        # upgrade) -- both against the same private corpus dir.
+        self.assertEqual(self.private_built, [str(private_dir), str(private_dir)])
         # The public builder was only used once, at construction (for the
         # default repo) -- never for this private connect.
         self.assertEqual(self.built, [str(self.default_dir)])
@@ -224,11 +281,11 @@ class PrivateConnectTests(unittest.TestCase):
         # a partially-applied repo/private flag/pipeline.
         from evals.trust import PrivateDataError
 
-        def raising_private_build(corpus_dir):
+        def raising_private_build(corpus_dir, fast=False):
             raise PrivateDataError("not private-safe: refusing to send private code")
 
         lib = Library(self.default_dir, self.cache_root, "simonw/llm",
-                     build_pipeline=lambda d: f"pipeline::{d}",
+                     build_pipeline=lambda d, fast=False: f"pipeline::{d}",
                      ingest_fn=self.fake_ingest,
                      build_private_pipeline=raising_private_build,
                      private_ready=lambda: True)
