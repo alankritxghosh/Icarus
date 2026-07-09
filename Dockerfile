@@ -24,10 +24,19 @@ WORKDIR /app
 COPY . /app
 
 # The one Python dependency: fastembed (local embeddings). ONNX Runtime +
-# tokenizers, no PyTorch, so the image stays small. The embedding model itself
-# is fetched from the HuggingFace hub on first use and cached; a future
-# optimization can bake it into the image to remove the cold-start download.
+# tokenizers, no PyTorch, so the image stays small.
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Boot WARM, not cold. A fresh Render deploy wipes the git-ignored vector cache,
+# so without this the container would download the fastembed model AND re-embed
+# the whole default corpus on startup -- long enough to leave the service stuck
+# "starting up" (docs/HANDOFF.md §4). Baking both into the image at build time
+# makes runtime a fast cache hit. FASTEMBED_CACHE_PATH pins the model download to
+# a stable in-image path used at BOTH build and runtime (fastembed reads this env
+# var); demo.warm_cache embeds the default corpus into evals/corpus/vectors.json,
+# exactly the cache the server's cold path would produce.
+ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
+RUN python -m demo.warm_cache
 
 # Render (and most PaaS) inject $PORT and expect the process to bind 0.0.0.0.
 # The Host guard is opened via ICARUS_ALLOWED_HOSTS=* and the GitHub bearer gate
