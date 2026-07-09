@@ -114,6 +114,13 @@ removing, or renaming files). For class/function-level detail see
   (line-select explain), S (structural comprehension, deferred-gated), E (richer
   "why"). Governed by the what/how-vs-why honesty boundary; remark 9 (writing code)
   stays off the table.
+- `docs/plans/2026-07-10-hugging-face-spaces-migration.md` — plan to move the
+  hosted brain off Render's free tier (0.1 CPU, verified the actual root cause
+  of a live incident: a 216-chunk private-repo connect never finished inside a
+  15-minute embed timeout) onto Hugging Face Spaces' free Docker tier (2 vCPU/
+  16GB, verified). Enumerates every real touchpoint (Dockerfile non-root user,
+  hardcoded Render URLs in extension/, GitHub OAuth callback, docs) found by
+  grep, not guessed; task-ordered smallest-loop-first. Not started.
 
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
