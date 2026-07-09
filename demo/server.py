@@ -364,6 +364,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         self._send_json(403, {"error": "that repo doesn't exist or your GitHub account can't read it"})
                         return
                     private = info["private"]
+                # The default access log is suppressed (log_message below), so
+                # without this a /connect request leaves NO trace at all until
+                # (if ever) it reaches the embed loop's own progress logging --
+                # a real blind spot found live tonight: no way to tell "never
+                # arrived" from "still ingesting" from "still embedding".
+                # Never logs the token.
+                print(f"connect received: repo={repo!r} private={private}", file=sys.stderr)
                 threading.Thread(target=lib.connect_sync, args=(repo,),
                                  kwargs={"token": token if private else None, "private": private},
                                  daemon=True).start()
