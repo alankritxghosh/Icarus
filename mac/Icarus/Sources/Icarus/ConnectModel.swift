@@ -105,7 +105,12 @@ final class ConnectModel {
             try await client.connect(repo: repo)
             // The brain ingests in the background and keeps the previous repo active
             // until the new one is ready, so wait for state==ready AND repo match.
-            let deadline = Date().addingTimeInterval(180)  // past the web UI's 150s poll
+            // Matches the server's own embed timeout (evals/retriever.py's
+            // SemanticRetriever, demo/library.py's _EMBED_TIMEOUT_SECONDS = 900)
+            // -- a CPU-throttled host can take much longer than a small demo repo
+            // implies, and giving up client-side before the server does just
+            // shows "Timed out" on a connect that's still genuinely working.
+            let deadline = Date().addingTimeInterval(900)
             while Date() < deadline {
                 try await Task.sleep(for: .seconds(2))
                 if Task.isCancelled { return }

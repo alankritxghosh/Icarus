@@ -234,13 +234,20 @@ repoForm.addEventListener("submit",async(e)=>{
     const r=await fetch("/connect",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify({repo})});
     if(r.status===401){setStatus("sign in first","error");connectBtn.disabled=false;ask.disabled=false;return;}
     if(r.status===400){setStatus((await r.json()).error||"bad repo","error");connectBtn.disabled=false;ask.disabled=false;return;}
-    for(let i=0;i<150;i++){
+    // Matches the server's own embed timeout (evals/retriever.py's
+    // SemanticRetriever, demo/library.py's _EMBED_TIMEOUT_SECONDS = 900) so
+    // the UI doesn't give up on a connect that's still legitimately working
+    // server-side. If we DO give up, say so -- never leave "indexing …" up
+    // forever with no explanation (a real bug this session found live).
+    let settled=false;
+    for(let i=0;i<900;i++){
       await new Promise(res=>setTimeout(res,1000));
       const s=await refreshStatus();
       if(!s)continue;
-      if(s.state==="ready"&&s.repo===repo){setStatus("connected · "+repo,"");sub.textContent="Now answering about "+repo+" — with proof, or an honest “no one wrote this down.”";result.innerHTML="";break;}
-      if(s.state==="error"){setStatus(s.error||"indexing failed","error");break;}
+      if(s.state==="ready"&&s.repo===repo){setStatus("connected · "+repo,"");sub.textContent="Now answering about "+repo+" — with proof, or an honest “no one wrote this down.”";result.innerHTML="";settled=true;break;}
+      if(s.state==="error"){setStatus(s.error||"indexing failed","error");settled=true;break;}
     }
+    if(!settled){setStatus("timed out indexing "+repo+" — try again","error");}
   }catch(err){setStatus("couldn’t reach the server","error");}
   finally{connectBtn.disabled=false;ask.disabled=false;}
 });

@@ -93,6 +93,22 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn("git clone", err)
         self.assertIn("index", err.lower())
 
+    def test_embed_timeout_reports_distinct_honest_message(self):
+        # A TimeoutError (e.g. from SemanticRetriever's embed-timeout, see
+        # evals/retriever.py) is NOT a bad-repo error -- the repo is fine, the
+        # server is just too slow right now. Must not reuse the generic
+        # "public owner/name" message, which would mislead the caller into
+        # thinking the repo itself is the problem.
+        def slow_build(corpus_dir):
+            raise TimeoutError("embedding timed out after 900s (10/216 chunks done)")
+        self.lib._build_pipeline = slow_build
+        self.lib.connect_sync("octo/big")
+        s = self.lib.status_snapshot()
+        self.assertEqual(s["state"], "error")
+        self.assertIn("too long", s["error"].lower())
+        self.assertNotIn("public owner/name", s["error"])
+        self.assertEqual(s["repo"], "simonw/llm")  # stayed on the old repo
+
     def test_concurrent_connect_to_same_repo_ingests_once(self):
         import threading
         import time

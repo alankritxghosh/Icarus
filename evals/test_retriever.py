@@ -1,5 +1,7 @@
 # evals/test_retriever.py
+import time
 import unittest
+from unittest import mock
 
 from .corpus import Chunk
 from .provider import StaticEmbeddingProvider
@@ -157,6 +159,42 @@ class SemanticRetrieverTests(unittest.TestCase):
         provider = StaticEmbeddingProvider(mapping)
         SemanticRetriever(self.chunks, provider)
         self.assertEqual(calls, [c.text for c in self.chunks])
+
+    def test_no_timeout_by_default_preserves_old_unbounded_behavior(self):
+        # Regression guard: every existing caller that doesn't pass timeout=
+        # must behave exactly as before this option was added.
+        provider = StaticEmbeddingProvider(lambda text: [1.0, 0.0])
+        retr = SemanticRetriever(self.chunks, provider)  # must not raise
+        self.assertEqual(len(retr.vectors), len(self.chunks))
+
+    def test_timeout_raises_before_finishing_a_slow_embed(self):
+        # A fake provider that "sleeps" by faking elapsed wall-clock time via a
+        # counter, so the test is fast and deterministic (no real time.sleep).
+        chunks = [Chunk(f"pr:{i}", "pr", f"text{i}") for i in range(3)]
+        calls = {"n": 0}
+
+        def slow_embed(text):
+            calls["n"] += 1
+            return [1.0, 0.0]
+
+        provider = StaticEmbeddingProvider(slow_embed)
+        real_monotonic = time.monotonic
+        # First call to monotonic() is the start time; each check after that
+        # advances by 1s per chunk embedded, so timeout=0.5s fires right after
+        # chunk 0 (elapsed 1s > 0.5s) -- deterministic, no real sleeping.
+        ticks = iter([0.0, 0.0, 1.0])
+        with mock.patch("evals.retriever.time.monotonic", side_effect=lambda: next(ticks, 999.0)):
+            with self.assertRaises(TimeoutError) as ctx:
+                SemanticRetriever(chunks, provider, timeout=0.5)
+        self.assertIn("1/3", str(ctx.exception))
+        self.assertEqual(calls["n"], 1)  # stopped after exactly one chunk
+
+    def test_on_progress_called_after_every_chunk(self):
+        chunks = [Chunk(f"pr:{i}", "pr", f"text{i}") for i in range(3)]
+        provider = StaticEmbeddingProvider(lambda text: [1.0, 0.0])
+        seen = []
+        SemanticRetriever(chunks, provider, on_progress=lambda done, total: seen.append((done, total)))
+        self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
 
 
 class HybridRetrieverTests(unittest.TestCase):

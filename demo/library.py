@@ -21,6 +21,24 @@ from evals.ingest import ingest_repo
 
 _log = logging.getLogger(__name__)
 
+# Bounds a cold embed's wall-clock time (see evals/retriever.py's
+# SemanticRetriever._embed_all). A CPU-throttled host can be slow enough that
+# an unbounded embed loop hangs with no signal either way -- this happened for
+# real (docs/HANDOFF.md): a private-repo connect on Render's free tier ran 35+
+# minutes with zero visibility. Generous on purpose (not the shortest bound
+# that "should" be enough) since we have no confirmed data point yet for how
+# slow that tier really is; the point is BOUNDED and OBSERVABLE, not fast.
+_EMBED_TIMEOUT_SECONDS = 900
+
+
+def _log_embed_progress(done, total):
+    # ~10 log lines regardless of corpus size, so a slow embed shows real
+    # forward progress in the server's logs instead of total silence.
+    step = max(1, total // 10)
+    if done == total or done % step == 0:
+        _log.info("embedding chunk %d/%d", done, total)
+
+
 # The local embedding model is loaded ONCE per process and shared across every
 # repo/pipeline (loading it is the expensive part; a query embed is cheap). If
 # fastembed or the model is unavailable, retrieval degrades to lexical-only
@@ -63,7 +81,11 @@ def _build_retriever(chunks, corpus_dir):
     if cached is not None:
         semantic = SemanticRetriever(chunks, embedder, vectors=cached)
     else:
-        semantic = SemanticRetriever(chunks, embedder)  # embeds every chunk now
+        semantic = SemanticRetriever(  # embeds every chunk now
+            chunks, embedder,
+            timeout=_EMBED_TIMEOUT_SECONDS,
+            on_progress=_log_embed_progress,
+        )
         save_vectors(cache_path, model, semantic.vectors)
     return HybridRetriever(lexical, semantic)
 
@@ -168,6 +190,10 @@ class Library:
                 self._counts = meta.get("counts")
                 self._private = private
                 self._status, self._error = "ready", None
+        except TimeoutError:  # distinct from a bad-repo error -- this repo IS valid,
+            with self._lock:  # the server is just too slow right now; say so honestly
+                self._status = "error"
+                self._error = "Indexing is taking too long on this server right now. Try again shortly, or try a smaller repo."
         except Exception:  # keep the previous repo answerable; never leak internals
             with self._lock:
                 self._status = "error"

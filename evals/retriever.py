@@ -17,6 +17,7 @@ LexicalRetriever -- a drop-in replacement, not a new interface.
 
 import math
 import re
+import time
 from collections import Counter
 from typing import List
 
@@ -90,7 +91,7 @@ class SemanticRetriever:
     never need to construct or isinstance-check it.
     """
 
-    def __init__(self, chunks: List[Chunk], provider, vectors=None):
+    def __init__(self, chunks: List[Chunk], provider, vectors=None, timeout=None, on_progress=None):
         self.chunks = chunks
         # Keyed by ref, not a list parallel to `chunks` -- `chunks` is a public
         # attribute (matching LexicalRetriever's convention), so a caller (e.g.
@@ -112,8 +113,40 @@ class SemanticRetriever:
                 )
             self._vectors = vectors
         else:
-            self._vectors = {c.ref: provider.embed(c.text) for c in chunks}
+            self._vectors = self._embed_all(chunks, provider, timeout, on_progress)
         self._provider = provider
+
+    @staticmethod
+    def _embed_all(chunks, provider, timeout, on_progress):
+        """Embed every chunk sequentially -- one `.embed()` call per chunk, NOT
+        batched into a single call (measured: batching all-at-once was ~10x
+        SLOWER for this workload, not faster -- fastembed's internal batch
+        path evidently doesn't help here, so don't "optimize" this into a
+        single provider.embed(texts) call).
+
+        `timeout` (seconds, wall-clock) bounds the whole loop so a
+        pathologically slow embedder -- e.g. a CPU-throttled host -- fails
+        loudly instead of hanging forever with zero signal. This is not
+        theoretical: a private-repo connect on Render's free tier ran 35+
+        minutes with no way to tell if it was almost done or truly stuck
+        (docs/HANDOFF.md). None (the default) preserves the old unbounded
+        behavior exactly, for every caller that doesn't pass it.
+
+        `on_progress(done, total)`, if given, is called after every chunk so
+        a slow embed is at least OBSERVABLE (e.g. in server logs) instead of
+        a silent black box."""
+        start = time.monotonic()
+        total = len(chunks)
+        vectors = {}
+        for i, c in enumerate(chunks):
+            if timeout is not None and time.monotonic() - start > timeout:
+                raise TimeoutError(
+                    f"embedding timed out after {timeout:.0f}s ({i}/{total} chunks done)"
+                )
+            vectors[c.ref] = provider.embed(c.text)
+            if on_progress is not None:
+                on_progress(i + 1, total)
+        return vectors
 
     @property
     def vectors(self):
