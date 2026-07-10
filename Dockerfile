@@ -20,11 +20,24 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# HF Spaces run the container as a non-root user, UID 1000 — Render runs as root
+# but a non-root USER is fine there too, so this is safe on both. Create the user
+# AFTER the root-only apt-get steps above and BEFORE COPY/pip. Give it ownership
+# of /app so everything the app writes is user-owned: the baked fastembed cache
+# (below) at build time, and the per-user corpora under ICARUS_STORAGE_ROOT
+# (=/app/data) at runtime. Without the chown, WORKDIR-created /app stays root-owned
+# and the runtime user can't mkdir /app/data.
+RUN useradd -m -u 1000 user
 WORKDIR /app
-COPY . /app
+RUN chown user:user /app
+USER user
+ENV PATH="/home/user/.local/bin:$PATH"
+
+COPY --chown=user . /app
 
 # The one Python dependency: fastembed (local embeddings). ONNX Runtime +
-# tokenizers, no PyTorch, so the image stays small.
+# tokenizers, no PyTorch, so the image stays small. As a non-root user with no
+# virtualenv, pip installs into /home/user/.local (added to PATH above).
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Boot WARM, not cold. A fresh Render deploy wipes the git-ignored vector cache,
