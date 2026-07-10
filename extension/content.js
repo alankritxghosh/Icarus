@@ -24,8 +24,6 @@
 //    something to cite. Everywhere else it stays dormant, per the plan's
 //    scope guard: no "answer anything on any GitHub page."
 
-const BRAIN_URL = "https://icarus-brain.onrender.com"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Render deploy for D5 live testing
-
 let lastOwnerRepo = null; // "owner/repo" last checked, so /status is only
 let connectedRepoStatus = null; // {repo, private} | null -- re-fetched when
                                  // the repo actually changes, not on every
@@ -35,9 +33,15 @@ let widgetEl = null; // the single on-page element: either the "Ask Icarus"
 
 const STYLE_ID = "icarus-style";
 const STYLE_CSS = `
-  .icarus-trigger{position:fixed;bottom:24px;right:24px;z-index:2147483647;
-    padding:8px 14px;background:#16181D;color:#F7F6F2;border-radius:6px;
-    border:1px solid #444;cursor:pointer;font-size:13px;
+  .icarus-trigger-bar{position:fixed;bottom:24px;right:24px;z-index:2147483647;
+    display:flex;gap:8px;align-items:center;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+  .icarus-question-input{padding:8px 10px;border-radius:6px;border:1px solid #444;
+    background:#16181D;color:#F7F6F2;font-size:13px;width:220px;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
+  .icarus-question-input::placeholder{color:#8A8F98;}
+  .icarus-ask-btn{padding:8px 14px;background:#16181D;color:#F7F6F2;border-radius:6px;
+    border:1px solid #444;cursor:pointer;font-size:13px;white-space:nowrap;
     font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
   .icarus-panel{position:fixed;bottom:24px;right:24px;z-index:2147483647;
     width:340px;max-height:70vh;overflow:auto;background:#F7F6F2;color:#16181D;
@@ -86,14 +90,15 @@ async function getToken() {
 async function fetchConnectedRepoStatus(token) {
   if (!token) return null;
   try {
-    const res = await fetch(`${BRAIN_URL}/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
+    // Routed through the background worker, not fetched here directly -- a
+    // content script's own fetch is bound by the GitHub page's CORS/Private
+    // Network Access restrictions and fails outright (see background.js).
+    const response = await chrome.runtime.sendMessage({ action: "fetchStatus", token });
+    if (!response || !response.ok) return null;
+    const data = response.data;
     return data.repo ? { repo: data.repo, private: !!data.private } : null;
   } catch {
-    return null; // network error -> stay dormant, never break the GitHub page
+    return null; // messaging error -> stay dormant, never break the GitHub page
   }
 }
 
@@ -106,12 +111,31 @@ function removeWidget() {
 
 function showTrigger(selection) {
   removeWidget();
+  const bar = document.createElement("div");
+  bar.className = "icarus-trigger-bar";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "icarus-question-input";
+  input.placeholder = "Ask about this code (optional)…";
+
   const btn = document.createElement("button");
   btn.textContent = "Ask Icarus";
-  btn.className = "icarus-trigger";
-  btn.addEventListener("click", () => askIcarus(selection));
-  document.body.appendChild(btn);
-  widgetEl = btn;
+  btn.className = "icarus-ask-btn";
+
+  // Empty input -> the same default "what does this code do, and why is it
+  // here?" behavior as before; a typed question is passed through to
+  // /explain's optional `question` field, unchanged on the server side.
+  const submit = () => askIcarus(selection, input.value.trim() || undefined);
+  btn.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+
+  bar.appendChild(input);
+  bar.appendChild(btn);
+  document.body.appendChild(bar);
+  widgetEl = bar;
 }
 
 function showPanel(html) {
@@ -137,35 +161,35 @@ function showPanel(html) {
   widgetEl = panel;
 }
 
-async function askIcarus(selection) {
+async function askIcarus(selection, question) {
   showPanel(renderLoadingHtml());
   const token = await getToken();
   if (!token) {
     showPanel(renderSignedOutHtml());
     return;
   }
-  let payload;
+  const explainPayload = {
+    repo: `${selection.owner}/${selection.repo}`,
+    path: selection.path,
+    start: selection.start,
+    end: selection.end,
+  };
+  if (question) explainPayload.question = question;
+  let response;
   try {
-    const res = await fetch(`${BRAIN_URL}/explain`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        repo: `${selection.owner}/${selection.repo}`,
-        path: selection.path,
-        start: selection.start,
-        end: selection.end,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      showPanel(renderErrorHtml(body.error || `request failed (${res.status})`));
-      return;
-    }
-    payload = await res.json();
+    // Routed through the background worker -- see fetchConnectedRepoStatus's
+    // comment; the same CORS/Private Network Access restriction applies here.
+    response = await chrome.runtime.sendMessage({ action: "fetchExplain", token, payload: explainPayload });
   } catch (e) {
     showPanel(renderErrorHtml("could not reach Icarus -- check your connection"));
     return;
   }
+  if (!response || !response.ok) {
+    const errMsg = (response && response.data && response.data.error) || `request failed${response && response.status ? ` (${response.status})` : ""}`;
+    showPanel(renderErrorHtml(errMsg));
+    return;
+  }
+  const payload = response.data;
   // Stashed for D5's live guard / manual inspection, same as before -- the
   // panel below is the real, user-facing rendering.
   window.__icarusLastExplain = payload;

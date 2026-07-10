@@ -438,16 +438,36 @@ removing, or renaming files). For class/function-level detail see
   file-to-file navigation and hash-only line changes; GitHub's `popstate`/
   Turbo/pjax events do NOT fire for this -- checked live, none did), and
   drives a real state machine (trigger -> loading -> answer/unknown/error/
-  signed-out) via `showTrigger`/`showPanel`, with a close button. Two real
-  bugs found via live testing and fixed: the stylesheet was injected lazily
-  only inside `showPanel` (the first trigger a user ever saw was completely
-  unstyled), and an inline `panel.style.position="relative"` silently
-  overrode the CSS class's `position:fixed` (the panel rendered off-screen,
-  `left:-24px` in a 1440px viewport) -- both confirmed live via
+  signed-out) via `showTrigger`/`showPanel`, with a close button. The trigger
+  is a bar (`showTrigger`), not a bare button: a line selection also renders
+  an optional question input alongside "Ask Icarus" -- empty submits
+  `/explain`'s default "what does this code do, and why is it here?"; typed
+  text is forwarded as `/explain`'s optional `question` field (server-side
+  support pre-existed; this just exposes it). All brain calls
+  (`fetchConnectedRepoStatus`, `askIcarus`) go through `chrome.runtime.
+  sendMessage` to `background.js`, never a direct `fetch()` here -- a content
+  script's fetch runs inside the GitHub page's own document, so it's bound by
+  the page's CORS policy and, since github.com is https and the brain can be
+  a loopback address, Chrome's Private Network Access preflight too; our
+  brain has no CORS/OPTIONS handling, so a direct fetch failed with a bare
+  "Failed to fetch" before any response arrived, silently -- live-verified
+  the first time the extension was actually exercised end to end (D5), fixed
+  by relaying every brain call through the background service worker
+  instead, which isn't a "document" and isn't subject to either restriction.
+  Two earlier live-testing bugs, still fixed: the stylesheet was injected
+  lazily only inside `showPanel` (the first trigger a user ever saw was
+  completely unstyled), and an inline `panel.style.position="relative"`
+  silently overrode the CSS class's `position:fixed` (the panel rendered
+  off-screen, `left:-24px` in a 1440px viewport) -- both confirmed live via
   `getBoundingClientRect()`/`getComputedStyle`, not guessed from a screenshot.
 - `extension/background.js` — MV3 service worker: the GitHub sign-in flow via
   `chrome.identity.launchWebAuthFlow`, using `demo/github_oauth.py`'s new
-  `extension` OAuth mode; stores the token in `chrome.storage.local`.
+  `extension` OAuth mode; stores the token in `chrome.storage.local`. Also the
+  ONLY place that fetches the brain (`fetchStatus`, `fetchExplain`, plus
+  `signIn`'s own calls) -- a service worker isn't bound by the CORS/Private
+  Network Access restrictions that block a content script's direct fetch (see
+  `content.js`); `content.js` relays every brain call here via
+  `chrome.runtime.onMessage`/`sendMessage` instead of fetching directly.
 - `extension/popup.html` / `extension/popup.js` — a minimal "Sign in with
   GitHub" toolbar popup (a real user gesture is required to open the sign-in
   flow -- it can never happen silently).

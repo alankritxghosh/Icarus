@@ -6,6 +6,18 @@
 // brain then 302s a second time to THIS extension's own
 // https://<id>.chromiumapp.org/ redirect_target, which is what
 // launchWebAuthFlow is watching for).
+//
+// ALL fetches to the brain live HERE, not in content.js, for a real reason
+// found by live-testing (docs/HANDOFF.md): a content script's fetch() runs
+// inside the GitHub page's own document, so it's subject to the page's CORS
+// policy and, since github.com is https and the brain can be a loopback
+// address, Chrome's Private Network Access preflight too -- our brain has no
+// CORS/OPTIONS handling, so that fetch fails with a bare "Failed to fetch"
+// before any response arrives, silently (caught, content.js just sees null).
+// A service worker is not a "document" at all, so neither restriction
+// applies -- exactly why signIn()'s fetches below already worked while
+// content.js's direct fetches didn't. content.js now messages this worker
+// for every brain call instead of fetching directly.
 
 const BRAIN_URL = "https://icarus-brain.onrender.com"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Render deploy for D5 live testing
 
@@ -14,7 +26,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     signIn().then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true; // keep the message channel open for the async response
   }
+  if (message && message.action === "fetchStatus") {
+    fetchStatus(message.token).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+  if (message && message.action === "fetchExplain") {
+    fetchExplain(message.token, message.payload).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
 });
+
+async function fetchStatus(token) {
+  const res = await fetch(`${BRAIN_URL}/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { ok: false, status: res.status };
+  const data = await res.json();
+  return { ok: true, data };
+}
+
+async function fetchExplain(token, payload) {
+  const res = await fetch(`${BRAIN_URL}/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
 
 async function signIn() {
   const redirectTarget = chrome.identity.getRedirectURL();
