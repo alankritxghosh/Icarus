@@ -227,6 +227,15 @@ class Library:
                 self._counts = meta.get("counts")
                 self._private = private
                 self._status, self._error = "ready", None
+                # Release the single-flight slot HERE, the moment the repo is
+                # genuinely usable -- NOT in the outer `finally` after stage 2.
+                # Holding it through the (potentially long/slow) semantic upgrade
+                # made a reconnect to this same repo hit `already_indexing` and
+                # get silently swallowed while an old upgrade was still finishing,
+                # leaving a polling client stuck forever (docs/HANDOFF.md §6, P1).
+                # Stage 2 below runs unguarded; a reconnect re-runs the cheap
+                # cache-hit stage 1 rather than being blocked.
+                self._inflight.discard(repo)
 
             # STAGE 2 -- upgrade to hybrid/semantic; never undoes stage 1.
             try:
@@ -245,6 +254,9 @@ class Library:
                 self._status = "error"
                 self._error = "Couldn't index that repo. Check it's a public owner/name and try again."
         finally:
+            # Backstop for the FAILURE paths (an ingest/stage-1 error before the
+            # discard above). On the success path the slot is already released
+            # after stage 1; discard is idempotent, so this is a harmless no-op.
             with self._lock:
                 self._inflight.discard(repo)
         return self.status_snapshot()

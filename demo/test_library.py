@@ -164,6 +164,60 @@ class LibraryTests(unittest.TestCase):
         self.assertIn("octo__second", self.lib.current_pipeline())
         self.assertTrue(self.lib.current_pipeline().startswith("full::"))
 
+    def test_reconnect_not_blocked_by_a_prior_pending_semantic_upgrade(self):
+        # P1 regression (docs/HANDOFF.md §6): the single-flight slot (_inflight)
+        # must be released after STAGE 1, not held for the whole two-stage call.
+        # Otherwise a reconnect to a repo whose earlier STAGE 2 (semantic
+        # upgrade) is still running hits the `already_indexing` guard and is
+        # silently swallowed -- connect_sync returns a DIFFERENT repo's status
+        # and nothing ever restarts the real connect, so a client polling for
+        # the reconnected repo waits forever.
+        import threading
+        import time
+
+        gate = threading.Event()
+
+        def build(corpus_dir, fast=False):
+            # Hold octo/first's STAGE 2 open; every other build is instant.
+            if not fast and "first" in str(corpus_dir):
+                gate.wait(timeout=5)
+            return f"{'fast' if fast else 'full'}::{corpus_dir}"
+
+        self.lib._build_pipeline = build
+
+        def wait_for_repo(repo, timeout=2.0):
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if self.lib.status_snapshot()["repo"] == repo:
+                    return True
+                time.sleep(0.02)
+            return False
+
+        # 1) Connect octo/first: stage 1 lands, stage 2 blocks on the gate.
+        t1 = threading.Thread(target=self.lib.connect_sync, args=("octo/first",))
+        t1.start()
+        self.assertTrue(wait_for_repo("octo/first"), "octo/first stage 1 never landed")
+
+        # 2) Switch to octo/second (a different repo -- completes fully).
+        self.lib.connect_sync("octo/second")
+        self.assertEqual(self.lib.status_snapshot()["repo"], "octo/second")
+
+        # 3) Reconnect octo/first while its ORIGINAL stage 2 is STILL blocked.
+        t2 = threading.Thread(target=self.lib.connect_sync, args=("octo/first",))
+        t2.start()
+        try:
+            switched_back = wait_for_repo("octo/first", timeout=2.0)
+        finally:
+            gate.set()  # release both blocked stage-2 embeds
+            t1.join(timeout=5)
+            t2.join(timeout=5)
+
+        self.assertTrue(
+            switched_back,
+            "reconnect was swallowed by the pending semantic upgrade; "
+            "repo never returned to octo/first",
+        )
+
     def test_concurrent_connect_to_same_repo_ingests_once(self):
         import threading
         import time
