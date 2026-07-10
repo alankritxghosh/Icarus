@@ -1,3 +1,87 @@
+# Icarus — Session Handoff (2026-07-10, later: local brain + stress tests)
+
+**READ THIS BLOCK FIRST — it supersedes §5 below ("HF Spaces migration is #1").**
+The HF migration is DEAD. Everything under the older handoff (starting at the
+next H1) is still accurate history, but the hosting priority changed.
+
+## A. Hosting pivot: HF migration ABANDONED → local now, Oracle Cloud later
+- **HF free Docker Spaces no longer exist.** Hugging Face silently made Docker
+  SDK + CPU-basic **PRO-only ($9/mo)** — confirmed via HF's own forums, an
+  undocumented change. The migration plan's whole premise ("2 vCPU for $0") is
+  gone. `docs/plans/2026-07-10-hugging-face-spaces-migration.md` is OBSOLETE.
+- **Second error caught in that plan:** it claimed "GitHub OAuth Apps support
+  multiple callback URLs." FALSE — *OAuth* Apps allow exactly ONE callback;
+  only *GitHub* Apps allow up to 10. This matters for hosting (the single
+  callback must move from onrender → the new host, it can't be added alongside).
+- **Decided direction (Alankrit): perfect it locally, then host on Oracle Cloud
+  Always-Free** (Ampere, ~4 vCPU/24GB, genuinely $0, but a raw VM = more ops).
+  NOT HF PRO, NOT paid Render. See memory `hosting-direction-local-then-oracle`.
+- **Reframe that justifies it:** the only expensive op is one-time, cacheable,
+  per-repo corpus embedding (CPU-bound fastembed). Ask-time is already light. So
+  we need real CPU for a ~30s burst per repo, not a beefy always-on box.
+
+## B. Semantic PROVEN locally + rebuilt app driven end-to-end
+- **Semantic works on real CPU.** The exact repo that ran 900s to failure on
+  Render (`alankritxghosh/Icarus`, private, 219 chunks) connected in **26.7s** on
+  the Mac → a real `HybridRetriever` (verified by inspecting the retriever type,
+  §3's method). 400x-never-finishes → 27s.
+- **Local brain stood up** (`python -m demo.server`, unbuffered, auth required)
+  and proven: `/ask` cited answers + honest `unknown`, honesty gate held.
+- **Mac app REBUILT and driven live against the local brain** — a cited answer
+  rendered in the overlay for the private repo, semantic active. First time the
+  900s `ConnectModel` fix actually compiled into a build.
+  - The app gates connect behind GitHub sign-in even for public repos; local
+    sign-in needs a loopback OAuth callback the single-slot OAuth App can't hold
+    (see A). So a **dev-only bypass** was added: `AppDelegate.swift` seeds the
+    token store from `ICARUS_DEV_GH_TOKEN` when set (env-gated, can NEVER fire in
+    a shipped build). **Uncommitted on purpose** — local test affordance only.
+    Launch via the inner binary so it inherits the env:
+    `ICARUS_DEV_GH_TOKEN="$(gh auth token)" mac/Icarus/Icarus.app/Contents/MacOS/Icarus`.
+
+## C. Commits landed this session (all on main, NOT pushed)
+- `b1494c7` **fix(library): P1** — release the single-flight slot after stage 1,
+  not after the whole two-stage call. Fixes §6's P1 (a reconnect during a pending
+  semantic upgrade was swallowed, client polled forever). Red→green test added.
+- `60ed92e` **chore(docker): non-root UID 1000** — required for any Docker host
+  (was for HF; still good for Oracle). Verified with a local build + non-root run.
+- `57948ac` **feat(synth): charitable phrasing** — see D. Gated board stayed
+  GREEN. (Reverted an HF-only README front-matter change before committing.)
+
+## D. Stress-test findings (all run live against the local brain)
+- **Broken-English / slang / typos:** on the PAID writer (private repos, e.g.
+  Icarus) it is **robust** — every mangled variant, incl. misspelled key terms,
+  answered consistently and accurately. On the FREE writer (public repos, e.g.
+  pydsl) it is **brittle on sparse corpora** — 2 of 4 mangled questions falsely
+  abstained. Failure mode is ALWAYS fail-safe: honest `unknown`, never a bluff.
+- **Code-only comprehension — the product's core claim, proven.** Connected
+  `fmeyer/pydsl` (2009, **0 docs, 0 PRs, 0 issues** — pure code, 4 chunks). Every
+  what/how question was answered **from the code, with code citations**, and
+  verified accurate against the source. The **why** question (rationale never
+  written down) correctly returned honest `unknown`. So Icarus genuinely READS
+  CODE — it is NOT reliant on PRs/issues/docs — and the what/how-vs-why honesty
+  boundary holds on undocumented legacy code.
+- **Brick Q would NOT fix the mangled-question misses** (A/B proven): on a
+  4-chunk corpus retrieval already surfaces all chunks, so recall was never the
+  bottleneck; the false abstention is WRITER-stage. Brick Q only normalizes the
+  *retrieval* query (leaves the writer's question untouched by design), so it
+  can't help. **Brick Q is also NOT wired into serving** at all today.
+- **The actual fix is writer quality** (confirmed by A/B/C/D): stronger writer
+  (Gemini-paid) cleanly answers the mangled Q2/Q4 AND still abstains on the
+  unanswerable Q5; normalizing the writer's question doesn't help; prompt-
+  hardening is a partial free-tier win. → landed the prompt-hardening (`57948ac`).
+  Net: the tier that matters (private/paid) is already robust; the free tier
+  degrades safe.
+
+## E. Runtime state at session end
+- Local brain running (unbuffered, `ICARUS_REQUIRE_GITHUB_AUTH=1`); Mac app quit.
+- Per-user corpora under `./data/<github-user-id>/` (git-ignored). Uncommitted:
+  `AppDelegate.swift` (dev bypass) + `.claude/launch.json`.
+- **Not yet done:** Oracle setup; remaining stress scenarios (concurrent asks,
+  big-repo timing, P1-live-through-the-app); the extension walkthrough (still
+  unverified, carried from before). §6's other findings (P2/P3s) untouched.
+
+---
+
 # Icarus — Session Handoff (2026-07-09 → 2026-07-10, private repos fixed)
 
 Read this first next session. It supersedes the prior handoff ("D5 live-testing
