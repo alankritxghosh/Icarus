@@ -63,8 +63,14 @@ sufficient — the bar is Alankrit actually running the finished app.
 - **The Mac app's timeout fix is source-only, not rebuilt.** The app on
   Alankrit's machine still has the old 180s connect deadline. Matters much
   less now that connects land in seconds, but isn't actually verified in the
-  running app. §6.
-- `main` and `origin/main` are in sync at `3a6053b` — everything below is
+  running app. §7.
+- **A GPT-5.6 Sol code review of tonight's diff found 5 real issues,
+  including one genuine correctness bug in §3's two-stage connect** — a
+  reconnect to a repo can be silently swallowed while its semantic upgrade
+  is still pending, leaving the client polling forever. All 5 independently
+  verified against the actual code (not taken on faith) — fix next session,
+  starting with the bug. §6.
+- `main` and `origin/main` are in sync at `f1837f0` — everything below is
   already pushed and live on Render.
 
 ---
@@ -256,7 +262,78 @@ trust a "ready" status.
 
 ---
 
-## 6. Open gaps — the real ones, not busywork
+## 6. GPT-5.6 Sol code review findings — fix next session
+
+Ran a review with OpenAI's GPT-5.6 Sol (`codex --sandbox read-only review
+--base 13743e1`, read-only, no files modified) against tonight's full diff.
+5 findings, all independently re-verified against the actual code before
+trusting them (not taken on faith) — every one held up. Fix order below is
+by severity: the P1 is a real bug, the P3s are efficiency/cleanliness.
+
+**[P1 — real correctness bug] Reconnecting to a repo can be silently
+swallowed while its semantic upgrade is still pending.**
+[demo/library.py:247](../demo/library.py) — `self._inflight.discard(repo)`
+only runs in the `finally` at the very end of the WHOLE two-stage
+`connect_sync` call, meaning `_inflight` holds a repo for the entire
+stage-1 + stage-2 duration, not just stage 1. Traced through the exact
+scenario and confirmed it's real: connect A (stage 1 lands fast, stage 2
+still embedding) → switch to B (fine, different repo) → reconnect A while
+A's original stage 2 is still running → the reconnect hits the single-flight
+guard (`already_indexing`) and returns immediately with **B's** status, not
+A's — and nothing ever restarts a real connect for A. A client polling for
+`repo=="A"` would wait forever; nothing will ever set `self._repo` back to
+A. **Fix direction (Sol's, sound):** release `_inflight` after stage 1
+completes (the repo IS genuinely usable at that point), and track the
+stage-2 background upgrade with its own separate bookkeeping so a fresh
+reconnect isn't blocked by an old upgrade still finishing.
+
+**[P2 — real gap, my own docstring overclaims] The 900s timeout can't
+actually interrupt a single stuck embedding call.**
+[evals/retriever.py:142](../evals/retriever.py) — the timeout check only
+runs *between* chunks, before starting the next one. If a single
+`provider.embed()` call itself stalls, the loop is blocked inside that call
+and the check never gets a chance to fire. In practice this is probably
+bounded (fastembed is local CPU inference, not network I/O, so a single
+call is unlikely to hang literally forever) but the docstring's claim
+("fails loudly instead of hanging forever") isn't a true guarantee as
+written. Either implement a real interrupting timeout (e.g. run the embed
+call on its own thread, `join(timeout)`) or correct the docstring to state
+the actual (softer) guarantee honestly.
+
+**[P3 — real, lower severity] The two-stage design rebuilds most of the
+pipeline twice.**
+[demo/library.py:221](../demo/library.py) — both stage 1 and stage 2 reload
+`chunks.jsonl` from disk, construct a fresh writer/provider, and rebuild the
+BM25 lexical index from scratch; stage 2 discards all of stage 1's work
+rather than reusing it. This is also what forces `fast=False` through
+`_default_build_pipeline`, `_default_build_private_pipeline`,
+`LibraryRegistry._build`, and every test double that constructs a `Library`.
+Cleaner direction: load chunks + build BM25 + construct the provider ONCE,
+publish stage 1 from that, and have stage 2 reuse the same objects rather
+than rebuilding them. Directly serves Alankrit's "make the codebase leaner"
+ask — a real simplification, not just a bug fix.
+
+**[P3 — real, my own mistake] Client poll-window comments are now stale.**
+[demo/index.html:237](../demo/index.html) and
+[ConnectModel.swift:108](../mac/Icarus/Sources/Icarus/ConnectModel.swift) —
+both were bumped to 900s with the comment "matches the server's own embed
+timeout," written *before* §3's two-stage fix existed, when that reasoning
+was correct (the server used to block until the full embed finished). After
+the two-stage fix, the server reports `"ready"` in seconds under normal
+operation — the 900s window now mostly protects against slow ingest or the
+P1 bug above, not "waiting for semantic embedding," which the comments
+still claim. Update the comments to reflect what's actually true post-fix;
+the 900s VALUE is probably still fine, the STATED REASONING is what's wrong.
+
+**[P3 — trivial, safe] Dead test code.**
+[evals/test_retriever.py:181](../evals/test_retriever.py) —
+`real_monotonic = time.monotonic` is assigned and never read. Removing it
+also makes the `import time` at the top of the file unused (confirmed —
+no other use of `time.` anywhere else in that file) — remove both together.
+
+---
+
+## 7. Open gaps — the real ones, not busywork
 
 **D5's actual goal has never been verified, at all, ever.** Select lines on
 a GitHub blob page → click "Ask Icarus" in the extension → a real cited
@@ -280,7 +357,10 @@ if this needs debugging again.
 early merge (`aecbda1`, explicitly flagged and approved by Alankrit at the
 time — "review once D5 fully passes"). D5 still hasn't fully passed (see
 above), so this review is still outstanding, and now covers a lot more
-surface (all of tonight's fixes too).
+surface (all of tonight's fixes too). §6's GPT-5.6 Sol review is a genuine
+first independent pass over TONIGHT's diff specifically (not Brick D's
+original merge) — real signal, worth keeping as a habit, but it doesn't
+retire this debt on its own.
 
 **Render CLI/API access was set up tonight** for live log diagnosis (device-
 auth login, `render whoami` confirms `Alankrit Ghosh`). The API key is
@@ -291,7 +371,7 @@ than assuming that file still exists.
 
 ---
 
-## 7. Carried forward unchanged from prior handoffs
+## 8. Carried forward unchanged from prior handoffs
 
 Still true, not re-verified tonight:
 - **Brick E** (richer "why" — commit-message/git-blame provenance): sketched
@@ -312,7 +392,7 @@ Still true, not re-verified tonight:
 
 ---
 
-## 8. Commands
+## 9. Commands
 
 ```bash
 cd "/Users/alankritghosh/JARVIS /jarvis_engineering"
