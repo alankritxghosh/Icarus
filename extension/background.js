@@ -19,7 +19,7 @@
 // content.js's direct fetches didn't. content.js now messages this worker
 // for every brain call instead of fetching directly.
 
-const BRAIN_URL = "https://icarus-brain.onrender.com"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Render deploy for D5 live testing
+const BRAIN_URL = "https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Azure Container Apps deploy
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message && message.action === "signIn") {
