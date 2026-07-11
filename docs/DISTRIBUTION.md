@@ -7,57 +7,108 @@ and share the app** (ad-hoc signed, past Gatekeeper by hand).
 This is a **controlled-demo posture**, not a hardened public service. Read the
 tradeoffs at the bottom before sharing widely.
 
+**Hosting history:** Render (free tier) was the original host; its 0.1 CPU
+free tier could never finish embedding a real repo (docs/HANDOFF.md), so the
+brain moved to **Azure Container Apps** on 2026-07-11/12. The Render service
+(`icarus-brain`, `srv-d94153cvikkc73ba8ckg`) is now **suspended**, not
+deleted — `render.yaml`/`Dockerfile` still work unchanged on Render if it's
+ever resumed, but it is not the live host.
+
 ---
 
-## Part 1 — Host the brain on Render (free tier)
+## Part 1 — Host the brain on Azure Container Apps (free tier)
 
 The brain is pure Python stdlib; the container adds `git` + `gh` only so the app's
 "connect any public repo" switch can ingest on the server. Files: `Dockerfile`,
-`render.yaml`, `.dockerignore` (repo root).
+`.dockerignore` (repo root). Needs the `az` CLI (`brew install azure-cli`) and an
+Azure account with billing enabled (a card on file, even to stay in the free
+consumption grant — same as every real-CPU cloud).
 
-### 1a. Put the source on GitHub
-Render deploys from a Git repo. From the repo root:
+### 1a. One-time account setup
 ```bash
-git init            # if not already a repo (this one already is)
-gh repo create icarus --private --source=. --remote=origin --push
+az login                                        # browser-based sign-in
+az provider register --namespace Microsoft.App
+az provider register --namespace Microsoft.OperationalInsights
+az provider register --namespace Microsoft.ContainerRegistry
+az group create --name icarus-rg --location centralindia   # pick a region near you
 ```
-`.env` is gitignored and the pre-commit hook blocks staged secrets, so no keys go
-up. Verify with `git status` before pushing that `.env` is untracked.
+`az containerapp` is a built-in command group in recent `az` versions — the
+`containerapp` extension install can fail on newer Python (a wheel-compat
+issue, not a real blocker); if it does, core `az containerapp` commands still
+work without it.
 
-### 1b. Create the Render service
-1. Render dashboard → **New → Blueprint** → pick the `icarus` repo. It reads
-   `render.yaml` and proposes one **free** web service, `icarus-brain`, Docker.
-2. Set the secret env vars (they are `sync: false`, so Render prompts for them):
-   - `GROQ_API_KEY`, `GEMINI_API_KEY` — the writer/judge keys.
-   - `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — your GitHub OAuth app.
-   - `GH_TOKEN` — a GitHub token so the container's `gh` can fetch PRs/issues when
-     a user switches repos. A fine-grained token with public-repo read is enough.
-   - `GEMINI_PAID_API_KEY` — a **billing-enabled** Gemini key; the private-repo
-     writer. Never satisfied by the free `GEMINI_API_KEY` (the trust interlock
-     only trusts this dedicated env var — see
-     `docs/plans/2026-07-04-private-repos-per-user-isolation.md`).
-   - `ICARUS_PUBLIC_URL` — **the service's own https URL**, e.g.
-     `https://icarus-brain.onrender.com`. You get this after the first deploy;
-     set it, then redeploy. It must match the OAuth callback in step 1c.
-   - (already in `render.yaml`, no action) `ICARUS_ALLOWED_HOSTS=*`,
-     `ICARUS_REQUIRE_GITHUB_AUTH=1`, and `ICARUS_STORAGE_ROOT` (per-user corpora;
-     Render's free-tier disk is ephemeral, so this is a cache, not durable storage).
-3. Deploy. Health check is `GET /health`.
+### 1b. Build locally and push (new subscriptions can't use ACR Tasks' remote build)
+A **brand-new** Azure subscription is blocked from ACR Tasks (`TasksOperationsNotAllowed`,
+a real, documented restriction on new accounts) — build with local Docker instead:
+```bash
+az containerapp up --name icarus-brain --resource-group icarus-rg \
+  --location centralindia --source . --ingress external --target-port 8000 \
+  --env-vars 'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1'
+# ^ this WILL fail at the ACR Tasks build step on a new subscription -- it still
+#   creates the registry + environment first, which is what you need. Then:
 
-### 1c. Point the GitHub OAuth app at the hosted callback
-In GitHub → Settings → Developer settings → OAuth Apps → your app, set the
-**Authorization callback URL** to:
+ACR=<the acr name printed above, e.g. caec8849f1f0acr>
+az acr credential show --name "$ACR" --query "passwords[0].value" -o tsv \
+  | docker login "$ACR.azurecr.io" --username "$ACR" --password-stdin
+docker build --platform linux/amd64 -t "$ACR.azurecr.io/icarus-brain:latest" .
+docker push "$ACR.azurecr.io/icarus-brain:latest"
+
+az containerapp create --name icarus-brain --resource-group icarus-rg \
+  --environment icarus-brain-env --image "$ACR.azurecr.io/icarus-brain:latest" \
+  --registry-server "$ACR.azurecr.io" --registry-username "$ACR" \
+  --registry-password "$(az acr credential show --name $ACR --query 'passwords[0].value' -o tsv)" \
+  --ingress external --target-port 8000 --min-replicas 0 --max-replicas 3 \
+  --cpu 1.0 --memory 2.0Gi \
+  --env-vars 'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1'
 ```
-https://icarus-brain.onrender.com/auth/github/callback
+`--platform linux/amd64` matters on an Apple Silicon Mac — Azure's default node
+pool is x86.
+
+**`ICARUS_SYNC_CONNECT=1` is required on Azure/Cloud Run-style platforms.**
+Request-scoped-CPU hosts only reliably give a container CPU while a request is
+being processed — a background thread's embed work after the response returns
+isn't guaranteed resourced. This flag makes `/connect` block on the real embed
+and return its final status directly (200, not 202) instead of backgrounding
+it. See `demo/server.py`'s `sync_connect` docstring. Verified live: a genuine
+cold embed of a 219-chunk private repo completed in **1.2s** on Azure's CPU
+(vs never-finishing on Render's 0.1 CPU) — confirmed as real semantic
+retrieval, not a lexical fallback, via a conceptual query with zero keyword
+overlap returning the correct evidence.
+
+### 1c. Wire secrets + GitHub OAuth
+```bash
+az containerapp secret set --name icarus-brain --resource-group icarus-rg --secrets \
+  groq-key="$GROQ_API_KEY" gemini-key="$GEMINI_API_KEY" \
+  gemini-paid-key="$GEMINI_PAID_API_KEY" gh-token="$(gh auth token)" \
+  github-client-secret="$GITHUB_CLIENT_SECRET"
+
+FQDN=$(az containerapp show --name icarus-brain --resource-group icarus-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+
+az containerapp update --name icarus-brain --resource-group icarus-rg --set-env-vars \
+  'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1' 'ICARUS_REQUIRE_GITHUB_AUTH=1' \
+  "ICARUS_PUBLIC_URL=https://$FQDN" \
+  "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" 'GITHUB_CLIENT_SECRET=secretref:github-client-secret' \
+  'GROQ_API_KEY=secretref:groq-key' 'GEMINI_API_KEY=secretref:gemini-key' \
+  'GEMINI_PAID_API_KEY=secretref:gemini-paid-key' 'GH_TOKEN=secretref:gh-token'
 ```
-(Use your real Render URL.) This must equal `ICARUS_PUBLIC_URL` + `/auth/github/callback`.
+Then in GitHub → Settings → Developer settings → OAuth Apps → your app, set the
+**Authorization callback URL** to `https://$FQDN/auth/github/callback` — an
+OAuth **App** (not a GitHub **App**) allows exactly **one** registered
+callback, so this *replaces* whatever was there (e.g. Render's), it doesn't
+add alongside it.
+
+**Azure has no automatic spend cap** (unlike some other clouds' softer
+guardrails) — set a budget alert in Cost Management immediately after account
+setup.
 
 ### 1d. Verify the brain is live
 ```bash
-curl https://icarus-brain.onrender.com/health
+curl "https://$FQDN/health"
 # {"ok": true, "repo": "simonw/llm", "commit": "..."}
 ```
-The first request after ~15 min idle wakes the free instance (~30–60s) — expected.
+Boots warm immediately (the fastembed model + default corpus's embeddings are
+baked into the image at build time, same as every host) — no cold-embed wait.
 
 ---
 
@@ -66,7 +117,7 @@ The first request after ~15 min idle wakes the free instance (~30–60s) — exp
 ### 2a. Build the DMG, stamped with your brain URL
 ```bash
 cd mac/Icarus
-ICARUS_BRAIN_URL=https://icarus-brain.onrender.com ./scripts/package_dmg.sh
+ICARUS_BRAIN_URL="https://$FQDN" ./scripts/package_dmg.sh
 # -> mac/Icarus/Icarus.dmg
 ```
 The script does a release build, ad-hoc signs, stamps `ICARUS_BRAIN_URL` into the
@@ -106,7 +157,9 @@ server-side token migration; this is a real, user-visible one-time step.
 - **No rate-limiting.** The stdlib server has none. This is safe only because
   `/ask` and `/connect` require a real GitHub identity (`ICARUS_REQUIRE_GITHUB_AUTH`),
   which is your throttle/ban lever. Don't hand the URL to the open internet.
-- **Free instance sleeps** after ~15 min idle → a slow first request.
+- **Scales to zero after ~5 min idle** (`min-replicas 0`, Azure's consumption-plan
+  cooldown) → a slower first request after idle (cold start), not a 15-minute
+  Render-style sleep, but the same class of tradeoff.
 - **Repo-switching ingests on your server** on the user's input. Prompt-injection
   via ingested content is disclosed in `docs/EVALUATION.md`; the honesty gate
   proves provenance, not faithfulness. Prefer vetted repos for demos.
@@ -116,5 +169,5 @@ server-side token migration; this is a real, user-visible one-time step.
 
 ## Rotate the keys
 The Groq/Gemini keys and the GitHub client secret were exposed in an earlier chat
-transcript (see `docs/HANDOFF.md` §6). Rotate them when you set the Render env vars
-— same sitting.
+transcript (see `docs/HANDOFF.md` §6). Rotate them when you set the Azure
+Container App's secrets — same sitting.

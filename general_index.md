@@ -23,13 +23,20 @@ removing, or renaming files). For class/function-level detail see
   offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
   imported, so everything else runs pure-stdlib without it. Install into a venv.
 
-## Cloud deployment (host the brain on Render)
+## Cloud deployment (host the brain on Azure Container Apps)
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
-  repo-switch ingest), runs `python -m demo.server`; binds `0.0.0.0`/`$PORT`.
-- `render.yaml` — Render Blueprint: one free Docker web service, `/health` check,
-  `ICARUS_ALLOWED_HOSTS=*` + `ICARUS_REQUIRE_GITHUB_AUTH=1`, `ICARUS_STORAGE_ROOT`
-  (per-user corpora on Render's ephemeral disk), secrets (incl. the private-repo
-  writer's `GEMINI_PAID_API_KEY`) as `sync:false`.
+  repo-switch ingest), non-root UID 1000 (required by some hosts, harmless on
+  others), `RUN python -m demo.warm_cache` bakes the fastembed model + default
+  corpus's embeddings in at build time (boots warm on any host), runs
+  `python -m demo.server`; binds `0.0.0.0`/`$PORT`. Same image runs on Azure
+  Container Apps (live), a local Docker daemon, or Render (retired, suspended).
+- `render.yaml` — the **original** host's Blueprint (Render, free Docker web
+  service). **Retired 2026-07-11/12**: Render's free tier is a genuine 0.1 CPU,
+  confirmed live to never finish embedding a real repo even inside a 15-minute
+  bound (docs/HANDOFF.md) — the brain moved to Azure Container Apps. The
+  service itself is suspended (not deleted) on Render; this file is kept as a
+  working, reversible fallback config, not the live deployment. See
+  `docs/DISTRIBUTION.md` for the current (Azure) hosting runbook.
 - `.dockerignore` — keeps the image slim (only `evals/`+`demo/`+committed corpus;
   excludes `mac/`, `.git`, caches, `.env`).
 

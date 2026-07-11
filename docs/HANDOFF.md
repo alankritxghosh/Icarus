@@ -1,3 +1,78 @@
+# Icarus — Session Handoff (2026-07-11/12, later: Azure migration, live)
+
+**READ THIS BLOCK FIRST — Icarus is now hosted on Azure Container Apps, live,
+proven end to end. Render is suspended. Everything below (including the
+2026-07-10 block after this one) is accurate history, superseded on hosting.**
+
+## Z. Azure Container Apps is the live host — real OAuth, real distributable
+
+**What changed:** the local-then-Oracle plan from the section below never
+happened — Google's billing kept failing (autopay issue on his account), so
+the session pivoted live to Azure Container Apps instead. Full migration
+completed, verified, and shipped in one sitting:
+
+- **Deployed:** `icarus-brain` on Azure Container Apps, Central India region
+  (`icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io`).
+  `az containerapp up --source .`'s remote build (ACR Tasks) is blocked on
+  brand-new subscriptions (`TasksOperationsNotAllowed`, a real, confirmed
+  restriction) — built locally with Docker and pushed instead. Full runbook
+  now in `docs/DISTRIBUTION.md`.
+- **`ICARUS_SYNC_CONNECT=1`** (new, `demo/server.py` + `demo/test_server.py`,
+  commit `8c991a4`): request-scoped-CPU hosts (Cloud Run, Azure Container
+  Apps) only reliably give a container CPU while a request is being
+  processed — the old always-background `/connect` would have silently
+  stranded the semantic upgrade here exactly like Render's 0.1 CPU did, for a
+  different reason. `connect_sync()` itself is UNCHANGED; the flag only
+  changes whether `/connect` blocks on it and returns the real final status
+  (200) instead of backgrounding it (202). Verified live: a genuine cold
+  embed of a 219-chunk private repo took **1.2s** on Azure (vs never-finishing
+  on Render) — confirmed as real semantic retrieval via a conceptual query
+  with zero keyword overlap, not a lexical fallback.
+- **Real GitHub OAuth sign-in proven live**, through both the web demo and
+  the rebuilt Mac app — a real browser/system authorization, no bypass. The
+  Mac app's earlier `ICARUS_DEV_GH_TOKEN` local-test bypass (from the
+  previous local-brain session) is now **fully removed** — `AppDelegate.swift`
+  is byte-identical to before that bypass ever existed.
+- **A real, undocumented question correctly triggered honest abstention**
+  live: "why did we move to Azure instead of Render?" → "No one wrote this
+  down" — proof the honesty gate holds even on a topic the repo has lots of
+  *related* context for (HF migration docs, render.yaml) but no actual
+  recorded answer to, since tonight's decision was only ever discussed in
+  chat. This HANDOFF entry is what closes that gap for next time.
+- **Cold-start retry fix** (`mac/Icarus/Sources/IcarusKit/BrainClient.swift`,
+  commit `294f90d`): live-caught TWICE — a scaled-to-zero container's first
+  request after idle transiently failed, then the identical next attempt
+  succeeded with zero code involved. The tempting fix (`min-replicas=1`,
+  always-warm) was priced against Azure's own pricing first: idle billing at
+  this app's size is **~$24/month** ($19.30 vCPU + $4.82 memory after the
+  free grant), which quietly ends the free-hosting premise the whole
+  migration was for. Went with a bounded client-side retry instead (one
+  retry after a short delay, transport-level failures only, never a real
+  4xx/5xx) — costs nothing, absorbs the identical blip. Retry delay is
+  injectable so tests prove it without a real multi-second sleep.
+- **Render suspended, not deleted** (`srv-d94153cvikkc73ba8ckg`, via the
+  Render API — the CLI's workspace picker is interactive-only and doesn't
+  work in a non-TTY context, so used `~/.render/cli.yaml`'s cached API key
+  directly). Confirmed via `/health` returning 503. Fully reversible — Render
+  supports resuming a suspended service. `render.yaml`/`Dockerfile` are
+  untouched and still work unchanged if it's ever resumed.
+- **A real distributable `Icarus.dmg` built** (`ICARUS_BRAIN_URL=<azure-url>
+  scripts/package_dmg.sh`), stamped with the live Azure URL, ad-hoc signed —
+  not just a locally-stamped test build.
+- **Extension re-pointed** (commit `86ab2a0`): the last 2 `onrender.com`
+  references (`background.js`'s `BRAIN_URL`, `manifest.json`'s
+  `host_permissions`) swapped to the Azure URL — `content.js` no longer holds
+  its own `BRAIN_URL` at all after the earlier CORS-routing fix this session.
+
+**Open for next session:** the GitHub OAuth App's callback now points at
+Azure (moved by Alankrit directly, per the single-callback constraint) —
+if Render is ever resumed, that callback would need to move back or a
+second OAuth App would be needed. Azure Container Apps' `min-replicas=0`
+means occasional cold-start delays are expected and by design (the retry
+absorbs them) — not a bug if seen again.
+
+---
+
 # Icarus — Session Handoff (2026-07-10, later: local brain + stress tests)
 
 **READ THIS BLOCK FIRST — it supersedes §5 below ("HF Spaces migration is #1").**
