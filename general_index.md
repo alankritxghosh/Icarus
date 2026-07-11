@@ -360,7 +360,12 @@ removing, or renaming files). For class/function-level detail see
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
   `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/auth/github/callback`;
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
-  caller's token before any private clone),`/disconnect`,`/auth/github/begin`
+  caller's token before any private clone; `sync_connect`/`ICARUS_SYNC_CONNECT`
+  makes it block on `connect_sync` and return its final status directly instead
+  of backgrounding it and returning 202 -- needed on request-scoped-CPU hosts
+  like Cloud Run/Azure Container Apps, where a background thread's embed work
+  after the response returns isn't reliably resourced; `connect_sync` itself is
+  unchanged, this only changes who waits for it),`/disconnect`,`/auth/github/begin`
   (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
   `icarus://`, Brick D's `extension` → the caller-supplied, validated
   `redirect_target`; a bad/missing `redirect_target` for `extension` mode is a

@@ -58,6 +58,7 @@ class _StubLibrary:
     def connect_sync(self, repo, token=None, private=False):
         self.connected.append(repo)
         self.connect_calls.append((repo, token, private))
+        return self.status_snapshot()  # mirrors the real Library.connect_sync's return
 
 
 def _post(url, obj):
@@ -996,6 +997,79 @@ class RegistryWarmupHttpTests(unittest.TestCase):
             with urllib.request.urlopen(fx.base + "/health", timeout=3) as resp:
                 body = json.loads(resp.read())
                 self.assertEqual(body["repo"], REPO)
+        finally:
+            fx.close()
+
+
+class SyncConnectTests(unittest.TestCase):
+    """sync_connect=True (ICARUS_SYNC_CONNECT): /connect blocks on the real
+    connect_sync() and returns its final status, instead of backgrounding it
+    and returning 202 immediately. Needed on request-scoped-CPU platforms
+    (Cloud Run, Azure Container Apps) where a background thread's embed work
+    after the response returns isn't reliably resourced."""
+
+    def test_sync_connect_returns_final_status_not_202(self):
+        lib = _StubLibrary()
+        fx = _ServerFixture(lib, sync_connect=True)
+        try:
+            status, payload = _post(fx.base + "/connect", {"repo": "octocat/hello"})
+            self.assertEqual(status, 200)  # not 202 -- this IS the final status
+            self.assertEqual(payload["state"], "ready")
+            self.assertEqual(payload["repo"], REPO)
+            # No polling needed: by the time the response arrived, connect_sync
+            # already ran to completion on the request's own thread.
+            self.assertIn("octocat/hello", lib.connected)
+        finally:
+            fx.close()
+
+    def test_sync_connect_actually_blocks_on_a_slow_connect(self):
+        # Proves the request genuinely WAITS for connect_sync, not that it just
+        # happens to be fast in this test -- same Event-gated idiom as
+        # ConcurrencyTests' _SlowLibrary above.
+        import time
+        release = threading.Event()
+
+        class _SlowLibrary(_StubLibrary):
+            def connect_sync(self, repo, token=None, private=False):
+                release.wait(timeout=5)
+                return super().connect_sync(repo, token=token, private=private)
+
+        lib = _SlowLibrary()
+        fx = _ServerFixture(lib, sync_connect=True)
+        try:
+            result = {}
+
+            def do_connect():
+                result["status"], result["payload"] = _post(
+                    fx.base + "/connect", {"repo": "octocat/hello"})
+
+            t = threading.Thread(target=do_connect, daemon=True)
+            t.start()
+            time.sleep(0.2)
+            # Still blocked -- connect_sync hasn't been released yet.
+            self.assertNotIn("octocat/hello", lib.connected)
+            release.set()
+            t.join(timeout=5)
+            self.assertEqual(result["status"], 200)
+            self.assertIn("octocat/hello", lib.connected)
+        finally:
+            fx.close()
+
+    def test_background_mode_unaffected_by_default(self):
+        # sync_connect's default (False) must reproduce today's behavior
+        # exactly: 202 immediately, connect_sync finishes on its own thread.
+        import time
+        lib = _StubLibrary()
+        fx = _ServerFixture(lib)  # no sync_connect kwarg -- default
+        try:
+            status, payload = _post(fx.base + "/connect", {"repo": "octocat/hello"})
+            self.assertEqual(status, 202)
+            self.assertEqual(payload["state"], "indexing")
+            for _ in range(50):
+                if "octocat/hello" in lib.connected:
+                    break
+                time.sleep(0.02)
+            self.assertIn("octocat/hello", lib.connected)
         finally:
             fx.close()
 

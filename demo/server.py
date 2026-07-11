@@ -113,7 +113,8 @@ def _resolve_storage_root(raw, default):
 
 
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
-                 oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None):
+                 oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
+                 sync_connect: bool = False):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -129,6 +130,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     (/ask) or spawn a clone/ingest (/connect); defaults are generous real-world
     limits so they never fire in normal use or in tests that make a handful of
     requests.
+
+    `sync_connect` changes how /connect is served -- see its use below. Default
+    (False) matches every host tried before it: a real VM/box (local, Oracle)
+    where a background thread just keeps running after the response returns.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
@@ -370,11 +375,29 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # a real blind spot found live tonight: no way to tell "never
                 # arrived" from "still ingesting" from "still embedding".
                 # Never logs the token.
-                print(f"connect received: repo={repo!r} private={private}", file=sys.stderr)
-                threading.Thread(target=lib.connect_sync, args=(repo,),
-                                 kwargs={"token": token if private else None, "private": private},
-                                 daemon=True).start()
-                self._send_json(202, {"state": "indexing", "repo": repo})
+                print(f"connect received: repo={repo!r} private={private} "
+                      f"({'sync' if sync_connect else 'background'})", file=sys.stderr)
+                if sync_connect:
+                    # Serverless request-scoped-CPU platforms (Cloud Run, Azure
+                    # Container Apps) only reliably give a container CPU WHILE a
+                    # request is being processed -- a background thread's embed
+                    # work after the response returns is not guaranteed resourced
+                    # (it can be throttled, or the instance frozen/scaled down).
+                    # connect_sync() ALREADY runs both stages sequentially when
+                    # called directly (it's the same function used everywhere
+                    # else) -- the only difference here is blocking the request
+                    # on it instead of backgrounding it, so the platform's
+                    # request-scoped CPU guarantee covers the whole embed. A real
+                    # repo takes ~30s on real CPU (measured), well inside a
+                    # generously configured request timeout on either platform.
+                    result = lib.connect_sync(
+                        repo, token=(token if private else None), private=private)
+                    self._send_json(200, result)
+                else:
+                    threading.Thread(target=lib.connect_sync, args=(repo,),
+                                     kwargs={"token": token if private else None, "private": private},
+                                     daemon=True).start()
+                    self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
 
@@ -459,8 +482,10 @@ def serve(host: str = None, port: int = None):
     cid, secret = os.environ.get("GITHUB_CLIENT_ID"), os.environ.get("GITHUB_CLIENT_SECRET")
     if cid and secret:
         oauth = github_oauth.OAuthFlow(cid, secret, f"{callback_base}/auth/github/callback")
+    sync_connect = bool(os.environ.get("ICARUS_SYNC_CONNECT"))
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
-                           verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts)
+                           verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
+                           sync_connect=sync_connect)
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"
@@ -470,8 +495,9 @@ def serve(host: str = None, port: int = None):
         host_note = "loopback only"
     auth_note = "GitHub bearer required" if require_auth else "open (loopback only)"
     login_note = "web login on" if oauth else "web login off (set GITHUB_CLIENT_ID/SECRET)"
+    connect_note = "sync connect (ICARUS_SYNC_CONNECT)" if sync_connect else "background connect"
     print(f"Icarus demo on http://{host}:{port}  (corpus: {default_repo} @ {commit[:12]}; "
-          f"{host_note}; auth: {auth_note}; {login_note})")
+          f"{host_note}; auth: {auth_note}; {login_note}; {connect_note})")
     print("Type any public owner/repo in the app to switch. Ctrl-C to stop.")
     try:
         httpd.serve_forever()
