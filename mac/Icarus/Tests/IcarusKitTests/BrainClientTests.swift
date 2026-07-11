@@ -87,4 +87,64 @@ final class BrainClientTests: XCTestCase {
         let auth = _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization")
         XCTAssertNil(auth)
     }
+
+    // MARK: - Cold-start retry
+    // A request-scoped-CPU host (Cloud Run, Azure Container Apps) can transiently
+    // fail its FIRST request after scaling to zero, then succeed cleanly moments
+    // later with zero code involved -- live-observed on Azure tonight. BrainClient
+    // absorbs exactly this shape with one bounded retry, rather than the app
+    // surfacing a scary error on a blip that resolves itself.
+
+    func testStatusRetriesOnceAfterATransientFailureAndSucceeds() async throws {
+        _FlakyProtocol.attempts = 0
+        _FlakyProtocol.failuresRemaining = 1
+        _FlakyProtocol.body = Data(#"{"state":"ready","repo":"o/r","commit":"c","counts":null,"error":null,"private":false}"#.utf8)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [_FlakyProtocol.self]
+        let client = BrainClient(session: URLSession(configuration: config), retryDelay: .milliseconds(1))
+        let status = try await client.status()  // must NOT throw -- the retry absorbs the blip
+        XCTAssertEqual(status.repo, "o/r")
+        XCTAssertEqual(_FlakyProtocol.attempts, 2)  // one failure, one retry
+    }
+
+    func testStatusRetryIsBoundedNotInfiniteOnAPersistentFailure() async throws {
+        _FlakyProtocol.attempts = 0
+        _FlakyProtocol.failuresRemaining = 99  // never recovers
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [_FlakyProtocol.self]
+        let client = BrainClient(session: URLSession(configuration: config), retryDelay: .milliseconds(1))
+        do {
+            _ = try await client.status()
+            XCTFail("expected the persistent failure to still surface after one retry")
+        } catch {
+            XCTAssertEqual(_FlakyProtocol.attempts, 2)  // exactly one retry, not a retry loop
+        }
+    }
+}
+
+/// Fails the first `failuresRemaining` loads with a transport-level error (no
+/// HTTPURLResponse at all -- matching a genuine "can't reach the host" blip,
+/// not a real 4xx/5xx), then succeeds. Counts every attempt made.
+final class _FlakyProtocol: URLProtocol {
+    nonisolated(unsafe) static var failuresRemaining = 0
+    nonisolated(unsafe) static var attempts = 0
+    nonisolated(unsafe) static var body = Data("{}".utf8)
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.attempts += 1
+        if Self.failuresRemaining > 0 {
+            Self.failuresRemaining -= 1
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
+            return
+        }
+        let resp = HTTPURLResponse(url: request.url!, statusCode: 200,
+                                   httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

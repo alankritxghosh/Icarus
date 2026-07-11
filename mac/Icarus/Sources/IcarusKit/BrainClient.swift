@@ -11,19 +11,44 @@ public struct BrainClient: Sendable {
     private let token: @Sendable () -> String?
     /// Injectable so tests can capture the outgoing request via a URLProtocol stub.
     private let session: URLSession
+    /// Delay before the one cold-start retry (see `dataWithRetry`). Injectable so
+    /// tests prove the retry happens without a real multi-second sleep.
+    private let retryDelay: Duration
 
     public init(base: URL = URL(string: "http://127.0.0.1:8000")!,
                 token: @Sendable @escaping () -> String? = { nil },
-                session: URLSession = .shared) {
+                session: URLSession = .shared,
+                retryDelay: Duration = .seconds(3)) {
         self.base = base
         self.token = token
         self.session = session
+        self.retryDelay = retryDelay
     }
 
     /// Attach `Authorization: Bearer <token>` when a token is available.
     private func authorize(_ request: inout URLRequest) {
         if let t = token(), !t.isEmpty {
             request.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
+        }
+    }
+
+    /// Retries the transport call ONCE after a short delay if it throws --
+    /// absorbs a cloud host's cold-start hiccup rather than surfacing a scary
+    /// error on a blip that resolves itself moments later. Live-observed on
+    /// Azure Container Apps' min-replicas=0 consumption plan: a scaled-to-zero
+    /// container's first request after idle can transiently fail while the
+    /// platform spins up a replica, then succeed cleanly on the very next
+    /// attempt with zero code involved -- exactly the shape a brief retry
+    /// fixes for free, instead of paying to keep a replica always warm
+    /// (~$24/mo at this app's size, verified against Azure's own pricing).
+    /// Does NOT retry a real HTTP response (4xx/5xx) -- only a transport-level
+    /// throw (unreachable / timed out), since a definitive answer isn't a blip.
+    private func dataWithRetry(for request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch {
+            try await Task.sleep(for: retryDelay)
+            return try await session.data(for: request)
         }
     }
 
@@ -35,7 +60,7 @@ public struct BrainClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["question": question])
         authorize(&request)
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -50,7 +75,7 @@ public struct BrainClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["repo": repo])
         authorize(&request)
-        let (_, response) = try await session.data(for: request)
+        let (_, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
@@ -66,7 +91,7 @@ public struct BrainClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
         authorize(&request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -80,7 +105,7 @@ public struct BrainClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -96,7 +121,7 @@ public struct BrainClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["session": sessionID])
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -112,7 +137,7 @@ public struct BrainClient: Sendable {
     public func status() async throws -> RepoStatus {
         var request = URLRequest(url: base.appending(path: "status"))
         authorize(&request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await dataWithRetry(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
