@@ -28,10 +28,37 @@ Four axes, all in scope, not just one:
 3. **Repo diversity — deliberately at both extremes:**
    - Public repos with **zero documentation AND 1M+ lines of code** — combines
      the hardest case from tonight (no docs) with a scale tonight never tested
-     (max was ~220 chunks; this is orders of magnitude larger). **Real open
-     question, not yet answered:** does `ICARUS_SYNC_CONNECT`'s blocking
-     `/connect` even survive a repo that large before Azure's own request
-     timeout hits? This needs to be checked live, not assumed either way.
+     (max was ~220 chunks; this is orders of magnitude larger).
+     **CONFIRMED hard ceiling, not just a risk (Alankrit flagged, verified
+     against Microsoft's own docs — Envoy's own timeout doc + azureossd
+     troubleshooting guide):** Azure Container Apps' default (non-Premium)
+     ingress enforces a **240-second, non-configurable Envoy proxy timeout**
+     on every HTTP request. `ICARUS_SYNC_CONNECT`'s blocking `/connect` WILL be
+     killed by the platform itself past 240s, regardless of anything our
+     app code does — this is enforced upstream of the container. Extrapolating
+     tonight's real numbers (219 chunks ≈ 24-27s), the ceiling is roughly
+     ~1,900-2,000 chunks before a sync connect can never succeed on this
+     ingress tier — a real, likely-to-be-hit wall for a 1M+ LOC repo, not a
+     hypothetical. **Known remedies, none implemented yet, needs a decision
+     next session once the actual failure is confirmed live:**
+     (a) **Premium ingress mode** — a paid workload-profile tier that allows a
+     configurable idle timeout, bypassing the 240s ceiling directly. Simplest
+     fix, but a real cost/infra change beyond Consumption plan.
+     (b) **Revert to a background (non-blocking) `/connect`** for repos likely
+     to be large — this reintroduces the original concern `ICARUS_SYNC_CONNECT`
+     was built to solve (request-scoped CPU not reliably resourcing a
+     background thread), BUT that concern was specifically about *scale-to-
+     zero* Consumption billing; now that `min-replicas=1` keeps a replica
+     permanently running (§Z below), it's a genuinely open question whether a
+     background thread on an always-on replica behaves like a normal
+     always-on process (no CPU starvation) or still gets throttled between
+     requests regardless of replica lifetime. **Not yet tested either way —
+     a real live test, not an assumption, is exactly what next session's
+     large-repo testing should answer.**
+     (c) **A real queue-based worker** (Azure Queue Storage/Service Bus +
+     a separate ingest worker) — the architecturally "correct" cloud-native
+     fix Alankrit's own research pointed at, but a genuinely bigger build
+     (new infra, new code), not a config tweak.
    - **Heavily documented** codebases — the opposite extreme.
    - **Across languages, not just Python.** Correcting a stale claim: the
      repo-switch ingest (`evals/ingest.py`'s `_EXTENSION_SOURCES`) already
