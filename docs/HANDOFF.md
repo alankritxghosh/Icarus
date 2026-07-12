@@ -1,8 +1,59 @@
 # Icarus — Session Handoff (2026-07-11/12, later: Azure migration, live)
 
-**READ THIS BLOCK FIRST — Icarus is now hosted on Azure Container Apps, live,
-proven end to end. Render is suspended. Everything below (including the
-2026-07-10 block after this one) is accurate history, superseded on hosting.**
+**READ THIS FIRST — next session's #1 priority is EXTENSIVE TESTING, per
+Alankrit's explicit expectation, not new hosting/infra work.** Icarus is
+hosted, live, working (§Z below). The brain and app are stable enough now
+that the highest-value next step is proving (or breaking) product quality
+across a much wider surface than tonight's small samples ever touched.
+
+## Y. Next session's mandate: extensive testing (Alankrit's explicit ask)
+
+Four axes, all in scope, not just one:
+
+1. **Language robustness, systematically, not just a handful of examples.**
+   Tonight proved (small sample, `evals/gate.py` + `fmeyer/pydsl`) that broken
+   grammar/slang/typos/missing words all still land grounded answers on the
+   paid-writer tier. Alankrit wants this run **extensively** — many more
+   questions, more repos, more mangling styles ("horrid framing" specifically
+   named) — to find the actual failure boundary, not just confirm it mostly
+   works.
+2. **Deliberately split questions by what they require to answer:**
+   - Questions answerable from **documentation already in the repo** (README,
+     docs/, comments) — the "easy" case.
+   - Questions that require **actual line-by-line code comprehension** with
+     **no** documentation to lean on — the real test of whether Icarus reads
+     code or just retrieves docs. Tonight's `fmeyer/pydsl` test (0 docs, 4
+     chunks) is the *prototype* for this, not the finished version — needs
+     repeating at real scale (see next point).
+3. **Repo diversity — deliberately at both extremes:**
+   - Public repos with **zero documentation AND 1M+ lines of code** — combines
+     the hardest case from tonight (no docs) with a scale tonight never tested
+     (max was ~220 chunks; this is orders of magnitude larger). **Real open
+     question, not yet answered:** does `ICARUS_SYNC_CONNECT`'s blocking
+     `/connect` even survive a repo that large before Azure's own request
+     timeout hits? This needs to be checked live, not assumed either way.
+   - **Heavily documented** codebases — the opposite extreme.
+   - **Across languages, not just Python.** Correcting a stale claim: the
+     repo-switch ingest (`evals/ingest.py`'s `_EXTENSION_SOURCES`) already
+     supports Python, JS, TS/TSX, Go, Rust, Java, Ruby, C/C++, Swift, Kotlin,
+     PHP, C#, Scala, and Shell — NOT Python-only as `general_index.md`
+     previously stated (that line described the frozen `simonw/llm` benchmark
+     corpus specifically, not the general capability). So multi-language
+     testing is technically unblocked already — go ahead and use it.
+
+**What "done" looks like:** a real map of where Icarus's honesty/quality
+holds and where it breaks — not just more confirmations that it works on
+easy cases. If something breaks (a bad framing that causes a bluff, a huge
+repo that times out, a language the chunker mishandles), that's the valuable
+finding, not a failure of the testing.
+
+---
+
+**Below this: Azure migration context, still accurate, but secondary to §Y
+above for what to do first.** Icarus is now hosted on Azure Container Apps,
+live, proven end to end. Render is suspended. Everything below (including
+the 2026-07-10 block further down) is accurate history, superseded on
+hosting.
 
 ## Z. Azure Container Apps is the live host — real OAuth, real distributable
 

@@ -138,11 +138,14 @@ removing, or renaming files). For class/function-level detail see
   GitHub line selection? Handles both a windowed `#Lstart-Lend` ref and a
   whole-file ref with no suffix -- the committed corpus's actual shape).
 - `evals/ingest.py` — corpus generator from a public **or private** repo (PRs,
-  linked issues, Python source) → `chunks.jsonl` + `meta.json`. Subprocess
-  timeouts, per-file/total size caps, a `code_dir` path-traversal guard, and an
-  optional caller `token` threaded leak-safe into `git`/`gh` subprocess **env**
-  (`_git_env`/`_gh_env` — never argv, never the clone URL, never logged). Needs
-  `gh` + `git`.
+  linked issues, source code) → `chunks.jsonl` + `meta.json`. Code chunking is
+  NOT Python-only — `_EXTENSION_SOURCES` maps Python, JS, TS/TSX, Go, Rust,
+  Java, Ruby, C/C++, Swift, Kotlin, PHP, C#, Scala, and Shell to "code"
+  (`.md`/`.rst`/`.txt` → "doc", `.yaml`/`.yml`/`.toml`/`.cfg`/`.ini`/`.sql` →
+  "config"). Subprocess timeouts, per-file/total size caps, a `code_dir`
+  path-traversal guard, and an optional caller `token` threaded leak-safe into
+  `git`/`gh` subprocess **env** (`_git_env`/`_gh_env` — never argv, never the
+  clone URL, never logged). Needs `gh` + `git`.
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links.
 - `evals/retriever.py` — `LexicalRetriever` (stdlib BM25 keyword retriever) plus
