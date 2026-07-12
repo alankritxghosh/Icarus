@@ -57,12 +57,26 @@ az containerapp create --name icarus-brain --resource-group icarus-rg \
   --environment icarus-brain-env --image "$ACR.azurecr.io/icarus-brain:latest" \
   --registry-server "$ACR.azurecr.io" --registry-username "$ACR" \
   --registry-password "$(az acr credential show --name $ACR --query 'passwords[0].value' -o tsv)" \
-  --ingress external --target-port 8000 --min-replicas 0 --max-replicas 3 \
+  --ingress external --target-port 8000 --min-replicas 1 --max-replicas 3 \
   --cpu 1.0 --memory 2.0Gi \
   --env-vars 'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1'
 ```
 `--platform linux/amd64` matters on an Apple Silicon Mac — Azure's default node
 pool is x86.
+
+**`--min-replicas 1`, not `0`, is a deliberate decision — do not "optimize" this
+back to 0.** `0` was tried first (genuinely free) but live-verified to cause a
+real ~24-second cold start on the first request after ~5 min idle (measured via
+`az containerapp replica list` showing zero replicas, then timing a request:
+24.15s). A client-side retry (`BrainClient.swift`) was shipped to absorb a
+*transient* blip, but 24s is far longer than that retry's delay ever covers —
+so real users hit hard "can't reach Icarus's brain" failures. `min-replicas 1`
+costs real money (~$24/month once the free grant is used — see below) but
+eliminates the cold start entirely, which matters once real people are testing
+the app. Covered for now by Azure's $200/30-day free-account credit; that
+credit expires 2026-08-10 regardless of remaining balance and the subscription
+gets **disabled** at that point unless upgraded to Pay-As-You-Go first — a
+real deadline, not urgent yet, but don't let it lapse silently.
 
 **`ICARUS_SYNC_CONNECT=1` is required on Azure/Cloud Run-style platforms.**
 Request-scoped-CPU hosts only reliably give a container CPU while a request is
@@ -157,9 +171,9 @@ server-side token migration; this is a real, user-visible one-time step.
 - **No rate-limiting.** The stdlib server has none. This is safe only because
   `/ask` and `/connect` require a real GitHub identity (`ICARUS_REQUIRE_GITHUB_AUTH`),
   which is your throttle/ban lever. Don't hand the URL to the open internet.
-- **Scales to zero after ~5 min idle** (`min-replicas 0`, Azure's consumption-plan
-  cooldown) → a slower first request after idle (cold start), not a 15-minute
-  Render-style sleep, but the same class of tradeoff.
+- **Always warm, not free.** `min-replicas 1` keeps a replica running always
+  (no cold start), at ~$24/month once the free grant is used up — see the
+  note above. Covered by the $200/30-day account credit for now.
 - **Repo-switching ingests on your server** on the user's input. Prompt-injection
   via ingested content is disclosed in `docs/EVALUATION.md`; the honesty gate
   proves provenance, not faithfulness. Prefer vetted repos for demos.

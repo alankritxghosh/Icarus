@@ -39,17 +39,25 @@ completed, verified, and shipped in one sitting:
   *related* context for (HF migration docs, render.yaml) but no actual
   recorded answer to, since tonight's decision was only ever discussed in
   chat. This HANDOFF entry is what closes that gap for next time.
-- **Cold-start retry fix** (`mac/Icarus/Sources/IcarusKit/BrainClient.swift`,
-  commit `294f90d`): live-caught TWICE — a scaled-to-zero container's first
-  request after idle transiently failed, then the identical next attempt
-  succeeded with zero code involved. The tempting fix (`min-replicas=1`,
-  always-warm) was priced against Azure's own pricing first: idle billing at
-  this app's size is **~$24/month** ($19.30 vCPU + $4.82 memory after the
-  free grant), which quietly ends the free-hosting premise the whole
-  migration was for. Went with a bounded client-side retry instead (one
-  retry after a short delay, transport-level failures only, never a real
-  4xx/5xx) — costs nothing, absorbs the identical blip. Retry delay is
-  injectable so tests prove it without a real multi-second sleep.
+- **Cold-start: retry-only was tried first, then proven insufficient, then
+  fixed for real with `min-replicas=1`.** Live-caught TWICE — a scaled-to-zero
+  container's first request after idle transiently failed, then the identical
+  next attempt succeeded with zero code involved. First response was a
+  client-side retry (`mac/Icarus/Sources/IcarusKit/BrainClient.swift`, commit
+  `294f90d`) rather than paying for always-warm (~$24/month, priced against
+  Azure's own pricing) — reasonable at the time, but **the actual cold-start
+  duration was never measured, only guessed.** Once real testers hit repeated
+  failed connections, measured it properly: `az containerapp replica list`
+  showed zero replicas, and a timed `/health` request took **24.15 seconds**
+  cold — far longer than the retry's short delay ever covers. Set
+  `--min-replicas 1` (2026-07-12): confirmed a replica now always running,
+  `/health` at ~0.1s. **Do not revert this to `0` to save the ~$24/month** —
+  it will silently reintroduce the exact failed-connection loop. The retry
+  code stays as a harmless secondary safety net for genuine transient blips,
+  it's just no longer the primary defense. Currently covered by Azure's
+  $200/30-day free-account credit (expires 2026-08-10, subscription gets
+  disabled at that point unless upgraded to Pay-As-You-Go first — flagged to
+  Alankrit, deliberately deferred, not urgent yet but a real deadline).
 - **Render suspended, not deleted** (`srv-d94153cvikkc73ba8ckg`, via the
   Render API — the CLI's workspace picker is interactive-only and doesn't
   work in a non-TTY context, so used `~/.render/cli.yaml`'s cached API key
@@ -67,9 +75,11 @@ completed, verified, and shipped in one sitting:
 **Open for next session:** the GitHub OAuth App's callback now points at
 Azure (moved by Alankrit directly, per the single-callback constraint) —
 if Render is ever resumed, that callback would need to move back or a
-second OAuth App would be needed. Azure Container Apps' `min-replicas=0`
-means occasional cold-start delays are expected and by design (the retry
-absorbs them) — not a bug if seen again.
+second OAuth App would be needed. Azure Container Apps is now
+`min-replicas=1` (always warm, no cold starts, see above) — decide before
+2026-08-10 whether to upgrade the subscription to Pay-As-You-Go (the $200
+trial credit expires then and the subscription gets disabled if not
+upgraded first).
 
 ---
 
