@@ -45,6 +45,21 @@ class BuildPromptTests(unittest.TestCase):
         big = Chunk("pr:2", "pr", "x" * 5000)
         self.assertLess(len(build_prompt("q", [big])), 4000)
 
+    def test_code_chunks_get_a_larger_but_still_bounded_budget(self):
+        # Code chunks get _MAX_CODE_CHUNK_CHARS (so a 300-line window is visible),
+        # more than the prose cap but STILL bounded -- a pathological giant chunk
+        # can't blow the prompt open. Locks the cap so it can't silently balloon.
+        from .synth import _MAX_CHUNK_CHARS, _MAX_CODE_CHUNK_CHARS
+        oversize = "x" * (_MAX_CODE_CHUNK_CHARS + 5000)   # bigger than the code cap
+        code_len = len(build_prompt("q", [Chunk("code:a.py#L1-L400", "code", oversize)]))
+        prose_len = len(build_prompt("q", [Chunk("doc:a.md", "doc", oversize)]))
+        # code was truncated to the code cap (not the full oversize length)...
+        self.assertGreater(code_len, _MAX_CODE_CHUNK_CHARS)          # got the larger code budget
+        self.assertLess(code_len, _MAX_CODE_CHUNK_CHARS + 2000)      # but bounded (instruction overhead only)
+        # ...and prose of the SAME size got only the small cap
+        self.assertLess(prose_len, _MAX_CHUNK_CHARS + 2000)
+        self.assertGreater(code_len, prose_len)                     # code budget strictly larger
+
 
 if __name__ == "__main__":
     unittest.main()

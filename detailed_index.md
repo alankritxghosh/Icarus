@@ -158,14 +158,27 @@ depth). Module constants: `INSTRUCTION`, `_MAX_CHUNK_CHARS`.
 
 ## evals/gate.py
 The deterministic honesty gate: turns the writer's raw reply into a `Result` and
-can only ever fail safe toward abstention. Module constant: `_JSON`.
+can only ever fail safe toward abstention. Module constants: `_JSON`, `_LINES`
+(the `#Lstart-Lend` regex), `_KNOWN_SOURCES` (the source labels ingest emits).
 
 - `_extract_json(raw: str)` — find the first `{...}` span and `json.loads` it,
   returning None on no match or parse error.
+- `_debracket(cit) -> str` — strip surrounding display brackets/whitespace a
+  writer may echo (`[code:foo#L1-L2]`); non-strings become `""` (match nothing).
+- `_source(ref: str)` — the `source:` label of a ref, but ONLY if it's a token in
+  `_KNOWN_SOURCES`; else None (so a `:` inside a path isn't mistaken for a source).
+- `_parse_ref(ref: str) -> (path, start, end)` — drop a recognized `source:`
+  prefix and a trailing `#L` window; start/end are None for a whole-file ref.
+- `_resolve(cit, retrieved) -> ref|None` — map a writer citation to the canonical
+  retrieved ref it denotes, tolerating a dropped `source:` prefix, brackets, or a
+  window narrowed to a specific line, but NEVER a ref that wasn't retrieved: it
+  grounds only when the named source (if any) matches, the paths match, and the
+  cited lines are CONTAINED in the retrieved window (containment, not overlap —
+  a citation claiming lines beyond what was retrieved is refused).
 - `gate(raw: str, retrieved: List[str]) -> Result` — emit an answer ONLY if the
   reply parses as JSON with verdict `"answer"`, a non-empty answer string, and at
-  least one citation in the retrieved set (citations filtered to that set);
-  everything else returns `Result(verdict="unknown")`.
+  least one citation that `_resolve`s to a retrieved ref (emitted citations are
+  the canonical retrieved refs); everything else returns `Result(verdict="unknown")`.
 
 ## evals/judge.py
 The answer-correctness judge: the fuzzy, judge-later quality dial — NOT an honesty

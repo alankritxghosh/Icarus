@@ -114,7 +114,7 @@ def _resolve_storage_root(raw, default):
 
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
-                 sync_connect: bool = False):
+                 sync_connect: bool = False, background_upgrade: bool = False):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -380,18 +380,22 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if sync_connect:
                     # Serverless request-scoped-CPU platforms (Cloud Run, Azure
                     # Container Apps) only reliably give a container CPU WHILE a
-                    # request is being processed -- a background thread's embed
-                    # work after the response returns is not guaranteed resourced
-                    # (it can be throttled, or the instance frozen/scaled down).
-                    # connect_sync() ALREADY runs both stages sequentially when
-                    # called directly (it's the same function used everywhere
-                    # else) -- the only difference here is blocking the request
-                    # on it instead of backgrounding it, so the platform's
-                    # request-scoped CPU guarantee covers the whole embed. A real
-                    # repo takes ~30s on real CPU (measured), well inside a
-                    # generously configured request timeout on either platform.
+                    # request is being processed. Two ways to stay within that:
+                    #  - default: block the request through BOTH stages, so the
+                    #    platform's request-scoped CPU covers the whole embed.
+                    #    Simple, but a large repo's embed can run past the
+                    #    platform's ingress timeout (Azure: a hard 240s) and be
+                    #    killed -- the connect fails outright.
+                    #  - background_upgrade (Option B): block only through STAGE 1
+                    #    (lexical "ready", seconds), then embed on a daemon thread.
+                    #    Frees the request from the multi-minute embed so it can't
+                    #    hit the ingress timeout. Safe only when a replica stays
+                    #    warm (min-replicas>=1); with scale-to-zero the
+                    #    backgrounded embed can be CPU-starved. connect_sync owns
+                    #    the split; here we just choose which mode to ask for.
                     result = lib.connect_sync(
-                        repo, token=(token if private else None), private=private)
+                        repo, token=(token if private else None), private=private,
+                        background_upgrade=background_upgrade)
                     self._send_json(200, result)
                 else:
                     threading.Thread(target=lib.connect_sync, args=(repo,),
@@ -483,9 +487,13 @@ def serve(host: str = None, port: int = None):
     if cid and secret:
         oauth = github_oauth.OAuthFlow(cid, secret, f"{callback_base}/auth/github/callback")
     sync_connect = bool(os.environ.get("ICARUS_SYNC_CONNECT"))
+    # Option B: on a warm-replica request-scoped-CPU host, block /connect only
+    # through STAGE 1 and embed in the background (see make_handler's use). Only
+    # meaningful together with sync_connect.
+    background_upgrade = bool(os.environ.get("ICARUS_BACKGROUND_UPGRADE"))
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
-                           sync_connect=sync_connect)
+                           sync_connect=sync_connect, background_upgrade=background_upgrade)
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"
@@ -495,7 +503,11 @@ def serve(host: str = None, port: int = None):
         host_note = "loopback only"
     auth_note = "GitHub bearer required" if require_auth else "open (loopback only)"
     login_note = "web login on" if oauth else "web login off (set GITHUB_CLIENT_ID/SECRET)"
-    connect_note = "sync connect (ICARUS_SYNC_CONNECT)" if sync_connect else "background connect"
+    if sync_connect:
+        connect_note = ("sync connect: stage-1 block + background embed (Option B)"
+                        if background_upgrade else "sync connect: blocks through embed")
+    else:
+        connect_note = "background connect"
     print(f"Icarus demo on http://{host}:{port}  (corpus: {default_repo} @ {commit[:12]}; "
           f"{host_note}; auth: {auth_note}; {login_note}; {connect_note})")
     print("Type any public owner/repo in the app to switch. Ctrl-C to stop.")

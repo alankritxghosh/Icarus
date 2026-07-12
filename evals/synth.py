@@ -31,13 +31,23 @@ INSTRUCTION = (
 )
 
 _MAX_CHUNK_CHARS = 1500
+# Code chunks are ingested as 300-line windows (evals/ingest.py) -- far larger
+# than a prose PR/issue snippet. Truncating them to _MAX_CHUNK_CHARS hid the
+# answer from the writer whenever it sat past ~40 lines into a window: the chunk
+# could rank #1 in retrieval yet be invisible (found 2026-07-12 -- the
+# split_words logic sat at char ~2838 of a 7483-char code window, was truncated
+# out, and forced an honest-but-wrong abstention). Give code a budget that shows
+# a full standard window to the writer while still bounding a pathological
+# whole-file chunk (the committed corpus has code chunks up to ~131k chars).
+_MAX_CODE_CHUNK_CHARS = 10000
 
 
 def build_prompt(question: str, chunks: List[Chunk]) -> str:
     blocks = []
     for c in chunks:
         text = c.text.strip()
-        if len(text) > _MAX_CHUNK_CHARS:
-            text = text[:_MAX_CHUNK_CHARS] + " …"
+        cap = _MAX_CODE_CHUNK_CHARS if c.source == "code" else _MAX_CHUNK_CHARS
+        if len(text) > cap:
+            text = text[:cap] + " …"
         blocks.append(f"[{c.ref}]\n{text}")
     return f"{INSTRUCTION}\n\nQUESTION: {question}\n\nEVIDENCE:\n" + "\n\n".join(blocks)

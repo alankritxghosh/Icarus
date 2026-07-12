@@ -111,6 +111,79 @@ class LibraryTests(unittest.TestCase):
         self.assertTrue(self.lib.current_pipeline().startswith("full::"))  # upgraded
         self.assertEqual(calls, [True, False])  # fast, then full -- in that order
 
+    def test_background_upgrade_returns_after_stage1_and_upgrades_in_background(self):
+        # Option B: connect_sync(background_upgrade=True) must return the moment
+        # STAGE 1 (lexical) is ready, running STAGE 2 (the embed) on a daemon
+        # thread -- so an HTTP request is never held through the multi-minute
+        # embed (and can't hit a platform ingress timeout). The full pipeline
+        # still swaps in once the background embed finishes.
+        import threading
+        import time
+        gate = threading.Event()
+
+        def build(corpus_dir, fast=False):
+            if fast:
+                return f"fast::{corpus_dir}"
+            gate.wait(timeout=2)          # hold STAGE 2 open
+            return f"full::{corpus_dir}"
+
+        self.lib._build_pipeline = build
+        s = self.lib.connect_sync("octo/bg", background_upgrade=True)
+        # Returned already, on the fast pipeline, before STAGE 2 could finish:
+        self.assertEqual(s["state"], "ready")
+        self.assertTrue(self.lib.current_pipeline().startswith("fast::"))
+        # STAGE 2 finishes in the background and swaps in the full pipeline:
+        gate.set()
+        for _ in range(200):
+            if self.lib.current_pipeline().startswith("full::"):
+                break
+            time.sleep(0.01)
+        self.assertTrue(self.lib.current_pipeline().startswith("full::"))
+        self.assertEqual(self.lib.status_snapshot()["state"], "ready")
+
+    def test_stale_semantic_upgrade_does_not_clobber_a_newer_reconnect(self):
+        # P1 (found by an independent GPT-5.6 review): under Option B, connect_sync
+        # returns while stage 2 runs in the background, so two connects to the SAME
+        # repo overlap. A stale stage 2 from the FIRST connect must NOT overwrite
+        # the newer connect's pipeline -- the generation guard (not the repo name)
+        # is what prevents the lost update.
+        import threading
+        import time
+        hold_first = threading.Event()
+        full_calls = []
+        clock = threading.Lock()
+
+        def build(corpus_dir, fast=False):
+            if fast:
+                return f"fast::{corpus_dir}"
+            with clock:
+                full_calls.append(corpus_dir)
+                n = len(full_calls)
+            if n == 1:                       # the FIRST (older-generation) build blocks
+                hold_first.wait(timeout=3)
+                return "full::gen1"
+            return f"full::gen{n}"           # later builds finish immediately
+
+        self.lib._build_pipeline = build
+        # 1) First connect (bg): stage 1 lands; stage-2 gen1 build blocks.
+        self.lib.connect_sync("octo/a", background_upgrade=True)
+        for _ in range(300):                 # wait until the gen1 build is holding the gate
+            if full_calls:
+                break
+            time.sleep(0.01)
+        # 2) Reconnect the SAME repo (bg): stage-2 gen2 builds fast and installs.
+        self.lib.connect_sync("octo/a", background_upgrade=True)
+        for _ in range(300):
+            if self.lib.current_pipeline() == "full::gen2":
+                break
+            time.sleep(0.01)
+        self.assertEqual(self.lib.current_pipeline(), "full::gen2")  # newer is live
+        # 3) Release the stale gen1 build; it must NOT clobber gen2.
+        hold_first.set()
+        for _ in range(50):
+            time.sleep(0.01)
+        self.assertEqual(self.lib.current_pipeline(), "full::gen2")  # stale gen1 refused
+
     def test_slow_or_failed_semantic_upgrade_does_not_undo_a_working_connect(self):
         # A TimeoutError from STAGE 2 (e.g. SemanticRetriever's embed-timeout,
         # see evals/retriever.py -- proven live on a CPU-throttled host: a

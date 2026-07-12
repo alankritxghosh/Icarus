@@ -44,6 +44,7 @@ class _StubLibrary:
         self._pipe = _StubPipeline()
         self.connected = []
         self.connect_calls = []  # (repo, token, private) for tests that need kwargs
+        self.background_upgrades = []  # records the background_upgrade flag per connect
 
     def current_pipeline(self):
         return self._pipe
@@ -55,9 +56,10 @@ class _StubLibrary:
         return {"state": "ready", "repo": REPO, "commit": COMMIT, "counts": None, "error": None,
                 "private": False}
 
-    def connect_sync(self, repo, token=None, private=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
         self.connected.append(repo)
         self.connect_calls.append((repo, token, private))
+        self.background_upgrades.append(background_upgrade)
         return self.status_snapshot()  # mirrors the real Library.connect_sync's return
 
 
@@ -1030,9 +1032,10 @@ class SyncConnectTests(unittest.TestCase):
         release = threading.Event()
 
         class _SlowLibrary(_StubLibrary):
-            def connect_sync(self, repo, token=None, private=False):
+            def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
                 release.wait(timeout=5)
-                return super().connect_sync(repo, token=token, private=private)
+                return super().connect_sync(repo, token=token, private=private,
+                                            background_upgrade=background_upgrade)
 
         lib = _SlowLibrary()
         fx = _ServerFixture(lib, sync_connect=True)
@@ -1070,6 +1073,29 @@ class SyncConnectTests(unittest.TestCase):
                     break
                 time.sleep(0.02)
             self.assertIn("octocat/hello", lib.connected)
+        finally:
+            fx.close()
+
+    def test_background_upgrade_flag_is_forwarded_to_connect_sync(self):
+        # Option B (ICARUS_BACKGROUND_UPGRADE): a sync /connect must forward
+        # background_upgrade=True so connect_sync backgrounds STAGE 2's embed.
+        lib = _StubLibrary()
+        fx = _ServerFixture(lib, sync_connect=True, background_upgrade=True)
+        try:
+            status, _ = _post(fx.base + "/connect", {"repo": "octocat/hello"})
+            self.assertEqual(status, 200)
+            self.assertEqual(lib.background_upgrades, [True])
+        finally:
+            fx.close()
+
+    def test_sync_connect_defaults_to_blocking_embed(self):
+        # Without the flag the sync path keeps blocking through the embed
+        # (background_upgrade=False) -- the safe default for scale-to-zero.
+        lib = _StubLibrary()
+        fx = _ServerFixture(lib, sync_connect=True)
+        try:
+            _post(fx.base + "/connect", {"repo": "octocat/hello"})
+            self.assertEqual(lib.background_upgrades, [False])
         finally:
             fx.close()
 

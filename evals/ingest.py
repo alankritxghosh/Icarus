@@ -20,6 +20,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List, Optional
@@ -38,7 +39,23 @@ ISSUE_REF = re.compile(r"#(\d+)")
 # Resource bounds so a huge or hostile repo can't fill disk / hang / OOM.
 _SUBPROCESS_TIMEOUT = 120       # seconds, per git/gh call
 _MAX_FILE_BYTES = 512 * 1024    # skip any single file bigger than this
-_MAX_TOTAL_BYTES = 25 * 1024 * 1024  # stop reading code past this total
+# Stop reading code past this total. Raised 25 MB -> 100 MB (2026-07-13) so a
+# large repo isn't artificially truncated. NOTE: on the hosted (Azure Container
+# Apps) path this is NOT the binding limit -- the 240s ingress timeout caps a
+# sync connect at ~1,900-2,000 chunks (docs/HANDOFF.md), which a repo this large
+# hits first. Lifting this cap helps local ingest and any host without that
+# timeout; the embed-time bottleneck is tracked separately.
+_MAX_TOTAL_BYTES = 100 * 1024 * 1024
+# Hard cap on how many CODE/doc/config chunks one repo can yield, independent of
+# bytes. Guards the memory/CPU of the (non-backgrounded) lexical stage-1 BM25
+# build: a hostile 100 MB repo of many short lines could otherwise produce
+# ~190k 300-line windows and OOM a small container (flagged in a 2026-07-13
+# review). 50k is far above any real repo we can actually serve -- the 240s
+# embed ceiling caps a usable repo at ~2k chunks -- so it only ever trips on a
+# pathological/hostile tree. PRs/issues are separately bounded (PR_LIMIT/
+# ISSUE_LIMIT), so this need only bound the code walk. Approximate: the walk
+# stops at the next file boundary, so it can overshoot by one file's windows.
+_MAX_TOTAL_CHUNKS = 50_000
 
 # Extension allowlist -> citation source tag (Task A1). Tight and Phase-1-scale
 # on purpose: enough languages/formats to cover a typical mixed repo, not a
@@ -343,8 +360,14 @@ def fetch_code(repo, commit, code_dir, token=None):
             source = classify_file(path, root)
             if source is None:
                 continue  # not ingestable (deny-listed, wrong extension, binary, oversized, ...)
-            if total > _MAX_TOTAL_BYTES:
-                break  # stop once we've read enough across all sources
+            if total > _MAX_TOTAL_BYTES or len(chunks) >= _MAX_TOTAL_CHUNKS:
+                # Stop once we've read enough across all sources, by bytes OR by
+                # chunk count. Not silent: a truncated corpus must not read as
+                # "covered everything" (esp. before sharing with testers).
+                why = "byte" if total > _MAX_TOTAL_BYTES else "chunk"
+                print(f"ingest: {why} cap reached; truncating code walk of {repo!r} "
+                      f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
+                break
             rel = path.relative_to(root).as_posix()
             try:
                 text = path.read_text(errors="replace")

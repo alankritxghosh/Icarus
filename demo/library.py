@@ -145,6 +145,13 @@ class Library:
         self._private_root = Path(cache_root).parent / "private"
         self._lock = threading.Lock()
         self._inflight = set()  # repos currently indexing (single-flight guard)
+        # Monotonic connect id. Every connect bumps it (under _lock at stage 1);
+        # a background stage-2 upgrade only installs if it is still the latest,
+        # so a slow stage-2 from an EARLIER connect can't clobber a newer one --
+        # matters under Option B, where connect_sync returns while stage 2 is
+        # still running, so two connects to the SAME repo can overlap (the repo
+        # name alone can't tell their pipelines apart).
+        self._generation = 0
         self._status = "idle"
         self._error = None
         meta = load_meta(self._default_dir / "meta.json") or {}
@@ -165,7 +172,7 @@ class Library:
         cache = base / _slug(repo)
         return cache, not (cache / "chunks.jsonl").exists()
 
-    def connect_sync(self, repo, token=None, private=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
         """Switch the active repo (blocking, from the caller's own thread --
         demo/server.py backgrounds the whole call so the HTTP request itself
         never blocks). Ingests on a cache miss, then connects in TWO STAGES:
@@ -190,6 +197,17 @@ class Library:
         On a genuine STAGE 1 failure (bad repo, ingest failure, a refused
         private connect) the previous repo stays active; status becomes
         'error'.
+
+        `background_upgrade=True` returns as soon as STAGE 1 has published a
+        usable (lexical) pipeline and runs STAGE 2 on a daemon thread instead of
+        inline (Option B). On request-scoped-CPU hosts (Azure Container Apps,
+        Cloud Run) a blocking sync connect holds the HTTP request open through
+        the whole embed, which a large repo can run past the platform's ingress
+        timeout (Azure: a hard 240s), killing the connect. Backgrounding STAGE 2
+        frees the request from the multi-minute embed -- but the embed then needs
+        a container that stays alive after the response returns, so this is safe
+        only when a replica is kept warm (min-replicas>=1); with scale-to-zero
+        the backgrounded embed can be CPU-starved, so keep it inline (default).
 
         `token` (the caller's own GitHub token, when connecting a private repo)
         is a LOCAL VARIABLE ONLY -- never stored on self, never logged, never
@@ -227,6 +245,12 @@ class Library:
                 self._counts = meta.get("counts")
                 self._private = private
                 self._status, self._error = "ready", None
+                # This connect's id. Stage 2 below only installs its pipeline if
+                # this is still the latest connect (see _upgrade_to_semantic), so
+                # a slower stage 2 from an EARLIER overlapping connect can't
+                # clobber a newer one.
+                self._generation += 1
+                my_gen = self._generation
                 # Release the single-flight slot HERE, the moment the repo is
                 # genuinely usable -- NOT in the outer `finally` after stage 2.
                 # Holding it through the (potentially long/slow) semantic upgrade
@@ -237,18 +261,18 @@ class Library:
                 # cache-hit stage 1 rather than being blocked.
                 self._inflight.discard(repo)
 
-            # STAGE 2 -- upgrade to hybrid/semantic; never undoes stage 1.
-            try:
-                full_pipeline = build_pipeline(corpus_dir)
-                with self._lock:
-                    if self._repo == connected_repo:  # caller hasn't switched away
-                        self._pipeline = full_pipeline
-            except Exception as e:
-                print(
-                    f"semantic upgrade failed for {connected_repo!r} "
-                    f"({type(e).__name__}); staying on lexical-only search",
-                    file=sys.stderr,
-                )
+            # STAGE 2 -- upgrade to hybrid/semantic; never undoes stage 1. Run it
+            # inline (default) or, when background_upgrade is set, on a daemon
+            # thread so the caller (an HTTP request) is freed the moment stage 1
+            # is usable -- see the connect_sync docstring for when each is safe.
+            if background_upgrade:
+                threading.Thread(
+                    target=self._upgrade_to_semantic,
+                    args=(build_pipeline, corpus_dir, connected_repo, my_gen),
+                    daemon=True,
+                ).start()
+            else:
+                self._upgrade_to_semantic(build_pipeline, corpus_dir, connected_repo, my_gen)
         except Exception:  # keep the previous repo answerable; never leak internals
             with self._lock:
                 self._status = "error"
@@ -260,6 +284,29 @@ class Library:
             with self._lock:
                 self._inflight.discard(repo)
         return self.status_snapshot()
+
+    def _upgrade_to_semantic(self, build_pipeline, corpus_dir, connected_repo, generation):
+        """STAGE 2: build the full hybrid (lexical + semantic) pipeline and swap
+        it in -- unless a newer connect has happened since (checked by generation
+        under the lock). Guarding on the generation, not just the repo name, is
+        what makes an A->B->A reconnect safe under Option B: a stale stage 2 from
+        the first A connect has an older generation than the second A connect, so
+        it won't overwrite the newer pipeline (the repo name is 'A' for both).
+        A slow host or an embed timeout here is NOT a connect failure: stage 1
+        already made the repo answerable, so any exception is logged and
+        swallowed, never undoing stage 1. Safe to run inline or on a daemon
+        thread (see connect_sync's background_upgrade)."""
+        try:
+            full_pipeline = build_pipeline(corpus_dir)
+            with self._lock:
+                if self._generation == generation:  # still the latest connect
+                    self._pipeline = full_pipeline
+        except Exception as e:
+            print(
+                f"semantic upgrade failed for {connected_repo!r} "
+                f"({type(e).__name__}); staying on lexical-only search",
+                file=sys.stderr,
+            )
 
     def current_pipeline(self):
         with self._lock:

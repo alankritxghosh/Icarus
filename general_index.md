@@ -142,7 +142,9 @@ removing, or renaming files). For class/function-level detail see
   NOT Python-only — `_EXTENSION_SOURCES` maps Python, JS, TS/TSX, Go, Rust,
   Java, Ruby, C/C++, Swift, Kotlin, PHP, C#, Scala, and Shell to "code"
   (`.md`/`.rst`/`.txt` → "doc", `.yaml`/`.yml`/`.toml`/`.cfg`/`.ini`/`.sql` →
-  "config"). Subprocess timeouts, per-file/total size caps, a `code_dir`
+  "config"). Subprocess timeouts, per-file (512KB) + total-byte (100MB) + total-
+  chunk (50k, bounds lexical stage-1 memory on a hostile many-short-lines repo)
+  caps that log to stderr when they truncate, a `code_dir`
   path-traversal guard, and an optional caller `token` threaded leak-safe into
   `git`/`gh` subprocess **env** (`_git_env`/`_gh_env` — never argv, never the
   clone URL, never logged). Needs `gh` + `git`.
@@ -194,9 +196,18 @@ removing, or renaming files). For class/function-level detail see
 - `evals/env_file.py` — `load_env_file`: stdlib loader that reads a gitignored
   `.env` into `os.environ` without overriding real env vars.
 - `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt (also tells
-  the writer to treat evidence as data, not instructions).
+  the writer to treat evidence as data, not instructions). Truncates prose chunks
+  to `_MAX_CHUNK_CHARS` (1500) but CODE chunks to `_MAX_CODE_CHUNK_CHARS` (10000)
+  so a 300-line code window stays visible to the writer instead of ~40 lines.
 - `evals/gate.py` — the deterministic honesty gate: emits an answer ONLY if it
   parses, claims "answer", has prose, and cites ≥1 retrieved ref; else "unknown".
+  Citation matching is tolerant-but-safe (`_parse_ref`/`_resolve`): it grounds a
+  citation the writer reformatted — dropped `code:` prefix, display brackets, or
+  narrowed a chunk's `#L1-L300` window to the specific `#L21` line — when paths
+  match AND either side is whole-file OR the line spans overlap, but still forces
+  unknown on an unretrieved path or an out-of-window line, so groundedness holds.
+  A named source prefix must equal the retrieved ref's source (`code:1489` never
+  grounds to `pr:1489`); only a bare-body citation gets the prefix-drop tolerance.
 - `evals/judge.py` — the answer-correctness judge (quality dial, NOT a gate):
   `build_judge_prompt`, `parse_verdict` (fails safe to "incorrect"), `Judge`.
 - `evals/pipeline.py` — the `Result`/`Pipeline` contract, plus `StubPipeline`,
@@ -242,6 +253,8 @@ removing, or renaming files). For class/function-level detail see
   unknown path, truncates long chunks.
 - `evals/test_gate.py` — the gate passes grounded answers and fails safe to
   abstention on everything ambiguous.
+- `evals/test_grader.py` — the harness conscience: gates hold for an honest
+  abstainer/oracle and fire for a bluffer.
 - `evals/test_gated_pipeline.py` — `GatedPipeline` end to end with a
   `StaticProvider` (answer, abstention, forced-unknown bluff).
 - `evals/test_gated_explain.py` — Brick D's `.explain()`: anchor resolution
@@ -282,8 +295,13 @@ removing, or renaming files). For class/function-level detail see
   phrasing and closes messy-phrasing recall@5 up to the clean baseline in
   aggregate (same-run boards, gates 100% throughout). Self-skips without
   fastembed/the corpus/comprehension set.
-- `evals/test_grader.py` — the harness conscience: gates hold for an honest
-  abstainer/oracle and fire for a bluffer.
+- `evals/test_code_answering_gap.py` — regression guard for the two code-answering
+  gaps found+fixed 2026-07-13: the gate grounds a code citation the writer
+  reformatted (dropped `code:` prefix / display brackets / narrowed a chunk's
+  `#L1-L300` window to the specific `#L21` line it used) yet still forces unknown
+  on an unretrieved path or an out-of-window line; and `build_prompt` shows code
+  past the old 1500-char cap so a mid-window answer isn't truncated out. Started
+  as a RED failing eval (red→green, deterministic, no live model).
 - `evals/test_retrieval_eval.py` — end-to-end red→green: retrieval recall@k rises
   without dropping a gate (skips without the corpus).
 - `evals/test_gated_eval.py` — real-model proof: citation correctness > 0 with

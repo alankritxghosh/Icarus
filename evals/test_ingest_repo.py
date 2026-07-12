@@ -123,6 +123,21 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
             self.assertLessEqual(len(chunks), 2)
             self.assertLess(total, 400)  # far less than all three files combined
 
+    def test_total_chunk_budget_stops_ingestion(self):
+        # P1 fix (2026-07-13 review): a chunk-count cap bounds the lexical
+        # stage-1 index even when a hostile repo stays under the BYTE cap (many
+        # short lines). The walk stops at the next file boundary once the cap is
+        # hit, so later files are skipped rather than exploding chunk count.
+        with tempfile.TemporaryDirectory() as fixture, \
+                mock.patch("evals.ingest._MAX_TOTAL_CHUNKS", 2):
+            for name in ("a.py", "b.py", "c.py", "d.py"):
+                _write(fixture, name, "x = 1\n")   # one chunk each, tiny
+            chunks = self._fetch(fixture)
+            refs = {c["ref"] for c in chunks}
+            self.assertEqual(len(chunks), 2)       # stopped at the cap...
+            self.assertNotIn("code:c.py", refs)    # ...later files were skipped
+            self.assertNotIn("code:d.py", refs)
+
     def test_counts_reflect_mixed_sources_via_ingest_repo(self):
         prs = ([], set())
         issues = []
