@@ -6,10 +6,11 @@ removing, or renaming files). For class/function-level detail see
 `detailed_index.md`.
 
 ## Repo root
-- `CLAUDE.md` — standing orders for anyone (human or AI) building Icarus:
-  engineering principles, hard constraints, codebase map, and the commands.
-- `AGENTS.md` — the same standing orders addressed to non-Claude coding agents
-  (Codex etc.); mirrors CLAUDE.md's rules.
+- `CLAUDE.md` — Claude Code's project instructions and working context.
+- `AGENTS.md` — canonical shared engineering constitution: collaboration rules,
+  honesty/trust boundaries, codebase entry path, workflow, and verification.
+- `CODEX.md` — thin Codex-specific adapter covering collaboration style, task
+  startup, tool conventions, verification/reporting, and instruction drift.
 - `README.md` — the pitch and one-paragraph overview of Icarus plus its honesty
   promise.
 - `general_index.md` — this file: every tracked file + a short description.
