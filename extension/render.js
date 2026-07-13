@@ -5,16 +5,6 @@
 // renderUnknown/renderLoading structure and copy, so the extension and the
 // web demo speak with the same voice ("grounded answer" / "No one wrote this
 // down." / citation chips grouped by source type).
-//
-// Deliberate divergence from demo/index.html: that page's badge reads
-// "private · paid writer — 0 trained on your code". The 2026-07-08 billing
-// investigation (see docs/HANDOFF.md) found the "paid"/"no-training"
-// guarantee does NOT currently hold as described -- the key named
-// GEMINI_PAID_API_KEY isn't genuinely on a separate billed project yet. That
-// is a known, already-flagged inaccuracy in the EXISTING surfaces; this new
-// surface must not copy it verbatim and make the problem worse. The badge
-// here states only the verifiable fact (is this GitHub repo private or
-// public?) and drops the paid/training claim until that's actually true.
 
 function escapeHtml(s) {
   return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -43,7 +33,7 @@ function renderErrorHtml(message) {
   );
 }
 
-function renderAnswerHtml(payload, isPrivate) {
+function renderAnswerHtml(payload) {
   const chips = (payload.citations || [])
     .map((c) => {
       const s = sourceOf(c.ref);
@@ -53,7 +43,6 @@ function renderAnswerHtml(payload, isPrivate) {
         : `<span class="icarus-chip">${inner}</span>`;
     })
     .join("");
-  const repoLabel = isPrivate ? "private repo" : "public repo";
   return (
     '<div class="icarus-block">' +
     '<p class="icarus-label icarus-grounded">grounded answer</p>' +
@@ -62,7 +51,7 @@ function renderAnswerHtml(payload, isPrivate) {
     '<p class="icarus-label icarus-muted">evidence — one glance away</p>' +
     `<div class="icarus-cites">${chips}</div>` +
     "</div>" +
-    `<div class="icarus-repo-label">${escapeHtml(repoLabel)}</div>` +
+    '<div class="icarus-repo-label">public repository alpha</div>' +
     "</div>"
   );
 }

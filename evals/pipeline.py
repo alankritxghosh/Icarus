@@ -133,17 +133,31 @@ class GatedPipeline(Pipeline):
         retrieved = ordered_refs
 
         return self._answer_from(
-            question or self._DEFAULT_EXPLAIN_QUESTION, top[: self._writer_k], retrieved
+            question or self._DEFAULT_EXPLAIN_QUESTION, top[: self._writer_k], retrieved,
+            guard_rationale=False,   # explain delivers the selected code's "what"
         )
 
-    def _answer_from(self, question: str, top: List, retrieved: List[str]) -> Result:
+    def _answer_from(self, question: str, top: List, retrieved: List[str],
+                     guard_rationale: bool = True) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
-        (search vs. location resolution) that feed it."""
+        (search vs. location resolution) that feed it.
+
+        `guard_rationale` toggles the gate's (b) why->what check. It is ON for
+        .answer() (a user asking a pointed "why?" deserves an honest abstain when
+        the reason isn't recorded) and OFF for .explain(): there the user has
+        SELECTED specific code and a "what does this do" answer is the intended
+        deliverable, not a dodged why -- so requiring rationale prose would wrongly
+        abstain on plain code. Groundedness (the hard invariant) is enforced
+        identically either way; only the soft rationale heuristic is scoped."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate
         if not top:
             return Result(verdict="unknown", retrieved=retrieved)
-        result = gate(self._provider.complete(build_prompt(question, top)), retrieved)
+        # Pass the question + the evidence text the writer actually saw so the
+        # gate can enforce the (b) rationale-support guard, not just groundedness.
+        evidence = {c.ref: c.text for c in top}
+        result = gate(self._provider.complete(build_prompt(question, top)), retrieved,
+                      question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
         return result

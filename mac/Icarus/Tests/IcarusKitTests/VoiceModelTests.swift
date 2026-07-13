@@ -69,6 +69,19 @@ final class VoiceModelTests: XCTestCase {
         if case .failed = model.state {} else { XCTFail("expected .failed, got \(model.state)") }
     }
 
+    /// A denied microphone maps to precise, actionable `.failed` guidance (not the
+    /// generic "couldn't start listening").
+    func testMicDeniedMapsToActionableFailure() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(.startFailsWith(.micDenied)))
+
+        await model.startRecording()
+
+        guard case .failed(let msg) = model.state else {
+            return XCTFail("expected .failed, got \(model.state)")
+        }
+        XCTAssertTrue(msg.contains("Microphone"))
+    }
+
     /// `partialTranscript` is cleared once a hold finishes.
     func testPartialClearedAfterFinish() async {
         let model = VoiceModel(recognizer: StubSpeechRecognizer(

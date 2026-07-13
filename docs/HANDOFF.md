@@ -1,3 +1,265 @@
+# Icarus — Session Handoff (2026-07-13, public alpha release)
+
+**READ THIS FIRST — supersedes the older same-day handoffs below.** The verified
+backend is live on Azure revision `icarus-brain--0000003`, image
+`icarus-brain:alpha-20260713-1715`. The fresh ad-hoc-signed Mac artifact is
+`mac/Icarus/Icarus.dmg` and points to that Azure brain.
+
+## Next session's ONLY job
+
+Put the DMG in named engineers' hands and collect failures. This is a controlled,
+**public-repository-only** alpha: OAuth requests `read:user`; the HTTP boundary
+refuses private repositories before ingest. Do not promise private-code handling,
+self-serve onboarding, notarization, or enterprise tenancy yet.
+
+Verified before release: evals 321/321 (13 skipped), demo 172/172 (2 skipped),
+Swift 52/52, extension 28/28, secrets scan clean, honesty gates 100%/100%.
+Live checks: health 200, unauthenticated ask 401, real private repo 403, cited
+answer 200, honest unknown 200 with zero citations.
+
+## What happened this session, in order
+
+1. **Killed the free/paid writer tier split — ONE model everywhere.**
+   Alankrit's explicit call: "no free tier or paid tier anymore... one model that
+   does all the fucking work." `demo/library.py`'s `_pick_writer()` deleted; both
+   public and private pipelines now build through one `_build_gated_pipeline` →
+   `make_provider("gemini-paid")` → `assert_safe_for_private()`. This directly
+   removed the standing §0.2-#1 risk from the prior handoff (a weak free writer
+   could self-declare "answer" on a real abstention). Memory:
+   [[one-model-no-tier-split]].
+2. **Zero-friction voice STT fix — the reported "works on my Mac, not others"
+   bug.** Root cause (confirmed against Apple's own DevForums, not guessed):
+   macOS has no API to install the on-device speech model from code, and the app
+   hard-required it. Fix: `AppleSpeechRecognizer` now sets
+   `requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition` — on-
+   device when the Mac has the model (audio never leaves), automatic Apple-cloud
+   fallback when it doesn't (zero setup). Because that makes the old on-device-
+   only promise sometimes false, **every "audio never leaves your Mac" claim in
+   the app was corrected to be honest** (`Icarus-Info.plist` usage strings,
+   `Shell/ShellSurfaces.swift` PrivacyBoundaryView). Memory:
+   [[stt-on-device-model-bug]].
+3. **First GPT-5.6 Sol adversarial review → NO-GO.** Sol reproduced, with runnable
+   repros, that the honesty gate could confidently answer a "why" question using
+   evidence that only stated the "what" (a bare code constant) — because
+   `gate(raw, retrieved)` never saw the question or the evidence text, only
+   citation membership. Also found: malformed line-range citations (`#L0`,
+   inverted ranges) still grounded; a missing `GEMINI_PAID_API_KEY` produced a
+   false "ready" status then crashed `/ask` with a dropped connection; two stale
+   "free writer" UI strings survived the one-model change; the ingest chunk cap
+   could overshoot silently; and a concurrency test was silently vacuous (it threw
+   an `AttributeError` in-thread that the suite never surfaced — this closes the
+   §0.2-#6 mystery from the prior handoff, "Sol saw a background-thread exception
+   in an existing demo test").
+4. **All of Sol's findings fixed and independently verified tonight** (not taken
+   on faith — every fix was proven with a live repro before being called done):
+   - **Gate (a)+(b), per Alankrit's explicit instruction.** (a): `evals/gate.py`'s
+     module docstring and CLAUDE.md's "one non-negotiable" section were rewritten
+     to state the TRUE boundary — groundedness (no fabricated citations) is fully
+     provable in code; abstention-when-unrecorded is code-enforced only for the
+     clear case, writer-reliant beyond it. Stopped overclaiming. (b): `gate()`
+     gained optional `question`/`evidence` params (wired from
+     `pipeline._answer_from`) and now refuses a rationale-seeking "why" answer
+     unless a grounded chunk is a discussion source (pr/issue/doc) or its text
+     states an actual reason — a bare code constant no longer justifies a
+     confident "why". Scoped ON for `.answer()`, OFF for `.explain()` (selected-
+     code explanation is legitimately a "what", not a dodge). First version of
+     (b) over-abstained (board went 100%→50% answer correctness); refined to
+     accept pr/issue/doc sources as recorded rationale, which fixed it — board
+     back to 100%/100%/100%/100%. Live-verified: the exact q07/q08 "why is this
+     constant exactly N" cases now abstain under BOTH clean and adversarially
+     mangled phrasing. 8 new tests in `evals/test_gate.py`.
+   - Malformed line-range citations (`#L0`, inverted `#L300-L250`) now forced to
+     `unknown` in `_resolve` (`evals/gate.py`).
+   - `/ask` and `/explain` (`demo/server.py`) now catch a writer exception and
+     return a clean JSON 503 instead of dropping the connection; a loud stderr
+     warning fires at `serve()` startup if `GEMINI_PAID_API_KEY` is unset.
+   - The two remaining stale "free writer" strings fixed
+     (`Shell/SetupView.swift`, `Shell/HomeView.swift`).
+   - `evals/ingest.py`'s chunk cap enforced per-chunk (hard, was per-file which
+     could overshoot) with a stderr truncation log.
+   - The vacuous concurrency test (`demo/test_server.py`) rebuilt to actually wrap
+     the slow library in a registry, join the thread, and assert the slow request
+     really completed — it would now fail if requests were serialized.
+   - Stale docs corrected: `general_index.md`'s gate description (overlap→
+     containment, missing the (b) guard), `SpeechRecognizer.swift`'s "on-device"
+     claim, `demo/test_demo_live.py`'s live-guard key check (was any free key;
+     now requires `GEMINI_PAID_API_KEY`, matching the one-model serving path).
+5. **Two Sol prompts written for next session — §P below.** Not yet run.
+
+## State at the end of this session (literally true right now)
+
+- Branch `fix/gate-grounding-and-option-b`, tip `b98e674` on disk, but **all of
+  tonight's work (items 1-4 above) is UNCOMMITTED** in the working tree —
+  Alankrit deliberately held off committing pending the two Sol re-audits.
+  `git diff --stat`: **18 files changed, +384/−58** (`CLAUDE.md`, `demo/library.py`,
+  `demo/server.py`, `demo/test_demo_live.py`, `demo/test_server.py`,
+  `evals/gate.py`, `evals/ingest.py`, `evals/pipeline.py`, `evals/test_gate.py`,
+  `general_index.md`, `mac/Icarus/Icarus-Info.plist`,
+  `mac/Icarus/Sources/Icarus/AppleSpeechRecognizer.swift`,
+  `mac/Icarus/Sources/Icarus/Shell/HomeView.swift`,
+  `mac/Icarus/Sources/Icarus/Shell/SetupView.swift`,
+  `mac/Icarus/Sources/Icarus/Shell/ShellSurfaces.swift`,
+  `mac/Icarus/Sources/IcarusKit/SpeechRecognizer.swift`,
+  `mac/Icarus/Sources/IcarusKit/VoiceModel.swift`,
+  `mac/Icarus/Tests/IcarusKitTests/VoiceModelTests.swift`).
+- **Suites green:** `evals` **321** (was 313; +8 gate tests), `demo` **172**
+  (was 171; +1 writer-503 test), Swift `IcarusKit` **52**, all 0 failures.
+- **Live gated board on the one model** (`gemini-paid`): STATUS **GREEN** — both
+  honesty gates 100%, citation correctness 100%, answer correctness 100%.
+- **Ponytail plugin (github.com/DietrichGebert/ponytail) — requested, NOT yet
+  installed.** It's a Claude Code plugin (MIT license, injects a lean-code
+  ruleset + `/ponytail-audit` and `/ponytail-review` commands) that Alankrit
+  wants going forward for writing leaner code. Install is interactive-only
+  (`/plugin marketplace add DietrichGebert/ponytail` then
+  `/plugin install ponytail@ponytail`) — cannot be run from a non-interactive
+  session. **Next session: if in an interactive terminal, run those two commands
+  first**, before or alongside the Sol prompts.
+- `.agents/`, `.claude/launch.json`, `plugins/` are pre-existing untracked paths
+  (present before this session started) — not part of tonight's diff, left
+  alone.
+
+## §P — The two Sol prompts (verbatim, ready to paste)
+
+### P1 — Re-audit prompt (checks tonight's fixes)
+
+```
+You are an INDEPENDENT, adversarial reviewer. Do NOT trust the author's
+description, comments, or "tests pass." Reach your OWN verdict; prove every defect
+with a runnable repro (command + expected vs actual). If you can't reproduce it,
+call it a hypothesis, not a finding.
+
+REPO: "/Users/alankritghosh/JARVIS /jarvis_engineering" (quote the space).
+Python: .venv/bin/python. Swift: swift build/test from mac/Icarus.
+GIT: main = a60986c; branch fix/gate-grounding-and-option-b (tip b98e674). The
+author's fixes are UNCOMMITTED — review `git status`, `git diff` (working tree),
+AND `git diff a60986c` (whole branch vs main). Everything ships together.
+
+CONTEXT: your prior audit returned NO-GO and reproduced (P0) that the honesty gate
+could emit a confident cited "what" answer to an undocumented "why" (gate only
+checked citation-membership, never saw the question/evidence), plus malformed
+line-ranges grounding, a missing-key crash, stale free-writer UI claims, a hard-
+capless ingest overshoot, and a vacuous concurrency test. The author claims to
+have fixed all of these. RE-AUDIT THE FIXES — do not assume they are correct.
+
+INVARIANT (violation = automatic NO-GO): the gate must never emit "answer" with a
+citation not corresponding to genuinely-retrieved evidence (valid, contained line
+window), and must abstain when the answer was never written down.
+
+ATTACK, reach your own verdict on each:
+
+1. THE (b) RATIONALE GUARD (evals/gate.py + evals/pipeline.py). The gate now takes
+   `question`+`evidence` and refuses a "why" question unless a grounded chunk is a
+   pr/issue/doc source OR its text contains a rationale marker. Attack it:
+   - Does the pr/issue/doc SOURCE pass open a NEW bluff path? Construct a "why"
+     question whose only relevant evidence is a pr/issue that mentions the subject
+     but states NO reason — does it now confidently answer (a laundered why→what)?
+   - Is the `_SEEKS_RATIONALE` regex / `_RATIONALE_MARKERS` list gameable or
+     brittle (why-questions it misses; markers that match almost any prose,
+     defeating the guard; unicode/case)?
+   - The guard is OFF for `.explain()` (author's scoping). Prove whether a
+     why→what dodge is still reachable via `/explain` with the default question
+     "What does this code do, and why is it here?" — is that an acceptable scope
+     or a hole?
+   - Does it OVER-abstain on any genuinely answerable why-question? Re-run the
+     paid board and report gates + answer correctness.
+2. MALFORMED-RANGE FIX (evals/gate.py `_resolve`). Confirm L0/negative/inverted no
+   longer ground, AND hunt other malformed forms: huge numbers, `#L1-` partial,
+   non-numeric, `#L5-L5`, ranges on a whole-file retrieved chunk, boundary equality.
+3. MISSING-KEY / 503 (demo/server.py). Confirm /ask AND /explain return JSON 503
+   (not a dropped connection) when the writer raises. Does the error leak the key
+   or a stack trace to the client? Does /status still falsely report "ready" with
+   no key — and is that acceptable? Is the startup warning actually emitted?
+4. CHUNK CAP (evals/ingest.py). Confirm the per-chunk hard cap can't overshoot and
+   always logs. Edge: cap hit exactly at a file boundary; cap of 0; a file whose
+   single window equals the cap. Byte cap interaction.
+5. CONCURRENCY TEST (demo/test_server.py). Confirm it now genuinely exercises
+   concurrency (slow request wrapped in a registry, thread joined, 200 asserted)
+   and would FAIL if requests were serialized — not another vacuous pass.
+6. STALE CLAIMS. Grep the WHOLE repo (mac/, docs/, extension/, *.md) for surviving
+   "free writer"/"public repos only"/"audio never leaves"/on-device-only claims
+   that are now false. The author fixed some; find any missed.
+7. WEAKENED TESTS. Confirm no existing assertion was deleted or loosened to make
+   these changes pass. Confirm the 8 new gate tests and the new 503/concurrency
+   tests actually assert the behavior (not tautological).
+
+RUN: `.venv/bin/python -m unittest discover -t . -s evals` and `-s demo` (report
+counts); `swift test` from mac/Icarus; if GEMINI_PAID_API_KEY is set,
+`.venv/bin/python -m evals.run --pipeline gated --writer gemini-paid --judge gemini`.
+
+DELIVERABLE: per-item verdict (1–7), an overall GO/NO-GO for testers, every finding
+with severity (P0–P3) + a runnable repro, and an explicit list of what you could
+not determine. Rank honesty-invariant threats first.
+```
+
+### P2 — Whole-codebase leanness / production-grade audit prompt
+
+```
+You are a principal engineer doing a LEANNESS + PRODUCTION-READINESS audit. The
+goal is SUBTRACTION and hardening, not addition. Bias: quality over quantity.
+Every file, function, and dependency must earn its place by serving Icarus's actual
+job (retrieve evidence -> cite-or-abstain answer -> honest unknown, ingested from
+GitHub, served over HTTP, driven by a Mac app + browser extension). If a line
+doesn't contribute to that, it's a finding. Do NOT propose new features or new
+abstractions. Prove every claim by reading the code; cite file:line.
+
+REPO: "/Users/alankritghosh/JARVIS /jarvis_engineering" (quote the space).
+Python: .venv/bin/python (suites: `-m unittest discover -t . -s evals` / `-s demo`).
+Swift: mac/Icarus (swift build/test). JS: node --test extension/*.test.js.
+Read CLAUDE.md, general_index.md, docs/ for intended scope, then VERIFY against the
+code — flag where docs and code disagree.
+
+FIND AND RANK (most impactful subtraction first):
+A. DEAD / VESTIGIAL CODE — unused functions, unreferenced exports, retired paths
+   (e.g. render.yaml/Render remnants after the Azure move, unused providers now
+   that there's ONE writer, dead flags/env vars, orphaned test doubles, the
+   `--writer groq/openrouter` eval dials if serving can never use them). For each,
+   PROVE it's unreferenced (grep) before recommending deletion.
+B. OVER-ENGINEERING — single-use abstractions, indirection with one caller,
+   config/params never varied, defensive layers for cases that can't occur,
+   parallel code paths that could be one. Propose the concrete collapse.
+C. REDUNDANCY — duplicated logic across evals/ and demo/ (or mac/ and extension/)
+   that should be one source of truth; near-identical functions; repeated parsing.
+D. LEANNESS PER PONYTAIL LADDER — for the heaviest modules, ask: does this need to
+   exist? is it already in the codebase? does stdlib/native cover it? could it be
+   one line? Name the specific reductions and the LOC they save.
+E. PRODUCTION-GRADE GAPS (hardening, honestly) — swallowed errors (bare except /
+   ignore_errors that hide failure as success, e.g. shutil.rmtree ignore_errors),
+   unbounded resources, silent truncation, shared mutable state under threads,
+   secrets/tokens in argv/logs, injection surfaces, missing input validation on
+   the HTTP boundary, and any stub/placeholder shipped as if real. These are the
+   only "add code" findings allowed, and only where correctness/safety needs it.
+F. COVERAGE OF PURPOSE — is there any module that does NOT play a role in Icarus
+   working as intended? Any experiment/scaffold left in the shipping path? Map each
+   top-level package to the job it serves; flag anything that maps to nothing.
+G. TEST QUALITY — tests that are tautological, test the mock, or lock an
+   implementation detail rather than behavior. Don't inflate coverage; flag noise.
+
+CONSTRAINTS: preserve the honesty gate's determinism and the per-tenant/trust
+interlock — never recommend removing a safety guard to save lines. Distinguish
+"safe to delete now" (proven unreferenced) from "would need a small refactor."
+
+DELIVERABLE: a ranked TABLE of subtraction/hardening opportunities — file:line,
+what, why it's safe, estimated LOC delta (negative = removed), and a one-line
+proof. End with: the 5 highest-leverage changes to make the codebase leaner and
+production-grade, and an explicit list of anything you were unsure was dead (so it
+isn't deleted on a guess). Do NOT rewrite the code; produce the plan.
+```
+
+## Open items carried forward, unresolved (from the pre-tester-gating handoff
+immediately below — still true, not touched tonight)
+
+- Option B's live premise (backgrounded embed actually getting CPU on the warm
+  Azure replica) — still UNTESTED, flag stays OFF.
+- 50k chunk cap vs the Azure container's real RAM — not confirmed.
+- Azure $200 trial credit expires 2026-08-10.
+- Merge/deploy timing — nothing merges to `main` or deploys until Sol clears
+  both P1/P2 prompts above and Alankrit decides to ship.
+- The "never trained on your code" claim in `PaidGeminiProvider`'s own docstring
+  admits the written no-training policy isn't yet recorded — Sol flagged this
+  independently too. Still open.
+
+---
+
 # Icarus — Session Handoff (2026-07-13): pre-tester gating — final testing + Sol audits
 
 **READ THIS FIRST — this supersedes the 2026-07-11/12 handoff below as the top

@@ -35,7 +35,7 @@ struct SetupView: View {
     @ViewBuilder private func signIn(message: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             MonoLabel("STEP 1 — CONNECT GITHUB")
-            Text("Sign in with GitHub to load a repository — public, or one of your own private ones. Your code is never trained on.")
+            Text("Sign in with GitHub to load a public repository.")
                 .font(.system(size: 14)).foregroundStyle(Theme.muted)
             if let message {
                 Text(message).font(.system(size: 13)).foregroundStyle(Theme.unknown)
@@ -75,15 +75,15 @@ struct SetupView: View {
 
             switch connect.state {
             case .idle:
-                Text("Public repos answer on the free writer; your own private repos answer only on the paid, private-safe writer. The first index of a new repo can take a minute.")
+                Text("This alpha supports public repositories only. The first index of a new repo can take a minute.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
             case .connecting(let repo):
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Indexing \(repo)…").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
-            case .ready(let repo, let isPrivate):
-                Text("✓ Loaded \(repo)\(isPrivate ? " (private · paid writer)" : "").")
+            case .ready(let repo, _):
+                Text("✓ Loaded \(repo).")
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
             case .failed(let message):
                 Text(message).font(.system(size: 14)).foregroundStyle(Theme.unknown)

@@ -193,9 +193,8 @@ async function askIcarus(selection, question) {
   // Stashed for D5's live guard / manual inspection, same as before -- the
   // panel below is the real, user-facing rendering.
   window.__icarusLastExplain = payload;
-  const isPrivate = !!(connectedRepoStatus && connectedRepoStatus.private);
   showPanel(
-    payload.verdict === "answer" ? renderAnswerHtml(payload, isPrivate) : renderUnknownHtml(payload)
+    payload.verdict === "answer" ? renderAnswerHtml(payload) : renderUnknownHtml(payload)
   );
 }
 

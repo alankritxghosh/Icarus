@@ -3,7 +3,7 @@
 # the hosted brain URL, plus a drag-to-Applications layout and first-open notes.
 #
 # Usage:
-#   ICARUS_BRAIN_URL=https://icarus-brain.onrender.com scripts/package_dmg.sh
+#   ICARUS_BRAIN_URL=https://your-brain.example scripts/package_dmg.sh
 #
 # Without ICARUS_BRAIN_URL the app falls back to the LOCAL brain (127.0.0.1:8000)
 # — only useful for a local test build, not for sharing.
@@ -47,7 +47,7 @@ Icarus — first-open instructions
 ================================
 
 Icarus is not signed with a paid Apple Developer ID, so macOS asks you to
-confirm it once before the first launch. This is expected and safe.
+confirm it once before the first launch. This is expected for this alpha.
 
 1. Drag Icarus onto the Applications folder shown next to it.
 2. Open your Applications folder and try to open Icarus. macOS may say it

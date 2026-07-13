@@ -37,16 +37,11 @@ def new_state() -> str:
     return secrets.token_urlsafe(24)
 
 
-def authorize_url(client_id: str, redirect_uri: str, state: str, scope: str = "repo") -> str:
+def authorize_url(client_id: str, redirect_uri: str, state: str, scope: str = "read:user") -> str:
     """Build the GitHub authorize URL the app opens in the auth sheet.
 
-    `repo` grants read/write to essentially all of the user's repos (public
-    AND private) -- broad, but the fast path for this beta's OAuth flow.
-    The narrower alternative (a GitHub App with per-repo installation, where
-    the user picks exactly which repos to grant) is explicitly deferred --
-    see docs/plans/2026-07-04-private-repos-per-user-isolation.md. Existing
-    signed-in users hold `read:user` tokens from before this change and must
-    sign out/in again before they can connect a private repo.
+    The controlled alpha accepts public repositories only, so GitHub is used
+    for identity—not broad access to every private repository.
     """
     q = urllib.parse.urlencode({
         "client_id": client_id,

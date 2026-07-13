@@ -468,23 +468,73 @@ class ConcurrencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             html = Path(d) / "index.html"
             html.write_text("<html></html>")
-            handler = make_handler(_SlowLibrary(), str(html))
+            # make_handler needs a REGISTRY (exposing library_for), not a bare
+            # Library -- wrap it, or /status errors instead of running slowly and
+            # the concurrency assertion proves nothing.
+            handler = make_handler(_StubRegistry(_SlowLibrary()), str(html))
             server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
             port = server.server_port
             threading.Thread(target=server.serve_forever, daemon=True).start()
             base = f"http://127.0.0.1:{port}"
+            slow_result = {}
+
+            def _do_slow():
+                try:
+                    with urllib.request.urlopen(base + "/status", timeout=5) as r:
+                        slow_result["code"] = r.status
+                except Exception as e:  # capture -- an in-thread crash must fail the test
+                    slow_result["error"] = repr(e)
+
+            slow = threading.Thread(target=_do_slow, daemon=True)
             try:
-                slow = threading.Thread(
-                    target=lambda: urllib.request.urlopen(base + "/status", timeout=5).read(),
-                    daemon=True)
                 slow.start()
                 time.sleep(0.2)
                 start = time.time()
                 with urllib.request.urlopen(base + "/", timeout=3) as resp:
                     self.assertEqual(resp.status, 200)
-                self.assertLess(time.time() - start, 2.0)
+                self.assertLess(time.time() - start, 2.0)   # fast one not blocked
             finally:
                 release.set()
+                slow.join(timeout=5)
+                server.shutdown()
+                server.server_close()
+            # The slow request must have genuinely reached the (blocked) library and
+            # then succeeded -- proof it ran concurrently, not that it errored out.
+            self.assertEqual(slow_result.get("code"), 200, slow_result)
+
+
+class AskWriterFailureTests(unittest.TestCase):
+    """A writer failure (missing key / provider outage) must return a clean JSON
+    503, never drop the connection with no response (Sol P1)."""
+
+    def test_writer_exception_returns_503_json(self):
+        from http.server import ThreadingHTTPServer
+
+        class _BoomPipeline:
+            def answer(self, q):
+                raise RuntimeError("GEMINI_PAID_API_KEY not set")
+
+        class _BoomLibrary(_StubLibrary):
+            def current_pipeline(self):
+                return _BoomPipeline()
+
+        with tempfile.TemporaryDirectory() as d:
+            html = Path(d) / "index.html"
+            html.write_text("<html></html>")
+            handler = make_handler(_StubRegistry(_BoomLibrary()), str(html))
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            port = server.server_port
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            base = f"http://127.0.0.1:{port}"
+            try:
+                data = json.dumps({"question": "why?"}).encode()
+                req = urllib.request.Request(base + "/ask", data=data,
+                                             headers={"Content-Type": "application/json"})
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req)
+                self.assertEqual(ctx.exception.code, 503)
+                self.assertIn("error", json.loads(ctx.exception.read()))
+            finally:
                 server.shutdown()
                 server.server_close()
 
@@ -789,7 +839,7 @@ class PrivateConnectRouteTests(unittest.TestCase):
         time.sleep(0.05)  # give any (incorrectly) spawned thread a chance to run
         self.assertEqual(lib.connected, [])
 
-    def test_private_repo_spawns_connect_with_token_and_private_true(self):
+    def test_private_repo_is_refused_before_connect(self):
         from .auth import StaticTokenVerifier
         lib = _StubLibrary()
         reg = _StubRegistry(lib)
@@ -797,16 +847,13 @@ class PrivateConnectRouteTests(unittest.TestCase):
         try:
             with unittest.mock.patch("demo.server.github_access.repo_info",
                                      return_value={"private": True}):
-                status, payload = _post_with_auth(fx.base + "/connect", {"repo": "acme/secret"}, "tok-a")
-            self.assertEqual(status, 202)
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    self._connect(fx.base, token="tok-a")
+                self.assertEqual(cm.exception.code, 403)
+                cm.exception.close()
         finally:
             fx.close()
-        import time
-        for _ in range(50):
-            if lib.connect_calls:
-                break
-            time.sleep(0.02)
-        self.assertEqual(lib.connect_calls, [("acme/secret", "tok-a", True)])
+        self.assertEqual(lib.connect_calls, [])
 
     def test_public_repo_spawns_connect_without_token(self):
         from .auth import StaticTokenVerifier

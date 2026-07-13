@@ -1,6 +1,7 @@
 import Foundation
 
-/// Streaming, on-device speech-to-text. The real implementation (in the app target)
+/// Streaming speech-to-text (on-device when the Mac has the local model, else
+/// Apple's cloud service). The real implementation (in the app target)
 /// wraps Apple's `SFSpeechRecognizer`; tests use `StubSpeechRecognizer`. Behind a
 /// protocol so `VoiceModel` is testable without the Speech framework or a microphone —
 /// the same seam pattern as `TokenStore`.
@@ -16,12 +17,28 @@ public protocol SpeechRecognizer: Sendable {
     func finish() async -> String
 }
 
+/// Why a streaming session couldn't start — a *typed* reason so the UI can guide the
+/// user precisely instead of a generic "couldn't start." Lives in IcarusKit (not the
+/// app target) so `VoiceModel` can map each case to its own copy without importing the
+/// Speech framework.
+///
+/// Note: a MISSING on-device speech model is deliberately NOT one of these. macOS has
+/// no API to install it from code (Apple DevForums 703770), so rather than dead-end a
+/// fresh Mac, `AppleSpeechRecognizer` falls back to Apple's speech service — voice stays
+/// zero-setup. These cases are the genuine can't-start conditions worth guiding on.
+public enum SpeechStartError: Error, Equatable, Sendable {
+    case notAuthorized // speech-recognition permission denied
+    case micDenied     // microphone permission denied
+    case unavailable   // recognizer not available right now
+}
+
 /// In-memory double for tests ONLY. Optionally emits scripted partials on start, then
 /// returns `final` from finish; `startFails` makes start throw.
 public final class StubSpeechRecognizer: SpeechRecognizer, @unchecked Sendable {
     public enum Behavior: Sendable {
         case transcript(partials: [String], final: String)
         case startFails
+        case startFailsWith(SpeechStartError)
     }
 
     private let behavior: Behavior
@@ -32,6 +49,8 @@ public final class StubSpeechRecognizer: SpeechRecognizer, @unchecked Sendable {
         switch behavior {
         case .startFails:
             throw NSError(domain: "StubSpeechRecognizer", code: 1)
+        case .startFailsWith(let reason):
+            throw reason
         case .transcript(let partials, _):
             for p in partials { onPartial(p) }
         }

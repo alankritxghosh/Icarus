@@ -19,7 +19,9 @@ from .registry import LibraryRegistry
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT.parent / "evals" / "corpus" / "chunks.jsonl"
 QUESTIONS = json.loads((ROOT.parent / "evals" / "phase1_questions.json").read_text())
-_HAS_KEY = any(os.environ.get(k) for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"))
+# The serving path uses ONE writer now (gemini-paid) for every repo, so the live
+# guard requires that key -- a free key alone can't answer, it would 503.
+_HAS_KEY = bool(os.environ.get("GEMINI_PAID_API_KEY"))
 
 
 def _post(base, question):

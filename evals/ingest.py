@@ -376,6 +376,14 @@ def fetch_code(repo, commit, code_dir, token=None):
                           # symlink/socket/fifo classify_file's is_file() let through
             total += len(text.encode("utf-8", "replace"))
             for sub in chunk_text(text, f"{source}:{rel}"):
+                # HARD cap, enforced per-chunk (not just per-file): a single file
+                # whose windows cross the cap must not overshoot silently. Log and
+                # stop the instant we hit it, so a truncated corpus never reads as
+                # "covered everything".
+                if len(chunks) >= _MAX_TOTAL_CHUNKS:
+                    print(f"ingest: chunk cap reached; truncating code walk of {repo!r} "
+                          f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
+                    return chunks
                 chunks.append({"ref": sub["ref"], "source": source, "text": sub["text"]})
     return chunks
 

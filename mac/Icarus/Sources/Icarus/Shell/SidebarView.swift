@@ -33,22 +33,19 @@ struct SidebarView: View {
                 // off it made simonw/llm look like hardcoded UI chrome. The connect
                 // state is the app's own truth (and drops to "Not connected" if the
                 // server ever loses the session).
-                if case .ready(let repo, let isPrivate) = connect.state {
+                if case .ready(let repo, _) = connect.state {
                     Text(repo)
                         .font(Theme.mono(13)).foregroundStyle(Theme.ink)
                         .padding(.top, 3)
-                    Text(isPrivate ? "PRIVATE · PAID WRITER" : "PUBLIC · FREE WRITER")
+                    Text("PUBLIC REPOSITORY ALPHA")
                         .font(Theme.mono(10))
-                        .foregroundStyle(isPrivate ? Theme.cited : Theme.muted)
+                        .foregroundStyle(Theme.muted)
                         .padding(.top, 2)
                 } else {
                     Text("Not connected")
                         .font(Theme.mono(13)).foregroundStyle(Theme.muted)
                         .padding(.top, 3)
                 }
-                Text("Zero training on code")
-                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    .padding(.top, 2)
                 if auth.isSignedIn, connect.isReady {
                     Button("Disconnect repo") { connect.disconnect() }
                         .buttonStyle(.plain)

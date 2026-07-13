@@ -50,6 +50,19 @@ public final class VoiceModel {
                 Task { @MainActor in self?.partialTranscript = text }
             })
             state = .recording
+        } catch let reason as SpeechStartError {
+            // Typed reasons get precise, actionable guidance. (A missing on-device model
+            // never reaches here — it falls back to the cloud recognizer, zero-setup.)
+            switch reason {
+            case .micDenied:
+                state = .failed("Microphone access is off. Turn it on in System Settings "
+                    + "→ Privacy & Security → Microphone, then hold ⌥ to speak.")
+            case .notAuthorized:
+                state = .failed("Speech recognition access is off. Turn it on in System "
+                    + "Settings → Privacy & Security → Speech Recognition.")
+            case .unavailable:
+                state = .failed("Speech recognition isn’t available on this Mac right now.")
+            }
         } catch {
             state = .failed("Couldn’t start listening.")
         }

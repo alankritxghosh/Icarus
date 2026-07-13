@@ -293,7 +293,7 @@ async function refreshBadge(){
   try{
     const s=await (await fetch("/status",{headers:authHeaders()})).json();
     if(s&&s.state==="ready"&&s.repo){
-      tierBadge.innerHTML='<span class="dot"></span> '+(s.private?"private · paid writer":"public · free writer")+" — 0 trained on your code";
+      tierBadge.innerHTML='<span class="dot"></span> public repository alpha';
     }
   }catch(e){}
 }

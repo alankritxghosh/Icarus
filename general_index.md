@@ -29,17 +29,10 @@ removing, or renaming files). For class/function-level detail see
   repo-switch ingest), non-root UID 1000 (required by some hosts, harmless on
   others), `RUN python -m demo.warm_cache` bakes the fastembed model + default
   corpus's embeddings in at build time (boots warm on any host), runs
-  `python -m demo.server`; binds `0.0.0.0`/`$PORT`. Same image runs on Azure
-  Container Apps (live), a local Docker daemon, or Render (retired, suspended).
-- `render.yaml` — the **original** host's Blueprint (Render, free Docker web
-  service). **Retired 2026-07-11/12**: Render's free tier is a genuine 0.1 CPU,
-  confirmed live to never finish embedding a real repo even inside a 15-minute
-  bound (docs/HANDOFF.md) — the brain moved to Azure Container Apps. The
-  service itself is suspended (not deleted) on Render; this file is kept as a
-  working, reversible fallback config, not the live deployment. See
-  `docs/DISTRIBUTION.md` for the current (Azure) hosting runbook.
+  `python -m demo.server`; binds `0.0.0.0`/`$PORT`. The image runs on Azure
+  Container Apps (live) or a local Docker daemon.
 - `.dockerignore` — keeps the image slim (only `evals/`+`demo/`+committed corpus;
-  excludes `mac/`, `.git`, caches, `.env`).
+  excludes local data/worktrees, tooling, clients, docs, `.git`, caches, `.env`).
 
 ## Security automation (per-commit + CI)
 - `scripts/scan_secrets.sh` — deterministic secrets scan; `--staged` (pre-commit)
@@ -205,8 +198,12 @@ removing, or renaming files). For class/function-level detail see
   Citation matching is tolerant-but-safe (`_parse_ref`/`_resolve`): it grounds a
   citation the writer reformatted — dropped `code:` prefix, display brackets, or
   narrowed a chunk's `#L1-L300` window to the specific `#L21` line — when paths
-  match AND either side is whole-file OR the line spans overlap, but still forces
-  unknown on an unretrieved path or an out-of-window line, so groundedness holds.
+  match AND the cited lines are CONTAINED in the retrieved window, but still forces
+  unknown on an unretrieved path, an out-of-window line, or a MALFORMED range
+  (line 0/negative, end<start), so groundedness holds. It also applies the (b)
+  rationale guard: when given the question + evidence, a "why" question whose
+  grounded evidence records no reason (a bare code constant, not pr/issue/doc or
+  rationale prose) is forced to "unknown" — catching the why→what dodge.
   A named source prefix must equal the retrieved ref's source (`code:1489` never
   grounds to `pr:1489`); only a bare-body citation gets the prefix-drop tolerance.
 - `evals/judge.py` — the answer-correctness judge (quality dial, NOT a gate):

@@ -37,12 +37,11 @@ class AuthorizeUrlTests(unittest.TestCase):
         self.assertIn("scope=repo", url)
         self.assertIn("127.0.0.1", url)
 
-    def test_default_scope_is_repo(self):
-        # No explicit scope passed: must default to `repo` so a signed-in
-        # user's token can actually read their private repos (read:user only
-        # proves identity, it can't read repo contents).
+    def test_default_scope_is_identity_only(self):
+        # The controlled alpha accepts public repos only, so authentication
+        # needs identity—not broad read/write access to every private repo.
         url = authorize_url("cid123", "http://127.0.0.1:8000/auth/github/callback", "st8")
-        self.assertIn("scope=repo", url)
+        self.assertIn("scope=read%3Auser", url)
 
 
 class ExchangeCodeTests(unittest.TestCase):

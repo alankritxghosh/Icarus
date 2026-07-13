@@ -77,18 +77,12 @@ test("renderAnswerHtml: a citation with no URL renders as plain text, not a brok
   assert.match(html, /code:weird/);
 });
 
-test("renderAnswerHtml: shows 'public repo' for a public repo", () => {
-  assert.match(renderAnswerHtml({ answer: "x", citations: [] }, false), /public repo/);
+test("renderAnswerHtml: labels the public alpha", () => {
+  assert.match(renderAnswerHtml({ answer: "x", citations: [] }), /public repository alpha/);
 });
 
-test("renderAnswerHtml: shows 'private repo' for a private repo", () => {
-  assert.match(renderAnswerHtml({ answer: "x", citations: [] }, true), /private repo/);
-});
-
-test("renderAnswerHtml: does NOT claim 'paid writer' or 'trained' -- the known-inaccurate claim it deliberately avoids", () => {
-  // Guards against silently reintroducing demo/index.html's badge copy,
-  // which docs/HANDOFF.md records as not currently true.
-  const html = renderAnswerHtml({ answer: "x", citations: [] }, true);
+test("renderAnswerHtml: does not make paid-writer or training claims", () => {
+  const html = renderAnswerHtml({ answer: "x", citations: [] });
   assert.doesNotMatch(html, /paid writer/i);
   assert.doesNotMatch(html, /trained/i);
 });

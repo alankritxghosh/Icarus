@@ -5,14 +5,14 @@ parts, in order: **host the brain** (so any recipient can reach it), then **buil
 and share the app** (ad-hoc signed, past Gatekeeper by hand).
 
 This is a **controlled-demo posture**, not a hardened public service. Read the
-tradeoffs at the bottom before sharing widely.
+tradeoffs at the bottom before sharing widely. The current alpha accepts public
+repositories only; the server rejects private repositories before ingest.
 
 **Hosting history:** Render (free tier) was the original host; its 0.1 CPU
 free tier could never finish embedding a real repo (docs/HANDOFF.md), so the
 brain moved to **Azure Container Apps** on 2026-07-11/12. The Render service
 (`icarus-brain`, `srv-d94153cvikkc73ba8ckg`) is now **suspended**, not
-deleted — `render.yaml`/`Dockerfile` still work unchanged on Render if it's
-ever resumed, but it is not the live host.
+deleted. Its retired Blueprint was removed; Azure is the only shipping host.
 
 ---
 

@@ -11,7 +11,8 @@ POST /disconnect -> forget the caller's library and delete their on-disk storage
 The active pipeline lives in a Library (demo/library.py); the handler is a thin
 shell over it. /connect runs in a background thread so the request returns
 immediately and the page polls /status. No brain code changes -- packaging only.
-Public repos only on free hosted models. Run: GROQ_API_KEY=... python3 -m demo.server
+One writer for every repo -- the billed, private-safe Gemini (no free/paid
+tier split). Run: GEMINI_PAID_API_KEY=... python3 -m demo.server
 """
 
 import json
@@ -339,8 +340,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(400, {"error": "missing question"})
                     return
                 repo, commit = lib.provenance()
-                payload = build_payload(lib.current_pipeline().answer(question), repo, commit)
-                self._send_json(200, payload)
+                try:
+                    result = lib.current_pipeline().answer(question)
+                except Exception as e:
+                    # The rented writer failed -- missing/invalid key, provider
+                    # outage, or exhausted retries. Return an honest JSON error
+                    # instead of letting the exception drop the connection with no
+                    # response. Logged server-side (never swallowed silently).
+                    print(f"/ask writer failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                    return
+                self._send_json(200, build_payload(result, repo, commit))
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
             elif self.path == "/connect":
@@ -368,7 +378,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     if info is None:
                         self._send_json(403, {"error": "that repo doesn't exist or your GitHub account can't read it"})
                         return
-                    private = info["private"]
+                    if info["private"]:
+                        self._send_json(403, {"error": "private repos are not available in this alpha"})
+                        return
                 # The default access log is suppressed (log_message below), so
                 # without this a /connect request leaves NO trace at all until
                 # (if ever) it reaches the embed loop's own progress logging --
@@ -449,7 +461,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if repo.strip() != active_repo:
                 self._send_json(409, {"error": "that repo isn't your currently connected repo"})
                 return
-            result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
+            try:
+                result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
+            except Exception as e:
+                print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
+                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                return
             self._send_json(200, build_payload(result, active_repo, commit))
 
     return Handler
@@ -467,6 +484,10 @@ def resolve_provenance(meta_path, questions_path):
 
 def serve(host: str = None, port: int = None):
     load_env_file(REPO_ROOT / ".env")  # pick up keys from a gitignored .env
+    if not os.environ.get("GEMINI_PAID_API_KEY"):
+        print("WARNING: GEMINI_PAID_API_KEY is not set -- it is now the ONLY writer "
+              "for every repo (public and private); /ask and /explain will return "
+              "503 until it is configured.", file=sys.stderr)
     # Bind from env so a PaaS (e.g. Render injects $PORT) can place us; loopback
     # defaults keep local dev unchanged.
     host = host if host is not None else os.environ.get("HOST", "127.0.0.1")

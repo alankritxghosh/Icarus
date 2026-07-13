@@ -28,9 +28,9 @@
     <string>14.0</string>
     <!-- App is Dock-visible (.regular); no LSUIElement. -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Icarus transcribes your spoken question on-device while you hold the hotkey. Audio never leaves your Mac.</string>
+    <string>Icarus transcribes your spoken question while you hold the hotkey. Recognition runs on-device when your Mac has the local speech model; otherwise it uses Apple's speech recognition service.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Icarus turns your spoken question into text on-device. Speech is recognized locally and never leaves your Mac.</string>
+    <string>Icarus turns your spoken question into text. It's recognized on-device when your Mac has the local model; otherwise Apple's speech recognition service is used.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <!-- Custom scheme for the GitHub web-login callback (icarus://auth?session=…);

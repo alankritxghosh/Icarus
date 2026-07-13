@@ -100,25 +100,30 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     return HybridRetriever(lexical, semantic)
 
 
-def _pick_writer():
-    return "groq" if has_provider_key("groq") else "gemini" if has_provider_key("gemini") else "openrouter"
-
-
-def _default_build_pipeline(corpus_dir, fast=False):
-    chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
-    return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, make_provider(_pick_writer()))
-
-
-def _default_build_private_pipeline(corpus_dir, fast=False):
-    # The interlock is checked at construction -- the single chokepoint where
-    # the provider is fixed for this pipeline's lifetime. Applies identically
-    # regardless of `fast` -- fast only changes which RETRIEVER gets built,
-    # never the writer/trust decision.
+def _build_gated_pipeline(corpus_dir, fast=False):
+    """The ONE writer for every repo, public or private: the billed,
+    private-safe Gemini. The free/paid tier split is gone -- a single strong
+    model does all the work (decided 2026-07-13; the free writer was the sole
+    cause of the public-tier verdict-trust breach, so removing that path
+    removes the breach). Routed through the trust interlock at construction --
+    the single chokepoint where the provider is fixed for this pipeline's
+    lifetime. With one private-safe writer the interlock always passes; it
+    stays as defense-in-depth and because removing it is never OK (CLAUDE.md
+    hard constraint). `fast` only changes which RETRIEVER gets built, never the
+    writer/trust decision."""
     from evals.trust import assert_safe_for_private
     provider = make_provider("gemini-paid")
     assert_safe_for_private(provider)
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
     return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider)
+
+
+# Public and private repos now use the SAME single billed private-safe writer.
+# Two names are kept because Library/registry thread them through separately,
+# but the public/private distinction is now purely DATA ISOLATION (storage root
+# + /status badge), never model quality.
+_default_build_pipeline = _build_gated_pipeline
+_default_build_private_pipeline = _build_gated_pipeline
 
 
 def _default_private_ready():

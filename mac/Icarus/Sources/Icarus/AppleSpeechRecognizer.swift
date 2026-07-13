@@ -3,17 +3,18 @@ import Speech
 @preconcurrency import AVFoundation
 import IcarusKit
 
-/// Real-time, on-device speech-to-text via Apple's Speech framework — the engine
-/// behind macOS dictation. Streams partial transcripts while the user holds the key
-/// and returns the final transcript on release.
+/// Real-time speech-to-text via Apple's Speech framework — the engine behind macOS
+/// dictation. Streams partial transcripts while the user holds the key and returns the
+/// final transcript on release.
 ///
-/// Privacy: recognition is pinned to **on-device** (`requiresOnDeviceRecognition`), so
-/// audio never leaves the Mac. If the OS can't do this locale on-device, we fail
-/// rather than fall back to Apple's servers — Icarus never leaks a credential-or a
-/// voice-off the machine.
+/// Privacy: recognition runs **on-device** (`requiresOnDeviceRecognition = true`)
+/// whenever this Mac has the local speech model — then audio never leaves the machine.
+/// macOS provides NO API to install that model from code (Apple DevForums 703770), so
+/// to keep voice zero-setup on a fresh Mac we fall back to Apple's speech service when
+/// the model is absent. Macs that have used Dictation/Siri stay fully on-device; only
+/// ones missing the model use the network fallback. The Info.plist and the Privacy
+/// surface state this honestly — the app never claims on-device-only when it isn't.
 final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendable {
-    enum SpeechError: Error { case notAuthorized, micDenied, unavailable, noOnDevice }
-
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -24,14 +25,17 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
     private var finishContinuation: CheckedContinuation<String, Never>?
 
     func start(onPartial: @escaping @Sendable (String) -> Void) async throws {
-        guard try await Self.authorizeSpeech() else { throw SpeechError.notAuthorized }
-        guard await AVCaptureDevice.requestAccess(for: .audio) else { throw SpeechError.micDenied }
-        guard let recognizer, recognizer.isAvailable else { throw SpeechError.unavailable }
-        guard recognizer.supportsOnDeviceRecognition else { throw SpeechError.noOnDevice }
+        guard try await Self.authorizeSpeech() else { throw SpeechStartError.notAuthorized }
+        guard await AVCaptureDevice.requestAccess(for: .audio) else { throw SpeechStartError.micDenied }
+        guard let recognizer, recognizer.isAvailable else { throw SpeechStartError.unavailable }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.requiresOnDeviceRecognition = true   // audio stays on the Mac
+        // Prefer on-device (audio stays on the Mac) when this Mac has the local speech
+        // model; otherwise fall back to Apple's speech service so voice works with ZERO
+        // setup. macOS has no API to install the on-device model from code (DevForums
+        // 703770), so requiring on-device would dead-end a fresh Mac.
+        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         self.request = request
         lock.withLock { latestTranscript = "" }
 

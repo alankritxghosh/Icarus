@@ -55,9 +55,8 @@ struct PrivacyBoundaryView: View {
             surfaceTitle("Privacy boundary", "What crosses the line off your machine — and what never does.")
             ShellCard {
                 VStack(alignment: .leading, spacing: 14) {
-                    claim("Voice stays on your Mac", "Speech is transcribed on-device (Apple Speech, on-device only). Audio never leaves the machine — if the OS can't do it locally, Icarus fails rather than sending it to a server.")
-                    claim("Never trained on your code", "Retrieved evidence answers a question, then it's discarded. Your code is never used to train a model.")
-                    claim("Public repos only, for now", "On free hosted models Icarus indexes public repositories only. Private repos wait for the paid/private-model decision.")
+                    claim("Voice: on-device when supported", "Speech is transcribed on-device via Apple Speech when your Mac has the local model — then audio never leaves the machine. When the model isn't installed, Icarus falls back to Apple's speech recognition service so voice works with no setup.")
+                    claim("Public repositories only", "This alpha sends retrieved evidence from public repositories to the answering model. Do not connect private code.")
                     claim("Cite or say \"I don't know\"", "Every answer carries the receipts it's built from. When the record doesn't hold the answer, Icarus says so — it never bluffs.")
                 }
             }

@@ -15,6 +15,19 @@ or echoing the prompt's display brackets (`[code:foo#L1-L2]`) -- both observed
 live and both previously discarded a correct, grounded code answer. Tolerance
 only ever maps a citation onto a ref that WAS retrieved; a citation matching no
 retrieved chunk is still forced to "unknown", so groundedness is not weakened.
+
+HONEST BOUNDARY (what is and isn't deterministic here):
+- GROUNDEDNESS is fully deterministic and auditable: every emitted citation is
+  resolved back to a genuinely-retrieved ref, with a valid, contained line
+  window -- the writer can never make us cite invented or unretrieved evidence.
+- ABSTENTION when the answer was never written down is only PARTLY provable in
+  code. The (b) guard below deterministically catches the clearest dodge -- a
+  "why" question answered from evidence that records no reason (a bare code
+  constant) -- but the gate cannot semantically verify that arbitrary evidence
+  truly ENTAILS an arbitrary answer without becoming a model itself. For cases
+  (b) doesn't cover, abstention still leans on the cite-or-abstain writer. So:
+  no bluffed citations, ever (deterministic); "I don't know when unrecorded" is
+  code-enforced for the clear case and writer-reliant beyond it. Don't overclaim.
 """
 
 import json
@@ -108,12 +121,18 @@ def _resolve(cit, retrieved: List[str]):
     cleaned = _debracket(cit)
     if not cleaned:
         return None
-    if cleaned in retrieved:                       # exact (after debracketing)
-        return cleaned
     csource = _source(cleaned)
     cpath, cstart, cend = _parse_ref(cleaned)
     if not cpath:
         return None
+    # A malformed line window (line 0/negative, or end < start) is not a real
+    # location -- it can only be fabricated or garbled, so it must never ground.
+    # Guard here, BEFORE the exact-match shortcut, so a malformed ref can't slip
+    # through even if it textually equals a (equally malformed) retrieved string.
+    if cstart is not None and (cstart < 1 or cend < cstart):
+        return None
+    if cleaned in retrieved:                       # exact (after debracketing)
+        return cleaned
     for r in retrieved:
         if csource is not None and csource != _source(r):
             continue                               # named source must match
@@ -129,7 +148,44 @@ def _resolve(cit, retrieved: List[str]):
     return None
 
 
-def gate(raw: str, retrieved: List[str]) -> Result:
+# --- (b) rationale-support guard ----------------------------------------------
+# Groundedness (citations subset of retrieved) proves the writer cited real
+# evidence, but NOT that the evidence answers the question. The blind spot is a
+# "why" question answered with a "what": "why is the limit 32?" -> "it's 32,
+# defined in models.py" cites a real code line that contains no REASON. This
+# guard lets the gate refuse that: when the question seeks a rationale, at least
+# one grounded chunk's text must actually state a reason, else abstain.
+#
+# It is a deterministic heuristic, and deliberately fail-safe: it can only ever
+# turn an "answer" into "unknown", never the reverse -- so it cannot weaken
+# groundedness or abstention recall. Its only cost is possible over-abstention on
+# a genuinely answerable why-question (a QUALITY trade, measured on the board),
+# never a bluff. Only active when the caller supplies both `question` and
+# `evidence` (the serving pipeline does); older 2-arg callers are unaffected.
+_SEEKS_RATIONALE = re.compile(r"\b(why|rationale|reason(?:ing|ed|s)?|motivat\w*)\b", re.I)
+
+_RATIONALE_MARKERS = (
+    "because", "since ", "so that", "so as", "in order to", "to avoid",
+    "to ensure", "to prevent", "to support", "to allow", "to keep", "to make ",
+    "rather than", "instead of", "the reason", "rationale", "chosen", "chose ",
+    "decided", "decision", "intended", "intent", "motivat", "designed to",
+    "this allows", "this ensures", "this lets", "we want", "we need",
+    "so we ", "which lets", "which allows", "avoids", "ensures", "prevents",
+)
+
+
+def _seeks_rationale(question) -> bool:
+    return isinstance(question, str) and _SEEKS_RATIONALE.search(question) is not None
+
+
+def _states_reason(text) -> bool:
+    if not isinstance(text, str):
+        return False
+    low = text.lower()
+    return any(m in low for m in _RATIONALE_MARKERS)
+
+
+def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
     data = _extract_json(raw)
     if not isinstance(data, dict) or data.get("verdict") != "answer":
         return Result(verdict="unknown")
@@ -146,4 +202,17 @@ def gate(raw: str, retrieved: List[str]) -> Result:
             grounded.append(r)
     if not grounded:
         return Result(verdict="unknown")
+    # (b) A rationale-seeking ("why") question needs grounded evidence that
+    # actually RECORDS a reason -- otherwise the writer answered an easier
+    # question than the one asked (the "why 32?" -> "it's 32" dodge). A recorded
+    # rationale lives in DISCUSSION (a pr/issue/doc chunk) or in prose that states
+    # a reason; a bare code/config definition does not justify a "why". If no
+    # grounded chunk clears that bar, abstain. Fail-safe: this only ever turns an
+    # answer into unknown. (Aligned with the product: undocumented "why" is an
+    # honest unknown even when the WHAT is right there in the code.)
+    if evidence is not None and _seeks_rationale(question):
+        def _records_reason(r):
+            return _source(r) in ("pr", "issue", "doc") or _states_reason(evidence.get(r, ""))
+        if not any(_records_reason(r) for r in grounded):
+            return Result(verdict="unknown", retrieved=list(retrieved))
     return Result(verdict="answer", answer=answer.strip(), citations=grounded, retrieved=list(retrieved))

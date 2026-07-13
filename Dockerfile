@@ -1,10 +1,9 @@
-# Icarus brain — container for cloud hosting (Render). The brain is almost pure
+# Icarus brain container. The brain is almost pure
 # Python stdlib; the ONE dependency is fastembed (requirements.txt) for local,
 # free, offline semantic-retrieval embeddings — the embedder runs server-side in
 # this container, so retrieval never depends on the end user's hardware. We also
 # add git + gh because the brain shells out to them to ingest a public repo when
-# a user switches repos in the app (see evals/ingest.py). Public repos on free
-# hosted writers; embeddings are always local (no key, no quota, no egress).
+# a user switches repos in the app (see evals/ingest.py). Embeddings stay local.
 FROM python:3.12-slim
 
 # git (clone the code subtree) + gh (fetch PRs/issues via the GitHub API).
@@ -20,40 +19,25 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
-# HF Spaces run the container as a non-root user, UID 1000 — Render runs as root
-# but a non-root USER is fine there too, so this is safe on both. Create the user
-# AFTER the root-only apt-get steps above and BEFORE COPY/pip. Give it ownership
-# of /app so everything the app writes is user-owned: the baked fastembed cache
-# (below) at build time, and the per-user corpora under ICARUS_STORAGE_ROOT
-# (=/app/data) at runtime. Without the chown, WORKDIR-created /app stays root-owned
-# and the runtime user can't mkdir /app/data.
+# Run as non-root; /app must remain writable for caches and per-user corpora.
 RUN useradd -m -u 1000 user
 WORKDIR /app
 RUN chown user:user /app
 USER user
 ENV PATH="/home/user/.local/bin:$PATH"
 
-COPY --chown=user . /app
-
 # The one Python dependency: fastembed (local embeddings). ONNX Runtime +
 # tokenizers, no PyTorch, so the image stays small. As a non-root user with no
 # virtualenv, pip installs into /home/user/.local (added to PATH above).
+COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=user . .
 
-# Boot WARM, not cold. A fresh Render deploy wipes the git-ignored vector cache,
-# so without this the container would download the fastembed model AND re-embed
-# the whole default corpus on startup -- long enough to leave the service stuck
-# "starting up" (docs/HANDOFF.md §4). Baking both into the image at build time
-# makes runtime a fast cache hit. FASTEMBED_CACHE_PATH pins the model download to
-# a stable in-image path used at BOTH build and runtime (fastembed reads this env
-# var); demo.warm_cache embeds the default corpus into evals/corpus/vectors.json,
-# exactly the cache the server's cold path would produce.
+# Bake the embedding model and default corpus cache so runtime boots warm.
 ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
 RUN python -m demo.warm_cache
 
-# Render (and most PaaS) inject $PORT and expect the process to bind 0.0.0.0.
-# The Host guard is opened via ICARUS_ALLOWED_HOSTS=* and the GitHub bearer gate
-# (ICARUS_REQUIRE_GITHUB_AUTH=1) becomes the real boundary — both set in render.yaml.
+# Azure injects $PORT. Production also requires the GitHub bearer gate.
 ENV HOST=0.0.0.0 \
     PYTHONUNBUFFERED=1
 EXPOSE 8000
