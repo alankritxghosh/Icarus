@@ -1,3 +1,229 @@
+# Icarus — Session Handoff (2026-07-13): pre-tester gating — final testing + Sol audits
+
+**READ THIS FIRST — this supersedes the 2026-07-11/12 handoff below as the top
+priority.** Tonight's work is on a branch, NOT merged, NOT deployed. Icarus is
+about to go to real testers. Before that, TWO gates must pass, and this handoff
+is the checklist for both:
+
+- **Track A — a final round of extensive, adversarial, real testing** (§A).
+- **Track B — independent audits by GPT-5.6 Sol** (§B).
+
+The bar: honesty is provably intact under load and adversarial input, quality is
+mapped (not assumed), and the open risks in §0.2 are decided. A break found now
+is the whole point — better us than a tester.
+
+## 0.1 State at end of this session (what is literally true right now)
+
+- Branch **`fix/gate-grounding-and-option-b` @ `b98e674`** (12 files, +589/-48).
+  **NOT merged** (`main` is at `a60986c`) and **NOT deployed** to Azure. Nothing
+  tonight is live for any user yet — it's all reversible on the branch.
+- Full suites green at the commit: **evals 313, demo 171** (0 failures).
+  Pre-commit secrets scan clean.
+- Live checks tonight: paid board gates 100% (groundedness + abstention recall)
+  with citation/answer correctness 100%; live code-only comprehension 3/3 on Go;
+  adversarial gate probes all failed safe (no bluff-through).
+- `.claude/launch.json` is intentionally left untracked (unrelated dev config).
+
+### What landed this session (three changes — read the memories for depth)
+
+1. **Gate code-citation grounding — HONESTY-CRITICAL** (`evals/gate.py`). The gate
+   now grounds a code citation the writer reformatted (dropped `code:` prefix,
+   display brackets, or narrowed a chunk window to the specific line it used),
+   BUT only by CONTAINMENT (cited lines ⊆ retrieved window), matching source, and
+   matching path — so a citation claiming lines beyond what was retrieved, a
+   wrong source, or an unretrieved path is still refused. Fixes false-abstentions
+   on code without opening a bluff hole. Memory:
+   `code-answering-gaps-truncation-and-citation-format`. A prior overlap-not-
+   containment bug (P0) was caught by the Sol review and fixed — see §B on why
+   this file gets re-audited.
+2. **Option B background embed — DEFAULT OFF** (`demo/library.py`,
+   `demo/server.py`), behind env `ICARUS_BACKGROUND_UPGRADE` (only meaningful
+   with `ICARUS_SYNC_CONNECT`). Blocks `/connect` through stage 1 (lexical
+   "ready") and runs the semantic embed in the background so a large repo can't
+   hit Azure's 240s ingress timeout; a monotonic connect generation guards the
+   stage-2 swap against stale overwrites. Memory:
+   `option-b-background-embed-and-100mb-cap`.
+3. **Ingest caps** (`evals/ingest.py`): total code cap **25MB→100MB**, plus a new
+   **50k total-chunk cap** to bound lexical stage-1 memory on a hostile
+   many-short-lines repo. Both caps log to stderr on truncation.
+
+## 0.2 OPEN decisions / risks to resolve BEFORE testers
+
+1. **Free-tier verdict-trust gate breach — STILL OPEN, not fixed.** A weak (free)
+   writer can self-declare verdict "answer" while its prose actually abstains,
+   and the gate trusts that field → an abstention-recall breach on the public
+   tier. Paid/private tier is unbreakable (64+ attempts). Memory:
+   `gate-gap-writer-verdict-trust`. **Decide:** fix the gate to not trust the
+   writer's verdict, or accept it as a documented public-tier-only limitation.
+   If testers touch public repos on the free writer, this can surface.
+2. **Option B live premise — UNTESTED.** Does a backgrounded embed actually get
+   CPU on the always-warm Azure replica (`min-replicas=1`)? The flag stays OFF
+   until this is proven live (§A-5). Don't enable it for testers before then.
+3. **50k chunk cap vs real host RAM.** 50k was chosen as "far above any real
+   repo, below explosion." Confirm the Azure container's actual memory and adjust
+   if 50k × ~600B chunk text + BM25 index is still too much for it.
+4. **Merge/deploy timing.** Nothing is live. Decide when to merge the branch to
+   `main`, rebuild the DMG/extension if needed, and deploy to Azure.
+5. **Azure $200 trial credit expires 2026-08-10** — upgrade to Pay-As-You-Go
+   before then or the subscription disables.
+6. **Sol saw a background-thread exception in an existing demo test** (suite still
+   reported OK). Track it down — under Option B's daemon threads a stray
+   exception shouldn't be shrugged off before load testing.
+
+---
+
+## §A — Track A: final testing rounds (execute, then record results)
+
+Run against the branch. Honesty gates must be **100%** throughout; a drop is a
+ship-blocker. Quality misses are findings to map, not blockers, as long as they
+fail SAFE (honest "I don't know", never a bluff).
+
+**A-1. Regression baseline (do first, every session).**
+- `python3 -m unittest discover -t . -s evals` and `-s demo` — expect 313 / 171.
+- `GEMINI_PAID_API_KEY=… python3 -m evals.run --pipeline gated --writer gemini-paid --judge gemini` — gates 100%, STATUS GREEN.
+- Adversarial gate probe: hand the deterministic `gate()` fabricated files, lines
+  outside/beyond the retrieved window, wrong/partial paths, cross-source
+  collisions, non-string/empty citations — every one must be `unknown`; every
+  legit reformatting (prefix drop / brackets / contained line) must ground.
+
+**A-2. Language robustness at scale (Axis 1 — extend, don't just confirm).**
+- Many more mangled questions ("horrid framing", typos, slang, missing words,
+  keyword-stripped paraphrase) across several repos, on BOTH tiers (free Groq +
+  paid Gemini). Hunt specifically for the §0.2-#1 free-tier verdict breach
+  reproducing on real repos.
+
+**A-3. Doc-answerable vs pure code-comprehension (Axis 2).**
+- Split questions by what they need: answerable-from-docs (README/comments) vs.
+  require line-by-line code reading with NO docs. Now that the gate grounds code
+  citations, re-run the code-only case at real scale (many repos), not just the
+  Go prototype. Verify answers against the actual source (grounded, not
+  hallucinated) and that undocumented "why" still abstains.
+
+**A-4. Repo diversity at both extremes (Axis 3 + 4).**
+- Zero-doc + large; heavily-documented; and ACROSS LANGUAGES (the chunker
+  supports Python, JS/TS, Go, Rust, Java, Ruby, C/C++, Swift, Kotlin, PHP, C#,
+  Scala, Shell — Go is proven, exercise the rest). Confirm the chunker doesn't
+  mangle a language, and that the 100MB/50k caps behave (watch the stderr
+  truncation logs).
+
+**A-5. Option B live premise + large-repo ceiling (the big infra test — needs
+Azure access).**
+- On Azure, with `ICARUS_BACKGROUND_UPGRADE=1`, connect a genuinely large repo:
+  confirm `/connect` returns fast (stage-1 "ready") AND the backgrounded embed
+  actually COMPLETES on the warm replica (inspect the retriever type / run a
+  concept-only query — the same way semantic was verified before). If it
+  completes → Option B is proven; if it's CPU-starved even warm → keep the flag
+  OFF and pursue Premium ingress or a queue worker. Also confirm a repo past the
+  ~1,900-2,000-chunk / 240s point behaves (either succeeds via Option B, or fails
+  cleanly, never hangs).
+
+**A-6. Concurrency / load (new — Option B makes this matter).**
+- Concurrent `/ask` requests; concurrent `/connect` to different repos and to the
+  SAME repo (exercise the generation guard live); whether the shared FastEmbed
+  model is safe under concurrent calls (Sol could not establish this from the
+  repo — verify it, or serialize embed calls if not). Watch for the stray
+  background-thread exception (§0.2-#6).
+
+**"Done" for Track A:** a written map of where honesty/quality holds and where it
+breaks, with the §0.2 risks each either closed or consciously accepted.
+
+---
+
+## §B — Track B: independent audits by GPT-5.6 Sol
+
+Sol's last pass returned **NO-GO** and caught a real P0 (a bluff-adjacent
+groundedness gap) plus P1/P2 — all now fixed on the branch. So **the fixes
+themselves must be re-audited**, not assumed correct. Run these read-only (e.g.
+`codex --sandbox read-only review`) against the branch. For each, tell Sol to
+reach its OWN verdict, distrust this author's claims, and prove every defect with
+a runnable repro.
+
+**B-1. Re-audit the gate (highest priority).** The P0 fix changed overlap→
+containment and added source/known-source logic. Ask Sol to attack the UPDATED
+`evals/gate.py`: any citation that grounds while claiming unretrieved
+lines/paths/sources (bluff-through); any false-reject of a genuinely grounded
+citation; parsing edge cases (paths with `:` or `#L`, unicode, empty, non-string,
+whole-file vs windowed, boundary lines). Confirm the structural invariant
+(every emitted citation ∈ `retrieved`) AND the stronger one Sol raised (no cited
+line outside the retrieved window can ground).
+
+**B-2. Audit Option B concurrency.** `demo/library.py` `connect_sync` /
+`_upgrade_to_semantic` / the generation guard, and `demo/server.py`'s flag wiring.
+Hunt for: lost updates beyond A→B→A, races on the pipeline swap under `_lock`,
+the single-flight `_inflight` slot, concurrent vector-cache writes, concurrent
+use of the shared embedder, and whether the DEFAULT (flag off) path is truly
+unchanged.
+
+**B-3. Audit the ingest caps.** `evals/ingest.py` 100MB + 50k-chunk caps: is 50k
+actually safe for the deployment's real memory limit? Overshoot behavior (byte
+cap can overshoot ~512KB; chunk cap by one file's windows). Whether the caps and
+their truncation logging are correct and can't be bypassed.
+
+**B-4. Full-diff review of the branch vs `main`** (`--base a60986c`): correctness,
+tests that are meaningful vs vacuous, and confirm no existing test was weakened.
+
+**Reusable Sol prompt skeleton** (adapt per audit; a fuller version was used last
+round — reuse its shape):
+> You are an INDEPENDENT, adversarial reviewer. Do NOT trust the author's
+> description or "tests pass." Reach your own verdict; prove every defect with a
+> runnable repro. Repo: "/Users/alankritghosh/JARVIS /jarvis_engineering" (quote
+> the space). Venv: `.venv/bin/python`. Base commit `a60986c`; branch
+> `fix/gate-grounding-and-option-b` @ `b98e674`. The ONE
+> invariant: the honesty gate must never emit "answer" with a citation that
+> doesn't correspond to genuinely-retrieved evidence (including no cited line
+> outside the retrieved window). [then the per-audit scope from B-1..B-4]. Run
+> `.venv/bin/python -m unittest discover -t . -s evals` and `-s demo` and report
+> counts. Deliverable: per-area verdict, an overall GO/NO-GO, repros for every
+> finding, and what you could not determine.
+
+**Definition of done for Track B:** Sol returns GO on B-1..B-4 (or the remaining
+findings are consciously accepted), with the gate re-audit explicitly clearing
+the containment/source logic.
+
+---
+
+## §C — Commands & harnesses
+
+Standard (from CLAUDE.md, run from repo root):
+- Suites: `python3 -m unittest discover -t . -s evals` / `-s demo`;
+  `node --test extension/*.test.js`.
+- Gated board: `GEMINI_PAID_API_KEY=… python3 -m evals.run --pipeline gated
+  --writer gemini-paid --judge gemini` (or `--writer groq` for the free tier).
+- Local server matching prod posture: `ICARUS_ALLOWED_HOSTS=* ICARUS_REQUIRE_GITHUB_AUTH=1 .venv/bin/python -m demo.server`
+  (add `ICARUS_SYNC_CONNECT=1 ICARUS_BACKGROUND_UPGRADE=1` to exercise Option B).
+
+**Session-local test harnesses (EPHEMERAL — they lived in this session's
+scratchpad and will NOT persist).** Recreate them (or ask to have them committed
+under a `tools/`-style path if we want them durable for the tester phase). What
+they did, so they can be rebuilt:
+- `stress_harness.py` — battery of hand-crafted mangled variants (typos/slang/
+  broken-grammar/missing-words/horrid/semantic) of the 10 labelled questions,
+  run through the real `GatedPipeline` over the committed corpus with a chosen
+  `--writer` and hybrid retriever; classifies each as grounded / honest-abstain /
+  false-abstain / BLUFF. This is how the free-tier breach was found.
+- `gate_gap_probe.py` — hammers the "embedded-fact multi-part why" framing at
+  unanswerable questions to hunt gate false-positives on a chosen writer.
+- `go_comprehension.py` — ingests a non-Python repo to a scratch dir, builds
+  FULL-corpus and CODE-ONLY pipelines, and runs gold what/how (answer) + why
+  (abstain) questions to test pure code comprehension per language. This is the
+  Axis-2/4 harness; generalize it to more repos/languages for A-3/A-4.
+- Ingest to a THROWAWAY dir (never the committed corpus):
+  `ingest_repo("owner/name", "<scratch>/corpus", code_dir=".")`.
+
+## §D — Ship-to-testers bar (definition of done)
+
+1. Track A run and its findings written down; §0.2 risks each closed or accepted.
+2. Track B (Sol) returns GO, gate re-audit explicitly clearing the new logic.
+3. Free-tier verdict breach (§0.2-#1) decided (fixed or accepted-and-documented).
+4. Option B either proven live (§A-5) and enabled, or left OFF with connects
+   still working the blocking way.
+5. Branch merged to `main` and deployed; DMG/extension rebuilt if the client
+   surface changed (it didn't this session — brain-only).
+
+Everything below is the prior 2026-07-11/12 handoff, still accurate history.
+
+---
+
 # Icarus — Session Handoff (2026-07-11/12, later: Azure migration, live)
 
 **READ THIS FIRST — next session's #1 priority is EXTENSIVE TESTING, per
