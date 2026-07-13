@@ -56,18 +56,17 @@ final class BrainClientTests: XCTestCase {
         // identity — an unauthenticated /status returns the shared public
         // default, stranding the connect poll. The bearer MUST be attached.
         _CapturingProtocol.lastRequest = nil
-        _CapturingProtocol.body = Data(#"{"state":"ready","repo":"o/secret","commit":"c","counts":null,"error":null,"private":true}"#.utf8)
+        _CapturingProtocol.body = Data(#"{"state":"ready","repo":"o/repo","commit":"c","counts":null,"error":null}"#.utf8)
         let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
         let s = try await client.status()
         XCTAssertEqual(_CapturingProtocol.lastRequest?.url?.path, "/status")
         XCTAssertEqual(_CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-123")
-        XCTAssertEqual(s.repo, "o/secret")
-        XCTAssertTrue(s.isPrivate)
+        XCTAssertEqual(s.repo, "o/repo")
     }
 
     func testDisconnectPostsWithBearerAndReturnsSnapshot() async throws {
         _CapturingProtocol.lastRequest = nil
-        _CapturingProtocol.body = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":null,"error":null,"private":false}"#.utf8)
+        _CapturingProtocol.body = Data(#"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":null,"error":null}"#.utf8)
         let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
         let status = try await client.disconnect()
         let req = _CapturingProtocol.lastRequest
@@ -76,7 +75,6 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(req?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-123")
         // The brain replies with the caller's fresh snapshot (back on the default).
         XCTAssertEqual(status.repo, "simonw/llm")
-        XCTAssertFalse(status.isPrivate)
     }
 
     func testAskOmitsAuthorizationWhenNoToken() async throws {

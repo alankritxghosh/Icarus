@@ -5,6 +5,7 @@ a shared read-only default pipeline, LRU-bounded memory, and safe disconnect."""
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from evals.corpus_meta import write_meta
@@ -161,75 +162,6 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("lib", racer)
         self.assertEqual(racer["lib"].status_snapshot()["repo"], "octo/xrepo")
 
-    def test_lru_eviction_never_silently_resumes_a_private_repo_as_public(self):
-        # Regression: the registry must never replay a private connect as a
-        # public one after eviction -- that would mean the wrong storage root,
-        # the wrong (free) pipeline, and reporting private: False for a repo
-        # the user believes is still private. The registry never holds a
-        # caller's GitHub token (tokens are per-request only), so it can only
-        # safely resume a private repo when the on-disk cache still exists
-        # (a genuine cache hit -- no ingest, no token needed); this test's
-        # private_ready/build_private_pipeline fakes mirror that.
-        private_builds = []
-
-        def fake_private_build(corpus_dir, fast=False):
-            private_builds.append(str(corpus_dir))
-            return f"private-pipeline::{corpus_dir}"
-
-        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
-                              build_pipeline=self.reg._base_build,
-                              ingest_fn=self.reg._ingest_fn, max_live=2,
-                              build_private_pipeline=fake_private_build,
-                              private_ready=lambda: True)
-
-        lib1 = reg.library_for("1")
-        lib1.connect_sync("acme/secret", token="tok-abc", private=True)
-        self.assertTrue(lib1.status_snapshot()["private"])
-        self.assertEqual(lib1.status_snapshot()["repo"], "acme/secret")
-
-        reg.library_for("2")
-        reg.library_for("3")  # evicts "1"
-
-        rebuilt = reg.library_for("1")
-        snap = rebuilt.status_snapshot()
-        # The one thing that must never happen: reporting the ORIGINAL private
-        # repo's name with private: False (a silent downgrade to public).
-        if snap["repo"] == "acme/secret":
-            self.assertTrue(snap["private"])
-        else:
-            # Otherwise it must have honestly fallen back to "not connected"
-            # (the default repo), never anything reported as public for that
-            # name.
-            self.assertEqual(snap["repo"], "simonw/llm")
-            self.assertFalse(snap["private"])
-
-    def test_lru_eviction_resumes_a_private_repo_when_its_cache_survives_on_disk(self):
-        # The cache-hit case specifically: connect_sync's ingest branch (the
-        # only place `token` is ever used) is skipped whenever the on-disk
-        # cache already exists, so resuming with token=None is safe and
-        # correct here -- prove it actually happens rather than falling back.
-        def fake_private_build(corpus_dir, fast=False):
-            return f"private-pipeline::{corpus_dir}"
-
-        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
-                              build_pipeline=self.reg._base_build,
-                              ingest_fn=self.reg._ingest_fn, max_live=2,
-                              build_private_pipeline=fake_private_build,
-                              private_ready=lambda: True)
-
-        lib1 = reg.library_for("1")
-        lib1.connect_sync("acme/secret", token="tok-abc", private=True)
-        cache_dir = self.storage / "1" / "private" / "acme__secret"
-        self.assertTrue((cache_dir / "chunks.jsonl").exists())  # cache is on disk
-
-        reg.library_for("2")
-        reg.library_for("3")  # evicts "1" -- but the disk cache is untouched
-
-        rebuilt = reg.library_for("1")
-        snap = rebuilt.status_snapshot()
-        self.assertEqual(snap["repo"], "acme/secret")
-        self.assertTrue(snap["private"])  # resumed correctly as private, not public
-
     def test_lru_eviction_resume_never_calls_ingest(self):
         # Pinning test: resuming a repo after eviction must always be a cache
         # hit -- ingest_fn is called exactly once, for the ORIGINAL connect,
@@ -260,40 +192,6 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(rebuilt.status_snapshot()["repo"], "octo/xrepo")
         self.assertEqual(ingested, ["octo/xrepo"])  # still just the one call
 
-    def test_lru_eviction_private_resume_never_calls_ingest(self):
-        # Same pin, for the private cache-hit resume path specifically --
-        # this is the one connect_sync proves is token-safe (needs_ingest is
-        # False, so the ingest branch, the only place token is used, is never
-        # reached); confirm it's also genuinely ingest-free, not just token-free.
-        ingested = []
-
-        def counting_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
-            ingested.append(repo)
-            _seed_corpus(out_dir, repo)
-            return {"pr": 1, "issue": 0, "code": 0}
-
-        def fake_private_build(corpus_dir, fast=False):
-            return f"private-pipeline::{corpus_dir}"
-
-        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
-                              build_pipeline=self.reg._base_build,
-                              ingest_fn=counting_ingest, max_live=2,
-                              build_private_pipeline=fake_private_build,
-                              private_ready=lambda: True)
-
-        lib1 = reg.library_for("1")
-        lib1.connect_sync("acme/secret", token="tok-abc", private=True)
-        self.assertEqual(ingested, ["acme/secret"])  # the one real ingest
-
-        reg.library_for("2")
-        reg.library_for("3")  # evicts "1" -- disk cache survives
-
-        rebuilt = reg.library_for("1")  # resumes as private -- must be a cache hit
-        snap = rebuilt.status_snapshot()
-        self.assertEqual(snap["repo"], "acme/secret")
-        self.assertTrue(snap["private"])
-        self.assertEqual(ingested, ["acme/secret"])  # still just the one call
-
     def test_disconnect_deletes_only_that_users_storage(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
@@ -303,6 +201,15 @@ class RegistryTests(unittest.TestCase):
         self.assertTrue((self.storage / "1002" / "cache" / "octo__yrepo").exists())
         # A fresh library for 1001 starts back on the default.
         self.assertEqual(self.reg.library_for("1001").status_snapshot()["repo"], "simonw/llm")
+
+    def test_disconnect_surfaces_delete_failure(self):
+        def fail_unless_ignored(path, ignore_errors=False):
+            if not ignore_errors:
+                raise PermissionError("denied")
+
+        with mock.patch("demo.registry.shutil.rmtree", fail_unless_ignored):
+            with self.assertRaises(PermissionError):
+                self.reg.disconnect("1001")
 
 
 if __name__ == "__main__":

@@ -32,22 +32,20 @@ final class SavedConnectionTests: XCTestCase {
     }
 
     func testSaveThenLoadRoundTrips() {
-        store.save(repo: "octo/secret", isPrivate: true)
+        store.save(repo: "octo/repo")
         let loaded = store.load()
-        XCTAssertEqual(loaded?.repo, "octo/secret")
-        XCTAssertEqual(loaded?.isPrivate, true)
+        XCTAssertEqual(loaded?.repo, "octo/repo")
     }
 
     func testSaveOverwritesPreviousConnection() {
-        store.save(repo: "octo/secret", isPrivate: true)
-        store.save(repo: "simonw/llm", isPrivate: false)
+        store.save(repo: "octo/repo")
+        store.save(repo: "simonw/llm")
         let loaded = store.load()
         XCTAssertEqual(loaded?.repo, "simonw/llm")
-        XCTAssertEqual(loaded?.isPrivate, false)
     }
 
     func testClearForgetsTheConnection() {
-        store.save(repo: "octo/secret", isPrivate: true)
+        store.save(repo: "octo/repo")
         store.clear()
         XCTAssertNil(store.load())
     }
@@ -55,42 +53,40 @@ final class SavedConnectionTests: XCTestCase {
     // MARK: the lost-connection check
 
     func testNotLostWhenNothingSaved() throws {
-        let s = try status(#"{"state":"ready","repo":"simonw/llm","commit":"a","counts":null,"error":null,"private":false}"#)
+        let s = try status(#"{"state":"ready","repo":"simonw/llm","commit":"a","counts":null,"error":null}"#)
         XCTAssertFalse(store.isLost(given: s))
     }
 
     func testNotLostWhenStatusMatchesSavedRepo() throws {
-        store.save(repo: "octo/secret", isPrivate: true)
-        let s = try status(#"{"state":"ready","repo":"octo/secret","commit":"a","counts":null,"error":null,"private":true}"#)
+        store.save(repo: "octo/repo")
+        let s = try status(#"{"state":"ready","repo":"octo/repo","commit":"a","counts":null,"error":null}"#)
         XCTAssertFalse(store.isLost(given: s))
     }
 
     func testRepoMatchIsCaseInsensitive() throws {
-        store.save(repo: "Octo/Secret", isPrivate: true)
-        let s = try status(#"{"state":"ready","repo":"octo/secret","commit":"a","counts":null,"error":null,"private":true}"#)
+        store.save(repo: "Octo/Repo")
+        let s = try status(#"{"state":"ready","repo":"octo/repo","commit":"a","counts":null,"error":null}"#)
         XCTAssertFalse(store.isLost(given: s))
     }
 
     func testLostWhenReadyOnADifferentRepo() throws {
-        // The eviction/restart downgrade: connected a private repo, the server
-        // now serves the public default as "ready" — this MUST be flagged.
-        store.save(repo: "octo/secret", isPrivate: true)
-        let s = try status(#"{"state":"ready","repo":"simonw/llm","commit":"a","counts":null,"error":null,"private":false}"#)
+        store.save(repo: "octo/repo")
+        let s = try status(#"{"state":"ready","repo":"simonw/llm","commit":"a","counts":null,"error":null}"#)
         XCTAssertTrue(store.isLost(given: s))
     }
 
     func testNotLostWhileIndexing() throws {
         // A connect in flight reports the OLD repo until the new one is ready —
         // an indexing state is never "lost".
-        store.save(repo: "octo/secret", isPrivate: true)
-        let s = try status(#"{"state":"indexing","repo":"simonw/llm","commit":"","counts":null,"error":null,"private":false}"#)
+        store.save(repo: "octo/repo")
+        let s = try status(#"{"state":"indexing","repo":"simonw/llm","commit":"","counts":null,"error":null}"#)
         XCTAssertFalse(store.isLost(given: s))
     }
 
     func testNotLostOnErrorState() throws {
         // Errors surface through the connect flow, not the downgrade banner.
-        store.save(repo: "octo/secret", isPrivate: true)
-        let s = try status(#"{"state":"error","repo":"simonw/llm","commit":"","counts":null,"error":"boom","private":false}"#)
+        store.save(repo: "octo/repo")
+        let s = try status(#"{"state":"error","repo":"simonw/llm","commit":"","counts":null,"error":"boom"}"#)
         XCTAssertFalse(store.isLost(given: s))
     }
 }

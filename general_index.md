@@ -19,7 +19,7 @@ removing, or renaming files). For class/function-level detail see
 - `.gitignore` — ignored paths (secrets/`.env`, caches, build artifacts); the
   committed `.env.example` is explicitly un-ignored.
 - `.env.example` — committed template (NO real keys) to copy to a gitignored
-  `.env`; the brain/eval harness load it on startup for provider keys.
+  `.env`; separates the one serving credential from optional eval-provider keys.
 - `requirements.txt` — the sole Python dependency: `fastembed` (local, free,
   offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
   imported, so everything else runs pure-stdlib without it. Install into a venv.
@@ -71,8 +71,8 @@ removing, or renaming files). For class/function-level detail see
 - `docs/HANDOFF.md` — session handoff: current state, how to run it, what's done
   vs. not, and the gotchas.
 - `docs/DISTRIBUTION.md` — runbook to share Icarus without an Apple Developer ID:
-  host the brain on Render (env vars, OAuth callback), build the DMG, and the
-  recipient's one-time Gatekeeper "Open Anyway" step; lists the demo tradeoffs.
+  host the brain on Azure Container Apps (minimal serving secrets + OAuth
+  callback), build the DMG, and pass Gatekeeper once; lists alpha tradeoffs.
 
 ## docs/decisions/
 - `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md` — the hosting
@@ -106,7 +106,8 @@ removing, or renaming files). For class/function-level detail see
   tests, commands, and commits; Brick G (app) outlined.
 - `docs/plans/2026-07-06-brick-g-private-repo-ui.md` — Brick G, built: the Mac
   app's private-repo surface (private flag, disconnect, repo persistence across
-  launches, client-side lost-connection banner) — app-only, zero brain changes.
+  launches, client-side lost-connection banner) — historical; the private flag
+  was retired from the current public-repository alpha.
 - `docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md` — turns the nine
   tester remarks + the refined north star ("understand code from the code itself,
   answer any phrasing, JARVIS per developer") into a probe-first build order: Brick
@@ -345,20 +346,16 @@ removing, or renaming files). For class/function-level detail see
   to lexical-only if fastembed is unavailable) and the `evals/vector_cache`
   on-disk cache so restarts/reconnects don't re-embed. `connect_sync`
   reuses a cache or ingests once, single-flight and thread-safe, serving a
-  generic error on failure; now takes an optional caller `token` + `private`
-  flag — a private connect resolves a separate on-disk path, refuses (before any
-  clone) if the paid writer isn't configured, and builds its pipeline through
-  the trust interlock (`evals/trust.py`) so private code can only ever reach
-  `PaidGeminiProvider`. `status_snapshot()` reports `"private": bool`.
+  generic error on failure. The one writer is constructed through the trust
+  interlock (`evals/trust.py`); the public alpha has no dormant private-connect
+  branch in `Library`.
 - `demo/registry.py` — `LibraryRegistry`: one isolated `Library` per GitHub
   identity under `<storage_root>/<user_id>/…`; the shared public default is
   built once and reused read-only. LRU-bounded (`max_live`); an evicted user's
   library rebuilds from its on-disk cache and the registry replays their last
-  connect so eviction never silently reverts them to the public repo — except a
-  private repo, which it only resumes from a genuine on-disk cache hit (no
-  token to re-ingest with), otherwise honestly leaves on the default rather
-  than ever downgrading a private connection to a public one. `disconnect`
-  deletes a user's storage + forgets their last-connected repo.
+  connect so eviction never silently reverts them to the demo repo. `disconnect`
+  deletes a user's storage + forgets their last-connected repo and surfaces any
+  deletion failure other than an already-absent directory.
 - `demo/ratelimit.py` — `RateLimiter`: per-key sliding-window limiter (stdlib,
   thread-safe, injectable clock) bounding how often an identity can hit `/ask`
   (bills the writer) or `/connect` (shells out to git/gh).
@@ -368,8 +365,7 @@ removing, or renaming files). For class/function-level detail see
   `StaticTokenVerifier` (test double mapping tokens to ids). Enforced only in
   the auth mode.
 - `demo/github_oauth.py` — server-side GitHub web-login flow: `authorize_url`
-  (default scope `repo`, so a caller's token can read their own private repos —
-  existing `read:user`-scoped sign-ins must re-authenticate once), `exchange_code`
+  (identity-only `read:user` scope for the public-repo alpha), `exchange_code`
   (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
   state/session, TTL). `begin(mode, redirect_target=None)` tags each login
   `app` (Mac app), `web` (browser), or Brick D's `extension` (a browser
@@ -386,7 +382,7 @@ removing, or renaming files). For class/function-level detail see
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
   `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/auth/github/callback`;
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
-  caller's token before any private clone; `sync_connect`/`ICARUS_SYNC_CONNECT`
+  caller's token and refuses private repos before ingest; `sync_connect`/`ICARUS_SYNC_CONNECT`
   makes it block on `connect_sync` and return its final status directly instead
   of backgrounding it and returning 202 -- needed on request-scoped-CPU hosts
   like Cloud Run/Azure Container Apps, where a background thread's embed work
@@ -404,15 +400,15 @@ removing, or renaming files). For class/function-level detail see
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, an `owner/repo` connect control, and **browser GitHub
   sign-in** (web-mode OAuth → session redeemed for a token held in
-  sessionStorage, sent as `Authorization: Bearer` on `/ask`+`/connect`+`/status`)
-  so private repos work from the browser; a public/private writer badge; vanilla
+  sessionStorage, sent as `Authorization: Bearer` on `/ask`+`/connect`+`/status`),
+  a public-alpha badge, and vanilla
   `fetch`. This is the typed **web staging link** (no voice/overlay — native only).
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's
   token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
 - `demo/test_github_oauth.py` — the web-login flow: authorize-url building
-  (including the `repo` scope), offline token exchange, and the single-use
+  (including the identity-only scope), offline token exchange, and the single-use
   state/session lifecycle. Brick D's `extension` mode: the redirect_target
   carried through `begin`→`complete`, and the open-redirect guard rejecting a
   missing/non-chromiumapp.org/malformed-id target.
@@ -457,14 +453,10 @@ removing, or renaming files). For class/function-level detail see
   (`renderAnswerHtml`, `renderUnknownHtml`, `renderLoadingHtml`,
   `renderSignedOutHtml`, `renderErrorHtml`), same dual-export pattern as
   `lib.js`. Mirrors `demo/index.html`'s voice/structure (citation chips by
-  source type, "No one wrote this down."), but DELIBERATELY drops that
-  page's "paid writer — 0 trained on your code" claim (not yet true per the
-  2026-07-08 billing investigation, `docs/HANDOFF.md`) in favor of a plain
-  "private repo"/"public repo" fact -- guarded by a unit test so it can't be
-  silently reintroduced.
+  source type, "No one wrote this down.") and labels the public alpha without
+  paid-writer or training claims.
 - `extension/content.js` — the on-page logic: gates on the caller's connected
-  repo (`GET /status`, cached per repo not per line-selection, also carrying
-  the `private` flag for D4's badge), listens for a real line selection via
+  repo (`GET /status`, cached per repo not per line-selection), listens for a real line selection via
   the Navigation API's `navigate` event (live-verified: covers both SPA
   file-to-file navigation and hash-only line changes; GitHub's `popstate`/
   Turbo/pjax events do NOT fire for this -- checked live, none did), and
@@ -526,12 +518,12 @@ removing, or renaming files). For class/function-level detail see
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
-  `AskResponse`, `RepoStatus` (incl. the `private` trust-tier flag), and
+  `AskResponse`, `RepoStatus`, and
   `IndexCounts` (real `/status` counts).
 - `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,
   `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`); attaches
   an `Authorization: Bearer` from a shared token; injectable URLSession.
-- `SavedConnection.swift` — persists the last-connected repo + private flag
+- `SavedConnection.swift` — persists the last-connected repo
   (injectable UserDefaults) and the pure `isLost` check behind the
   eviction/restart lost-connection banner.
 - `BrainEndpoint.swift` — resolves the brain URL from the bundle's
@@ -562,7 +554,7 @@ removing, or renaming files). For class/function-level detail see
 - `OverlayView.swift` — the overlay UI: question, cited answer, honest unknown.
 - `AskModel.swift` / `AuthModel.swift` / `ConnectModel.swift` — `@Observable`
   state for asking, GitHub web login (Keychain-persisted token), and repo connect
-  (public or private; saves/resumes the connection via `SavedConnection`,
+  (public alpha; saves/resumes the connection via `SavedConnection`,
   `disconnect()` deletes server-side data, `.lost` when the server drops the
   session). Shared via `AppDelegate`.
 - `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login,
@@ -576,8 +568,8 @@ removing, or renaming files). For class/function-level detail see
   aren't a blank tile before first launch; `Main` (in `IcarusApp.swift`) intercepts it.
 - `Theme.swift` — the "Quiet Native Memory v2" tokens + shared views
   (`MonoLabel`, `CitationChip`, `PrimaryButton`, `FlowLayout`).
-- `AppleSpeechRecognizer.swift` — on-device `SFSpeechRecognizer` + `AVAudioEngine`
-  (audio never leaves the Mac; fails rather than using Apple's servers).
+- `AppleSpeechRecognizer.swift` — `SFSpeechRecognizer` + `AVAudioEngine`; uses
+  on-device recognition when available and Apple's service otherwise.
 - `PushToTalkMonitor.swift` — hold Right Option (⌥) to talk via a global
   `.flagsChanged` monitor.
 - `Speaker.swift` — `AVSpeechSynthesizer`; speaks the answer and the honest
@@ -587,14 +579,14 @@ removing, or renaming files). For class/function-level detail see
 - `ShellView.swift` — sidebar + content router across the five surfaces (passes
   auth/connect through to Home for its setup gate).
 - `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer
-  (with the PRIVATE·paid / PUBLIC·free writer badge from `/status`), Disconnect
+  (with the public-alpha badge), Disconnect
   repo + Sign out controls. Real macOS traffic-lights float over its top; no
   decorative dupes.
 - `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
   the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
   cited-rate), recent asks, and the proof drawer — all real/honest data.
 - `SetupView.swift` — the in-shell setup gate (Sign in with GitHub → connect a
-  public or private repo), driving the shared `AuthModel`/`ConnectModel`; hosts
+  public repo), driving the shared `AuthModel`/`ConnectModel`; hosts
   the lost-connection banner (server restart/eviction → explicit Reconnect,
   never a silent fallback to the public default). Replaces the old separate
   onboarding window.

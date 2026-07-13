@@ -2,13 +2,9 @@ import Foundation
 import Observation
 import IcarusKit
 
-/// Drives connecting the brain to a repo (public or private): POST /connect,
-/// then poll /status until the repo is ready. Owned by the app delegate and
-/// shared with the overlay so asking is gated on a connected repo.
-///
-/// The brain does all the routing — a private repo is verified with the
-/// caller's own token and answered only by the paid private-safe writer; this
-/// model just renders the truth `/status` reports (`private: true/false`).
+/// Drives connecting the brain to a public repo: POST /connect, then poll
+/// /status until the repo is ready. Owned by the app delegate and shared with
+/// the overlay so asking is gated on a connected repo.
 /// It also remembers the last successful connection (`SavedConnection`) so the
 /// repo persists across launches, and flips to `.lost` when the server drops
 /// the session (restart / LRU eviction) — never silently showing the public
@@ -19,11 +15,11 @@ final class ConnectModel {
     enum State: Equatable {
         case idle
         case connecting(String)
-        case ready(repo: String, isPrivate: Bool)
+        case ready(repo: String)
         case failed(String)
         /// The server no longer holds this connection (restart or eviction);
         /// /status reports "ready" on a different repo. Reconnect to continue.
-        case lost(repo: String, isPrivate: Bool)
+        case lost(repo: String)
     }
 
     var repoInput: String = ""
@@ -46,13 +42,6 @@ final class ConnectModel {
         return false
     }
 
-    /// Whether the CURRENTLY connected repo is private (paid writer). False
-    /// until connected.
-    var isPrivate: Bool {
-        if case .ready(_, let isPrivate) = state { return isPrivate }
-        return false
-    }
-
     func connect() {
         let repo = repoInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard repo.range(of: Self.repoPattern, options: .regularExpression) != nil else {
@@ -66,8 +55,7 @@ final class ConnectModel {
 
     /// Reconnect the repo remembered from a previous launch (or a lost session).
     /// The server reuses its on-disk cache when it still has one, so this is
-    /// cheap; a private repo is re-verified and re-ingested with the caller's
-    /// token. No-op when nothing was saved.
+    /// cheap. No-op when nothing was saved.
     func resumeSaved() {
         guard let connection = saved.load() else { return }
         repoInput = connection.repo
@@ -97,7 +85,7 @@ final class ConnectModel {
     func noteStatus(_ status: RepoStatus) {
         guard case .ready = state, saved.isLost(given: status),
               let connection = saved.load() else { return }
-        state = .lost(repo: connection.repo, isPrivate: connection.isPrivate)
+        state = .lost(repo: connection.repo)
     }
 
     private func run(repo: String) async {
@@ -120,8 +108,8 @@ final class ConnectModel {
                     return
                 }
                 if status.isReady, status.repo.lowercased() == repo.lowercased() {
-                    saved.save(repo: status.repo, isPrivate: status.isPrivate)
-                    state = .ready(repo: status.repo, isPrivate: status.isPrivate)
+                    saved.save(repo: status.repo)
+                    state = .ready(repo: status.repo)
                     return
                 }
                 // otherwise still indexing — keep polling

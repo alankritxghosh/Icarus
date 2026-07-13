@@ -84,7 +84,7 @@ being processed — a background thread's embed work after the response returns
 isn't guaranteed resourced. This flag makes `/connect` block on the real embed
 and return its final status directly (200, not 202) instead of backgrounding
 it. See `demo/server.py`'s `sync_connect` docstring. Verified live: a genuine
-cold embed of a 219-chunk private repo completed in **1.2s** on Azure's CPU
+cold embed of a 219-chunk repo completed in **1.2s** on Azure's CPU
 (vs never-finishing on Render's 0.1 CPU) — confirmed as real semantic
 retrieval, not a lexical fallback, via a conceptual query with zero keyword
 overlap returning the correct evidence.
@@ -92,7 +92,6 @@ overlap returning the correct evidence.
 ### 1c. Wire secrets + GitHub OAuth
 ```bash
 az containerapp secret set --name icarus-brain --resource-group icarus-rg --secrets \
-  groq-key="$GROQ_API_KEY" gemini-key="$GEMINI_API_KEY" \
   gemini-paid-key="$GEMINI_PAID_API_KEY" gh-token="$(gh auth token)" \
   github-client-secret="$GITHUB_CLIENT_SECRET"
 
@@ -103,7 +102,6 @@ az containerapp update --name icarus-brain --resource-group icarus-rg --set-env-
   'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1' 'ICARUS_REQUIRE_GITHUB_AUTH=1' \
   "ICARUS_PUBLIC_URL=https://$FQDN" \
   "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" 'GITHUB_CLIENT_SECRET=secretref:github-client-secret' \
-  'GROQ_API_KEY=secretref:groq-key' 'GEMINI_API_KEY=secretref:gemini-key' \
   'GEMINI_PAID_API_KEY=secretref:gemini-paid-key' 'GH_TOKEN=secretref:gh-token'
 ```
 Then in GitHub → Settings → Developer settings → OAuth Apps → your app, set the

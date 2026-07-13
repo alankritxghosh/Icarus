@@ -86,6 +86,22 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
             self.assertEqual(by_ref["config:config/app.yaml"]["source"], "config")
             self.assertEqual(len(chunks), 3)
 
+    def test_uppercase_extensions_classify_same_as_lowercase(self):
+        """Regression test (found live 2026-07-13 against id-Software/wolf3d,
+        the original Wolfenstein 3D source): classic DOS 8.3 uppercase
+        filenames (ID_CA.C, ID_MM.C) made a whole real codebase silently
+        invisible (code: 0, no error). Extension matching must be
+        case-insensitive, but the citation ref must keep the file's real
+        on-disk case -- never silently lowercase it."""
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "WOLFSRC/ID_CA.C", "void CA_Startup(void) {}\n")
+            _write(fixture, "README.RST", "Original source release.\n")
+            chunks = self._fetch(fixture)
+            by_ref = {c["ref"]: c for c in chunks}
+            self.assertEqual(by_ref["code:WOLFSRC/ID_CA.C"]["source"], "code")
+            self.assertEqual(by_ref["doc:README.RST"]["source"], "doc")
+            self.assertEqual(len(chunks), 2)
+
     def test_deny_listed_binary_and_oversized_files_excluded(self):
         with tempfile.TemporaryDirectory() as fixture:
             _write(fixture, "node_modules/left-pad/index.js", "module.exports = 1;\n")
@@ -269,6 +285,34 @@ class AllIssuesCoverageTests(unittest.TestCase):
         self.assertEqual(call[call.index("--state") + 1], "all")
         self.assertIn("--limit", call)
         self.assertEqual(call[call.index("--limit") + 1], str(ingest.ISSUE_LIMIT))
+
+    def test_issues_disabled_returns_empty_set_not_raise(self):
+        """Regression test (found live 2026-07-13 against torvalds/linux and a
+        small JS repo): `gh issue list` fails outright, not with an empty
+        list, when a repo has Issues disabled -- a common, legitimate setting
+        that previously made the ENTIRE ingest fail for an otherwise-ingestable
+        repo. Must degrade to zero issues, not propagate."""
+        def fake_run(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output="", stderr="the 'octo/repo' repository has disabled issues\n")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            result = ingest.fetch_all_issue_ids("octo/repo")
+
+        self.assertEqual(result, set())
+
+    def test_other_called_process_error_still_raises(self):
+        """The issues-disabled degrade must not become a blanket swallow of
+        every gh failure -- an unrelated error (auth, network, rate limit)
+        has to keep propagating so it isn't silently mistaken for zero
+        issues."""
+        def fake_run(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output="", stderr="error connecting to api.github.com\n")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            with self.assertRaises(subprocess.CalledProcessError):
+                ingest.fetch_all_issue_ids("octo/repo")
 
 
 class FetchPRsAllStatesTests(unittest.TestCase):

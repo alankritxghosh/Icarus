@@ -368,9 +368,8 @@ the load-bearing isolation the unified-cloud decision demands. Module
 constants: `_SAFE_ID` (id whitelist regex), `_ANON` (shared unauthenticated key).
 
 - `class LibraryRegistry` — `__init__(default_corpus_dir, storage_root,
-  default_repo, build_pipeline=None, ingest_fn=None, max_live=32,
-  build_private_pipeline=None, private_ready=None)` builds the shared default
-  pipeline once.
+  default_repo, build_pipeline=None, ingest_fn=None, max_live=32)` builds the
+  shared default pipeline once.
   - `_build(corpus_dir)` — returns the shared default pipeline for the default
     corpus dir, else delegates to the base builder.
   - `_key(user_id)` (static) — `user_id` or `_ANON`; raises `ValueError` on
@@ -378,12 +377,8 @@ constants: `_SAFE_ID` (id whitelist regex), `_ANON` (shared unauthenticated key)
   - `library_for(user_id) -> Library` — lazily creates (or returns) that
     identity's `Library` under `<storage_root>/<key>/cache`; LRU-evicts past
     `max_live`. On a rebuild after eviction, replays the identity's
-    last-connected repo (recorded in `_last_repo`/`_last_private` at eviction
-    time, under the same lock, to close a resume race) via `connect_sync` — a
-    cache hit, so it never re-ingests; a private repo only resumes when its
-    on-disk cache still exists (no token to re-ingest with), otherwise the
-    fresh Library stays honestly on the default rather than ever silently
-    reporting `private: False` for what the user believes is still private.
+    last-connected repo (recorded in `_last_repo` at eviction time, under the
+    same lock, to close a resume race) via a cache-hit `connect_sync`.
   - `disconnect(user_id)` — forgets the identity's live `Library` and
     last-connected repo, then deletes `<storage_root>/<key>` from disk
     (symlink-defense path check even though `_key`'s whitelist already closes
@@ -399,28 +394,20 @@ Per-key sliding-window rate limiter. Stdlib, thread-safe.
 
 ## demo/library.py
 One active repo's state: which corpus is loaded, its pipeline, and switch
-status. Thread-safe (a lock guards the pipeline swap). Helpers `_pick_writer`,
-`_default_build_pipeline`, `_default_build_private_pipeline`,
-`_default_private_ready`, `_slug`.
+status. Thread-safe (a lock guards the pipeline swap). Helpers
+`_default_build_pipeline`, `_slug`.
 
 - `class Library` — `__init__(default_corpus_dir, cache_root, default_repo,
-  build_pipeline=_default_build_pipeline, ingest_fn=ingest_repo,
-  build_private_pipeline=_default_build_private_pipeline,
-  private_ready=_default_private_ready)` builds the default pipeline and reads
-  its meta.
-  - `_cache_dir(repo)` / `_resolve(repo, private=False) -> (corpus_dir,
-    needs_ingest)` — the default repo always resolves to the committed corpus;
-    otherwise a public or private on-disk cache path.
-  - `connect_sync(repo, token=None, private=False)` — switch the active repo
-    (blocking, single-flight). If `private` and the paid writer isn't
-    configured, refuses BEFORE any clone (status `error`, generic message).
-    Cache hit → instant rebuild; miss → `ingest_fn(..., token=token)` then
-    rebuild via the private or public pipeline builder. `token` is a LOCAL
-    VARIABLE ONLY — never stored on `self`, never logged, never in any
-    error/status output. On failure keeps the previous repo and sets status
-    `error`.
+  build_pipeline=_default_build_pipeline, ingest_fn=ingest_repo)` builds the
+  default pipeline and reads its meta.
+  - `_resolve(repo) -> (corpus_dir, needs_ingest)` — the default repo always
+    resolves to the committed corpus; otherwise the per-user public-repo cache.
+  - `connect_sync(repo, background_upgrade=False)` — switch the active repo
+    (blocking, single-flight). Cache hit → instant rebuild; miss → ingest then
+    rebuild via the trust-checked pipeline builder. On failure keeps the
+    previous repo and sets status `error`.
   - `current_pipeline()` / `provenance()` / `status_snapshot()` — lock-guarded
-    reads (`{state, repo, commit, counts, error, private}`).
+    reads (`{state, repo, commit, counts, error}`).
 
 ## demo/server.py
 A minimal web face over a `LibraryRegistry`. Stdlib `http.server` only. Module

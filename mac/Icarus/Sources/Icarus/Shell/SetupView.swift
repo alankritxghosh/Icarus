@@ -55,8 +55,8 @@ struct SetupView: View {
             Label("Signed in to GitHub", systemImage: "checkmark.seal.fill")
                 .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
 
-            if case .lost(let repo, let isPrivate) = connect.state {
-                lostBanner(repo: repo, isPrivate: isPrivate)
+            if case .lost(let repo) = connect.state {
+                lostBanner(repo: repo)
             }
 
             MonoLabel("STEP 2 — CONNECT A REPOSITORY")
@@ -82,7 +82,7 @@ struct SetupView: View {
                     ProgressView().controlSize(.small)
                     Text("Indexing \(repo)…").font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
-            case .ready(let repo, _):
+            case .ready(let repo):
                 Text("✓ Loaded \(repo).")
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
             case .failed(let message):
@@ -95,13 +95,12 @@ struct SetupView: View {
         }
     }
 
-    /// The server dropped the session (restart / eviction of a private repo it
-    /// holds no token to resume). Explicit, with a one-click reconnect — never
+    /// The server dropped the session. Explicit, with a one-click reconnect — never
     /// silently show the public default as if it were still the user's repo.
-    @ViewBuilder private func lostBanner(repo: String, isPrivate: Bool) -> some View {
+    @ViewBuilder private func lostBanner(repo: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             MonoLabel("CONNECTION LOST", Theme.unknown)
-            Text("The server dropped your connection to \(repo)\(isPrivate ? " (private)" : "") — it restarted or evicted your session. Your questions would answer against the public default until you reconnect.")
+            Text("The server dropped your connection to \(repo) — it restarted or evicted your session. Your questions would answer against the public default until you reconnect.")
                 .font(.system(size: 13)).foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Reconnect \(repo)") { connect.resumeSaved() }

@@ -43,7 +43,7 @@ class _StubLibrary:
     def __init__(self):
         self._pipe = _StubPipeline()
         self.connected = []
-        self.connect_calls = []  # (repo, token, private) for tests that need kwargs
+        self.connect_calls = []
         self.background_upgrades = []  # records the background_upgrade flag per connect
 
     def current_pipeline(self):
@@ -53,12 +53,12 @@ class _StubLibrary:
         return (REPO, COMMIT)
 
     def status_snapshot(self):
-        return {"state": "ready", "repo": REPO, "commit": COMMIT, "counts": None, "error": None,
-                "private": False}
+        return {"state": "ready", "repo": REPO, "commit": COMMIT,
+                "counts": None, "error": None}
 
-    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
+    def connect_sync(self, repo, background_upgrade=False):
         self.connected.append(repo)
-        self.connect_calls.append((repo, token, private))
+        self.connect_calls.append(repo)
         self.background_upgrades.append(background_upgrade)
         return self.status_snapshot()  # mirrors the real Library.connect_sync's return
 
@@ -807,10 +807,39 @@ class DisconnectTests(unittest.TestCase):
             fx.close()
         self.assertEqual(reg.disconnected, ["1001"])
 
+    def test_disconnect_surfaces_deletion_failure_as_500(self):
+        """Regression test for registry.py's rmtree(ignore_errors=True)
+        removal: a genuine on-disk deletion failure must come back as an
+        honest JSON error, not an unhandled exception that drops the
+        connection with no response at all (found live 2026-07-13: curl got
+        HTTP 000 against a real chmod-protected directory)."""
+        from .auth import StaticTokenVerifier
+
+        class _FailingRegistry(_StubRegistry):
+            def disconnect(self, user_id):
+                raise PermissionError("[Errno 13] Permission denied: '/fake/path'")
+
+        reg = _FailingRegistry(_StubLibrary())
+        fx = _ServerFixture(reg, require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001"}))
+        try:
+            req = urllib.request.Request(
+                fx.base + "/disconnect", data=b"{}",
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer tok-a"})
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(req)
+            self.assertEqual(cm.exception.code, 500)
+            body = json.loads(cm.exception.read())
+            self.assertIn("error", body)
+            cm.exception.close()
+        finally:
+            fx.close()
+
 
 class PrivateConnectRouteTests(unittest.TestCase):
     """/connect must verify caller access BEFORE spawning any background work
-    when auth is required, and route private/public repos correctly. In local
+    when auth is required, and refuse private repos. In local
     dev (auth off) the behavior is untouched: no access check at all."""
 
     def _connect(self, base, token=None, repo="acme/secret"):
@@ -872,7 +901,7 @@ class PrivateConnectRouteTests(unittest.TestCase):
             if lib.connect_calls:
                 break
             time.sleep(0.02)
-        self.assertEqual(lib.connect_calls, [("octo/pub", None, False)])
+        self.assertEqual(lib.connect_calls, ["octo/pub"])
 
     def test_local_dev_auth_off_never_calls_repo_info(self):
         # auth off (today's default) must behave exactly as before: no access
@@ -893,7 +922,7 @@ class PrivateConnectRouteTests(unittest.TestCase):
             if lib.connect_calls:
                 break
             time.sleep(0.02)
-        self.assertEqual(lib.connect_calls, [("octo/pub", None, False)])
+        self.assertEqual(lib.connect_calls, ["octo/pub"])
 
 
 class RateLimitTests(unittest.TestCase):
@@ -1079,10 +1108,9 @@ class SyncConnectTests(unittest.TestCase):
         release = threading.Event()
 
         class _SlowLibrary(_StubLibrary):
-            def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
+            def connect_sync(self, repo, background_upgrade=False):
                 release.wait(timeout=5)
-                return super().connect_sync(repo, token=token, private=private,
-                                            background_upgrade=background_upgrade)
+                return super().connect_sync(repo, background_upgrade=background_upgrade)
 
         lib = _SlowLibrary()
         fx = _ServerFixture(lib, sync_connect=True)

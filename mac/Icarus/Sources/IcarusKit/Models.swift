@@ -44,12 +44,7 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public let commit: String
     public let counts: IndexCounts?
     public let error: String?
-    /// Whether the caller's active repo is private (answered only by the paid,
-    /// private-safe writer). Optional so an older brain without the field still
-    /// decodes; absent = the public default, which is the truthful fallback.
-    private let `private`: Bool?
 
     public var isReady: Bool { state == "ready" }
     public var isError: Bool { state == "error" }
-    public var isPrivate: Bool { `private` ?? false }
 }

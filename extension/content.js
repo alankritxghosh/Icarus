@@ -25,7 +25,7 @@
 //    scope guard: no "answer anything on any GitHub page."
 
 let lastOwnerRepo = null; // "owner/repo" last checked, so /status is only
-let connectedRepoStatus = null; // {repo, private} | null -- re-fetched when
+let connectedRepoStatus = null; // {repo} | null -- re-fetched when
                                  // the repo actually changes, not on every
                                  // line-selection hash change.
 let widgetEl = null; // the single on-page element: either the "Ask Icarus"
@@ -96,7 +96,7 @@ async function fetchConnectedRepoStatus(token) {
     const response = await chrome.runtime.sendMessage({ action: "fetchStatus", token });
     if (!response || !response.ok) return null;
     const data = response.data;
-    return data.repo ? { repo: data.repo, private: !!data.private } : null;
+    return data.repo ? { repo: data.repo } : null;
   } catch {
     return null; // messaging error -> stay dormant, never break the GitHub page
   }

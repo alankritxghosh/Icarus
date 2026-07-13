@@ -4,7 +4,7 @@
 Proves, offline, with an injectable spy provider (not a mocked interlock):
   1. the sentinel in a private chunk reaches ONLY a provider that genuinely
      passed `assert_safe_for_private`, via the same construction shape
-     `demo/library.py`'s `_default_build_private_pipeline` uses;
+     `demo/library.py`'s `_build_gated_pipeline` uses;
   2. handing that same construction path an UNSAFE provider raises
      `PrivateDataError` BEFORE any prompt is sent (zero prompts, not just a
      raise);
@@ -59,8 +59,8 @@ def _private_chunks():
     ]
 
 
-def build_private_pipeline(provider, chunks):
-    """Mirrors demo/library.py's _default_build_private_pipeline shape exactly:
+def build_safe_pipeline(provider, chunks):
+    """Mirrors demo/library.py's _build_gated_pipeline trust chokepoint:
     check the interlock at construction, the single chokepoint where the
     provider is fixed for the pipeline's lifetime, THEN build the pipeline."""
     assert_safe_for_private(provider)
@@ -72,7 +72,7 @@ class PrivateEgressTests(unittest.TestCase):
         chunks = _private_chunks()
         safe_spy = SpyProvider(private_safe=True)
 
-        pipeline = build_private_pipeline(safe_spy, chunks)
+        pipeline = build_safe_pipeline(safe_spy, chunks)
         pipeline.answer("what does handle return")
 
         # The sentinel genuinely reached the spy's prompt -- the product
@@ -87,7 +87,7 @@ class PrivateEgressTests(unittest.TestCase):
     def test_the_private_safe_spy_is_called_exactly_once(self):
         chunks = _private_chunks()
         safe_spy = SpyProvider(private_safe=True)
-        pipeline = build_private_pipeline(safe_spy, chunks)
+        pipeline = build_safe_pipeline(safe_spy, chunks)
         pipeline.answer("what does handle return")
 
         # The one spy that exists was called exactly once. No other provider
@@ -103,7 +103,7 @@ class InterlockWiredPathTests(unittest.TestCase):
         unsafe_spy = SpyProvider(private_safe=False)
 
         with self.assertRaises(PrivateDataError):
-            build_private_pipeline(unsafe_spy, chunks)
+            build_safe_pipeline(unsafe_spy, chunks)
 
         # The interlock fires at construction -- before .complete() is ever
         # called -- so nothing was sent to the refused provider.

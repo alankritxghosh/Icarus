@@ -11,8 +11,8 @@ POST /disconnect -> forget the caller's library and delete their on-disk storage
 The active pipeline lives in a Library (demo/library.py); the handler is a thin
 shell over it. /connect runs in a background thread so the request returns
 immediately and the page polls /status. No brain code changes -- packaging only.
-One writer for every repo -- the billed, private-safe Gemini (no free/paid
-tier split). Run: GEMINI_PAID_API_KEY=... python3 -m demo.server
+The public-repository alpha uses one Gemini writer.
+Run: GEMINI_PAID_API_KEY=... python3 -m demo.server
 """
 
 import json
@@ -317,6 +317,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(200, registry.library_for(identity).status_snapshot())
                 except _RegistryWarming:
                     self._send_json(503, {"error": "starting up, try again shortly"})
+                except Exception as e:
+                    # Deletion can genuinely fail (permissions, a file still in
+                    # use). The registry already forgets this identity's
+                    # in-memory state before attempting the on-disk delete (see
+                    # demo/registry.py), so the failure must be surfaced
+                    # honestly here instead of letting the exception drop the
+                    # connection with no response -- never imply success on a
+                    # failed delete.
+                    print(f"/disconnect failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    self._send_json(500, {"error": "couldn't fully remove your data -- some files may remain, try again"})
                 return
             try:
                 lib = registry.library_for(identity)
@@ -370,7 +380,6 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 repo = repo.strip()
                 token = bearer_token(self.headers)
-                private = False
                 if require_auth:
                     # Caller-scoped check BEFORE any clone/ingest: can THIS token
                     # actually read THIS repo? None means refuse (fail safe).
@@ -381,38 +390,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     if info["private"]:
                         self._send_json(403, {"error": "private repos are not available in this alpha"})
                         return
-                # The default access log is suppressed (log_message below), so
-                # without this a /connect request leaves NO trace at all until
-                # (if ever) it reaches the embed loop's own progress logging --
-                # a real blind spot found live tonight: no way to tell "never
-                # arrived" from "still ingesting" from "still embedding".
-                # Never logs the token.
-                print(f"connect received: repo={repo!r} private={private} "
+                # Access logging is suppressed below; record arrival, never token.
+                print(f"connect received: repo={repo!r} "
                       f"({'sync' if sync_connect else 'background'})", file=sys.stderr)
                 if sync_connect:
-                    # Serverless request-scoped-CPU platforms (Cloud Run, Azure
-                    # Container Apps) only reliably give a container CPU WHILE a
-                    # request is being processed. Two ways to stay within that:
-                    #  - default: block the request through BOTH stages, so the
-                    #    platform's request-scoped CPU covers the whole embed.
-                    #    Simple, but a large repo's embed can run past the
-                    #    platform's ingress timeout (Azure: a hard 240s) and be
-                    #    killed -- the connect fails outright.
-                    #  - background_upgrade (Option B): block only through STAGE 1
-                    #    (lexical "ready", seconds), then embed on a daemon thread.
-                    #    Frees the request from the multi-minute embed so it can't
-                    #    hit the ingress timeout. Safe only when a replica stays
-                    #    warm (min-replicas>=1); with scale-to-zero the
-                    #    backgrounded embed can be CPU-starved. connect_sync owns
-                    #    the split; here we just choose which mode to ask for.
-                    result = lib.connect_sync(
-                        repo, token=(token if private else None), private=private,
-                        background_upgrade=background_upgrade)
+                    # Background upgrade is safe only while Azure keeps a replica warm.
+                    result = lib.connect_sync(repo, background_upgrade=background_upgrade)
                     self._send_json(200, result)
                 else:
-                    threading.Thread(target=lib.connect_sync, args=(repo,),
-                                     kwargs={"token": token if private else None, "private": private},
-                                     daemon=True).start()
+                    threading.Thread(target=lib.connect_sync, args=(repo,), daemon=True).start()
                     self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
@@ -485,8 +471,8 @@ def resolve_provenance(meta_path, questions_path):
 def serve(host: str = None, port: int = None):
     load_env_file(REPO_ROOT / ".env")  # pick up keys from a gitignored .env
     if not os.environ.get("GEMINI_PAID_API_KEY"):
-        print("WARNING: GEMINI_PAID_API_KEY is not set -- it is now the ONLY writer "
-              "for every repo (public and private); /ask and /explain will return "
+        print("WARNING: GEMINI_PAID_API_KEY is not set -- it is the alpha's writer; "
+              "/ask and /explain will return "
               "503 until it is configured.", file=sys.stderr)
     # Bind from env so a PaaS (e.g. Render injects $PORT) can place us; loopback
     # defaults keep local dev unchanged.

@@ -33,7 +33,7 @@ struct SidebarView: View {
                 // off it made simonw/llm look like hardcoded UI chrome. The connect
                 // state is the app's own truth (and drops to "Not connected" if the
                 // server ever loses the session).
-                if case .ready(let repo, _) = connect.state {
+                if case .ready(let repo) = connect.state {
                     Text(repo)
                         .font(Theme.mono(13)).foregroundStyle(Theme.ink)
                         .padding(.top, 3)

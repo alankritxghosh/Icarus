@@ -77,9 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The first screen: the app shell (its Home surface gates on sign-in + connect).
         shell.show()
 
-        // Repo persistence: reconnect the last-connected repo when a sign-in
-        // survived the relaunch (the server reuses its cache, so this is cheap;
-        // a private repo is re-verified with the caller's own token).
+        // Reconnect the cached last repo when sign-in survives a relaunch.
         if auth.isSignedIn { connect.resumeSaved() }
     }
 

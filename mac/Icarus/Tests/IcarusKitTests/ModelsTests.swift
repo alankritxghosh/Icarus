@@ -61,25 +61,6 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(s.counts)   // missing/null counts must still decode
     }
 
-    func testDecodesPrivateFlag() throws {
-        // The brain's /status now reports whether the caller's active repo is
-        // private (demo/library.py status_snapshot). The app renders it verbatim.
-        let priv = try decoder.decode(RepoStatus.self, from: Data(
-            #"{"state":"ready","repo":"o/secret","commit":"abc","counts":null,"error":null,"private":true}"#.utf8))
-        XCTAssertTrue(priv.isPrivate)
-        let pub = try decoder.decode(RepoStatus.self, from: Data(
-            #"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":null,"error":null,"private":false}"#.utf8))
-        XCTAssertFalse(pub.isPrivate)
-    }
-
-    func testMissingPrivateFlagDefaultsToPublic() throws {
-        // An older brain without the field = the public default — the truthful
-        // fallback (a private repo can only exist where the field exists).
-        let s = try decoder.decode(RepoStatus.self, from: Data(
-            #"{"state":"ready","repo":"simonw/llm","commit":"94769b8","counts":null,"error":null}"#.utf8))
-        XCTAssertFalse(s.isPrivate)
-    }
-
     func testDecodesRepoStatusIndexingAndError() throws {
         let indexing = try decoder.decode(RepoStatus.self, from: Data(
             #"{"state":"indexing","repo":"simonw/llm","commit":"","counts":null,"error":null}"#.utf8))

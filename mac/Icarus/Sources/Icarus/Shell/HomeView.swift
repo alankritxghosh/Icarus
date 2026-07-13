@@ -46,11 +46,8 @@ struct HomeView: View {
             VStack(alignment: .trailing, spacing: 6) {
                 pill("hold ⌥ Right Option", filled: true)
                 pill("GitHub · \(status.repo ?? "not connected")", filled: false)
-                // Real repo visibility from /status. Public and private repos
-                // both answer on the same billed, private-safe model now; the
-                // badge reflects visibility, not a writer tier.
                 if let s = status.status, s.isReady {
-                    pill(s.isPrivate ? "private repo" : "public repo", filled: false)
+                    pill("public repo", filled: false)
                 }
             }
         }

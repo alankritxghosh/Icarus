@@ -182,10 +182,14 @@ def classify_file(path: Path, root: Path) -> Optional[str]:
     match a deny-listed name (e.g. a real filesystem prefix containing
     `vendor` or `.git`) and misclassify a file relative to the wrong tree.
 
-    Extension matching is case-sensitive by design: `Script.PY` or
-    `README.MD` classify as None. Uppercase extensions are rare enough on
-    real repos/case-sensitive filesystems that special-casing them isn't
-    worth it at Phase-1 scale.
+    Extension matching is case-INSENSITIVE: `Script.PY` and `README.MD`
+    classify the same as `Script.py`/`README.md`. Found live (2026-07-13)
+    against `id-Software/wolf3d` -- classic DOS 8.3 uppercase filenames
+    (`ID_CA.C`, `ID_MM.C`) made an entire real, historically significant C
+    codebase silently invisible (code: 0, no error), so "rare enough to skip"
+    was wrong even for one of the most well-known legacy releases on GitHub.
+    The citation ref itself still uses the file's real on-disk case -- only
+    the extension LOOKUP is case-folded, never the stored path.
     """
     rel = path.relative_to(root)
 
@@ -198,7 +202,7 @@ def classify_file(path: Path, root: Path) -> Optional[str]:
     if name.endswith(_DENY_FILENAME_SUFFIXES):
         return None
 
-    source = _EXTENSION_SOURCES.get(path.suffix)
+    source = _EXTENSION_SOURCES.get(path.suffix.lower())
     if source is None:
         return None
 
@@ -318,11 +322,24 @@ def fetch_all_issue_ids(repo, token=None):
     whether anything links to them -- closes the coverage gap where a
     standalone, never-linked issue (e.g. an open bug report) was invisible to
     fetch_issues because fetch_prs only ever surfaces issues mentioned by a
-    merged PR."""
-    items = _gh_json(
-        ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT), "--json", "number"],
-        token=token,
-    )
+    merged PR.
+
+    A repo with Issues disabled (a common, legitimate GitHub setting -- e.g.
+    projects that track issues off-platform) makes `gh issue list` fail
+    outright rather than return an empty list; treat that specific case as
+    zero issues instead of failing the entire ingest, but let any OTHER
+    failure (auth, network, rate limit) propagate -- this must not become a
+    blanket swallow."""
+    try:
+        items = _gh_json(
+            ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT), "--json", "number"],
+            token=token,
+        )
+    except subprocess.CalledProcessError as e:
+        if "has disabled issues" in (e.stderr or ""):
+            print(f"issues disabled for {repo!r}; treating as zero issues", file=sys.stderr)
+            return set()
+        raise
     return {it["number"] for it in items}
 
 

@@ -65,8 +65,18 @@ enterprise upsell). See [docs/VISION.md](docs/VISION.md) and
 ## The one non-negotiable: it cannot bluff
 Icarus answers only from evidence it actually retrieved, and says "I don't know"
 when the answer was never written down. The honesty gate stays **deterministic
-and auditable** — "I don't know" must be provable in code, never a black-box
-guess. This never degrades, on any tier, in any phase. Every change preserves it.
+and auditable**. Be precise (and honest) about what that guarantees:
+- **Groundedness is fully provable in code** — every emitted citation resolves to
+  a genuinely-retrieved ref with a valid, contained line window. Icarus can never
+  cite invented or unretrieved evidence. This never degrades, on any tier, phase.
+- **Abstention when unrecorded is code-enforced for the clear case, writer-reliant
+  beyond it.** The gate deterministically refuses the sharpest dodge — a "why"
+  answered from evidence that records no reason (see `evals/gate.py`'s (b) guard) —
+  but it cannot semantically prove arbitrary evidence entails an arbitrary answer
+  without becoming a model. For those cases abstention leans on the cite-or-abstain
+  writer. Do **not** claim "I don't know is always provable in code" — that
+  overclaims. No bluffed citations ever (proven); honest-unknown is guaranteed for
+  the clear case and strongly encouraged, not code-proven, for every semantic case.
 
 ## Hard constraints (never OK)
 - Never bluff / break cite-or-unknown.
