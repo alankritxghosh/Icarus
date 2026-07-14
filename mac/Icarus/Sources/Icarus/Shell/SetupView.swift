@@ -69,8 +69,16 @@ struct SetupView: View {
                     .background(Theme.card)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
-                    .onSubmit { connect.connect() }
-                Button("Connect") { connect.connect() }.buttonStyle(PrimaryButton())
+                    .onSubmit { if !connect.isConnecting { connect.connect() } }
+                    .disabled(connect.isConnecting)
+                // Disabled mid-connect: a second click starts a WHOLE NEW server-side
+                // index of the same repo (the server's single-flight guard covers the
+                // download, not the expensive embed), so impatient clicking pinned the
+                // container's one CPU at 100% and made the connect slower, not faster
+                // -- live-confirmed 2026-07-14 from Azure's own CPU metrics.
+                Button("Connect") { connect.connect() }
+                    .buttonStyle(PrimaryButton())
+                    .disabled(connect.isConnecting)
             }
 
             switch connect.state {

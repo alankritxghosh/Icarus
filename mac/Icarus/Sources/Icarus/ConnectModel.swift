@@ -42,6 +42,14 @@ final class ConnectModel {
         return false
     }
 
+    /// True while a connect is in flight. The UI disables the Connect button on this:
+    /// a repeat click spawns a duplicate server-side index of the same repo, which
+    /// competes for the same CPU and makes the connect slower, not faster.
+    var isConnecting: Bool {
+        if case .connecting = state { return true }
+        return false
+    }
+
     func connect() {
         let repo = repoInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard repo.range(of: Self.repoPattern, options: .regularExpression) != nil else {
@@ -90,14 +98,32 @@ final class ConnectModel {
 
     private func run(repo: String) async {
         do {
-            try await client.connect(repo: repo)
-            // The brain ingests in the background and keeps the previous repo active
-            // until the new one is ready, so wait for state==ready AND repo match.
-            // Matches the server's own embed timeout (evals/retriever.py's
-            // SemanticRetriever, demo/library.py's _EMBED_TIMEOUT_SECONDS = 900)
-            // -- a CPU-throttled host can take much longer than a small demo repo
-            // implies, and giving up client-side before the server does just
-            // shows "Timed out" on a connect that's still genuinely working.
+            do {
+                try await client.connect(repo: repo)
+            } catch let error as BrainError {
+                // The brain ANSWERED and refused. That's definitive — say what it
+                // actually was, and stop. Never dress a refusal up as a network fault.
+                state = .failed(error.userMessage)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                // TRANSPORT failure: we never got an answer. This is NOT proof the
+                // connect failed. A first-time index can outlive the host's ingress
+                // ceiling (Azure cuts a request at 240s) while the server keeps
+                // working and finishes — live-confirmed 2026-07-14, when a connect
+                // that had genuinely SUCCEEDED server-side (wolf3d, 185 chunks,
+                // state "ready") was reported to the user as "can't reach the brain".
+                // So fall through to the status poll below: it is the only thing that
+                // can tell us what actually happened. If the brain really is
+                // unreachable, the poll throws too and the outer catch says so.
+            }
+
+            // The brain keeps the previous repo active until the new one is ready, so
+            // wait for state==ready AND a repo match. The long deadline matches the
+            // server's own embed timeout (demo/library.py) -- a CPU-throttled host can
+            // take far longer than a small demo repo implies, and giving up before the
+            // server does just shows a failure on a connect that's still working.
             let deadline = Date().addingTimeInterval(900)
             while Date() < deadline {
                 try await Task.sleep(for: .seconds(2))
@@ -117,7 +143,11 @@ final class ConnectModel {
             state = .failed("Timed out indexing \(repo).")
         } catch is CancellationError {
             // superseded by a newer connect; leave state as set by the canceller
+        } catch let error as BrainError {
+            state = .failed(error.userMessage)
         } catch {
+            // Only now is "can't reach it" actually true: the connect gave us no
+            // answer AND the status poll couldn't reach the brain either.
             state = .failed("Can't reach Icarus's brain — check your internet connection.")
         }
     }

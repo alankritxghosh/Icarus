@@ -118,6 +118,101 @@ final class BrainClientTests: XCTestCase {
             XCTAssertEqual(_FlakyProtocol.attempts, 2)  // exactly one retry, not a retry loop
         }
     }
+
+    // MARK: - Typed refusals (2026-07-14)
+    // A refusal the brain actually SENT (401/403/429) must surface as a typed
+    // BrainError, never as an opaque failure the UI then blames on the network.
+    // This is the client half of the "can't reach the brain" misdiagnosis.
+
+    private func sessionReturning(status: Int) -> URLSession {
+        _StatusCodeProtocol.code = status
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [_StatusCodeProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    func testUnauthorizedSurfacesAsTypedError() async {
+        let client = BrainClient(session: sessionReturning(status: 401), retryDelay: .milliseconds(1))
+        do {
+            try await client.connect(repo: "octo/hello")
+            XCTFail("expected a 401 to throw")
+        } catch let error as BrainError {
+            XCTAssertEqual(error, .unauthorized)
+        } catch {
+            XCTFail("expected BrainError.unauthorized, got \(error)")
+        }
+    }
+
+    func testRateLimitedSurfacesAsTypedError() async {
+        let client = BrainClient(session: sessionReturning(status: 429), retryDelay: .milliseconds(1))
+        do {
+            try await client.connect(repo: "octo/hello")
+            XCTFail("expected a 429 to throw")
+        } catch let error as BrainError {
+            XCTAssertEqual(error, .rateLimited)
+        } catch {
+            XCTFail("expected BrainError.rateLimited, got \(error)")
+        }
+    }
+
+    func testForbiddenSurfacesAsTypedError() async {
+        let client = BrainClient(session: sessionReturning(status: 403), retryDelay: .milliseconds(1))
+        do {
+            try await client.connect(repo: "octo/private")
+            XCTFail("expected a 403 to throw")
+        } catch let error as BrainError {
+            XCTAssertEqual(error, .forbidden)
+        } catch {
+            XCTFail("expected BrainError.forbidden, got \(error)")
+        }
+    }
+
+    func testConnectAcceptsA202SoAnAsyncBrainIsNotTreatedAsAFailure() async throws {
+        // The brain may answer 202 (accepted, still indexing) rather than 200.
+        // That is a SUCCESS -- the client then polls /status.
+        let client = BrainClient(session: sessionReturning(status: 202), retryDelay: .milliseconds(1))
+        try await client.connect(repo: "octo/hello")  // must not throw
+    }
+
+    // MARK: - The copy a refused user actually reads
+    // The bug this guards: EVERY refusal below used to render as "check your
+    // internet connection", which is false and unactionable. None of them may
+    // ever blame the network again.
+
+    func testRefusalCopyNeverBlamesTheNetwork() {
+        for error: BrainError in [.unauthorized, .forbidden, .rateLimited, .server(500)] {
+            let msg = error.userMessage
+            XCTAssertFalse(msg.lowercased().contains("internet connection"),
+                           "\(error) must not blame the user's network: \(msg)")
+            XCTAssertFalse(msg.isEmpty)
+        }
+    }
+
+    func testRefusalCopyIsSpecificToTheActualCause() {
+        XCTAssertTrue(BrainError.unauthorized.userMessage.lowercased().contains("signed out"))
+        XCTAssertTrue(BrainError.rateLimited.userMessage.lowercased().contains("too many"))
+        XCTAssertTrue(BrainError.forbidden.userMessage.lowercased().contains("public"))
+        XCTAssertTrue(BrainError.server(503).userMessage.contains("503"))
+    }
+}
+
+/// Answers every request with a fixed HTTP status code and an empty JSON body --
+/// a REAL response from the server (unlike `_FlakyProtocol`, which fails at the
+/// transport layer). That distinction is the whole point of `BrainError`.
+final class _StatusCodeProtocol: URLProtocol {
+    nonisolated(unsafe) static var code = 200
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let resp = HTTPURLResponse(url: request.url!, statusCode: Self.code,
+                                   httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }
 
 /// Fails the first `failuresRemaining` loads with a transport-level error (no

@@ -1,5 +1,38 @@
 import Foundation
 
+/// Why a brain request failed, when the brain actually ANSWERED and said no.
+///
+/// Kept distinct from a transport failure (a thrown `URLError`: the request never
+/// got an answer at all) on purpose. Conflating the two is exactly what made a
+/// slow-but-SUCCEEDING first-time connect render as "check your internet
+/// connection" — the host cut the request open at its ingress ceiling while the
+/// server kept working and finished, and the app reported a network problem that
+/// did not exist. "The server said no" and "we never heard back" demand different
+/// words and different recovery, so they get different types.
+public enum BrainError: Error, Equatable, Sendable {
+    case unauthorized       // 401 — signed out, or the token was rejected
+    case forbidden          // 403 — this GitHub account can't read that repo (or it's private)
+    case rateLimited        // 429 — too many requests from this identity
+    case server(Int)        // any other non-2xx
+
+    /// Plain-language copy for a refusal the brain actually sent us. Every one of
+    /// these used to reach the user as "check your internet connection", sending
+    /// them to debug a network that was never the problem. Lives here (not in the
+    /// view) so it is unit-testable.
+    public var userMessage: String {
+        switch self {
+        case .unauthorized:
+            return "You're signed out. Sign in with GitHub again to continue."
+        case .forbidden:
+            return "That repo doesn't exist, or your GitHub account can't read it. This alpha supports public repositories only."
+        case .rateLimited:
+            return "Too many attempts in a row. Wait a minute, then try again."
+        case .server(let code):
+            return "Icarus's brain had a problem (error \(code)). Try again in a moment."
+        }
+    }
+}
+
 /// Talks to the local Python brain over HTTP (demo/server.py). The app is a thin
 /// client: it sends the question and renders whatever the brain returns. It does
 /// NOT judge grounding — that's the brain's deterministic honesty gate.
@@ -52,6 +85,22 @@ public struct BrainClient: Sendable {
         }
     }
 
+    /// Convert a non-2xx HTTP response into a typed `BrainError`. Deliberately does
+    /// NOT touch transport failures: those stay `URLError` throws from
+    /// `dataWithRetry`, so a caller can distinguish "answered, and refused" from
+    /// "never answered" (see `BrainError`).
+    private func check(_ response: URLResponse, accepting: ClosedRange<Int> = 200...200) throws {
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard accepting.contains(http.statusCode) else {
+            switch http.statusCode {
+            case 401: throw BrainError.unauthorized
+            case 403: throw BrainError.forbidden
+            case 429: throw BrainError.rateLimited
+            default:  throw BrainError.server(http.statusCode)
+            }
+        }
+    }
+
     /// POST /ask {question} -> AskResponse. Throws on transport/HTTP/decoding error.
     public func ask(_ question: String) async throws -> AskResponse {
         var request = URLRequest(url: base.appending(path: "ask"))
@@ -61,9 +110,7 @@ public struct BrainClient: Sendable {
         authorize(&request)
 
         let (data, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response)
         return try JSONDecoder().decode(AskResponse.self, from: data)
     }
 
@@ -76,9 +123,7 @@ public struct BrainClient: Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["repo": repo])
         authorize(&request)
         let (_, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response, accepting: 200...299)
     }
 
     /// POST /disconnect -> the brain deletes the caller's own on-disk corpus and
@@ -92,9 +137,7 @@ public struct BrainClient: Sendable {
         request.httpBody = Data("{}".utf8)
         authorize(&request)
         let (data, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response)
         return try JSONDecoder().decode(RepoStatus.self, from: data)
     }
 
@@ -106,9 +149,7 @@ public struct BrainClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
         let (data, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response)
         struct Begin: Decodable { let authorize_url: String }
         let url = try JSONDecoder().decode(Begin.self, from: data).authorize_url
         guard let authorizeURL = URL(string: url) else { throw URLError(.badURL) }
@@ -122,9 +163,7 @@ public struct BrainClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["session": sessionID])
         let (data, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response)
         struct Redeem: Decodable { let token: String }
         return try JSONDecoder().decode(Redeem.self, from: data).token
     }
@@ -138,9 +177,7 @@ public struct BrainClient: Sendable {
         var request = URLRequest(url: base.appending(path: "status"))
         authorize(&request)
         let (data, response) = try await dataWithRetry(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        try check(response)
         return try JSONDecoder().decode(RepoStatus.self, from: data)
     }
 }
