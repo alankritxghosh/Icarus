@@ -24,6 +24,10 @@ final class ConnectModel {
 
     var repoInput: String = ""
     private(set) var state: State = .idle
+    /// The brain's current progress line while indexing (e.g. "Reading the
+    /// repository…"), shown under the spinner so the wait isn't a silent
+    /// spinner. Only meaningful during `.connecting`; nil otherwise.
+    private(set) var indexingPhase: String?
 
     private let client: BrainClient
     private let saved: SavedConnection
@@ -57,6 +61,7 @@ final class ConnectModel {
             return
         }
         task?.cancel()
+        indexingPhase = nil
         state = .connecting(repo)
         task = Task { await run(repo: repo) }
     }
@@ -130,15 +135,19 @@ final class ConnectModel {
                 if Task.isCancelled { return }
                 let status = try await client.status()
                 if status.isError {
+                    indexingPhase = nil
                     state = .failed(status.error ?? "Indexing failed.")
                     return
                 }
                 if status.isReady, status.repo.lowercased() == repo.lowercased() {
+                    indexingPhase = nil
                     saved.save(repo: status.repo)
                     state = .ready(repo: status.repo)
                     return
                 }
-                // otherwise still indexing — keep polling
+                // Still indexing — surface the brain's own progress line (e.g.
+                // "Reading the repository…") so the wait isn't a silent spinner.
+                indexingPhase = status.phase
             }
             state = .failed("Timed out indexing \(repo).")
         } catch is CancellationError {

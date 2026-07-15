@@ -44,6 +44,10 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public let commit: String
     public let counts: IndexCounts?
     public let error: String?
+    /// Human-readable progress line while a connect is in flight (e.g.
+    /// "Reading the repository…"). Optional so an older brain without the field
+    /// still decodes; nil means nothing specific to show.
+    public let phase: String?
 
     public var isReady: Bool { state == "ready" }
     public var isError: Bool { state == "error" }

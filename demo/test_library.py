@@ -60,6 +60,33 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(s["state"], "ready")
         self.assertEqual(s["repo"], "octo/new")
 
+    def test_default_status_reports_no_phase(self):
+        # Nothing in progress on the fully-ready default repo.
+        self.assertIsNone(self.lib.status_snapshot()["phase"])
+
+    def test_connect_reports_a_reading_phase_while_ingesting(self):
+        # The app's progress line should say WHAT is happening, not spin silently.
+        seen, holder = {}, {}
+
+        def capturing_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            seen["phase"] = holder["lib"].status_snapshot()["phase"]
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                      build_pipeline=lambda d, fast=False: f"p::{d}", ingest_fn=capturing_ingest)
+        holder["lib"] = lib
+        lib.connect_sync("octo/x")
+        self.assertEqual(seen["phase"], "Reading the repository…")
+
+    def test_fully_ready_connect_clears_the_phase(self):
+        # A sync connect blocks through the semantic upgrade, so by the time it
+        # returns there is nothing pending -> phase is cleared.
+        self.lib.connect_sync("octo/new")
+        s = self.lib.status_snapshot()
+        self.assertEqual(s["state"], "ready")
+        self.assertIsNone(s["phase"])
+
     def test_cache_hit_does_not_reingest(self):
         _seed_corpus(self.cache_root / "octo__cached", "octo/cached")
         self.lib.connect_sync("octo/cached")

@@ -88,7 +88,10 @@ struct SetupView: View {
             case .connecting(let repo):
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Indexing \(repo)…").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                    // Show the brain's own progress line when it has one, so the
+                    // wait says WHAT is happening instead of just spinning.
+                    Text(connect.indexingPhase ?? "Indexing \(repo)…")
+                        .font(.system(size: 14)).foregroundStyle(Theme.muted)
                 }
             case .ready(let repo):
                 Text("✓ Loaded \(repo).")

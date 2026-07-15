@@ -71,4 +71,14 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(failed.error, "clone failed")
     }
 
+    func testDecodesProgressPhase() throws {
+        let indexing = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"indexing","repo":"o/r","commit":"","counts":null,"error":null,"phase":"Reading the repository…"}"#.utf8))
+        XCTAssertEqual(indexing.phase, "Reading the repository…")
+        // Absent phase (older brain) still decodes -> nil.
+        let noPhase = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"ready","repo":"o/r","commit":"c","counts":null,"error":null}"#.utf8))
+        XCTAssertNil(noPhase.phase)
+    }
+
 }

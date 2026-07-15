@@ -130,6 +130,10 @@ class Library:
         self._generation = 0
         self._status = "idle"
         self._error = None
+        # Human-readable phase shown while a connect is in flight, so the app's
+        # progress line says WHAT is happening instead of a silent spinner.
+        # None when there's nothing in progress (idle/fully-ready/error).
+        self._phase = None
         meta = load_meta(self._default_dir / "meta.json") or {}
         self._repo = meta.get("repo", default_repo)
         self._commit = meta.get("commit", "")
@@ -161,6 +165,7 @@ class Library:
             if needs_ingest:
                 with self._lock:
                     self._status, self._error = "indexing", None
+                    self._phase = "Reading the repository…"
                 # Switched repos don't share simonw/llm's `llm/` package layout,
                 # so glob the whole repo for code (the CLI keeps `llm` as default).
                 self._ingest_fn(repo, corpus_dir, code_dir=".")
@@ -175,6 +180,10 @@ class Library:
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
                 self._status, self._error = "ready", None
+                # Ready to search NOW (lexical); stage 2 upgrades to semantic in
+                # the background. The phase says so honestly -- the repo is
+                # usable, and getting smarter -- until _upgrade_to_semantic clears it.
+                self._phase = "Building smart search…"
                 self._generation += 1
                 my_gen = self._generation
                 # Ready means stage 1 is usable; do not block reconnect on stage 2.
@@ -193,6 +202,7 @@ class Library:
             print(f"connect failed for {repo!r} ({type(e).__name__})", file=sys.stderr)
             with self._lock:
                 self._status = "error"
+                self._phase = None
                 self._error = "Couldn't index that repo. Check it's a public owner/name and try again."
         finally:
             # Backstop for failure before stage 1 released the slot.
@@ -207,12 +217,16 @@ class Library:
             with self._lock:
                 if self._generation == generation:  # still the latest connect
                     self._pipeline = full_pipeline
+                    self._phase = None  # smart search ready; nothing pending
         except Exception as e:
             print(
                 f"semantic upgrade failed for {connected_repo!r} "
                 f"({type(e).__name__}); staying on lexical-only search",
                 file=sys.stderr,
             )
+            with self._lock:
+                if self._generation == generation:
+                    self._phase = None  # gave up on the upgrade; lexical stays, nothing pending
 
     def current_pipeline(self):
         with self._lock:
@@ -225,4 +239,4 @@ class Library:
     def status_snapshot(self):
         with self._lock:
             return {"state": self._status, "repo": self._repo, "commit": self._commit,
-                    "counts": self._counts, "error": self._error}
+                    "counts": self._counts, "error": self._error, "phase": self._phase}
