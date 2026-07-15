@@ -404,25 +404,32 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 repo = repo.strip()
                 token = bearer_token(self.headers)
+                private = False
                 if require_auth:
                     # Caller-scoped check BEFORE any clone/ingest: can THIS token
-                    # actually read THIS repo? None means refuse (fail safe).
+                    # actually read THIS repo? None means refuse (fail safe). A
+                    # PRIVATE repo the caller CAN read routes to their own isolated
+                    # storage, cloned with their token, answered by the private-safe
+                    # writer (the trust interlock enforces that at pipeline build).
                     info = github_access.repo_info(repo, token)
                     if info is None:
                         self._send_json(403, {"error": "that repo doesn't exist or your GitHub account can't read it"})
                         return
-                    if info["private"]:
-                        self._send_json(403, {"error": "private repos are not available in this alpha"})
-                        return
-                # Access logging is suppressed below; record arrival, never token.
-                print(f"connect received: repo={repo!r} "
+                    private = bool(info["private"])
+                # Access logging is suppressed below; record arrival, never the token.
+                print(f"connect received: repo={repo!r} private={private} "
                       f"({'sync' if sync_connect else 'background'})", file=sys.stderr)
                 if sync_connect:
                     # Background upgrade is safe only while Azure keeps a replica warm.
-                    result = lib.connect_sync(repo, background_upgrade=background_upgrade)
+                    result = lib.connect_sync(
+                        repo, token=(token if private else None), private=private,
+                        background_upgrade=background_upgrade)
                     self._send_json(200, result)
                 else:
-                    threading.Thread(target=lib.connect_sync, args=(repo,), daemon=True).start()
+                    threading.Thread(
+                        target=lib.connect_sync, args=(repo,),
+                        kwargs={"token": token if private else None, "private": private},
+                        daemon=True).start()
                     self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})

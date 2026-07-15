@@ -118,12 +118,23 @@ def _slug(repo):
 
 class Library:
     def __init__(self, default_corpus_dir, cache_root, default_repo,
-                 build_pipeline=_default_build_pipeline, ingest_fn=ingest_repo):
+                 build_pipeline=_default_build_pipeline, ingest_fn=ingest_repo,
+                 private_root=None, private_ingest_fn=None):
         self._default_dir = Path(default_corpus_dir)
-        self._cache_root = Path(cache_root)
+        self._cache_root = Path(cache_root)  # SHARED public-repo cache (deduped across users)
+        # PER-USER private-repo storage -- never shared, never pooled. A private
+        # repo's corpus lives here, under the caller's own identity dir, and is
+        # deleted on disconnect. None disables private repos for this Library.
+        self._private_root = Path(private_root) if private_root else None
         self._default_repo = default_repo
         self._build_pipeline = build_pipeline
         self._ingest_fn = ingest_fn
+        # Private ingest is a DISTINCT path from the shared public ingest: it
+        # writes to the per-user private root and is threaded the caller's own
+        # token. Falls back to the public ingest_fn only for tests that don't
+        # exercise the private path.
+        self._private_ingest_fn = private_ingest_fn or ingest_fn
+        self._private = False  # is the CURRENTLY connected repo private?
         self._lock = threading.Lock()
         self._inflight = set()  # repos currently indexing (single-flight guard)
         # Prevent a stale background upgrade from replacing a newer connection.
@@ -141,20 +152,32 @@ class Library:
         self._pipeline = self._build_pipeline(self._default_dir)
         self._status = "ready"
 
-    def _resolve(self, repo):
-        """-> (corpus_dir, needs_ingest)."""
+    def _resolve(self, repo, private=False):
+        """-> (corpus_dir, needs_ingest). A private repo resolves to the PER-USER
+        private root (isolated, never the shared public cache)."""
         if repo == self._default_repo:
             return self._default_dir, False
-        cache = self._cache_root / _slug(repo)
+        base = self._private_root if private else self._cache_root
+        cache = base / _slug(repo)
         return cache, not (cache / "chunks.jsonl").exists()
 
-    def connect_sync(self, repo, background_upgrade=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
         """Ingest/cache a repo, publish lexical search, then upgrade to semantic.
+
+        `private=True` routes the corpus to this user's own private storage and
+        ingests with `token` (the caller's GitHub token) so a private clone can
+        authenticate. `token` is a LOCAL VARIABLE ONLY -- never stored on self,
+        never logged, never in any status output.
 
         Stage-2 failure leaves lexical search usable and a stale upgrade cannot
         replace a newer connection. Background upgrade requires a warm replica."""
         repo = (repo or "").strip()
-        corpus_dir, needs_ingest = self._resolve(repo)
+        if private and self._private_root is None:
+            with self._lock:
+                self._status, self._error = "error", "Private repos aren't enabled on this brain."
+                self._phase = None
+            return self.status_snapshot()
+        corpus_dir, needs_ingest = self._resolve(repo, private)
         with self._lock:
             already_indexing = repo in self._inflight
             if not already_indexing:
@@ -168,7 +191,12 @@ class Library:
                     self._phase = "Reading the repository…"
                 # Switched repos don't share simonw/llm's `llm/` package layout,
                 # so glob the whole repo for code (the CLI keeps `llm` as default).
-                self._ingest_fn(repo, corpus_dir, code_dir=".")
+                # PRIVATE repos take a distinct, per-user, token-authenticated
+                # ingest; PUBLIC repos take the shared, tokenless one.
+                if private:
+                    self._private_ingest_fn(repo, corpus_dir, code_dir=".", token=token)
+                else:
+                    self._ingest_fn(repo, corpus_dir, code_dir=".")
             meta = load_meta(Path(corpus_dir) / "meta.json") or {}
             connected_repo = meta.get("repo", repo)
 
@@ -179,6 +207,7 @@ class Library:
                 self._repo = connected_repo
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
+                self._private = private
                 self._status, self._error = "ready", None
                 # Ready to search NOW (lexical); stage 2 upgrades to semantic in
                 # the background. The phase says so honestly -- the repo is
@@ -239,4 +268,5 @@ class Library:
     def status_snapshot(self):
         with self._lock:
             return {"state": self._status, "repo": self._repo, "commit": self._commit,
-                    "counts": self._counts, "error": self._error, "phase": self._phase}
+                    "counts": self._counts, "error": self._error, "phase": self._phase,
+                    "private": self._private}

@@ -61,6 +61,7 @@ class LibraryRegistry:
         self._default_pipeline = self._base_build(self._default_dir)
         self._libraries: OrderedDict[str, Library] = OrderedDict()
         self._last_repo: dict[str, str] = {}  # key -> most-recently-connected repo
+        self._last_private: dict[str, bool] = {}  # key -> was that repo private?
         self._ingest_locks: dict[str, threading.Lock] = {}  # repo slug -> single-flight lock
         self._lock = threading.Lock()
 
@@ -110,6 +111,26 @@ class LibraryRegistry:
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise
 
+    def _private_ingest(self, repo, out_dir, code_dir=".", commit=None, token=None):
+        """Ingest a PRIVATE repo into the caller's own per-user storage, with the
+        caller's own token. Deliberately NOT `_shared_ingest`: private code is
+        per-tenant and must NEVER touch the shared public cache or be pooled
+        across users. No cross-user lock is needed -- each user has their own
+        Library and their own private_root -- but the publish is still atomic
+        (temp dir + os.replace) so a crashed ingest can't leave a partial corpus.
+        `token` is used only to authenticate the clone and is never stored."""
+        out_dir = Path(out_dir)
+        if (out_dir / "chunks.jsonl").exists():
+            return  # already cached in this user's private storage
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=".tmp-priv-", dir=out_dir.parent))
+        try:
+            self._ingest_fn(repo, tmp, code_dir=code_dir, commit=commit, token=token)
+            os.replace(tmp, out_dir)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+
     @staticmethod
     def _key(user_id):
         key = user_id if user_id is not None else _ANON
@@ -125,27 +146,40 @@ class LibraryRegistry:
                 self._libraries.move_to_end(key)
                 return lib
             resume_repo = self._last_repo.get(key)
-            # Every user's Library reads/writes public corpora in the SHARED cache
-            # (deduped across users) and ingests through the atomic single-flight
-            # wrapper. Per-user identity/state still lives in this Library object
-            # and in <storage_root>/<key>/ (record dir, deleted on disconnect).
+            resume_private = self._last_private.get(key, False)
+            # PUBLIC corpora live in the SHARED cache (deduped across users);
+            # PRIVATE corpora live in this user's OWN <storage>/<key>/private
+            # (never shared, never pooled) and ingest with the caller's token.
             lib = Library(self._default_dir, self._public_cache,
                           self._default_repo, build_pipeline=self._build,
-                          ingest_fn=self._shared_ingest)
+                          ingest_fn=self._shared_ingest,
+                          private_root=self._storage_root / key / "private",
+                          private_ingest_fn=self._private_ingest)
             self._libraries[key] = lib
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:
                 evicted_key, evicted = self._libraries.popitem(last=False)
-                # Record the repo while still holding the registry lock so a
-                # racing rebuild cannot silently start on the demo repo.
+                # Record the repo (and whether it was private) while still holding
+                # the registry lock so a racing rebuild can't start on the demo repo.
                 snap = evicted.status_snapshot()
                 self._last_repo[evicted_key] = snap["repo"]
+                self._last_private[evicted_key] = snap["private"]
         # Replay the user's last connect on a freshly (re)built Library so an
-        # eviction never silently reverts them to the public demo repo. This
-        # is a cache hit -- connect_sync sees the on-disk cache and skips
-        # ingest -- so it only re-hydrates in-memory state, it doesn't refetch.
+        # eviction never silently reverts them to the public demo repo. This is a
+        # cache hit -- connect_sync sees the on-disk cache and skips ingest.
         if resume_repo and resume_repo != self._default_repo:
-            lib.connect_sync(resume_repo)
+            if resume_private:
+                # No token to replay a private connect with (tokens are per-request,
+                # never stored). Resume ONLY if the private corpus is still on disk
+                # (a genuine cache hit, which connect_sync never touches token for);
+                # otherwise leave the user on the default and let the next explicit
+                # /connect (which carries their token) reestablish it. NEVER silently
+                # downgrade a private repo to a public/wrong connection.
+                _, needs_ingest = lib._resolve(resume_repo, private=True)
+                if not needs_ingest:
+                    lib.connect_sync(resume_repo, private=True)
+            else:
+                lib.connect_sync(resume_repo)
         return lib
 
     def disconnect(self, user_id):
@@ -155,6 +189,7 @@ class LibraryRegistry:
         with self._lock:
             self._libraries.pop(key, None)
             self._last_repo.pop(key, None)
+            self._last_private.pop(key, None)
         target = (self._storage_root / key).resolve()
         root = self._storage_root.resolve()
         # Traversal is already fully closed by `_key`'s whitelist regex above --

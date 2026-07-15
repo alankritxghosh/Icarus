@@ -45,6 +45,8 @@ class _StubLibrary:
         self.connected = []
         self.connect_calls = []
         self.background_upgrades = []  # records the background_upgrade flag per connect
+        self.private_calls = []  # records the `private` flag per connect
+        self.token_seen = []  # records the token per connect (to assert leak-safe routing)
 
     def current_pipeline(self):
         return self._pipe
@@ -54,12 +56,14 @@ class _StubLibrary:
 
     def status_snapshot(self):
         return {"state": "ready", "repo": REPO, "commit": COMMIT,
-                "counts": None, "error": None}
+                "counts": None, "error": None, "phase": None, "private": False}
 
-    def connect_sync(self, repo, background_upgrade=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
         self.connected.append(repo)
         self.connect_calls.append(repo)
         self.background_upgrades.append(background_upgrade)
+        self.private_calls.append(private)
+        self.token_seen.append(token)
         return self.status_snapshot()  # mirrors the real Library.connect_sync's return
 
 
@@ -882,8 +886,10 @@ class DisconnectTests(unittest.TestCase):
 
 class PrivateConnectRouteTests(unittest.TestCase):
     """/connect must verify caller access BEFORE spawning any background work
-    when auth is required, and refuse private repos. In local
-    dev (auth off) the behavior is untouched: no access check at all."""
+    when auth is required. A repo the caller CANNOT read is refused (403). A
+    PRIVATE repo the caller CAN read is routed as private, cloned with the
+    caller's OWN token; a PUBLIC repo is routed public and NEVER handed the
+    token. In local dev (auth off) there's no access check at all."""
 
     def _connect(self, base, token=None, repo="acme/secret"):
         headers = {"Content-Type": "application/json"}
@@ -911,7 +917,7 @@ class PrivateConnectRouteTests(unittest.TestCase):
         time.sleep(0.05)  # give any (incorrectly) spawned thread a chance to run
         self.assertEqual(lib.connected, [])
 
-    def test_private_repo_is_refused_before_connect(self):
+    def test_private_repo_routes_as_private_with_the_callers_token(self):
         from .auth import StaticTokenVerifier
         lib = _StubLibrary()
         reg = _StubRegistry(lib)
@@ -919,13 +925,19 @@ class PrivateConnectRouteTests(unittest.TestCase):
         try:
             with unittest.mock.patch("demo.server.github_access.repo_info",
                                      return_value={"private": True}):
-                with self.assertRaises(urllib.error.HTTPError) as cm:
-                    self._connect(fx.base, token="tok-a")
-                self.assertEqual(cm.exception.code, 403)
-                cm.exception.close()
+                status, payload = _post_with_auth(fx.base + "/connect", {"repo": "acme/secret"}, "tok-a")
+            self.assertEqual(status, 202)
         finally:
             fx.close()
-        self.assertEqual(lib.connect_calls, [])
+        import time
+        for _ in range(50):
+            if lib.connect_calls:
+                break
+            time.sleep(0.02)
+        # Routed as PRIVATE, cloned with the CALLER's own token.
+        self.assertEqual(lib.connect_calls, ["acme/secret"])
+        self.assertEqual(lib.private_calls, [True])
+        self.assertEqual(lib.token_seen, ["tok-a"])
 
     def test_public_repo_spawns_connect_without_token(self):
         from .auth import StaticTokenVerifier
@@ -945,6 +957,8 @@ class PrivateConnectRouteTests(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertEqual(lib.connect_calls, ["octo/pub"])
+        self.assertEqual(lib.private_calls, [False])
+        self.assertEqual(lib.token_seen, [None])  # a PUBLIC repo is never handed the token
 
     def test_local_dev_auth_off_never_calls_repo_info(self):
         # auth off (today's default) must behave exactly as before: no access
@@ -1151,9 +1165,10 @@ class SyncConnectTests(unittest.TestCase):
         release = threading.Event()
 
         class _SlowLibrary(_StubLibrary):
-            def connect_sync(self, repo, background_upgrade=False):
+            def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
                 release.wait(timeout=5)
-                return super().connect_sync(repo, background_upgrade=background_upgrade)
+                return super().connect_sync(repo, token=token, private=private,
+                                            background_upgrade=background_upgrade)
 
         lib = _SlowLibrary()
         fx = _ServerFixture(lib, sync_connect=True)

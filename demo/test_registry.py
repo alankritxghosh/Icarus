@@ -81,6 +81,54 @@ class RegistryTests(unittest.TestCase):
         self.assertFalse((self.storage / "1001" / "cache" / "octo__shared").exists())
         self.assertFalse((self.storage / "1002" / "cache" / "octo__shared").exists())
 
+    def test_private_repo_lands_in_per_user_storage_not_the_shared_cache(self):
+        # THE load-bearing isolation: a private repo's corpus goes into the
+        # caller's OWN identity dir, never the shared public cache, and is cloned
+        # with the caller's OWN token.
+        ingested = []
+
+        def counting_ingest(repo, out_dir, commit=None, code_dir=".", token=None):
+            ingested.append((repo, token))
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build, ingest_fn=counting_ingest)
+        snap = reg.library_for("1001").connect_sync("acme/secret", token="ghp_caller", private=True)
+
+        self.assertEqual(snap["private"], True)
+        self.assertTrue((self.storage / "1001" / "private" / "acme__secret" / "chunks.jsonl").exists())
+        self.assertFalse((self.storage / "public.cache" / "acme__secret").exists())  # NEVER shared
+        self.assertEqual(ingested, [("acme/secret", "ghp_caller")])  # cloned with the caller's token
+
+    def test_two_users_do_not_share_a_private_repo(self):
+        # Unlike a public repo (ONE shared copy), the SAME private repo connected
+        # by two users is ingested SEPARATELY into each user's own storage.
+        ingested = []
+
+        def counting_ingest(repo, out_dir, commit=None, code_dir=".", token=None):
+            ingested.append(repo)
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build, ingest_fn=counting_ingest)
+        reg.library_for("1001").connect_sync("acme/secret", token="tokA", private=True)
+        reg.library_for("1002").connect_sync("acme/secret", token="tokB", private=True)
+
+        self.assertEqual(ingested, ["acme/secret", "acme/secret"])  # ingested per-user, NOT deduped
+        self.assertTrue((self.storage / "1001" / "private" / "acme__secret" / "chunks.jsonl").exists())
+        self.assertTrue((self.storage / "1002" / "private" / "acme__secret" / "chunks.jsonl").exists())
+
+    def test_disconnect_deletes_a_users_private_corpus(self):
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build, ingest_fn=self.reg._ingest_fn)
+        reg.library_for("1001").connect_sync("acme/secret", token="tokA", private=True)
+        priv = self.storage / "1001" / "private" / "acme__secret"
+        self.assertTrue((priv / "chunks.jsonl").exists())
+        reg.disconnect("1001")
+        self.assertFalse((self.storage / "1001").exists())  # identity dir incl. private/ is gone
+
     def test_one_users_connect_never_touches_anothers_state(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
