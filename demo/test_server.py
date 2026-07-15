@@ -320,6 +320,49 @@ class _ServerFixture:
         self._tmp.cleanup()
 
 
+class MalformedContentLengthTests(unittest.TestCase):
+    """Security M1: a negative or non-integer Content-Length must be rejected
+    with a prompt HTTP error, never read into a blocking `rfile.read(-1)` that
+    holds a server thread open. Uses a raw socket because urllib computes a
+    correct Content-Length for you (you can't send a malformed one through it)."""
+
+    def _raw_post(self, port, content_length_header):
+        import socket
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        try:
+            s.sendall(
+                b"POST /ask HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                + f"Content-Length: {content_length_header}\r\n".encode()
+                + b"\r\n"
+            )
+            s.settimeout(5)  # if the server hangs on read(-1), this raises instead of blocking forever
+            return s.recv(2048)
+        finally:
+            s.close()
+
+    def test_negative_content_length_is_rejected_not_hung(self):
+        fx = _ServerFixture(_StubLibrary())
+        try:
+            resp = self._raw_post(fx.port, "-1")
+        finally:
+            fx.close()
+        self.assertTrue(resp.startswith(b"HTTP/"), "server must answer, not hang")
+        status = int(resp.split()[1])
+        self.assertIn(status, (400, 413))
+
+    def test_non_integer_content_length_is_rejected_not_a_dropped_connection(self):
+        fx = _ServerFixture(_StubLibrary())
+        try:
+            resp = self._raw_post(fx.port, "notanumber")
+        finally:
+            fx.close()
+        self.assertTrue(resp.startswith(b"HTTP/"), "server must answer, not drop the connection")
+        status = int(resp.split()[1])
+        self.assertIn(status, (400, 413))
+
+
 class OriginGuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

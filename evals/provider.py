@@ -150,8 +150,10 @@ class GeminiProvider(Provider):
     """Calls Google Gemini (generateContent REST). Network. Stdlib only.
 
     Gemini's free tier (~1,500 req/day) is the default writer -- far more headroom
-    than OpenRouter's 50/day. Key from GEMINI_API_KEY (passed as ?key=). Public
-    repos only (free tiers may train on inputs)."""
+    than OpenRouter's 50/day. Key from GEMINI_API_KEY, sent in the
+    `x-goog-api-key` HEADER (never the URL query string -- a key in a URL leaks
+    into proxy/server logs and tracebacks). Public repos only (free tiers may
+    train on inputs)."""
 
     BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 

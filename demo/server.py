@@ -143,6 +143,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
 
     class Handler(BaseHTTPRequestHandler):
         _MAX_BODY = 64 * 1024
+        # Per-connection socket timeout (defense in depth for M1): a client that
+        # opens a connection and then dribbles or stalls its body can't hold a
+        # server thread open indefinitely -- a blocking recv past this is cut.
+        # Well above any legitimate 64KB body upload; only bites a stalled client.
+        timeout = 60
 
         def log_message(self, fmt, *args):  # keep the console quiet
             pass
@@ -157,10 +162,25 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
         def _send_json(self, code, obj):
             self._send(code, json.dumps(obj).encode(), "application/json")
 
+        def _content_length(self) -> int:
+            """Validated body length. Rejects a NEGATIVE Content-Length (M1: a
+            negative value slips past a `> _MAX_BODY` check and turns
+            `rfile.read(length)` into a blocking `read(-1)` that holds the thread
+            until the socket closes), a non-integer value (which would otherwise
+            raise an uncaught ValueError and drop the connection), and an
+            oversized one. Raises ValueError -- callers already treat that as a
+            4xx."""
+            raw = self.headers.get("Content-Length", "0") or "0"
+            try:
+                length = int(raw)
+            except ValueError:
+                raise ValueError("malformed Content-Length")
+            if length < 0 or length > self._MAX_BODY:
+                raise ValueError("bad Content-Length")
+            return length
+
         def _body(self):
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > self._MAX_BODY:
-                raise ValueError("body too large")
+            length = self._content_length()
             return json.loads(self.rfile.read(length) or b"{}")
 
         def _authorized(self) -> bool:
@@ -268,9 +288,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if not self._authorized():
                 self._send_json(403, {"error": "forbidden"})
                 return
-            length = int(self.headers.get("Content-Length", 0) or 0)
-            if length > self._MAX_BODY:
-                self._send_json(413, {"error": "request too large"})
+            # Validate the declared body length BEFORE routing or reading it, so a
+            # negative/non-integer/oversized Content-Length is a clean 413 and
+            # never a blocking read that holds a thread (M1).
+            try:
+                self._content_length()
+            except ValueError:
+                self._send_json(413, {"error": "request too large or malformed"})
                 return
             # Auth endpoints must be reachable WITHOUT a token (you POST here to get one).
             if self.path == "/auth/github/begin":
