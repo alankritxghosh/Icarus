@@ -314,6 +314,50 @@ class AllIssuesCoverageTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 ingest.fetch_all_issue_ids("octo/repo")
 
+    def test_fetch_issues_uses_one_batched_call_not_one_per_issue(self):
+        """Speedup (2026-07-15): fetch_issues makes ONE `gh issue list
+        --json ...,body` call and filters to the wanted ids -- never a
+        `gh issue view` per issue."""
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            if "view" in args:
+                raise AssertionError("fetch_issues must not call 'gh issue view' per issue")
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps([
+                {"number": 10, "title": "ten", "body": "b10"},
+                {"number": 20, "title": "twenty", "body": "b20"},
+                {"number": 30, "title": "thirty", "body": "b30"},
+            ]))
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            chunks = ingest.fetch_issues("octo/repo", {10, 30})
+
+        self.assertEqual(len(calls), 1)  # ONE call for the whole set
+        self.assertEqual({c["ref"] for c in chunks}, {"issue:10", "issue:30"})  # #20 filtered out
+
+    def test_fetch_issues_empty_id_set_makes_no_call(self):
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="[]")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            self.assertEqual(ingest.fetch_issues("octo/repo", set()), [])
+        self.assertEqual(calls, [])  # nothing wanted -> no subprocess at all
+
+    def test_fetch_issues_degrades_on_disabled_issues_even_with_a_pr_mention(self):
+        """A `#N` PR-body mention can leave issue_ids non-empty on a repo with
+        Issues disabled; fetch_issues must degrade to [] like
+        fetch_all_issue_ids, not fail the whole ingest."""
+        def fake_run(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output="", stderr="the 'x/y' repository has disabled issues\n")
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            self.assertEqual(ingest.fetch_issues("x/y", {5}), [])
+
 
 class FetchPRsAllStatesTests(unittest.TestCase):
     """Brick B2: fetch_prs must fetch PRs of ALL states (open+closed+merged),
@@ -346,28 +390,45 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         self.assertIn("--limit", call)
         self.assertEqual(call[call.index("--limit") + 1], str(ingest.PR_LIMIT))
 
-    def test_pr_chunks_produced_regardless_of_which_pr_numbers_are_returned(self):
-        """Integration-style: fetch_prs' pr view call only ever requests
-        title/body/closingIssuesReferences -- it never fetches or branches on
-        a PR's actual state. So this proves the loop is uniform across two
-        different PR numbers from `pr list --state all`, not literally "open
-        vs. merged behave differently" (they never can, by design). The
-        "open"/"merged" labels below are narrative color for the fixture data
-        only, not something the code inspects."""
-        pr_list_result = [{"number": 1}, {"number": 2}]
-        pr_views = {
-            1: {"title": "Open PR title", "body": "closes #10", "closingIssuesReferences": []},
-            2: {"title": "Merged PR title", "body": "fixes #20",
-                "closingIssuesReferences": [{"number": 20}]},
-        }
+    def test_fetch_prs_uses_one_batched_call_not_one_per_pr(self):
+        """Speedup (2026-07-15): fetch_prs makes ONE `gh pr list --json ...,body`
+        call for the whole repo, never a `gh pr view` per PR. Fixture returns 3
+        PRs from the single list call and asserts no per-item view ever fires."""
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(list(args))
+            if "view" in args:
+                raise AssertionError("fetch_prs must not call 'gh pr view' per PR anymore")
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps([
+                {"number": 1, "title": "a", "body": "b1", "closingIssuesReferences": []},
+                {"number": 2, "title": "b", "body": "b2", "closingIssuesReferences": []},
+                {"number": 3, "title": "c", "body": "b3", "closingIssuesReferences": []},
+            ]))
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            chunks, _ = ingest.fetch_prs("octo/repo")
+
+        self.assertEqual(len(calls), 1)   # ONE call for THREE PRs (was 1 + 3)
+        self.assertIn("--json", calls[0])
+        self.assertIn("number,title,body,closingIssuesReferences", calls[0])
+        self.assertEqual({c["ref"] for c in chunks}, {"pr:1", "pr:2", "pr:3"})
+
+    def test_pr_chunks_produced_from_the_single_batched_list(self):
+        """The batched `pr list --json` returns each PR's title/body/closing
+        refs directly; fetch_prs turns every one into a chunk. (Fixture labels
+        'open'/'merged' are narrative only -- the code never inspects state.)"""
+        pr_list_result = [
+            {"number": 1, "title": "Open PR title", "body": "closes #10",
+             "closingIssuesReferences": []},
+            {"number": 2, "title": "Merged PR title", "body": "fixes #20",
+             "closingIssuesReferences": [{"number": 20}]},
+        ]
 
         def fake_gh_json(args, token=None):
             if "list" in args:
                 return pr_list_result
-            if "view" in args:
-                n = int(args[args.index("view") + 1])
-                return pr_views[n]
-            raise AssertionError(f"unexpected _gh_json call: {args}")
+            raise AssertionError(f"unexpected _gh_json call (no per-PR view): {args}")
 
         with mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json):
             chunks, issue_ids = ingest.fetch_prs("octo/repo")
@@ -387,19 +448,17 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         this doesn't (and can't) prove open-vs-merged branching -- it proves
         the scan still fires correctly for a PR number reached via the new
         `--state all` list call."""
-        pr_list_result = [{"number": 5}]
-        pr_view = {
+        pr_list_result = [{
+            "number": 5,
             "title": "WIP: fix login",
             "body": "This will close #99 once reviewed. Also relates to #100.",
             "closingIssuesReferences": [{"number": 99}],
-        }
+        }]
 
         def fake_gh_json(args, token=None):
             if "list" in args:
                 return pr_list_result
-            if "view" in args:
-                return pr_view
-            raise AssertionError(f"unexpected _gh_json call: {args}")
+            raise AssertionError(f"unexpected _gh_json call (no per-PR view): {args}")
 
         with mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json):
             chunks, issue_ids = ingest.fetch_prs("octo/repo")
@@ -421,32 +480,32 @@ class FullCoverageEndToEndTests(unittest.TestCase):
         # Two PRs: fixture labels "open"/"merged" are narrative color only --
         # fetch_prs' real pr-view call never inspects state (see
         # FetchPRsAllStatesTests above) -- both must count regardless.
-        pr_list_result = [{"number": 1}, {"number": 2}]
-        pr_views = {
-            1: {"title": "Open PR: fix login", "body": "closes #10",
-                "closingIssuesReferences": [{"number": 10}]},
-            2: {"title": "Merged PR: add feature", "body": "no issue refs here",
-                "closingIssuesReferences": []},
-        }
+        pr_list_result = [
+            {"number": 1, "title": "Open PR: fix login", "body": "closes #10",
+             "closingIssuesReferences": [{"number": 10}]},
+            {"number": 2, "title": "Merged PR: add feature", "body": "no issue refs here",
+             "closingIssuesReferences": []},
+        ]
+        # The full issue sweep now returns title+body in ONE list call (both
+        # fetch_all_issue_ids and fetch_issues read it) -- includes #10 (linked
+        # from PR 1) AND #253, a standalone issue never referenced by any PR
+        # (the benawad/vsinder#253-shaped proof). No per-item view calls.
+        issue_list_result = [
+            {"number": 10, "title": "Linked issue: login broken", "body": "body for issue 10"},
+            {"number": 253,
+             "title": "Android app not displaying new matches and messages",
+             "body": "body for issue 253"},
+        ]
 
         def fake_gh_json(args, token=None):
+            if "view" in args:
+                raise AssertionError(f"no per-item view calls anymore: {args}")
             if "pr" in args and "list" in args:
                 return pr_list_result
-            if "pr" in args and "view" in args:
-                n = int(args[args.index("view") + 1])
-                return pr_views[n]
             if "issue" in args and "list" in args:
-                # fetch_all_issue_ids: the full open+closed sweep -- includes
-                # #10 (linked from PR 1) AND #253, a standalone issue never
-                # referenced by any PR (the benawad/vsinder#253-shaped proof).
-                return [{"number": 10}, {"number": 253}]
-            if "issue" in args and "view" in args:
-                n = int(args[args.index("view") + 1])
-                titles = {
-                    10: "Linked issue: login broken",
-                    253: "Android app not displaying new matches and messages",
-                }
-                return {"title": titles[n], "body": f"body for issue {n}"}
+                # fetch_all_issue_ids asks for just 'number'; fetch_issues asks
+                # for 'number,title,body'. The same fixture serves both.
+                return issue_list_result
             raise AssertionError(f"unexpected _gh_json call: {args}")
 
         code = [{"ref": "code:main.py", "source": "code", "text": "x = 1\n"}]
