@@ -67,10 +67,9 @@ questions about the real repo are unaffected.
 
 ## How to report a problem
 
-Please send: **(1)** what you did, **(2)** what you expected, **(3)** what
-happened, and **(4)** roughly when (so we can find it in the logs).
-
-> Report to: _<add your Google Form link or email here>_
+Just tell me directly — however you normally reach me. When you do, it helps a
+lot to include: **(1)** what you did, **(2)** what you expected, **(3)** what
+actually happened, and **(4)** roughly when (so I can find it in the logs).
 
 The more specific the better — "asked X about repo Y at ~3:15pm, got Z" is worth
 ten "it didn't work"s. Thank you.
