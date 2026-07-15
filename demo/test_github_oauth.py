@@ -37,11 +37,13 @@ class AuthorizeUrlTests(unittest.TestCase):
         self.assertIn("scope=repo", url)
         self.assertIn("127.0.0.1", url)
 
-    def test_default_scope_is_identity_only(self):
-        # The controlled alpha accepts public repos only, so authentication
-        # needs identity—not broad read/write access to every private repo.
+    def test_default_scope_grants_private_repo_read(self):
+        # Private repos are the product: the default login scope must be `repo`
+        # so the caller's token can read/clone their own private repositories.
+        # (Classic OAuth has no read-only private scope; the per-repo GitHub App
+        # is the roadmap replacement -- see authorize_url's docstring.)
         url = authorize_url("cid123", "http://127.0.0.1:8000/auth/github/callback", "st8")
-        self.assertIn("scope=read%3Auser", url)
+        self.assertIn("scope=repo", url)
 
 
 class ExchangeCodeTests(unittest.TestCase):

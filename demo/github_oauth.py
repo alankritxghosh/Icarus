@@ -37,11 +37,18 @@ def new_state() -> str:
     return secrets.token_urlsafe(24)
 
 
-def authorize_url(client_id: str, redirect_uri: str, state: str, scope: str = "read:user") -> str:
+def authorize_url(client_id: str, redirect_uri: str, state: str, scope: str = "repo") -> str:
     """Build the GitHub authorize URL the app opens in the auth sheet.
 
-    The controlled alpha accepts public repositories only, so GitHub is used
-    for identity—not broad access to every private repository.
+    Scope `repo` lets a signed-in user connect their own PRIVATE repositories --
+    the caller's token authenticates the private clone (see demo/server.py and
+    evals/ingest.py's leak-safe env auth). Classic OAuth has no read-only private
+    scope, so `repo` is broader than we'd like: it grants read/write to ALL of a
+    user's private repos, not just the one they connect. This is a deliberate,
+    disclosed tradeoff to unblock design partners; the trust-correct replacement
+    is a GitHub App with per-repo, read-only installation (roadmap) so a customer
+    grants exactly one repo, not their whole account. Change this default back to
+    `read:user` if reverting to a public-only build.
     """
     q = urllib.parse.urlencode({
         "client_id": client_id,
