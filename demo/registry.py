@@ -1,23 +1,36 @@
 # demo/registry.py
 """Per-user library isolation: one Library per authenticated GitHub identity.
 
-This is the load-bearing isolation the unified-cloud decision demands: every
-user's active repo, corpus cache, and pipeline live under their own
-<storage_root>/<user_id>/ and are invisible to everyone else. The shared
-default corpus (the committed public demo repo) is built once and shared
-read-only (see `evals/pipeline.py`'s `GatedPipeline.answer()` -- it takes the
-question in, returns a `Result`, and keeps no per-call state, so one instance
-is safe to hand to every user).
+**What is per-user vs. shared.** Isolation is keyed on PROVENANCE, not on user:
+
+- A PUBLIC repo's index is a deterministic function of public input -- the same
+  bytes for every user, containing zero user data -- so it is ingested ONCE into
+  a shared `<storage_root>/public.cache/<repo>/` and reused by everyone. Giving
+  each user a private copy of identical public data isn't privacy, it's waste
+  (30 testers connecting the same repo would mean 30 identical clones + embeds).
+  This is the same read-only-sharing the default demo corpus already used.
+- WHO connected WHAT, their history, and their questions stay per-user: each
+  user gets their own `Library` (active repo, in-memory state) and their own
+  `<storage_root>/<user_id>/` record dir. (Private/customer repos, if ever
+  re-enabled, must ingest into a per-user dir -- NEVER the shared path.)
 
 Live libraries are LRU-bounded. The registry remembers each user's last repo
 outside the evictable `Library` objects and replays its disk-cache hit when the
 library is rebuilt, so eviction never silently reverts a user to the demo repo.
 
-`disconnect` deletes a user's storage -- a trust product must let a user
-delete -- and forgets their last-connected repo too."""
+`disconnect` forgets the user's connection and deletes their own record dir --
+never the shared public cache, which is nobody's private data.
 
+Concurrency: the shared cache is written atomically (ingest into a temp dir,
+then `os.replace` into place), and a per-repo lock single-flights concurrent
+first-connects within a process. Because the corpus is deterministic, a race
+ACROSS processes (multiple replicas on one shared volume) is harmless -- the
+loser of the atomic rename discards its identical copy."""
+
+import os
 import re
 import shutil
+import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -27,6 +40,10 @@ from evals.ingest import ingest_repo
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _ANON = "anon"  # unauthenticated GETs share one read-only default view
+# Shared public-corpus root under storage_root. The '.' is deliberate: it can
+# never be produced by `_key` (whose whitelist forbids '.'), so no user id can
+# ever collide with or reach into the shared cache.
+_PUBLIC_CACHE_SUBDIR = "public.cache"
 
 
 class LibraryRegistry:
@@ -38,16 +55,60 @@ class LibraryRegistry:
         self._base_build = build_pipeline or _default_build_pipeline
         self._ingest_fn = ingest_fn or ingest_repo
         self._max_live = max_live
+        # One shared cache for every public repo (see module docstring).
+        self._public_cache = self._storage_root / _PUBLIC_CACHE_SUBDIR
         # Built once, shared read-only across every user (see module docstring).
         self._default_pipeline = self._base_build(self._default_dir)
         self._libraries: OrderedDict[str, Library] = OrderedDict()
         self._last_repo: dict[str, str] = {}  # key -> most-recently-connected repo
+        self._ingest_locks: dict[str, threading.Lock] = {}  # repo slug -> single-flight lock
         self._lock = threading.Lock()
 
     def _build(self, corpus_dir, fast=False):
         if Path(corpus_dir).resolve() == self._default_dir.resolve():
             return self._default_pipeline
         return self._base_build(corpus_dir, fast=fast)
+
+    def _lock_for_slug(self, slug):
+        with self._lock:
+            lock = self._ingest_locks.get(slug)
+            if lock is None:
+                lock = self._ingest_locks[slug] = threading.Lock()
+            return lock
+
+    def _shared_ingest(self, repo, out_dir, code_dir=".", commit=None, token=None):
+        """Ingest a public repo into the SHARED cache, once, atomically.
+
+        `out_dir` is the final shared slug dir (Library resolves it against the
+        shared cache root). Fast path: if it already holds a corpus, do nothing --
+        a cache hit shared across all users. Otherwise single-flight on a per-slug
+        lock, ingest into a temp dir, and `os.replace` it into place so a crashed
+        or concurrent ingest can never leave a partial corpus visible to anyone.
+        A cross-replica loser of the rename discards its (identical) copy."""
+        out_dir = Path(out_dir)
+        slug = out_dir.name
+        if (out_dir / "chunks.jsonl").exists():
+            return  # already cached by someone -- no lock, no work
+        with self._lock_for_slug(slug):
+            if (out_dir / "chunks.jsonl").exists():
+                return  # another caller finished while we waited on the lock
+            out_dir.parent.mkdir(parents=True, exist_ok=True)
+            tmp = Path(tempfile.mkdtemp(prefix=f".tmp-{slug}-", dir=out_dir.parent))
+            try:
+                self._ingest_fn(repo, tmp, code_dir=code_dir, commit=commit, token=token)
+                try:
+                    os.replace(tmp, out_dir)  # atomic publish (temp and final share a parent)
+                except OSError:
+                    # Another process/replica published first onto the shared
+                    # volume. The corpus is deterministic, so theirs == ours;
+                    # keep theirs, drop ours. Re-raise only if nothing landed.
+                    if (out_dir / "chunks.jsonl").exists():
+                        shutil.rmtree(tmp, ignore_errors=True)
+                    else:
+                        raise
+            except Exception:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise
 
     @staticmethod
     def _key(user_id):
@@ -64,9 +125,13 @@ class LibraryRegistry:
                 self._libraries.move_to_end(key)
                 return lib
             resume_repo = self._last_repo.get(key)
-            lib = Library(self._default_dir, self._storage_root / key / "cache",
+            # Every user's Library reads/writes public corpora in the SHARED cache
+            # (deduped across users) and ingests through the atomic single-flight
+            # wrapper. Per-user identity/state still lives in this Library object
+            # and in <storage_root>/<key>/ (record dir, deleted on disconnect).
+            lib = Library(self._default_dir, self._public_cache,
                           self._default_repo, build_pipeline=self._build,
-                          ingest_fn=self._ingest_fn)
+                          ingest_fn=self._shared_ingest)
             self._libraries[key] = lib
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:

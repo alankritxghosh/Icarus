@@ -223,11 +223,12 @@ class StorageIsolationTests(_IsolationTestBase):
         _connect(self.base, self.TOK_A, "octo/xrepo")
         _wait_until_ready(self.base, self.TOK_A)
 
-        a_cache = self.storage / self.USER_A / "cache" / "octo__xrepo" / "chunks.jsonl"
-        self.assertTrue(a_cache.exists())
-        # B has never made any request that resolves their identity into a
-        # Library -- library_for() is what creates storage on disk (via
-        # Library's cache_root), and B has issued nothing yet in this test.
+        # The corpus is shared public data -> it lands in the shared cache, NOT
+        # under the connecting user's identity dir.
+        shared = self.storage / "public.cache" / "octo__xrepo" / "chunks.jsonl"
+        self.assertTrue(shared.exists())
+        self.assertFalse((self.storage / self.USER_A / "cache" / "octo__xrepo").exists())
+        # B has issued nothing -> no per-identity dir for B at all.
         self.assertFalse((self.storage / self.USER_B).exists())
 
 
@@ -270,10 +271,9 @@ class DisconnectIsolationTests(_IsolationTestBase):
         _connect(self.base, self.TOK_B, "octo/yrepo")
         _wait_until_ready(self.base, self.TOK_B)
 
-        a_cache_dir = self.storage / self.USER_A / "cache" / "octo__xrepo"
-        b_cache_dir = self.storage / self.USER_B / "cache" / "octo__yrepo"
-        self.assertTrue(a_cache_dir.exists())
-        self.assertTrue(b_cache_dir.exists())
+        b_shared = self.storage / "public.cache" / "octo__yrepo"
+        self.assertTrue((self.storage / "public.cache" / "octo__xrepo").exists())
+        self.assertTrue(b_shared.exists())
 
         status, _ = _disconnect(self.base, self.TOK_A)
         self.assertEqual(status, 200)
@@ -281,12 +281,15 @@ class DisconnectIsolationTests(_IsolationTestBase):
         _, a_status = _status(self.base, self.TOK_A)
         self.assertEqual(a_status["repo"], self.DEFAULT_REPO)
 
+        # B's VIEW is untouched -- the real isolation guarantee.
         _, b_status = _status(self.base, self.TOK_B)
         self.assertEqual(b_status["repo"], "octo/yrepo")
         self.assertEqual(b_status["state"], "ready")
 
+        # A's own identity dir is gone; the shared corpus B relies on survives
+        # (A's disconnect must never delete shared public data).
         self.assertFalse((self.storage / self.USER_A).exists())
-        self.assertTrue(b_cache_dir.exists())
+        self.assertTrue(b_shared.exists())
 
 
 class ProvenanceIsolationTests(_IsolationTestBase):

@@ -48,12 +48,38 @@ class RegistryTests(unittest.TestCase):
     def test_different_users_get_different_libraries(self):
         self.assertIsNot(self.reg.library_for("1001"), self.reg.library_for("1002"))
 
-    def test_users_get_per_user_storage_paths(self):
+    def test_public_corpus_lands_in_shared_cache_not_under_user_id(self):
+        # A public repo's corpus is shared public data -- it must live in the
+        # shared cache, never filed under the connecting user's identity dir
+        # (that dir is reserved for per-user/private state).
         a = self.reg.library_for("1001")
         a.connect_sync("octo/xrepo")
-        cached = self.storage / "1001" / "cache" / "octo__xrepo" / "chunks.jsonl"
-        self.assertTrue(cached.exists())
+        self.assertTrue((self.storage / "public.cache" / "octo__xrepo" / "chunks.jsonl").exists())
+        self.assertFalse((self.storage / "1001" / "cache" / "octo__xrepo").exists())
         self.assertFalse((self.storage / "1002").exists())
+
+    def test_public_corpus_is_shared_across_users_one_ingest(self):
+        # A public repo's index is a deterministic function of public input, so
+        # it must be ingested ONCE and shared, not cloned+embedded privately per
+        # user (30 testers connecting the same repo must not = 30 identical jobs).
+        ingested = []
+
+        def counting_ingest(repo, out_dir, commit=None, code_dir=".", token=None):
+            ingested.append(repo)
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
+                              build_pipeline=self.reg._base_build, ingest_fn=counting_ingest)
+        reg.library_for("1001").connect_sync("octo/shared")
+        reg.library_for("1002").connect_sync("octo/shared")
+
+        self.assertEqual(ingested, ["octo/shared"])  # ONE ingest, shared by both users
+        shared = self.storage / "public.cache" / "octo__shared" / "chunks.jsonl"
+        self.assertTrue(shared.exists())
+        # No private per-user duplicate of the public corpus.
+        self.assertFalse((self.storage / "1001" / "cache" / "octo__shared").exists())
+        self.assertFalse((self.storage / "1002" / "cache" / "octo__shared").exists())
 
     def test_one_users_connect_never_touches_anothers_state(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
@@ -192,15 +218,34 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(rebuilt.status_snapshot()["repo"], "octo/xrepo")
         self.assertEqual(ingested, ["octo/xrepo"])  # still just the one call
 
-    def test_disconnect_deletes_only_that_users_storage(self):
+    def test_disconnect_forgets_the_user_but_never_the_shared_corpus(self):
         a, b = self.reg.library_for("1001"), self.reg.library_for("1002")
         a.connect_sync("octo/xrepo")
         b.connect_sync("octo/yrepo")
+        shared_x = self.storage / "public.cache" / "octo__xrepo"
+        shared_y = self.storage / "public.cache" / "octo__yrepo"
         self.reg.disconnect("1001")
+        # A's own identity dir is gone; a fresh library for A resets to default.
         self.assertFalse((self.storage / "1001").exists())
-        self.assertTrue((self.storage / "1002" / "cache" / "octo__yrepo").exists())
-        # A fresh library for 1001 starts back on the default.
         self.assertEqual(self.reg.library_for("1001").status_snapshot()["repo"], "simonw/llm")
+        # B is untouched, and NEITHER shared corpus is deleted -- shared public
+        # data is nobody's private data; disconnect must never nuke it.
+        self.assertEqual(b.status_snapshot()["repo"], "octo/yrepo")
+        self.assertTrue((shared_x / "chunks.jsonl").exists())
+        self.assertTrue((shared_y / "chunks.jsonl").exists())
+
+    def test_disconnect_deletes_the_users_own_record_dir_only(self):
+        # The per-identity dir <storage>/<id>/ is where per-user/private state
+        # lives (today: connection record; future: private-repo corpora).
+        # disconnect must delete exactly that, and never the shared public cache.
+        (self.storage / "1001").mkdir(parents=True)
+        (self.storage / "1001" / "private.txt").write_text("mine")
+        pub = self.storage / "public.cache" / "octo__pub"
+        pub.mkdir(parents=True)
+        (pub / "chunks.jsonl").write_text("{}\n")
+        self.reg.disconnect("1001")
+        self.assertFalse((self.storage / "1001").exists())     # the user's own data: gone
+        self.assertTrue((pub / "chunks.jsonl").exists())        # shared public data: untouched
 
     def test_disconnect_surfaces_delete_failure(self):
         def fail_unless_ignored(path, ignore_errors=False):
