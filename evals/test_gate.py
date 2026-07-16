@@ -46,6 +46,23 @@ class GateTests(unittest.TestCase):
         raw = "Sure!\n" + _ans("Because Y.", ["pr:1435"]) + "\nhope that helps"
         self.assertEqual(gate(raw, RETRIEVED).verdict, "answer")
 
+    def test_case_insensitive_verdict_still_answers(self):
+        # A writer emitting "Answer"/"ANSWER" instead of lowercase "answer"
+        # must not be wrongly forced to unknown -- fail-safe-only hardening,
+        # can only ever turn a would-be-unknown into a legitimate answer.
+        raw = json.dumps({"verdict": "Answer", "answer": "Because Y.", "citations": ["pr:1435"]})
+        r = gate(raw, RETRIEVED)
+        self.assertEqual(r.verdict, "answer")
+        self.assertEqual(r.citations, ["pr:1435"])
+
+    def test_single_string_citation_still_grounds(self):
+        # A writer emitting a lone citation string instead of a one-item list
+        # must still ground, not be forced to unknown for a format mismatch.
+        raw = json.dumps({"verdict": "answer", "answer": "Because Y.", "citations": "pr:1435"})
+        r = gate(raw, RETRIEVED)
+        self.assertEqual(r.verdict, "answer")
+        self.assertEqual(r.citations, ["pr:1435"])
+
 
 class MalformedLineWindowTests(unittest.TestCase):
     """A citation whose line window is impossible (line 0/negative or end<start)

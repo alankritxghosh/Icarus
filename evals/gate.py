@@ -187,12 +187,15 @@ def _states_reason(text) -> bool:
 
 def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
     data = _extract_json(raw)
-    if not isinstance(data, dict) or data.get("verdict") != "answer":
+    verdict = data.get("verdict") if isinstance(data, dict) else None
+    if not isinstance(data, dict) or not isinstance(verdict, str) or verdict.lower() != "answer":
         return Result(verdict="unknown")
     answer = data.get("answer")
     citations = data.get("citations")
     if not isinstance(answer, str) or not answer.strip():
         return Result(verdict="unknown")
+    if isinstance(citations, str):
+        citations = [citations]
     if not isinstance(citations, list):
         return Result(verdict="unknown")
     grounded = []

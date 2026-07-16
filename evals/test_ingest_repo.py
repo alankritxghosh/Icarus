@@ -347,6 +347,24 @@ class AllIssuesCoverageTests(unittest.TestCase):
             self.assertEqual(ingest.fetch_issues("octo/repo", set()), [])
         self.assertEqual(calls, [])  # nothing wanted -> no subprocess at all
 
+    def test_issue_chunk_text_embeds_the_issue_number(self):
+        """A question naming an issue by number (e.g. "issue #260") must have
+        something to actually match against: the number itself, not just the
+        title/body. Reproduces a live-found bug where an issue's own number
+        was only ever in its `ref` ("issue:260"), never in its searchable
+        `text` -- so a query for "#260" scored zero against its own chunk
+        unless the title/body happened to mention the number by coincidence."""
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps([
+                {"number": 10, "title": "ten", "body": "b10"},
+            ]))
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            chunks = ingest.fetch_issues("octo/repo", {10})
+
+        self.assertEqual(len(chunks), 1)
+        self.assertIn("#10", chunks[0]["text"])
+
     def test_fetch_issues_degrades_on_disabled_issues_even_with_a_pr_mention(self):
         """A `#N` PR-body mention can leave issue_ids non-empty on a repo with
         Issues disabled; fetch_issues must degrade to [] like
@@ -413,6 +431,21 @@ class FetchPRsAllStatesTests(unittest.TestCase):
         self.assertIn("--json", calls[0])
         self.assertIn("number,title,body,closingIssuesReferences", calls[0])
         self.assertEqual({c["ref"] for c in chunks}, {"pr:1", "pr:2", "pr:3"})
+
+    def test_pr_chunk_text_embeds_the_pr_number(self):
+        """Same reasoning as the issue-number embedding test above, for PRs:
+        a query naming a PR by number must have the number itself to match
+        against in the chunk's searchable text, not just its ref."""
+        def fake_run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps([
+                {"number": 42, "title": "a fix", "body": "b42", "closingIssuesReferences": []},
+            ]))
+
+        with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
+            chunks, _ = ingest.fetch_prs("octo/repo")
+
+        self.assertEqual(len(chunks), 1)
+        self.assertIn("#42", chunks[0]["text"])
 
     def test_pr_chunks_produced_from_the_single_batched_list(self):
         """The batched `pr list --json` returns each PR's title/body/closing

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .corpus_meta import write_meta
+from .synth import _MAX_CODE_CHUNK_CHARS as _CHUNK_MAX_CHARS
 
 REPO = "simonw/llm"
 COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
@@ -145,20 +146,37 @@ def chunk_text(text: str, ref_prefix: str) -> List[dict]:
     lines = text.splitlines()
     total = len(lines)
 
-    if total <= _CHUNK_WINDOW_LINES:
+    if total <= _CHUNK_WINDOW_LINES and len(text) <= _CHUNK_MAX_CHARS:
         return [{"ref": ref_prefix, "text": text}]
 
-    stride = _CHUNK_WINDOW_LINES - _CHUNK_OVERLAP_LINES
     chunks = []
     start = 0  # 0-indexed line offset into `lines`
     while start < total:
-        end = min(start + _CHUNK_WINDOW_LINES, total)
-        window_lines = lines[start:end]
+        # Grow the window up to _CHUNK_WINDOW_LINES lines, but stop early if
+        # the joined text would exceed _CHUNK_MAX_CHARS -- a short-but-dense
+        # file (long docstrings, generated tables) can blow the char budget
+        # well before the line budget, and a chunk this large would just be
+        # silently truncated by synth.py's build_prompt anyway, even though
+        # it was retrieved and reached the writer's top-k. Floor of one line
+        # of progress so a single pathological oversized line can't stall
+        # the loop.
+        end = start + 1
+        joined = lines[start]
+        line_cap = min(start + _CHUNK_WINDOW_LINES, total)
+        while end < line_cap:
+            candidate = joined + "\n" + lines[end]
+            if len(candidate) > _CHUNK_MAX_CHARS:
+                break
+            joined = candidate
+            end += 1
         ref = f"{ref_prefix}#L{start + 1}-L{end}"
-        chunks.append({"ref": ref, "text": "\n".join(window_lines) + "\n"})
+        chunks.append({"ref": ref, "text": joined + "\n"})
         if end == total:
             break
-        start += stride
+        # Overlap measured from wherever this window actually ended, not a
+        # fixed additive stride -- degrades to the exact previous behavior
+        # whenever a window is never char-bound-limited (the common case).
+        start = max(start + 1, end - _CHUNK_OVERLAP_LINES)
     return chunks
 
 
@@ -317,7 +335,7 @@ def fetch_prs(repo, token=None):
     chunks, issue_ids = [], set()
     for pr in prs:
         n = pr["number"]
-        text = f"{pr['title']}\n\n{pr.get('body') or ''}"
+        text = f"PR #{n}: {pr['title']}\n\n{pr.get('body') or ''}"
         chunks.append({"ref": f"pr:{n}", "source": "pr", "text": text})
         for ref in pr.get("closingIssuesReferences", []):
             issue_ids.add(ref["number"])
@@ -382,7 +400,7 @@ def fetch_issues(repo, issue_ids, token=None):
         n = it["number"]
         if n not in wanted:
             continue
-        chunks.append({"ref": f"issue:{n}", "source": "issue", "text": f"{it['title']}\n\n{it.get('body') or ''}"})
+        chunks.append({"ref": f"issue:{n}", "source": "issue", "text": f"Issue #{n}: {it['title']}\n\n{it.get('body') or ''}"})
     return chunks
 
 

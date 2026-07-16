@@ -10,10 +10,20 @@ synthesize) is the *next* brick. This file only defines the contract and a
 do-nothing stub, so we can stand up an honest red baseline first.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import List
 
 from .corpus import chunk_covers_lines
+
+# An explicit "issue #N" / "PR #N" / bare "#N" mention names a specific ref by
+# identifier, not a concept -- BM25/semantic search treats the number as one
+# ordinary keyword with no exact-match guarantee, and a chunk whose own text
+# never happens to repeat that number can score 0 and never be retrieved at
+# all, even though the exact ref exists in the corpus (a live-found bug).
+_ISSUE_OR_PR_REF = re.compile(
+    r"(?:\b(?:issue|pr|pull\s*request)s?\s*#?|#)\s*(\d+)\b", re.IGNORECASE
+)
 
 
 @dataclass
@@ -85,7 +95,7 @@ class GatedPipeline(Pipeline):
     # question (the common case: select a line, click "Ask Icarus").
     _DEFAULT_EXPLAIN_QUESTION = "What does this code do, and why is it here?"
 
-    def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 6):
+    def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 10):
         self._retriever = retriever
         self._by_ref = {c.ref: c for c in chunks}
         self._provider = provider
@@ -93,7 +103,20 @@ class GatedPipeline(Pipeline):
         self._writer_k = writer_k
 
     def answer(self, question: str) -> Result:
-        retrieved = self._retriever.search(question, self._recall_n)
+        # An explicit "issue/PR #N" mention gets a guaranteed anchor lookup
+        # against self._by_ref (bypassing .search()/query normalization
+        # entirely, same as .explain()'s anchor resolution already does) --
+        # a numeric identifier is an exact-match problem, not a similarity
+        # one. Anchor first, then ordinary search results, de-duplicated;
+        # mirrors .explain()'s own anchor-then-neighbors merge exactly.
+        anchor_refs = []
+        for n in _ISSUE_OR_PR_REF.findall(question):
+            for ref in (f"issue:{n}", f"pr:{n}"):
+                if ref in self._by_ref:
+                    anchor_refs.append(ref)
+                    break
+        searched = self._retriever.search(question, self._recall_n)
+        retrieved = list(dict.fromkeys(anchor_refs + searched))
         top = [self._by_ref[r] for r in retrieved[: self._writer_k] if r in self._by_ref]
         return self._answer_from(question, top, retrieved)
 

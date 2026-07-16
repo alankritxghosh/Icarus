@@ -19,6 +19,7 @@ this in is Task A3, not this one.
 import unittest
 
 from .ingest import (
+    _CHUNK_MAX_CHARS,
     _CHUNK_OVERLAP_LINES,
     _CHUNK_WINDOW_LINES,
     chunk_text,
@@ -28,6 +29,17 @@ from .ingest import (
 def _make_lines(n):
     """n lines of distinct, greppable synthetic content: 'line 1', 'line 2', ..."""
     return "\n".join(f"line {i}" for i in range(1, n + 1)) + "\n"
+
+
+def _make_dense_lines(n, line_len=200):
+    """n lines, each padded to line_len chars -- for char-budget tests where a
+    file is short in LINE count but long in CHAR count (e.g. long docstrings,
+    generated tables)."""
+    lines = []
+    for i in range(1, n + 1):
+        content = f"line{i}"
+        lines.append(content + "x" * (line_len - len(content)))
+    return "\n".join(lines) + "\n"
 
 
 class ShortFileTests(unittest.TestCase):
@@ -168,6 +180,54 @@ class JustOverBoundaryTests(unittest.TestCase):
         last_line_part = chunks[1]["ref"].split("#L", 1)[1]
         _, end_str = last_line_part.split("-L")
         self.assertEqual(int(end_str), _CHUNK_WINDOW_LINES + 1)
+
+
+class DenseShortFileTests(unittest.TestCase):
+    """A file at or under _CHUNK_WINDOW_LINES (300) lines, but whose lines are
+    long enough that its total char count exceeds the writer's per-chunk
+    budget (synth.py's _MAX_CODE_CHUNK_CHARS), must still split. Reproduces a
+    live-found bug: the whole-file short-circuit only checked line count,
+    never chars -- a dense short file became ONE oversized chunk that
+    build_prompt silently truncated, even though it was retrieved and reached
+    the writer's top-k."""
+
+    def test_dense_short_file_still_splits_by_char_budget(self):
+        # 100 lines * 200 chars/line ~= 20,000 chars: well under
+        # _CHUNK_WINDOW_LINES (300) lines, well over _CHUNK_MAX_CHARS.
+        text = _make_dense_lines(100, line_len=200)
+        chunks = chunk_text(text, "code:pkg/dense.py")
+        self.assertGreater(len(chunks), 1)
+
+    def test_every_chunk_stays_within_the_char_budget(self):
+        text = _make_dense_lines(100, line_len=200)
+        chunks = chunk_text(text, "code:pkg/dense.py")
+        for c in chunks:
+            self.assertLessEqual(len(c["text"]), _CHUNK_MAX_CHARS)
+
+    def test_marker_past_the_char_budget_survives_into_some_chunk(self):
+        # A marker placed past char 10,000 in a <=300-line file must survive
+        # into at least one chunk small enough that build_prompt never has to
+        # truncate it away.
+        prefix = _make_dense_lines(60, line_len=200)  # ~12,000 chars
+        marker_line = "MARKER_TOKEN" + "y" * 187
+        text = prefix + marker_line + "\n"
+        chunks = chunk_text(text, "code:pkg/dense_marker.py")
+        self.assertTrue(any("MARKER_TOKEN" in c["text"] for c in chunks))
+        for c in chunks:
+            self.assertLessEqual(len(c["text"]), _CHUNK_MAX_CHARS)
+
+    def test_dense_file_windows_still_cover_the_whole_file_without_gaps(self):
+        text = _make_dense_lines(100, line_len=200)
+        total_lines = 100
+        chunks = chunk_text(text, "code:pkg/dense_cover.py")
+        covered = set()
+        for c in chunks:
+            ref = c["ref"]
+            self.assertIn("#L", ref)
+            line_part = ref.split("#L", 1)[1]
+            start_str, end_str = line_part.split("-L")
+            covered.update(range(int(start_str), int(end_str) + 1))
+        self.assertEqual(covered, set(range(1, total_lines + 1)))
 
 
 class RefPrefixContractTests(unittest.TestCase):
