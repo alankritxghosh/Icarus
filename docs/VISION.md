@@ -16,6 +16,16 @@ churn of people leaving. People buy reduced onboarding, preserved institutional 
 faster debugging, and confidence to change things — not explanations. See
 [decisions/2026-06-30-organizational-memory-positioning.md](decisions/2026-06-30-organizational-memory-positioning.md).
 
+**The category, longer term:** every serious attempt to let AI act on a
+company's own operational knowledge — handling refunds, incident response,
+pricing exceptions — eventually needs a foundation it can trust: knowledge
+that's provably grounded, not confidently synthesized. Icarus's honesty
+discipline (cite-or-unknown, proven in code, not just claimed) is that
+foundation, built first on the hardest, most structured slice of a company's
+knowledge — its codebase — because GitHub gives provenance no Slack thread or
+email chain ever will. We are not building a general company brain today; we
+are building the trust primitive one will eventually require.
+
 ---
 
 ## 1. The product, in one sentence
@@ -66,7 +76,7 @@ with "different product" is the trap.
 |------|-----------|-------|
 | **Core engine** (honest retrieval: cite-or-unknown) | the defensible core + grounded conversational synthesis | deeper structural understanding |
 | **Data sources** (what it knows) | **GitHub** (PRs, reviews, merges, reverts) | Slack, Linear, Notion, org-wide |
-| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay** | team surfaces, web |
+| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay, browser extension** | team surfaces, web |
 | **Deployment** (where compute runs) | one unified cloud we operate, with **per-tenant data isolation** | true single-tenant / in-customer-cloud for the most regulated (enterprise upsell) |
 
 The core engine is the slow, defensible, expensive part — and it is
@@ -85,10 +95,16 @@ one laptop — they would be slow and drain the battery, and every engineer woul
 get a different experience based on their hardware. So the heavy thinking runs in
 the cloud. It runs in **one unified cloud we operate**, but every company's data
 is **isolated per tenant** — separate stores and keys, never pooled with another
-customer's — under written guarantees:
+customer's.
+
+**True today, enforced in code, not just promised:**
 
 - **Never trained on customer code.**
 - **Discarded after each request** (zero-data-retention).
+
+**The target for the first security-conscious paying customer, not yet
+pursued:**
+
 - **Real compliance** (SOC 2, ISO 27001, and BAAs where needed).
 
 A **single-tenant tier — their own cloud, or fully local** — stays available for

@@ -91,21 +91,37 @@ and auditable**. Be precise (and honest) about what that guarantees:
   deliberate, minimized decision.
 
 ## How we build (the strategic principle)
-**Build the brain as a typed API first; sell it typed; voice is Phase 3.** Never
-build the talker before the brain. Rent the commodities, own the moat (ingest,
-honesty gate, evals, the app). See [docs/STRATEGY.md](docs/STRATEGY.md).
+**Build the brain as a typed API first; sell it typed.** Never build the talker
+before the brain — voice now exists, built only after the brain proved itself
+honest. Rent the commodities, own the moat (ingest, honesty gate, evals, the
+app). See [docs/STRATEGY.md](docs/STRATEGY.md).
 
-Stack (decided): Python brain · OpenRouter **free** models behind a one-line
-provider abstraction (`cohere/north-mini-code:free` is candidate #1; the eval
-harness picks the model) · local open embeddings · **public repos only** while on
-free models · Claude / voice / Mac app deferred. Full table in STRATEGY.md.
+Stack (decided): Python brain · local open embeddings (fastembed) · **one
+model for all production serving** — `gemini-paid` (Gemini, billing-enabled,
+private-safe), used for every public AND private repo alike; the free/paid
+writer split was killed 2026-07-13, there is no free-tier serving path anymore.
+The eval harness (`evals.run`) keeps its own separate writer/judge dials
+(Groq/Gemini/OpenRouter, defaulting to free Groq) for cost-free quality
+iteration — those dials never touch serving, don't confuse the two. Mac app,
+voice, and the browser extension are built and shipping, not deferred. Full
+table in STRATEGY.md (that doc needs a pass to match — flag if you read it).
 
 ## Current stage
-Pre-build. Next brick = Phase 1: type a question about one GitHub repo, get a
-cited answer or an honest unknown, proven by the eval harness, with a recordable
-demo (honest "I don't know" is the hero shot). See
-[docs/PHASE_1_PLAN.md](docs/PHASE_1_PLAN.md). Old code archived at tag
-`jarvis-v0` / branch `archive/jarvis-v0` — reference only, not a dependency.
+Engineering core is done: honest retrieval + the deterministic honesty gate,
+ingest across a dozen+ languages, public AND private repos, one deployed Azure
+brain, a Mac app, and a browser extension — all shipped and live-tested against
+real, unfamiliar repos (not just the frozen eval board).
+
+**This file does not try to track the current priority day-to-day — read
+[docs/HANDOFF.md](docs/HANDOFF.md) first, every session.** It's the one doc
+actually kept current session-to-session; treat anything here about "what's
+next" as background, not instruction. As of 2026-07-16 the stated priority is
+business decisions (ICP, pricing, trust/legal, design-partner outreach), not
+new engineering — unless live testing or a design partner surfaces a real gap,
+in which case fix it the way the 2026-07-16 session did: reproduce it live,
+root-cause it in the real code, fix it with a red→green test, verify at scale,
+then deploy. Old JARVIS-era code archived at tag `jarvis-v0` — reference only,
+not a dependency.
 
 ## Architecture in one line
 The Mac app is the *face* (hotkey, mic, overlay); the cloud is the *brain*
@@ -129,15 +145,20 @@ Before and after every change, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md):
 - After changes: run evals/tests, then report files changed, results, risks, and
   the next recommended brick. No success claims without evidence.
 
-## Do not build yet (post-Phase-4 unless a task says so)
+## Do not build yet (unless a task, tester feedback, or a design partner says so)
 - Data sources beyond GitHub (Slack, Linear, Notion, org-wide ingestion).
-- Deep structural code understanding / dependency tracing.
+- Deep structural code understanding / dependency tracing — e.g. "explain this
+  file's relationship to the rest of the codebase," not just what's in it
+  (raised 2026-07-16, still genuinely deferred; see docs/VISION.md's "later"
+  column).
 - Autonomous coding-agent behavior.
-- Voice or the Mac app before their phase.
-- Cloud hosting / deployment — the model is decided (one unified cloud +
-  per-tenant isolation; see the decision doc), but not built until post-demo and
-  the paid/private-model decision. Naive pooled multi-tenancy is never the answer.
 - Any use of personal JARVIS memory.
+
+**Already built, despite what older docs elsewhere might still say — don't
+re-litigate or rebuild these:** voice, the Mac app, the browser extension, and
+cloud hosting/deployment (one unified cloud, per-tenant isolation, live on
+Azure Container Apps). Naive pooled multi-tenancy is still never the answer,
+even though hosting itself is long since decided and shipped.
 
 ## Commands
 Run **all** tests (from repo root — the `-t .` is required so the `evals.`/`demo.`
@@ -175,11 +196,12 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
   without the key).
 
 Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
-- `GROQ_API_KEY=… GEMINI_API_KEY=… python3 -m demo.server` — serve the demo at
+- `GEMINI_PAID_API_KEY=… python3 -m demo.server` — serve the demo at
   `http://127.0.0.1:8000`: type a question about `simonw/llm` and get a cited
   answer (citations link to GitHub at the pinned commit) or an honest "no one
-  wrote this down". Writer defaults to Groq (falls back to Gemini, then
-  OpenRouter). Pure packaging over `GatedPipeline` — no brain change. Needs a free
+  wrote this down". Writer is the one production model, `gemini-paid` — no
+  free-tier fallback in serving (that split was killed 2026-07-13; see Stack
+  above). Pure packaging over `GatedPipeline` — no brain change. Needs the paid
   key and the committed corpus. **In-app repo switch:** type any public
   `owner/repo` in the sidebar → it indexes once into a git-ignored cache
   (`evals/corpus/cache/`) and switches; the built-in `simonw/llm` always reloads
@@ -193,10 +215,15 @@ Ingest (point the demo at any **public** repo; needs `gh` authed + `git`):
 - `python3 -m evals.ingest --repo OWNER/REPO [--commit SHA] [--code-dir DIR]` —
   ingest any public repo into `evals/corpus/chunks.jsonl` (overwrites it) and
   write `evals/corpus/meta.json` (provenance). `--commit` defaults to repo HEAD;
-  `--code-dir` is the subtree globbed for `*.py` (default `llm`). The demo reads
-  repo/commit from `meta.json`, so citation links follow the ingested repo. **Back
-  up the committed `chunks.jsonl`/`meta.json` first** if you want the `simonw/llm`
-  board back. Python-only code chunks; public repos only.
+  `--code-dir` is the subtree walked for every supported source extension
+  (default `llm`). The demo reads repo/commit from `meta.json`, so citation
+  links follow the ingested repo. **Back up the committed `chunks.jsonl`/
+  `meta.json` first** if you want the `simonw/llm` board back. **Not
+  Python-only** — Python, JS/TS/TSX, Go, Rust, Java, Ruby, C/C++, Swift,
+  Kotlin, PHP, C#, Scala, and Shell all chunk as code (see
+  `_EXTENSION_SOURCES` in `evals/ingest.py`). This specific CLI targets public
+  repos; a private repo's ingest goes through the server's own `/connect` path
+  with the caller's token instead (see Private repos below).
 - `RUN_INGEST_SMOKE=1 python3 -m unittest evals.test_ingest_smoke` — live ingest a
   tiny public repo to a temp path (self-skips by default).
 
@@ -204,25 +231,32 @@ Private repos (hosted, per-user isolated; needs the `repo`-scoped GitHub login �
 sign out/in once if you signed in before this landed, see `docs/DISTRIBUTION.md`):
 - Sign in with GitHub, then `POST /connect {"repo": "owner/name"}` for a repo your
   token can read. The server checks `GET /repos/{owner}/{repo}` **as the caller**
-  first (200-or-refuse, fail-safe); a private repo routes to the **paid,
-  private-safe writer** (`PaidGeminiProvider`, `GEMINI_PAID_API_KEY`) under a
-  per-user storage root — a public repo always keeps using the free writer.
-  `GET /status` reports `"private": true/false` for the caller's active repo.
+  first (200-or-refuse, fail-safe); a private repo routes to a per-user storage
+  root, isolated from the shared public cache — but both public and private
+  repos are answered by the same one model (`gemini-paid`), per the one-model
+  decision above. `GET /status` reports `"private": true/false` for the
+  caller's active repo.
 - `POST /disconnect` — deletes the caller's own on-disk corpus and resets their
   library to the public default. Never touches another user's data.
 - **Loud warnings:** never commit `data/` (git-ignored, holds per-user corpora —
-  Task 4 of the private-repo plan); public repos always use the free writer,
-  private repos ONLY the paid private-safe one, enforced in code by the
-  deterministic trust interlock (`evals/trust.py` — refuses any provider that
-  isn't `private_safe=True`, never inferred from a key string); the caller's
-  GitHub token is used in-memory only for the duration of the request — never
-  written to argv, disk, or logs (`evals/ingest.py`'s leak-safe env-based auth).
+  Task 4 of the private-repo plan); the deterministic trust interlock
+  (`evals/trust.py`) still refuses any provider that isn't `private_safe=True`
+  before it ever touches a private repo, never inferred from a key string —
+  this stays enforced even though there's only one writer now, since the
+  interlock is what makes "only one writer, and it happens to be safe" a
+  provable guarantee instead of a coincidence; the caller's GitHub token is
+  used in-memory only for the duration of the request — never written to
+  argv, disk, or logs (`evals/ingest.py`'s leak-safe env-based auth).
 
 Labelled set: `evals/phase1_questions.json` (corpus pinned to `simonw/llm`
 @ `94769b8`; the 6 answerable questions carry a `reference_answer` the judge
-scores against). On the free hosted stack (Groq writer + Gemini judge) the board
-reads **GREEN**: gates 100%, citation correctness 100%, answer correctness ~83%.
-Public repos use free hosted models; a signed-in user may also connect their own
-**private** repo, answered only by the paid private-safe writer (see above). The
-Mac app's private-repo surface (Brick G) is built — badge, disconnect, repo
-persistence, lost-connection banner. Next MVP bricks: UI redesign and voice.
+scores against). On the free Groq-writer eval dial the board reads **GREEN**:
+gates 100%, citation correctness 100%, answer correctness ~83% — that's the
+eval harness's own free iteration path, separate from serving. Every repo,
+public or private, is served by the same paid, private-safe writer
+(`gemini-paid`) — see Stack above; there is no free-tier serving path. The Mac
+app's private-repo surface (Brick G) is built — badge, disconnect, repo
+persistence, lost-connection banner. Voice and the browser extension are also
+built and shipping. Next real bricks are business-gated — check
+[docs/HANDOFF.md](docs/HANDOFF.md) before starting new engineering, not this
+file.

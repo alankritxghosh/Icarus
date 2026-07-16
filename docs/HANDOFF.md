@@ -1,3 +1,448 @@
+# Icarus — Session Handoff (2026-07-16 late session: two live bugs found+fixed+deployed, docs de-drifted, Morphic pilot scoped)
+
+**READ THIS FIRST — supersedes the engineering-state claims below, does NOT
+supersede Part 2's business-path mandate.** This was a continuation of the
+same 2026-07-16 day: private repos were already live from the earlier session
+(below). This session did two things — proved the product against real,
+unfamiliar repos live (not just the frozen eval board), and made real progress
+on the business side. **Next session's job is still business decisions**
+(ICP/pricing/trust-legal/outreach, per Part 2 below) — tonight's engineering
+was legitimately tester-feedback-triggered (live testing found real gaps), not
+a violation of "business first," and should not be read as license to go do
+more unprompted engineering next.
+
+## What happened, in order
+
+**1. Live-tested Icarus against two real repos it had never seen: saltstack/salt
+(~940k lines) and benawad/vsinder (a small TS/Svelte app).** Zero honesty
+violations either time — the deterministic gate never emitted an ungrounded
+citation, across 10 hand-verified pure-code-comprehension questions where I
+read the real source myself before/after to check each answer. But found two
+distinct, reproducible quality gaps:
+
+- **False abstention**: a "how does X work" question where the correct
+  evidence chunk was confirmed present in the pipeline's `retrieved` list, yet
+  the verdict was still "unknown." Root cause, verified by reading the code
+  directly: `GatedPipeline.answer()` (`evals/pipeline.py`) retrieved
+  `recall_n=20` chunks for `retrieved`/recall measurement but only ever passed
+  the top `writer_k=6` to the actual writer prompt — a chunk ranked 7th-20th
+  was genuinely retrieved but the writer never saw its text.
+- **Exact-ID retrieval miss**: asking about a real, open GitHub issue by
+  number ("issue #260," genuinely exists, well within the repo's 224 total
+  issues) returned "unknown" — `issue:260` never appeared in the retrieved
+  list at all. Root cause: an issue/PR number lived only in its `ref`
+  ("issue:260"), never in the chunk's searchable `text`, so BM25/semantic
+  search had nothing to match.
+
+**2. Fixed both, properly.** Explored the real code (two parallel Explore
+agents), designed a plan (a Plan agent), confirmed judgment calls with
+Alankrit (writer_k value, scope, regex), then implemented via strict
+red→green:
+- `evals/ingest.py`: `chunk_text`'s whole-file short-circuit now bounded by
+  chars too, not just lines (a short-but-dense file could silently exceed the
+  writer's 10,000-char cap even when retrieved); `fetch_prs`/`fetch_issues`
+  now embed "PR #N:"/"Issue #N:" literally in the chunk text.
+- `evals/pipeline.py`: `writer_k` default raised 6→10; `GatedPipeline.answer()`
+  gained a deterministic anchor-lookup for an explicit "issue/PR #N" mention
+  (`self._by_ref`, mirroring `.explain()`'s already-proven anchor-then-
+  neighbors pattern) — a numeric identifier is an exact-match problem, not a
+  similarity one.
+- `evals/gate.py`: case-insensitive verdict check, accepts a lone string
+  citation (fail-safe-only hardening).
+- 18 new tests (new file `evals/test_exact_ref_lookup.py` + extensions to 4
+  existing test files), each red before its fix, green after. Full suites:
+  **evals 346** (328 + 18 new), **demo 176**, both fully green, zero
+  regressions.
+- Re-verified at scale against fresh, live re-ingests of both real repos (not
+  just synthetic fixtures): Bug 2 confirmed fixed live (both "issue #260" and
+  "issue 260" now retrieve correctly). Bug 1's exact historical repro cases no
+  longer reproduce identically on a fresh corpus (re-ingesting shifts BM25/
+  IDF statistics corpus-wide, a real and expected effect, not a failure) — the
+  mechanism itself stays proven by the controlled unit test
+  (`WriterVisibilityGapTests`), which engineers the exact rank rather than
+  hoping a live corpus reproduces it.
+- **One new, separate, NOT-yet-actioned finding**: `HybridRetriever`'s
+  internal fusion pool (`evals/retriever.py`) has no headroom beyond the
+  requested `k` — each underlying retriever only contributes its own top-`k`
+  candidates to the fusion. Worth a future look; explicitly out of scope for
+  this session's fix.
+
+**3. Committed (`18b86f7`) and deployed to production.** Staged only this
+task's files (left an unrelated pre-existing uncommitted `docs/HANDOFF.md`
+diff and untracked dev paths alone). Built `--platform linux/amd64`, pushed to
+ACR (`caec8849f1f0acr`), `az containerapp update`. **Live revision is now
+`icarus-brain--0000010`** (image `alpha-20260716-retrieval-fixes`), confirmed
+healthy (`/health`, `/status` both 200) and serving 100% of traffic. The Mac
+app's `.dmg` did **not** need rebuilding — nothing in `mac/Icarus/` changed,
+only the Python brain.
+
+**4. Business: identified the first real test target — a Morphic Labs
+engineer (8 years experience, gen-AI company), and made real scoping
+decisions, not yet executed:**
+- Given zero marketing budget (every question costs real Gemini API money),
+  the right move is 1-3 hand-held design partners with an early price, never
+  a free horde — the cost constraint and the correct strategy happen to agree.
+- **Do not open with "index your whole 5M-line monorepo."** That's the
+  highest-risk entry point — it hits an untested capacity ceiling
+  (`ICARUS_BACKGROUND_UPGRADE`'s live premise was still unproven per the
+  2026-07-13 handoff below). Decided instead: start with one bounded, real
+  slice of Morphic's codebase; separately, cheaply prove the actual large-repo
+  ceiling on a PUBLIC repo (not theirs) before ever promising whole-codebase
+  coverage to a real customer.
+- Lead with the honesty-gap caveat disclosed to testers, don't hide it — to a
+  skeptical senior engineer, disclosing your own product's known failure mode
+  first is the wedge, not a liability.
+- **None of this outreach has actually happened yet** — it's scoped, not
+  sent. That's the literal next action.
+- Wrote a not-doing list with explicit reopen-triggers (no entity/ToS/Trust-
+  page/GitHub-App/notarization/free-horde/raise until a specific trigger
+  fires — see the strategy conversation this session for the full list).
+
+**5. Found and fixed real drift across CLAUDE.md, docs/VISION.md,
+docs/STRATEGY.md** — all three had gone stale relative to reality (some
+self-contradicting: CLAUDE.md's own "Current stage" said "Pre-build" while
+its own "Commands" section documented a fully-working private-repo feature).
+Fixed all three to match reality (one model for all serving, private repos
+live, Mac app/voice/extension shipped, SOC2/compliance reframed as a target
+not a current claim, etc.) — read the files directly rather than trust this
+summary, they're short. Added a "Current stage" pointer pattern to CLAUDE.md
+(point to this file for what's actually next, don't re-embed a perishable
+snapshot that will just go stale again).
+
+**6. Confirmed the cross-model handoff mechanism already exists and is sound
+— nothing new was built.** `AGENTS.md` (shared, model-agnostic constitution,
+deliberately durable) + `CLAUDE.md`/`CODEX.md` (thin per-model adapters) +
+this file (session-to-session state) already do exactly what was asked for.
+The only actual gap was this file not being kept current — which is what this
+entry is.
+
+## State right now (literally true)
+
+- Branch `main`, commit `18b86f7` is the tip, includes tonight's bug fixes.
+  The CLAUDE.md/VISION.md/STRATEGY.md doc fixes from later in this session are
+  **not yet committed** — check `git status` before assuming.
+- Azure revision `icarus-brain--0000010` is live, healthy, serving 100% of
+  traffic. Old revision `0000009` still exists at 0% traffic (normal, not a
+  problem).
+- Suites: evals 346, demo 176, both green, confirmed this session.
+- Morphic outreach: scoped, not sent.
+
+---
+
+# Icarus — Session Handoff (2026-07-16, private repos live + business phase begins)
+
+**READ THIS FIRST — supersedes everything below.** Private repos work now —
+verified live on Alankrit's own private repo. The engineering core is done
+enough to sell. **Next session's job is BUSINESS DECISIONS, not code.**
+Alankrit has never launched a product before and does not know the path after
+engineering — Part 2 below is written to teach that path, not just list tasks.
+Do not start Part 3 (deferred engineering) until business decisions are made
+and/or tester feedback arrives.
+
+## Next session's ONLY job: drive Part 2 below to decisions
+
+Five decisions, in order, all business/legal, none of them code:
+1. **ICP** (who is the first customer) + **positioning** (the one-line promise).
+2. **Pricing model** (rough number, not a finished pricing page).
+3. **Trust/legal minimum** for the first design partner (Trust page, ToS/Privacy) —
+   and whether to engage a startup lawyer now.
+4. **Entity + billing** conversation (lawyer/accountant — Delaware C-corp vs LLC,
+   Stripe + business bank account).
+5. **Design-partner outreach** — draft it, start warm-network conversations.
+
+I (the assistant) can draft anything text-based next session: the ICP
+statement, positioning line, the Trust page (from the real, true data-isolation
+story already built), outreach messages, a discovery-call script. The entity
+formation, lawyer-reviewed contracts, and accountant decisions need a real
+professional — I can prep material for them, not replace them.
+
+---
+
+## Part 1 — What shipped this session (2026-07-16), verified not assumed
+
+Everything below was tested and, where it touches the cloud, proven against
+the LIVE Azure endpoint — not just "tests pass."
+
+**1. Full security audit of the whole codebase**, then fixed the two real
+findings:
+- **M1 (real vuln, fixed):** a negative/non-integer `Content-Length` slipped
+  past the size guard and turned `rfile.read(length)` into a blocking
+  `read(-1)` that held a server thread until the socket closed — a free
+  thread-exhaustion foothold on the public endpoint. Reproduced with a raw-
+  socket red test (it genuinely hung), fixed with a `_content_length()`
+  validator + a 60s connection timeout, proven fixed against the live cloud
+  (0.2s clean 400, was an indefinite hang). `demo/server.py`.
+- **L3:** corrected a stale docstring in `evals/provider.py` that wrongly
+  implied the Gemini key goes in a URL query string (the code already
+  correctly uses the `x-goog-api-key` header — comment-only fix, no behavior
+  change, but a misleading comment next to key-handling code is worth zero
+  risk).
+- Everything else from the audit (notarization, the honesty-gap disclosure,
+  `--depth` clone, rate-limiter eviction) is either disclosed in
+  `docs/TESTER_NOTES.md` or deferred to Part 3.
+
+**2. `docs/TESTER_NOTES.md` written and committed** — the Gatekeeper
+first-open step, the two honesty caveats (provenance-vs-faithfulness on
+untrusted repo content; fake-code-shaped-like-real-code), what's normal vs a
+bug, and how to report a problem (direct to Alankrit — no dead link).
+
+**3. Shared public-repo cache** — a public repo's index is now built ONCE and
+shared read-only across every user (deduped, like the original default-repo
+sharing already did), instead of once per user. 30 testers connecting the same
+repo now means 1 index job, not 30. Isolation for this is proven by test, not
+assumed: shared corpus never lands under a user's identity dir; two users never
+duplicate a public repo separately.
+
+**4. Durable cloud storage** — Azure Files mounted at `/data`
+(`ICARUS_STORAGE_ROOT=/data`), storage account `icarusbraindata`, share
+`icarus-cache`. Proven live: connected a repo, force-restarted the container
+(wipes local disk), reconnected — zero re-ingest, corpus survived. Deploys no
+longer wipe every tester's index.
+
+**5. 25× faster first-time indexing** — the GitHub fetch used to make one
+subprocess call PER pull request and PER issue (N+1). Switched to
+`gh pr list --json ...,body,...` / `gh issue list --json ...,body` — one
+batched call each. Live-measured on a 47-PR/213-issue repo: fetch dropped from
+~2.5 minutes to **5.9 seconds**. `evals/ingest.py`.
+
+**6. Honest indexing progress** — `/status` now carries a `phase` field
+("Reading the repository…", "Building smart search…") instead of a silent
+spinner. Threaded through `demo/library.py` → `/status` → `RepoStatus.phase`
+(Swift) → `SetupView`. Proven live via real-time `/status` polling during an
+actual connect.
+
+**7. Fixed the connect-failure bug that actually embarrassed Alankrit live**
+on a second machine: a first-time connect that GENUINELY SUCCEEDED
+server-side got reported to the user as "Can't reach Icarus's brain — check
+your internet connection," because Azure's ~240s ingress timeout cut the
+HTTP connection while the server kept working. Root-caused via live Azure
+Log Analytics queries and a CPU-metrics timeline (found the real cause: 3
+piled-up connect attempts from impatient re-clicking pinned the container's
+one CPU core at 100% for 4 minutes). Three real fixes:
+- `ConnectModel` no longer treats a dropped connect request as proof of
+  failure — it falls through to the existing status poll, which is the only
+  thing that actually knows what happened.
+- Every real refusal the brain sends (401/403/429) now surfaces as a typed
+  `BrainError` with an honest, specific message — never blames the network.
+- The Connect button disables while a connect is in flight (a repeat click
+  was starting a brand-new duplicate server-side index job, not checking on
+  the existing one).
+- `ICARUS_BACKGROUND_UPGRADE=1` switched on in the cloud (code already
+  existed, was never enabled) — `/connect` now returns in seconds instead of
+  blocking through the whole embed.
+
+**8. PRIVATE REPOS RE-ENABLED — the commercial core.** This was the session's
+real point (Alankrit, correctly, would not accept a public-repo-only product).
+Full detail: memory `private-repos-reenabled`. Summary:
+- A private repo (verified readable by the caller) routes to that user's OWN
+  isolated storage `<storage>/<user_id>/private/<repo>/` — never the shared
+  public cache, never pooled across users. Cloned with the caller's own
+  GitHub token, held leak-safe (local variable only, never stored, logged, or
+  returned in any status).
+- Answered by the private-safe writer; the existing trust interlock enforces
+  this at pipeline construction.
+- **Isolation is proven by test, not hoped:** private corpus never lands in
+  the shared cache; two users connecting the SAME private repo get separate,
+  un-pooled copies; disconnect deletes a user's private corpus.
+- OAuth scope widened `read:user` → `repo` (classic OAuth has no read-only
+  private scope — this is a disclosed, deliberate tradeoff, Alankrit's own
+  call: "scope now, GitHub App next"). **Existing app users must sign out and
+  back in** to get a repo-scoped token; no DMG rebuild needed, this is
+  server-side.
+- **Proven live on Alankrit's own real private repo** (`alankritxghosh/Icarus`
+  itself): connected in 4s, indexed 148 code files + 75 docs, answered a real
+  question about the codebase's own trust interlock with a genuine citation,
+  and confirmed an anonymous caller sees only the public default (zero leak).
+
+**Cloud state at end of session:** Azure revision `icarus-brain--0000009`, tag
+`alpha-5`. All prior tags (`alpha-1` through `alpha-4`) are earlier checkpoints
+in this same session's arc, all superseded by `alpha-5`.
+`mac/Icarus/Icarus.dmg` is the `alpha-4` Mac build — **no rebuild was needed
+for private repos**, since the scope change and routing are server-side and
+the app already sends the bearer token on every connect.
+
+**Suites at end of session:** demo 176 (+ github_oauth tests for the scope
+change), evals 328, Swift 57, extension 28, secrets scan clean throughout.
+
+---
+
+## Part 2 — The business path (teach, not just task-list — for a first-time founder)
+
+You've built the engine. "Launching a product" adds three more layers most
+first-time founders don't see coming until they hit them: **Commercial** (who
+buys, what you charge), **Trust & Legal** (the real gate for a product that
+ingests private code — not optional, not later), and **Operational** (the
+plumbing to actually take money). Each below is a decision to make, not a task
+to complete — next session should reach a decision on each, then act.
+
+### 2A. Commercial decisions
+
+**Decision 1 — ICP (who is the first customer).** Be narrow on purpose. A
+product "for everyone" sells to no one, because no message resonates with
+everyone. *Recommendation:* small engineering teams (~10–50 developers) who
+feel real "why is this code like this?" pain — high engineer turnover, a big
+legacy codebase, or fast onboarding where the answer to "why" walked out the
+door with the person who wrote it. Buyer = the eng lead/CTO/technical founder.
+User = every developer on the team. Start with the **warm network** —
+ex-colleagues, friends' startups — people who'll hand over real code and give
+an honest reaction, good or bad.
+
+**Decision 2 — Positioning (the one-line promise).** This one line drives
+every other message you'll write. Icarus's actual wedge is **honesty +
+organizational memory** — it explains the *why* behind code with receipts,
+and openly says "nobody wrote this down" when that's the truth. That's the
+opposite of a code-writing copilot (which write code, and also confidently
+make things up when they don't know). *Recommendation:* lead with "the
+engineering brain that answers *why* — with receipts, and an honest 'no one
+wrote this down' when there's no answer." Decide explicitly what you will
+NOT claim (not a coding agent, doesn't write code for you).
+
+**Decision 3 — Pricing & packaging.** What unit, what number. Options:
+per-developer/month (simplest, standard for dev tools), per-repo, or a flat
+team price. *Recommendation:* a simple per-seat monthly price (rough range
+$20–40/dev/month to start), design partners at a steep discount or free while
+they're proving the product with you. Real constraint: every question costs
+real money (the Gemini API call is a real cost of goods) — price above that
+floor. Don't over-build pricing before 2–3 real customers; the goal right now
+is proving willingness to pay, not optimizing a pricing page.
+
+### 2B. Trust & Legal — the launch gate first-timers usually miss
+
+**This is not a nicety for a product that reads private source code — it is
+the actual blocker.** A company's security or legal team will not let their
+engineers pipe proprietary source code to an outside server without answers
+to basic questions. The good news: Icarus's real data story is already
+strong (per-tenant isolation, proven live this session; no training on
+customer code; discard after each request) — the work now is writing it down
+truthfully and backing it with the right paperwork, not building new
+capability.
+
+**Decision 4 — the minimum trust artifacts before a first paying customer.**
+- **Terms of Service + Privacy Policy.** Table stakes. A template gets you
+  started; have a lawyer do one real pass before a paying customer signs —
+  don't ship pure boilerplate for a product that ingests private code.
+- **A plain "Trust / Security" page**, stated truthfully: no training on
+  customer code; code discarded after each request; per-tenant isolation
+  (real, and tested this session); where data lives (Azure, region);
+  sub-processors named (Google Gemini, Microsoft Azure, GitHub); deletion on
+  disconnect (real, tested). This is mostly a writing task — the underlying
+  claims are already true in the code. I can draft this next session from the
+  actual implementation.
+- **A DPA (Data Processing Agreement).** A security-conscious company's legal
+  team will ask for one before signing. Standard template exists; needed
+  before a paying customer beyond friendly early design partners, not
+  necessarily for the very first one.
+- **The GitHub App (per-repo, read-only access)** — the trust-correct
+  replacement for the current broad `repo` OAuth scope (which grants access
+  to a user's entire private-repo account, not just the one they connect). A
+  security-conscious buyer will object to "give us everything." A GitHub App
+  lets them grant exactly one repo, read-only. This is simultaneously an
+  engineering task and a trust artifact — it's the single item most likely to
+  convert "interesting demo" into "we can actually deploy this at our
+  company." Can wait for the first 1–2 friendly design partners; should exist
+  before any wider or paid rollout.
+- **SOC 2** — the enterprise-scale gate. Months of work and real money. Not
+  now — just know it exists and will eventually matter.
+
+*Recommendation:* for the first 1–2 warm-network design partners, a truthful
+Trust page plus a simple ToS/Privacy is enough to start. Before charging a
+security-conscious company: DPA + the GitHub App. **Engage a startup lawyer
+early** — this is the one area not to DIY. I can prepare draft material for
+them to review; I am not a substitute for one.
+
+**Decision 5 — the honesty-gap fix, before charging on the honesty promise.**
+Disclosed in `docs/TESTER_NOTES.md`: a fabricated snippet shaped exactly like
+real code in a connected repo can occasionally be described as if it were
+real. Fine to disclose to friendly testers; not fine to still be true once
+you're charging money for a product whose entire pitch is "it never bluffs."
+The fix (an entity-presence check in `evals/gate.py`) is scoped and waiting in
+Part 3 — sequence it before your first paid, security-conscious customer.
+
+### 2C. Operational — the plumbing to actually take money
+
+**Decision 6 — company entity.** Needed to sign contracts and take payment.
+First-timer note: a Delaware C-corp is the default choice if you intend to
+raise venture funding later; an LLC is simpler if you're not raising soon.
+This is a lawyer/accountant conversation, worth getting right early — changing
+entity type later is real friction and real cost.
+
+**Decision 7 — billing.** Stripe is the standard way to collect recurring
+payment from customers; you'll also need a business bank account. Both gate
+on the entity existing, so this follows Decision 6.
+
+### 2D. What "traction" actually means here, and the funding bridge
+
+Alankrit's instinct (revenue before funding) is correct. With design
+partners, the two things that matter are: **are they using it every week**
+(real retention, not a one-time demo reaction), and **would they pay, even a
+small amount** (willingness to pay is a stronger signal than any amount of
+enthusiasm). Two or three paying design partners who keep coming back is a
+stronger pre-seed story than a TAM slide. Raise AFTER that pull exists, not
+before — funding is a later conversation, not a next-session one.
+
+### The recommended order for next session (business only, no code)
+1. Lock the ICP + the one-line positioning (fast, unblocks everything else).
+2. Decide the pricing model and a rough number.
+3. Decide the trust/legal minimum for the first design partner; decide
+   whether to engage a startup lawyer now.
+4. Start the entity + billing conversation.
+5. Draft design-partner outreach (warm network first) and start real
+   conversations.
+
+---
+
+## Part 3 — Engineering that WAITS for feedback (do not start unprompted)
+
+- **GitHub App (per-repo access)** — replaces the broad `repo` OAuth scope.
+  Business-gated (see 2B, Decision 4) — build when a real design partner
+  needs it, or before wider paid rollout.
+- **Private-repo badge in the Mac app** — `RepoStatus.private` is already sent
+  by the server; the app just doesn't render it yet. Cosmetic, not a blocker.
+- **Honesty-gap hardening** (Decision 5 above) — an entity-presence check in
+  `evals/gate.py` so a question about a specific name/symbol that doesn't
+  appear anywhere in the retrieved evidence is forced to "unknown." Do this
+  before charging money on the honesty promise, not necessarily before the
+  first free design partner.
+- **Notarization** — removes the Gatekeeper "unverified app" wall entirely.
+  Needs a paid Apple Developer ID ($99/yr) + real lead time. Before a public
+  (not hand-to-hand design-partner) launch.
+- **Post-alpha hardening** — `git clone --depth 1` (currently full-history
+  clone), rate-limiter key eviction (unbounded dict growth on a long-lived
+  server), a real concurrent-load test at actual numbers (never run), basic
+  monitoring/alerting (right now: read Azure logs manually, no automation
+  tells you when something breaks).
+
+---
+
+## Quick reference (commands, gotchas — unchanged from before, still true)
+
+- **Tests:** `python3 -m unittest discover -t . -s evals` and `... -s demo`
+  (repo root). Swift: `cd mac/Icarus && swift test`. Extension:
+  `node --test extension/*.test.js`.
+- **Deploy the brain:** build `--platform linux/amd64`, push to ACR
+  `caec8849f1f0acr`, `az containerapp update --image …`. **No auto-deploy** —
+  pushing to GitHub does not touch Azure.
+- **Read cloud logs:** Azure Portal → container app → Monitoring → Log
+  stream / Logs. (`az monitor log-analytics` CLI is broken on this Mac's
+  Python 3.14 — use the Portal, or `az rest` against the Log Analytics query
+  API directly.)
+- **Spending cap:** set on the Gemini key — Google Cloud Console → Billing →
+  Budgets (email-only alert) AND APIs & Services → Generative Language API →
+  Quotas (the actual hard cap; the budget alone does not stop spending).
+  Alankrit confirmed this is set.
+- **Live cloud URL:**
+  `https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io`
+- **Redeploys reset each user's active-repo SESSION** (not their data — the
+  corpus survives on durable storage, so reconnect is instant) — don't
+  redeploy casually while real people are mid-session.
+
+---
+
+Everything below this line is prior-session history, still accurate as a
+record, superseded by the above for what to do next.
+
+---
+
 # Icarus — Session Handoff (2026-07-13, public alpha release)
 
 **READ THIS FIRST — supersedes the older same-day handoffs below.** The verified
