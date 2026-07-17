@@ -134,17 +134,73 @@ removing, or renaming files). For class/function-level detail see
   whole-file ref with no suffix -- the committed corpus's actual shape).
 - `evals/ingest.py` — corpus generator from a public **or private** repo (PRs,
   linked issues, source code) → `chunks.jsonl` + `meta.json`. Code chunking is
-  NOT Python-only — `_EXTENSION_SOURCES` maps Python, JS, TS/TSX, Go, Rust,
-  Java, Ruby, C/C++, Swift, Kotlin, PHP, C#, Scala, and Shell to "code"
-  (`.md`/`.rst`/`.txt` → "doc", `.yaml`/`.yml`/`.toml`/`.cfg`/`.ini`/`.sql` →
-  "config"). Subprocess timeouts, per-file (512KB) + total-byte (100MB) + total-
+  NOT Python-only — `_EXTENSION_SOURCES` maps Python, JS/JSX/MJS/CJS, TS/TSX,
+  Go, Rust, Java, Ruby, C/C++, **Objective-C/C++ (`.m`/`.mm`)**, Swift, Kotlin,
+  PHP, C#, Scala, and Shell to "code" (`.md`/`.rst`/`.txt` → "doc",
+  `.yaml`/`.yml`/`.toml`/`.cfg`/`.ini`/`.sql`/`.gradle`/`.podspec` → "config").
+  `.json` is deliberately EXCLUDED (2026-07-17) — on a real React Native app it
+  is dominated by Xcode asset catalogs and i18n locale bundles, which would skew
+  BM25/IDF corpus-wide; allowlist the filename if `package.json` ever matters. Subprocess timeouts, per-file (512KB) + total-byte (100MB) + total-
   chunk (50k, bounds lexical stage-1 memory on a hostile many-short-lines repo)
   caps that log to stderr when they truncate, a `code_dir`
   path-traversal guard, and an optional caller `token` threaded leak-safe into
   `git`/`gh` subprocess **env** (`_git_env`/`_gh_env` — never argv, never the
-  clone URL, never logged). Needs `gh` + `git`.
+  clone URL, never logged). Needs `gh` + `git`. `chunk_text`'s windowing is
+  character- as well as line-aware (2026-07-17 fix): a single PHYSICAL line
+  that alone exceeds the char budget (a machine-generated file with one huge
+  object-literal line -- measured live up to ~250,000 chars) is truncated
+  in place with a visible marker and a stderr log, rather than shipped whole
+  -- found because the prior floor-of-one-line-of-progress guarantee only
+  ever checked MULTI-line windows, never a single oversized line by itself.
+  `_chunk_code` (T4) dispatches a CODE file to `ast_chunk`/`ts_chunk` behind
+  `ICARUS_AST_CHUNKING` (env flag, default OFF -- the committed board and
+  every existing corpus keep chunking unchanged unless deliberately turned
+  on); `.py` → `ast_chunk`, the React Native language set → `ts_chunk`,
+  everything else (doc/config sources, `.h`, Go/Rust/Ruby/...) stays on
+  `chunk_text`. Both chunkers are imported lazily INSIDE the dispatcher, not
+  at module level -- required, not stylistic: both import `chunk_text`/
+  `_CHUNK_MAX_CHARS` FROM this module, so an eager top-level import would be
+  circular. Verified end-to-end against a real cloned repo (wix/react-native-
+  navigation's `ios/`): 1,624 real chunks, `.mm` files split from 1 whole-file
+  chunk to per-method chunks (e.g. `RNNCommandsHandler.mm` 1→19), `.h` stayed
+  on `chunk_text` unchanged.
+- `evals/ast_chunk.py` — `ast_chunk(text, ref_prefix)`: AST-aware code chunking,
+  splitting Python at function/class boundaries (stdlib `ast`, NO new
+  dependency) instead of `ingest.chunk_text`'s fixed 300-line windows. Exists
+  because the embedder (`bge-small-en-v1.5`) truncates at 512 tokens while a
+  real 300-line window measures p50 ~2,234 -- so semantic retrieval silently
+  read ~the first quarter of every window. Same contract/ref format as
+  `chunk_text`; falls back to it on non-Python, syntax errors, or a module with
+  no top-level defs, so it can never do worse. Emits a scope header (imports +
+  enclosing class) per chunk and keeps module/class-level constants as evidence.
+  **Proven, NOT yet wired into `fetch_code`** -- see docs/HANDOFF.md.
+- `evals/ts_chunk.py` — `ts_chunk(text, ref_prefix, ext)`: tree-sitter-backed
+  AST chunking for the React Native language set (`.ts`/`.tsx`/`.js`/`.jsx`/
+  `.mjs`/`.cjs` via the `tsx` grammar -- measured 96% fewer parse errors than
+  `javascript` on real Flow-typed RN code; `.mm`/`.m`/`.java`/`.kt`).
+  Same contract as `ast_chunk.ast_chunk`. Recursive definition walk +
+  export/const-arrow unwrapping (measured: `export const Foo = () => {}`
+  outnumbers `function Foo(){}` ~30:1 in real code) + a size-based safety
+  valve (any emitted span over 2x `chunk_text`'s window, by LINE COUNT **or**
+  CHAR COUNT, gets re-windowed via `chunk_text` itself, checked against the
+  final emitted text including its scope header -- found live: a Jest
+  `describe()` block, invisible to the definition scheme, produced a single
+  ~950,000-char chunk without the line check; a 125-line file with one
+  ~250,000-char generated line needed the char check too, since line count
+  alone never trips on a pathologically long single line). `.h` deliberately
+  unsupported (neither the `c` nor `objc` grammar parses real RN headers
+  cleanly). Lazy tree-sitter import, ERROR-rate gate, falls back to
+  `chunk_text` whenever untrustworthy. **Proven (27 tests, T1+T2 of
+  docs/plans/2026-07-17-ast-chunking-all-languages.md; verified max chunk
+  size across 17,657 real RN files is 19,991 chars), NOT yet wired into
+  `fetch_code` and no per-language recall eval yet (T3/T4 pending).**
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
-  provenance the demo reads for citation links.
+  provenance the demo reads for citation links. `write_meta` also stamps a
+  `"chunking"` field (`"chunk_text"` or `"ast"`, default `"chunk_text"` so
+  existing callers don't need updating) -- T6 of docs/plans/2026-07-17-ast-
+  chunking-all-languages.md, read by `demo/library.py`'s staleness check so a
+  corpus chunked by a scheme that's since changed gets refreshed on its next
+  connect instead of silently staying stale forever.
 - `evals/retriever.py` — `LexicalRetriever` (stdlib BM25 keyword retriever) plus
   a `tokenize` helper, `SemanticRetriever` (cosine similarity over an
   `EmbeddingProvider`'s vectors; optional `vectors=` param + `.vectors` property
@@ -224,12 +280,77 @@ removing, or renaming files). For class/function-level detail see
 - `evals/test_corpus.py` — `load_chunks` parses JSONL into `Chunk`s (tolerates
   blank lines); `chunk_covers_lines` across windowed/whole-file/malformed refs,
   path mismatches, and non-file-addressable (pr/issue) sources.
+- `evals/test_ast_chunk.py` — `ast_chunk`'s unit contract (stdlib-only,
+  always-run): per-function/class splitting, chunk_text-identical ref/shape,
+  scope headers, a big class splitting per method while its docstring +
+  class-level attributes survive under the CLASS's ref (never leaking into the
+  module preamble's whole-file ref), module constants preserved, chunks
+  dramatically smaller than a line window, and the fallbacks (non-Python,
+  syntax error, no-defs module, null bytes) returning `chunk_text` verbatim.
+- `evals/test_ast_chunking_eval.py` — AST chunking's live board proof
+  (self-skips without fastembed/corpus): same-run, never-hardcoded comparison
+  against `chunk_text`, holding PR/issue chunks and source text identical and
+  varying ONLY the code chunker. Proves the mechanism (median line-window
+  EXCEEDS the 512-token embed budget; AST chunks fit) and the payoff (strictly
+  better semantic recall@5), plus a guard that lexical recall never regresses.
+  Scores FILE-LEVEL recall on purpose -- `grader.grade`'s exact-ref
+  recall would score AST 0 against whole-file gold citations for reasons
+  unrelated to quality.
+- `evals/test_ts_chunk.py` — `ts_chunk`'s unit contract, self-skips without
+  tree-sitter-language-pack: per-language fixtures for TS/TSX (const-arrow
+  functions, small vs. large classes), Flow-typed `.js` (parses via `tsx`,
+  not `javascript`), ObjC (`.mm` method nesting), Java, Kotlin (name-field
+  fallback regression guard -- proven by reverting the fix and watching the
+  test fail), the size-based safety valve (Jest `describe()` block, a giant
+  single function, and a few-line/huge-single-line file each proven red→green
+  by disabling the relevant check), and the chunk_text fallbacks (unsupported
+  `.h`, garbage input, no definitions, missing tree-sitter).
+- `evals/test_ts_chunking_eval.py` — T3's live per-language proof: for each of
+  TSX/Kotlin/ObjC/Java, same-run file-level recall@5 (semantic) comparing
+  `ts_chunk` against `chunk_text`'s window-300 baseline over the committed
+  real fixture corpora (`evals/fixtures/ts_chunk_eval/`), plus the mechanism
+  proof (median token length under the 512-token embed budget per language).
+  Gold files are deliberately 400-550+ real lines -- an earlier draft using
+  short (~250-line) targets found both chunkers hit 100% identically, since a
+  file that short never triggers the truncation this brick fixes. Measured:
+  tsx 66.7%→100%, java 33.3%→66.7% (the one java miss is a real, disclosed
+  semantic-competition case -- other real Fab-named files outrank the one
+  method that merely references Fab -- not a chunking defect), kotlin/objc
+  tied at 100% (no regression, ceiling effect at this corpus scale). Self-skips
+  only on missing fastembed/tree-sitter -- the fixture corpus is committed.
+- `evals/ts_chunk_eval_questions.json` — T3's 12 hand-verified questions (3 per
+  language), each checked against the real fixture source in full before its
+  reference_answer was written; questions target content positioned LATE in
+  each gold file, which is what actually exercises the truncation difference.
+- `evals/fixtures/ts_chunk_eval/` — real, MIT-licensed source files (~70/lang,
+  java capped at 47, its directory's whole bounded pool) from wix/react-
+  native-navigation, facebook/react-native, and bluesky-social/social-app,
+  committed verbatim for T3's deterministic, no-network eval -- see
+  `MANIFEST.md` for exact commit provenance and file-selection rationale.
 - `evals/test_corpus_meta.py` — `write_meta`/`load_meta` round-trip; missing meta
-  returns None.
+  returns None; the "chunking" field round-trips and defaults to "chunk_text"
+  for callers that omit it (T6).
 - `evals/test_ingest_args.py` — ingest CLI defaults/overrides, commit resolution,
   and `_safe_code_dir` path-traversal rejection.
+- `evals/test_ingest_chunking.py` — `chunk_text`'s pure line-window contract:
+  short-file/exact-boundary/single-line/empty-text whole-chunk cases, the
+  overlap/coverage/uniqueness invariants of a multi-window split, a dense-but-
+  short file splitting by char budget, and (2026-07-17) a single PHYSICAL
+  line that alone exceeds the char budget being truncated in place with a
+  visible marker rather than shipped whole -- reproduces a live bug (a
+  machine-generated file with one ~250,000-char line became one oversized
+  chunk) and proves refs stay unique post-truncation (load-bearing:
+  `SemanticRetriever` keys embeddings by `chunk.ref`) and GitHub-linkable.
 - `evals/test_ingest_repo.py` — `ingest_repo` writes chunks + meta and returns
-  counts (network fetches monkeypatched; offline).
+  counts (network fetches monkeypatched; offline); meta.json's "chunking"
+  field reflects the flag (T6). Also T4's wiring tests: `_chunk_code`'s
+  dispatch decision in isolation (mock.patch on ast_chunk/ts_chunk -- default
+  OFF never calls either; every truthy env-var spelling routes `.py`→ast_chunk
+  and the RN language set→ts_chunk; `.h` and other languages stay on
+  chunk_text even with the flag on), plus the same wiring exercised through
+  the real `fetch_code` walk (doc/config sources never reach the dispatcher;
+  the flag-off path matches plain chunk_text byte-for-byte, protecting the
+  committed board's reproducibility).
 - `evals/test_ingest_smoke.py` — skippable live ingest of a tiny public repo
   (`RUN_INGEST_SMOKE=1`).
 - `evals/test_env_file.py` — the `.env` loader: parses KEY=VALUE, doesn't override
@@ -348,7 +469,14 @@ removing, or renaming files). For class/function-level detail see
   reuses a cache or ingests once, single-flight and thread-safe, serving a
   generic error on failure. The one writer is constructed through the trust
   interlock (`evals/trust.py`); the public alpha has no dormant private-connect
-  branch in `Library`.
+  branch in `Library`. T6: `connect_sync` also refreshes an already-cached
+  corpus whose `meta.json` "chunking" scheme has since changed
+  (`Library._corpus_is_stale`) -- but never for the committed default repo
+  (exempt), and never for a private repo with no token available (the
+  tokenless eviction-replay resume in `registry.py`, which must never fail or
+  silently downgrade to the public default). `_resolve` itself deliberately
+  stays pure availability ("does a corpus exist"), never staleness -- see the
+  plan doc's "What T6 found" for why that separation is load-bearing.
 - `demo/registry.py` — `LibraryRegistry`: one isolated `Library` per GitHub
   identity under `<storage_root>/<user_id>/…`; the shared public default is
   built once and reused read-only. LRU-bounded (`max_live`); an evicted user's
@@ -415,7 +543,16 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
   single-flight concurrent connect, generic (non-leaking) ingest errors, and
   private connect (token/private routing, refusal without the paid writer,
-  token never in status output).
+  token never in status output). T6 staleness: `_resolve` stays availability-
+  only regardless of a stale corpus (the registry's tokenless eviction-replay
+  safety invariant -- proven by deliberately re-merging staleness into
+  `_resolve` live and confirming the guard fails), `_corpus_is_stale`'s scheme
+  comparison (including a pre-T6 corpus with no "chunking" field at all), and
+  `connect_sync`'s real refresh behavior: a stale public repo refreshes
+  automatically, a stale private repo refreshes when a token is present, a
+  stale private repo WITHOUT a token is served as-is rather than attempting a
+  doomed re-ingest, and the committed default repo is never touched
+  regardless of the flag.
 - `demo/test_registry.py` — the registry: per-user isolation, per-user storage
   paths, the shared default pipeline built once, hostile-id rejection, LRU
   eviction, and disconnect deleting only that user's storage.

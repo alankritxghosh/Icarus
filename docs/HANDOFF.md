@@ -1,3 +1,129 @@
+# Icarus — Session Handoff (2026-07-18: T5+T7 landed — AST-chunking-all-languages arc complete; Ponytail leanness pass queued next)
+
+**READ THIS FIRST — supersedes the engineering-state claims below (T1-T7 of
+the AST-chunking-all-languages plan is now fully landed), does NOT supersede
+the 2026-07-16 handoff's business-path mandate below.** Business decisions
+are still next session's default job. The ONE exception, explicitly requested
+by Alankrit this session: run a Ponytail-style leanness pass over the
+codebase. That's scoped, bounded, and explicitly asked for — not license to
+resume open-ended engineering.
+
+## What happened, in order
+
+**1. T5 (gold-label migration) confirmed landed** from earlier the same day's
+arc: `evals/corpus/chunks.jsonl` migrated from 18 whole-file code chunks to
+470 AST-chunked ones (PR/issue chunks byte-identical, untouched); all 13
+answerable `comprehension_questions.json` citations hand-re-verified against
+the real post-migration chunk content and re-pointed to line ranges;
+`phase1_questions.json` needed zero changes (its answerable citations are
+PR-only). Found+fixed a real bug this surfaced: `ast.FunctionDef.lineno`/
+`ast.ClassDef.lineno` point at the `def`/`class` line, never a `@decorator`
+line above it, which had been orphaning 15.9% of the corpus (92/580 chunks)
+into contentless leftover chunks. Fixed with a `real_start()` helper in
+`evals/ast_chunk.py`, 5 new red→green tests, corpus regenerated clean
+(580→470 chunks, zero orphans).
+
+**2. T7 (hybrid retriever rebalance) landed this session.** Root cause,
+measured not assumed: once T5's AST chunking fixed semantic retrieval's
+512-token truncation bug, plain 1:1 RRF fusion (`evals/retriever.py`'s
+`HybridRetriever`) scored WORSE (69.2% recall@5 on the comprehension board)
+than semantic retrieval alone (84.6%) — RRF structurally rewards consensus
+(a ref ranking moderately in both lists) over one retriever's excellent rank,
+and BM25 rescued zero questions semantic alone missed on this board. Fix:
+`HybridRetriever` gained optional `semantic_weight`/`lexical_weight` params,
+defaulting to `1.0`/`1.0` so `evals/test_retriever.py`'s 40 pre-existing
+hand-computed-RRF-math tests needed zero changes. Production
+(`demo/library.py`) now builds it with `semantic_weight=20.0,
+lexical_weight=1.0`, chosen from a measured plateau (recall recovers to
+semantic-alone's ceiling starting at weight=15, flat through 100). 5 new
+tests (`WeightedHybridRetrieverTests`) hand-compute the weighted math the
+same rigorous way the unweighted fixture does. The three live-eval files
+that claim to measure Icarus's actual shipped retrieval quality
+(`test_retrieval_eval.py`, `test_query_normalization_eval.py`,
+`test_grep_comparison_eval.py`) were updated to use the real production
+weighting instead of an unweighted stand-in; a new test
+(`test_weighted_hybrid_recall_matches_semantic_alone`) proves, live, that
+weighted hybrid recall now matches semantic-alone's 84.6% ceiling — the
+bar the pre-existing "beats BM25" tests never actually checked, which is
+why they stayed green through the whole regression without catching it.
+
+**3. Verified side effect, not assumed:** T7's fix also resolved a
+previously disclosed, seemingly-unrelated open regression in
+`query_normalize.py`'s live eval
+(`test_normalization_never_regresses_clean_phrasing_recall`, was
+61.5% < 69.2%) — now green, re-run twice to confirm it's not a fluke,
+without touching `query_normalize.py` itself. Documented as a verified
+outcome; the shared-mechanism explanation (both were downstream of the same
+RRF marginality) was not independently re-diagnosed from scratch, so it's
+recorded as a strong inference, not a re-proven root cause.
+
+**4. `docs/plans/2026-07-17-ast-chunking-all-languages.md` updated**: status
+header and Tasks list mark T5/T7 LANDED; "What T5 found" and "What T7 found"
+sections added with full mechanism writeups. This closes the entire T1-T7
+arc except two explicitly-deferred, disclosed items: `.h` files stay on
+`chunk_text` (neither the `c` nor `objc` grammar parses real RN headers
+cleanly — a measured, honest gap, not a bug) and `ICARUS_AST_CHUNKING` stays
+OFF in production (T6 already removed the technical blocker; flipping it on
+for real traffic is still a separate, deliberate rollout decision).
+
+**5. Full regression run, this session:** `evals` 441 tests (13 skipped, all
+expected — self-skips needing live API keys/`RUN_*` flags not set locally),
+`demo` 189 tests (2 skipped, expected), secrets scan clean.
+
+**6. Investigated "Ponytail" (`github.com/DietrichGebert/ponytail`) at
+Alankrit's request** — a third-party, MIT-licensed **Claude Code plugin**
+(not a Python/project dependency), enforcing a YAGNI/minimalism decision
+ladder on an agent's own coding behavior (does this need to exist? → stdlib?
+→ platform? → installed dep? → one-liner? → minimum code; never skip
+security/validation at trust boundaries). Read the actual `SKILL.md` content
+directly from the repo, not a secondary summary — it's genuinely benign and
+closely mirrors CLAUDE.md's own existing "Simplicity first" principles.
+Flagged that secondary sources reported inconsistent star counts (68k vs
+85.2k) for a single-author repo — worth mild skepticism, not a blocker.
+**Could not install it myself**: the install (`/plugin marketplace add
+DietrichGebert/ponytail` then `/plugin install ponytail@ponytail`) is
+interactive-only, unavailable in a non-interactive session. Alankrit reports
+running it via an interactive terminal himself.
+
+## State right now (literally true)
+
+- **Ponytail: Alankrit says it's installed via terminal, but it did NOT show
+  up in this session's own available-skills list.** Plugin/skill installs
+  take effect for new sessions, not sessions already running — this was
+  never actually verified as active anywhere. **Next session's first step:
+  confirm it's really available (check the skill list, or try invoking
+  whatever command it exposes) before relying on it or assuming it already
+  ran.**
+- Large uncommitted diff spanning the whole T1-T7 arc: `evals/ast_chunk.py`,
+  `evals/ts_chunk.py`, `evals/retriever.py`, `evals/test_retriever.py`,
+  the committed corpus (`evals/corpus/chunks.jsonl` + `meta.json`),
+  `evals/comprehension_questions.json`, `demo/library.py`, ~10 test files,
+  and this plan doc. **Nothing committed this session** — matches the
+  standing "only commit when asked" instruction. Run `git status` before
+  assuming anything about what's landed vs. still working-tree-only.
+- Suites confirmed green this session: evals 441 (13 expected skips), demo
+  189 (2 expected skips), secrets scan clean.
+- `ICARUS_AST_CHUNKING` still OFF in production — T5/T7's fixes are proven
+  on the committed eval board, not yet wired into live serving.
+
+## Next session's task (explicit, from Alankrit): a real leanness pass
+
+Run Ponytail's minimalism ladder over this codebase — the actual plugin
+command if the verification step above confirms it's live, or, if it isn't
+available yet, apply the exact ruleset manually (already read in full this
+session: YAGNI first, then stdlib, then platform/installed-dep, then a
+one-liner, then minimum custom code; never skip security/validation at trust
+boundaries; mark deliberate simplifications with `ponytail:` comments).
+Recommend starting with a few genuinely large/dense files (e.g.
+`demo/server.py`, `evals/ingest.py`, `evals/gate.py`) rather than a
+whole-repo sweep in one pass. Hold this to the same bar as every other change
+this session: any proposed deletion must be grep-verified unreferenced
+first, no test or the honesty gate gets weakened to shrink line count, and
+the full regression suite (`evals` + `demo`) must stay green after each
+change — no "we could probably delete this" left unresolved and unverified.
+
+---
+
 # Icarus — Session Handoff (2026-07-16 late session: two live bugs found+fixed+deployed, docs de-drifted, Morphic pilot scoped)
 
 **READ THIS FIRST — supersedes the engineering-state claims below, does NOT

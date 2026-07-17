@@ -46,7 +46,11 @@ class GrepComparisonEvalTests(unittest.TestCase):
         cls.grep = GrepBaselineRetriever(chunks)
         lexical = LexicalRetriever(chunks)
         semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
-        hybrid = HybridRetriever(lexical, semantic)
+        # Same production weighting as demo/library.py (T7,
+        # docs/plans/2026-07-17-ast-chunking-all-languages.md) -- this class
+        # claims to measure what Icarus actually retrieves, so it must use
+        # the real shipped fusion weights, not an unweighted stand-in.
+        hybrid = HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
         vocab = build_vocabulary(chunks)
         cls.icarus = NormalizingRetriever(hybrid, vocab)
 

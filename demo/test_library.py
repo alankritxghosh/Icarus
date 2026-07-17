@@ -3,19 +3,22 @@
 is instant, a miss ingests into a git-ignored cache, errors keep the old repo."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from evals.corpus_meta import write_meta
+from evals.ingest import ICARUS_AST_CHUNKING_ENV
 from .library import Library
 
 
-def _seed_corpus(dir_, repo, commit="c0ffee"):
+def _seed_corpus(dir_, repo, commit="c0ffee", chunking="chunk_text"):
     d = Path(dir_)
     d.mkdir(parents=True, exist_ok=True)
     (d / "chunks.jsonl").write_text(json.dumps({"ref": "pr:1", "source": "pr", "text": "why"}) + "\n")
-    write_meta(d / "meta.json", repo=repo, commit=commit, code_dir=".", counts={"pr": 1, "issue": 0, "code": 0})
+    write_meta(d / "meta.json", repo=repo, commit=commit, code_dir=".",
+               counts={"pr": 1, "issue": 0, "code": 0}, chunking=chunking)
 
 
 class LibraryTests(unittest.TestCase):
@@ -340,6 +343,181 @@ class LibraryTests(unittest.TestCase):
         gate.set()
         t1.join(); t2.join()
         self.assertEqual(started.count("o/r"), 1)  # single-flight: one ingest only
+
+
+class _AstChunkingEnvGuard(unittest.TestCase):
+    """Always restores ICARUS_AST_CHUNKING -- a leak here would silently
+    change every other test's staleness behavior in this process."""
+
+    def setUp(self):
+        self._prior = os.environ.get(ICARUS_AST_CHUNKING_ENV)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._prior is None:
+            os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)
+        else:
+            os.environ[ICARUS_AST_CHUNKING_ENV] = self._prior
+
+    def _set(self, value):
+        if value is None:
+            os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)
+        else:
+            os.environ[ICARUS_AST_CHUNKING_ENV] = value
+
+
+class ResolveStaysAvailabilityOnlyTests(_AstChunkingEnvGuard):
+    """T6's central safety invariant: _resolve itself must NEVER report
+    needs_ingest=True just because a corpus is stale -- only because it's
+    genuinely missing. registry.py's eviction-replay path calls _resolve
+    WITHOUT a token to decide whether an automatic resume is safe; if
+    staleness leaked into _resolve, flipping ICARUS_AST_CHUNKING would make
+    that path silently downgrade a resumed private-repo user to the public
+    default the next time the flag changed -- exactly what its contract
+    forbids. The staleness check belongs in connect_sync instead, the one
+    caller with the authority (and, for a private repo, the token) to act on
+    it."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.default_dir = root / "default"
+        _seed_corpus(self.default_dir, "simonw/llm", "94769b8")
+        self.cache_root = root / "cache"
+        self.private_root = root / "private"
+        self.addCleanup(self.tmp.cleanup)
+        self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                           build_pipeline=lambda d, fast=False: f"p::{d}",
+                           ingest_fn=lambda *a, **k: {"pr": 0, "issue": 0, "code": 0},
+                           private_root=self.private_root)
+
+    def test_stale_public_corpus_still_reports_needs_ingest_false(self):
+        _seed_corpus(self.cache_root / "octo__stale", "octo/stale", chunking="chunk_text")
+        self._set("1")  # current scheme is now "ast" -- corpus is stale
+        _, needs_ingest = self.lib._resolve("octo/stale")
+        self.assertFalse(needs_ingest)
+
+    def test_stale_private_corpus_still_reports_needs_ingest_false(self):
+        _seed_corpus(self.private_root / "octo__stale", "octo/stale", chunking="chunk_text")
+        self._set("1")
+        _, needs_ingest = self.lib._resolve("octo/stale", private=True)
+        self.assertFalse(needs_ingest)
+
+    def test_genuinely_missing_corpus_still_reports_needs_ingest_true(self):
+        # The one case _resolve DOES need to catch -- unaffected by any of this.
+        _, needs_ingest = self.lib._resolve("never/connected")
+        self.assertTrue(needs_ingest)
+
+
+class CorpusIsStaleTests(_AstChunkingEnvGuard):
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+
+    def test_matches_current_scheme_is_not_stale(self):
+        _seed_corpus(self.dir, "o/r", chunking="chunk_text")
+        self._set(None)  # off -> current scheme is chunk_text
+        self.assertFalse(Library._corpus_is_stale(self.dir))
+
+    def test_mismatches_current_scheme_is_stale(self):
+        _seed_corpus(self.dir, "o/r", chunking="chunk_text")
+        self._set("1")  # on -> current scheme is ast
+        self.assertTrue(Library._corpus_is_stale(self.dir))
+
+    def test_ast_corpus_stale_once_flag_turned_back_off(self):
+        _seed_corpus(self.dir, "o/r", chunking="ast")
+        self._set(None)
+        self.assertTrue(Library._corpus_is_stale(self.dir))
+
+    def test_pre_t6_corpus_with_no_chunking_field_treated_as_chunk_text(self):
+        # A corpus ingested before this field existed at all.
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / "meta.json").write_text(json.dumps({
+            "repo": "o/r", "commit": "c0ffee", "code_dir": ".", "counts": {},
+        }))
+        self._set("1")  # current scheme is ast -- a pre-T6 corpus must count as stale
+        self.assertTrue(Library._corpus_is_stale(self.dir))
+
+    def test_missing_meta_json_is_not_treated_as_stale(self):
+        # An unexpected, ambiguous state (chunks.jsonl with no meta.json) --
+        # serve what's there rather than force a re-ingest on a hunch.
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._set("1")
+        self.assertFalse(Library._corpus_is_stale(self.dir))
+
+
+class ConnectSyncStalenessTests(unittest.TestCase):
+    """The actual T6 payoff: connect_sync refreshes a stale PUBLIC corpus
+    automatically, refreshes a stale PRIVATE corpus when a token is
+    available, and -- critically -- does NOT attempt a re-ingest for a
+    stale private corpus with no token (the tokenless eviction-replay case),
+    serving the existing corpus instead of failing."""
+
+    def setUp(self):
+        self._prior = os.environ.get(ICARUS_AST_CHUNKING_ENV)
+        self.addCleanup(self._restore_env)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.default_dir = root / "default"
+        _seed_corpus(self.default_dir, "simonw/llm", "94769b8")
+        self.cache_root = root / "cache"
+        self.private_root = root / "private"
+        self.ingested = []
+
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            self.ingested.append((repo, token))
+            _seed_corpus(out_dir, repo, chunking="ast")  # simulates a fresh ingest under the new scheme
+            return {"pr": 0, "issue": 0, "code": 0}
+
+        self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                           build_pipeline=lambda d, fast=False: f"p::{d}",
+                           ingest_fn=fake_ingest,
+                           private_root=self.private_root,
+                           private_ingest_fn=fake_ingest)
+
+    def _restore_env(self):
+        if self._prior is None:
+            os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)
+        else:
+            os.environ[ICARUS_AST_CHUNKING_ENV] = self._prior
+
+    def test_stale_public_corpus_is_refreshed_on_connect(self):
+        _seed_corpus(self.cache_root / "octo__stale", "octo/stale", chunking="chunk_text")
+        os.environ[ICARUS_AST_CHUNKING_ENV] = "1"
+        self.lib.connect_sync("octo/stale")
+        self.assertEqual(self.ingested, [("octo/stale", None)])
+
+    def test_fresh_public_corpus_is_not_reingested(self):
+        _seed_corpus(self.cache_root / "octo__fresh", "octo/fresh", chunking="chunk_text")
+        os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)  # off -> chunk_text is current
+        self.lib.connect_sync("octo/fresh")
+        self.assertEqual(self.ingested, [])
+
+    def test_stale_private_corpus_is_refreshed_when_token_present(self):
+        _seed_corpus(self.private_root / "octo__stale", "octo/stale", chunking="chunk_text")
+        os.environ[ICARUS_AST_CHUNKING_ENV] = "1"
+        self.lib.connect_sync("octo/stale", private=True, token="ghp_real")
+        self.assertEqual(self.ingested, [("octo/stale", "ghp_real")])
+
+    def test_stale_private_corpus_without_token_is_served_not_reingested(self):
+        # The tokenless eviction-replay case: must never attempt (and fail)
+        # a re-ingest, and must never report an error -- just serve the
+        # existing, if stale, corpus.
+        _seed_corpus(self.private_root / "octo__stale", "octo/stale", chunking="chunk_text")
+        os.environ[ICARUS_AST_CHUNKING_ENV] = "1"
+        result = self.lib.connect_sync("octo/stale", private=True, token=None)
+        self.assertEqual(self.ingested, [])
+        self.assertEqual(result["state"], "ready")
+        self.assertIsNone(result["error"])
+
+    def test_default_repo_never_reingested_regardless_of_flag(self):
+        os.environ[ICARUS_AST_CHUNKING_ENV] = "1"
+        self.lib.connect_sync("simonw/llm")
+        self.assertEqual(self.ingested, [])
 
 
 if __name__ == "__main__":

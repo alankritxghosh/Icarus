@@ -1,10 +1,14 @@
 {
-  "_status": "Brick 0 probe, landed (docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md). What/how code-comprehension questions, deliberately messy phrasing, measured RED on today's why-tuned BM25 pipeline (retrieval_recall@k 53.8%, citation_correctness 30.8%, both honesty gates 100%) so later bricks have a concrete target to beat.",
+  "_status": "Brick 0 probe, landed (docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md). What/how code-comprehension questions, deliberately messy phrasing, measured RED on today's why-tuned BM25 pipeline (retrieval_recall@k 53.8%, citation_correctness 30.8%, both honesty gates 100%) so later bricks have a concrete target to beat. MIGRATED 2026-07-17 (T5): the committed corpus's code chunks are now AST-split (function/class boundaries, see evals/ast_chunk.py), not whole-file -- every answerable question's citations below were re-verified by hand against the real, current chunk content (not carried over or guessed) after the migration. phase1_questions.json needed NO changes: all of its answerable citations are PR-only (never code refs), so it is structurally unaffected by code re-chunking -- confirmed via evals/grader.py's gold_refs before touching anything.",
   "corpus": {
     "repo": "simonw/llm",
     "commit": "94769b8b076cde9392059d76bd766453cf900180",
-    "rationale_sources": ["pr_descriptions", "linked_issues", "code"],
-    "note": "The committed corpus (evals/corpus/chunks.jsonl) has 141 pr + 84 issue + 18 code chunks. This Brick 0 probe set only cites the code: refs (one whole-file chunk per source file) -- it does not use the pr/issue chunks -- but the corpus itself is not code-only."
+    "rationale_sources": [
+      "pr_descriptions",
+      "linked_issues",
+      "code"
+    ],
+    "note": "The committed corpus (evals/corpus/chunks.jsonl) has 141 pr + 84 issue + 470 code chunks (was 18 whole-file code chunks before the 2026-07-17 AST-chunking migration). This Brick 0 probe set only cites code: refs -- it does not use the pr/issue chunks -- but the corpus itself is not code-only."
   },
   "questions": [
     {
@@ -12,7 +16,9 @@
       "label": "answerable",
       "question": "What is PauseChain and how does it behave differently from other exceptions raised inside a tool implementation?",
       "messy_question": "wat is pausechain n how it act diffrent then other excpetions raise inside a tool implementaton",
-      "citations": ["code:llm/models.py"],
+      "citations": [
+        "code:llm/models.py#L368-L391"
+      ],
       "reference_answer": "PauseChain is an exception you raise inside a tool implementation to pause the chain. Unlike other exceptions, which get converted into error ToolResults and sent back to the model, PauseChain propagates out of execute_tool_calls() and chain() instead of being swallowed; before it re-raises, the framework attaches a tool_call attribute (the ToolCall whose implementation paused) and a tool_results attribute (ToolResults of sibling calls in the same batch that already completed)."
     },
     {
@@ -20,7 +26,9 @@
       "label": "answerable",
       "question": "What is the value of CONVERSATION_NAME_LENGTH in llm/models.py?",
       "messy_question": "whats teh vaule of CONVERSATIONNAMELENGHT in models.py file",
-      "citations": ["code:llm/models.py"],
+      "citations": [
+        "code:llm/models.py#L1-L53"
+      ],
       "reference_answer": "CONVERSATION_NAME_LENGTH is set to 32."
     },
     {
@@ -28,7 +36,9 @@
       "label": "answerable",
       "question": "How does make_schema_id compute a schema's ID?",
       "messy_question": "how make_schema_id fuction compute a schemas id, whats the algo",
-      "citations": ["code:llm/utils.py"],
+      "citations": [
+        "code:llm/utils.py#L220-L223"
+      ],
       "reference_answer": "make_schema_id serializes the schema dict to compact JSON (json.dumps with separators=(',', ':')), then hashes that JSON string with blake2b using digest_size=16 to produce the hex digest schema_id, and returns a tuple of (schema_id, schema_json)."
     },
     {
@@ -36,7 +46,9 @@
       "label": "answerable",
       "question": "How does _human_readable_size in llm/cli.py convert a byte count into a human-readable string?",
       "messy_question": "how does _human_readabel_size in cli.py turns a bytes count into human redable string, explain",
-      "citations": ["code:llm/cli.py"],
+      "citations": [
+        "code:llm/cli.py#L3881-L3892"
+      ],
       "reference_answer": "_human_readable_size returns \"0B\" immediately if size_bytes is 0. Otherwise it walks the units (\"B\", \"KB\", \"MB\", \"GB\", \"TB\", \"PB\", \"EB\", \"ZB\", \"YB\"), dividing size_bytes by 1024.0 and advancing an index i each time size_bytes is still >= 1024 (stopping at the last unit), then formats the result to two decimal places followed by the chosen unit name."
     },
     {
@@ -44,7 +56,10 @@
       "label": "answerable",
       "question": "What are ModelError and NeedsKeyException in llm/errors.py, and how are they related?",
       "messy_question": "whats modelerror and needskeyexception in errors.py and how they realted to each other",
-      "citations": ["code:llm/errors.py"],
+      "citations": [
+        "code:llm/errors.py#L1-L2",
+        "code:llm/errors.py#L5-L6"
+      ],
       "reference_answer": "ModelError is an Exception that models can raise, and it will be displayed to the user. NeedsKeyException is a subclass of ModelError, raised specifically when a model needs an API key that has not been provided."
     },
     {
@@ -52,7 +67,9 @@
       "label": "answerable",
       "question": "What does the llm_time tool function in llm/tools.py return?",
       "messy_question": "wat does llm_time tool funtion in tools.py retrun, list evrything in it",
-      "citations": ["code:llm/tools.py"],
+      "citations": [
+        "code:llm/tools.py#L11-L37"
+      ],
       "reference_answer": "llm_time returns a dict with the current time as both local time and UTC: utc_time (formatted string), utc_time_iso (ISO format), local_timezone (the tzname), local_time (formatted string), timezone_offset (a UTC+HH:MM style string computed from the local offset), and is_dst (a boolean for whether daylight saving time is active)."
     },
     {
@@ -60,7 +77,9 @@
       "label": "answerable",
       "question": "How does llm/default_plugins/default_tools.py register its default tools?",
       "messy_question": "how default_tools.py file register its defualt tools, whats the mechanisim",
-      "citations": ["code:llm/default_plugins/default_tools.py"],
+      "citations": [
+        "code:llm/default_plugins/default_tools.py#L5-L8"
+      ],
       "reference_answer": "It defines a register_tools function decorated with @llm.hookimpl (the pluggy hook implementation marker), and inside it calls register(llm_version) and register(llm_time), wiring both functions from llm.tools as the default tools exposed to models."
     },
     {
@@ -68,7 +87,9 @@
       "label": "answerable",
       "question": "How does load_plugins in llm/plugins.py decide which plugins to load, and what does the LLM_LOAD_PLUGINS environment variable do?",
       "messy_question": "how load_plugins funtion in plugins.py desides witch plugins to load n what LLM_LOAD_PLUGINS env varaible do",
-      "citations": ["code:llm/plugins.py"],
+      "citations": [
+        "code:llm/plugins.py#L21-L50"
+      ],
       "reference_answer": "load_plugins is idempotent (a global _loaded flag makes it a no-op after the first call). If not running under test (sys._called_from_test is unset) and LLM_LOAD_PLUGINS is None, it loads plugins via setuptools entry points (pm.load_setuptools_entrypoints('llm')). If LLM_LOAD_PLUGINS is set, it's read as a comma-separated list of package names; for each one, load_plugins looks up its distribution, finds its 'llm' entry points, loads and registers each one with pluggy, and appends it to the plugin-to-distinfo list, printing an error to stderr if the package isn't found. Finally it always imports and registers the built-in DEFAULT_PLUGINS (llm.default_plugins.openai_models and llm.default_plugins.default_tools)."
     },
     {
@@ -76,7 +97,14 @@
       "label": "answerable",
       "question": "What plugin hooks are declared in llm/hookspecs.py?",
       "messy_question": "wat plugin hoks r declared in hookspecs.py, name them all",
-      "citations": ["code:llm/hookspecs.py"],
+      "citations": [
+        "code:llm/hookspecs.py#L8-L10",
+        "code:llm/hookspecs.py#L13-L15",
+        "code:llm/hookspecs.py#L18-L20",
+        "code:llm/hookspecs.py#L23-L25",
+        "code:llm/hookspecs.py#L28-L30",
+        "code:llm/hookspecs.py#L33-L35"
+      ],
       "reference_answer": "llm/hookspecs.py declares six hookspecs: register_commands (register additional CLI commands), register_models (register additional LLM model instances), register_embedding_models (register additional embedding models), register_template_loaders (register template loaders with prefixes), register_fragment_loaders (register fragment loaders with prefixes), and register_tools (register functions usable as tools by the LLMs)."
     },
     {
@@ -84,7 +112,9 @@
       "label": "answerable",
       "question": "What must you provide when creating a brand-new Collection in llm/embeddings.py, and what happens if you don't?",
       "messy_question": "wat u must provide when u creat a brand new collcetion in embeddings.py n wat happen if u dont",
-      "citations": ["code:llm/embeddings.py"],
+      "citations": [
+        "code:llm/embeddings.py#L25-L86"
+      ],
       "reference_answer": "When Collection.__init__ finds no existing row for that collection name in the collections table and create=True (the default), it requires either a model or a model_id argument to create the new collection; if neither is provided, it raises a ValueError with the message \"Either model= or model_id= must be provided when creating a new collection\". If create=False and the collection doesn't already exist, it raises Collection.DoesNotExist instead."
     },
     {
@@ -92,7 +122,9 @@
       "label": "answerable",
       "question": "What does Template.evaluate() return in llm/templates.py?",
       "messy_question": "wat does template.evaluate() funtion retrun in templates.py file",
-      "citations": ["code:llm/templates.py"],
+      "citations": [
+        "code:llm/templates.py#L41-L59"
+      ],
       "reference_answer": "Template.evaluate(input, params) returns a tuple of (prompt, system): it merges the given input and any params with the template's defaults (params not already set are filled in from self.defaults), then interpolates the template's prompt/system strings against those params, returning the resulting prompt string and system string (either may be None)."
     },
     {
@@ -100,7 +132,9 @@
       "label": "answerable",
       "question": "How does the Fragment class in llm/utils.py compute its id(), and why does it subclass str?",
       "messy_question": "how fragment class in utils.py compute its id() n why it subclas str insted of somthing else",
-      "citations": ["code:llm/utils.py"],
+      "citations": [
+        "code:llm/utils.py#L24-L34"
+      ],
       "reference_answer": "Fragment subclasses str so a Fragment instance can be used anywhere a plain string is expected, while __new__ creates the immutable string object from the content and __init__ additionally stores a source attribute. Its id() method hashes the fragment's own string content (self.encode('utf-8')) with sha256 and returns the hex digest."
     },
     {
@@ -108,7 +142,9 @@
       "label": "answerable",
       "question": "What does llm/__main__.py do when the package is run as a script?",
       "messy_question": "wat does __main__.py do wen the pakage run as a scrpit, wats it call",
-      "citations": ["code:llm/__main__.py"],
+      "citations": [
+        "code:llm/__main__.py"
+      ],
       "reference_answer": "llm/__main__.py imports cli from .cli and, under the `if __name__ == \"__main__\":` guard, calls cli() -- so running `python -m llm` invokes the same Click CLI entry point as the installed `llm` command."
     },
     {

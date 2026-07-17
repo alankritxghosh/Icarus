@@ -219,8 +219,10 @@ Ingest (point the demo at any **public** repo; needs `gh` authed + `git`):
   (default `llm`). The demo reads repo/commit from `meta.json`, so citation
   links follow the ingested repo. **Back up the committed `chunks.jsonl`/
   `meta.json` first** if you want the `simonw/llm` board back. **Not
-  Python-only** — Python, JS/TS/TSX, Go, Rust, Java, Ruby, C/C++, Swift,
-  Kotlin, PHP, C#, Scala, and Shell all chunk as code (see
+  Python-only** — Python, JS/JSX/MJS/CJS, TS/TSX, Go, Rust, Java, Ruby, C/C++,
+  Objective-C/C++ (`.m`/`.mm` — added 2026-07-17 for React Native; `.h` was
+  already indexed, so iOS declarations were visible while implementations were
+  not), Swift, Kotlin, PHP, C#, Scala, and Shell all chunk as code (see
   `_EXTENSION_SOURCES` in `evals/ingest.py`). This specific CLI targets public
   repos; a private repo's ingest goes through the server's own `/connect` path
   with the caller's token instead (see Private repos below).

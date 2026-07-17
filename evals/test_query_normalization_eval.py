@@ -45,7 +45,11 @@ class QueryNormalizationEvalTests(unittest.TestCase):
         chunks = load_chunks(CORPUS)
         lexical = LexicalRetriever(chunks)
         semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
-        cls.hybrid = HybridRetriever(lexical, semantic)
+        # Same production weighting as demo/library.py (T7,
+        # docs/plans/2026-07-17-ast-chunking-all-languages.md) -- plain 1:1
+        # RRF fusion underperforms semantic alone on this board; see
+        # evals/retriever.py's HybridRetriever docstring.
+        cls.hybrid = HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
         vocab = build_vocabulary(chunks)
         cls.normalized_hybrid = NormalizingRetriever(cls.hybrid, vocab)
 

@@ -1,0 +1,89 @@
+{
+  "_status": "T3 of docs/plans/2026-07-17-ast-chunking-all-languages.md. Every question is hand-verified against the real fixture source in evals/fixtures/ts_chunk_eval/ (read in full before writing the reference_answer, not generated). Gold files are DELIBERATELY 400-550+ real lines: an earlier draft used small (~80-250 line) target files and found BOTH chunkers hit 100% recall identically -- files that short never trigger the 512-token truncation this brick exists to fix, since window-300 either doesn't split them at all or the whole file already fits the embed budget. Questions target content positioned LATE in each file (past the point a 512-token embed window would reach), which is what actually exercises the difference. Scope: the languages a real React Native design partner's codebase actually uses.",
+  "languages": {
+    "tsx": {
+      "dir": "evals/fixtures/ts_chunk_eval/tsx",
+      "gold_file": "TextField.tsx",
+      "questions": [
+        {
+          "id": "tsx01",
+          "question": "In TextField.tsx, what three accessibility props does GhostText set on its outer View to hide it from assistive tech?",
+          "reference_answer": "aria-hidden={true}, accessibilityElementsHidden, and importantForAccessibility=\"no-hide-descendants\"."
+        },
+        {
+          "id": "tsx02",
+          "question": "In the Icon component in TextField.tsx, what color does the icon use when both ctx.isInvalid and ctx.focused are true?",
+          "reference_answer": "t.palette.negative_500, via the errorFocus style array."
+        },
+        {
+          "id": "tsx03",
+          "question": "What does useTextFieldContext return in TextField.tsx?",
+          "reference_answer": "useContext(Context) -- the shared TextFieldContext value (inputRef, hover/focus state, isInvalid, etc.)."
+        }
+      ]
+    },
+    "kotlin": {
+      "dir": "evals/fixtures/ts_chunk_eval/kotlin",
+      "gold_file": "MatrixMathHelper.kt",
+      "questions": [
+        {
+          "id": "kt01",
+          "question": "What does applyRotateZ set on the matrix in MatrixMathHelper.kt, and with which trig functions?",
+          "reference_answer": "m[0]=cos(radians), m[1]=sin(radians), m[4]=-sin(radians), m[5]=cos(radians)."
+        },
+        {
+          "id": "kt02",
+          "question": "What does MatrixDecompositionContext.reset() do in MatrixMathHelper.kt?",
+          "reference_answer": "It resets the perspective, scale, skew, translation, and rotationDegrees arrays to all zeros, via a private resetArray helper in its companion object."
+        },
+        {
+          "id": "kt03",
+          "question": "What does roundTo3Places do in MatrixMathHelper.kt?",
+          "reference_answer": "Rounds a Double to 3 decimal places: Math.round(n * 1000.0) * 0.001."
+        }
+      ]
+    },
+    "objc": {
+      "dir": "evals/fixtures/ts_chunk_eval/objc",
+      "gold_file": "RNNCommandsHandler.mm",
+      "questions": [
+        {
+          "id": "objc01",
+          "question": "What error does dismissModal raise in RNNCommandsHandler.mm if the target component is not a modal?",
+          "reference_answer": "It calls [RNNErrorHandler reject:...] with error code 1013 and the description \"component with id: '<id>' is not a modal\"."
+        },
+        {
+          "id": "objc02",
+          "question": "What does dismissAllOverlays do in RNNCommandsHandler.mm?",
+          "reference_answer": "It calls assertReady and asserts the main queue, tells _overlayManager to dismissAllOverlays, then sends a navigation-command-completion event for dismissAllOverlays."
+        },
+        {
+          "id": "objc03",
+          "question": "Under what condition does assertReady raise a BridgeNotLoadedError in RNNCommandsHandler.mm?",
+          "reference_answer": "When RCT_NEW_ARCH_ENABLED is not defined AND self.readyToReceiveCommands is false -- i.e. on the old architecture, if a command is sent before Navigation.events().onAppLaunched() has fired."
+        }
+      ]
+    },
+    "java": {
+      "dir": "evals/fixtures/ts_chunk_eval/java",
+      "gold_file": "StackController.java",
+      "questions": [
+        {
+          "id": "java01",
+          "question": "What does popTo do before calling pop in StackController.java?",
+          "reference_answer": "It walks the stack from the second-to-last entry toward the target viewController, removing and destroying every controller above it that isn't the target, then calls pop(mergeOptions, listener)."
+        },
+        {
+          "id": "java02",
+          "question": "In StackController.java, what does onDependentViewChanged do when the dependency is a Fab or FabMenu?",
+          "reference_answer": "It calls updateBottomMargin(dependency, getBottomInset()) on the found controller, via the perform() helper."
+        },
+        {
+          "id": "java03",
+          "question": "What does the @RestrictTo(RestrictTo.Scope.TESTS) setView method do in StackController.java?",
+          "reference_answer": "It directly assigns the given StackLayout to the controller's protected `view` field -- a test-only setter."
+        }
+      ]
+    }
+  }
+}

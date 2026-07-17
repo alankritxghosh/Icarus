@@ -1,9 +1,26 @@
 # Icarus brain — Python dependencies.
 #
-# The core harness/demo are pure stdlib. The ONE exception is semantic
-# retrieval (Brick C), which uses a local, free, offline embedding model via
-# fastembed (ONNX Runtime + tokenizers, NO PyTorch). It is lazily imported
-# inside evals.provider.LocalEmbeddingProvider, so everything else still runs
-# without it installed; installing this is what enables semantic/hybrid
-# retrieval. Default model BAAI/bge-small-en-v1.5, fetched once and cached.
+# The core harness/demo are pure stdlib. The exceptions are listed below, and
+# each one is lazily imported so everything else still runs without it.
+#
+# 1. Semantic retrieval (Brick C): a local, free, offline embedding model via
+# fastembed (ONNX Runtime + tokenizers, NO PyTorch). Lazily imported inside
+# evals.provider.LocalEmbeddingProvider; installing this is what enables
+# semantic/hybrid retrieval. Default model BAAI/bge-small-en-v1.5, fetched
+# once and cached.
 fastembed==0.8.0
+
+# 2. AST-aware code chunking (evals/ast_chunk.py). Approved 2026-07-17 on
+# measured evidence, not a hunch: splitting code at function/class boundaries
+# instead of fixed 300-line windows took semantic recall@5 from 69.2% -> 92.3%
+# on the comprehension board, by getting the median code chunk from 2,234
+# tokens (4x over the embedder's 512-token truncation point) down to 161.
+#
+# tree-sitter is the parser; tree-sitter-language-pack ships the grammars,
+# covering all 22 extensions in ingest._EXTENSION_SOURCES (verified, 0
+# missing). Wheels are cp310-abi3 (stable ABI, forward-compatible) with
+# manylinux_2_34_x86_64 builds, so the python:3.12-slim Docker image is
+# covered. Lazily imported: a caller without these still gets chunk_text's
+# line windows, never an error.
+tree-sitter>=0.26.0
+tree-sitter-language-pack>=1.12.5

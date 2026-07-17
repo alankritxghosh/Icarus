@@ -5,7 +5,8 @@
   "counts": {
     "pr": 141,
     "issue": 84,
-    "code": 18
+    "code": 470
   },
-  "generated_at": "2026-06-29T12:46:06.061495+00:00"
+  "chunking": "ast",
+  "generated_at": "2026-07-17T17:56:37.236658+00:00"
 }

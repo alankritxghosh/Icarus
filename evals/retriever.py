@@ -186,16 +186,45 @@ class HybridRetriever:
     doesn't dominate the fused score disproportionately); we use it as a
     sensible off-the-shelf default rather than tuning it.
 
+    `semantic_weight`/`lexical_weight` (both default 1.0, i.e. plain
+    unweighted RRF -- the ORIGINAL contract, unchanged) scale each list's
+    contribution before summing. Found live 2026-07-17 (T7 of
+    docs/plans/2026-07-17-ast-chunking-all-languages.md), AFTER AST chunking
+    fixed the embedder's 512-token truncation: on the real comprehension
+    board, semantic alone hit 84.6% recall@5 while equal-weight RRF fusion
+    hit only 69.2% -- worse than either retriever needed to be. Root cause is
+    a structural property of RRF, not a bug: it rewards CONSENSUS (moderate
+    rank in both lists) over a single retriever's excellent rank, so once
+    semantic dominates, BM25's noisy also-ran candidates can out-accumulate a
+    semantically-excellent, lexically-invisible gold chunk purely by also
+    showing up (mediocrely) in BOTH lists. Confirmed directly: on that same
+    board, BM25 rescued ZERO questions semantic alone missed -- every lexical
+    hit was already a semantic hit (small-N evidence, board-specific, not a
+    universal claim that lexical search never helps). Sweeping `rrf_constant`
+    alone had NO effect (a ref absent from BM25's own top-20 gets zero
+    contribution regardless of the constant -- the constant only reweights
+    ranks within a list a ref already appears in). Sweeping semantic_weight
+    at lexical_weight=1 showed a clean plateau: recall recovers to
+    semantic-alone's exact ceiling (84.6%) starting at weight=15 and stays
+    flat through weight=100 -- see demo/library.py's `_build_retriever` for
+    the production weighting chosen from that plateau. Kept as an explicit,
+    optional parameter (not baked into the default) so this file's own
+    extensive existing test suite (evals/test_retriever.py), which
+    hand-computes exact unweighted RRF scores, needed zero changes.
+
     Takes two ALREADY-CONSTRUCTED objects, each implementing `.search(query,
     k) -> List[str]` -- duck-typed, not hardcoded to LexicalRetriever/
     SemanticRetriever, so any two compatible retrievers (including test
     fakes) can be fused.
     """
 
-    def __init__(self, lexical, semantic, rrf_constant: int = 60):
+    def __init__(self, lexical, semantic, rrf_constant: int = 60,
+                semantic_weight: float = 1.0, lexical_weight: float = 1.0):
         self.lexical = lexical
         self.semantic = semantic
         self.rrf_constant = rrf_constant
+        self.semantic_weight = semantic_weight
+        self.lexical_weight = lexical_weight
 
     def search(self, query: str, k: int = 20) -> List[str]:
         # Pull a generous recall pool from each underlying retriever -- more
@@ -211,7 +240,8 @@ class HybridRetriever:
         semantic_ranked = self.semantic.search(query, recall_n)
 
         scores: dict = {}
-        for ranked in (lexical_ranked, semantic_ranked):
+        for ranked, weight in ((lexical_ranked, self.lexical_weight),
+                               (semantic_ranked, self.semantic_weight)):
             # A ref repeating WITHIN one list is a bug in that retriever (a
             # legitimate retriever never returns the same ref twice) -- since
             # HybridRetriever accepts ANY .search()-compatible object, not
@@ -225,7 +255,7 @@ class HybridRetriever:
                 if ref in seen_in_this_list:
                     continue
                 seen_in_this_list.add(ref)
-                scores[ref] = scores.get(ref, 0.0) + 1.0 / (self.rrf_constant + rank)
+                scores[ref] = scores.get(ref, 0.0) + weight / (self.rrf_constant + rank)
 
         fused = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
         return [ref for ref, _ in fused[:k]]

@@ -97,7 +97,17 @@ def _build_retriever(chunks, corpus_dir, fast=False):
             on_progress=_log_embed_progress,
         )
         save_vectors(cache_path, model, semantic.vectors)
-    return HybridRetriever(lexical, semantic)
+    # semantic_weight=20 (lexical stays 1): measured live 2026-07-17 (T7,
+    # docs/plans/2026-07-17-ast-chunking-all-languages.md) -- once AST
+    # chunking fixed the embedder's 512-token truncation bug, plain 1:1 RRF
+    # fusion scored WORSE (69.2% recall@5 on the comprehension board) than
+    # semantic retrieval alone (84.6%), because RRF structurally rewards
+    # consensus over a single retriever's excellent rank. Sweeping
+    # semantic_weight found a clean plateau recovering semantic-alone's
+    # ceiling starting at weight=15 and holding flat through 100; 20 sits
+    # inside that plateau with margin. See evals/retriever.py's
+    # HybridRetriever docstring for the full measurement.
+    return HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
 
 
 def _build_gated_pipeline(corpus_dir, fast=False):
@@ -154,12 +164,52 @@ class Library:
 
     def _resolve(self, repo, private=False):
         """-> (corpus_dir, needs_ingest). A private repo resolves to the PER-USER
-        private root (isolated, never the shared public cache)."""
+        private root (isolated, never the shared public cache).
+
+        Pure filesystem fact ONLY -- "does a corpus already exist here" --
+        deliberately NOT "is it fresh enough". `registry.py`'s eviction-replay
+        path calls this WITHOUT a token to decide whether an automatic resume
+        is a safe cache hit; it can never re-ingest a private repo (no token
+        available in that context), so answering anything other than pure
+        availability here would make a chunking-scheme change silently
+        downgrade a resumed private-repo user to the public default -- exactly
+        what that path's own contract forbids. The T6 staleness check (does
+        this corpus need a refresh because ICARUS_AST_CHUNKING changed) lives
+        in `connect_sync` instead, the one caller that actually has the
+        context (and, for a private repo, the token) to act on it."""
         if repo == self._default_repo:
             return self._default_dir, False
         base = self._private_root if private else self._cache_root
         cache = base / _slug(repo)
         return cache, not (cache / "chunks.jsonl").exists()
+
+    @staticmethod
+    def _corpus_is_stale(cache_dir):
+        """T6 of docs/plans/2026-07-17-ast-chunking-all-languages.md: true
+        when a corpus already on disk was chunked by a scheme that's since
+        changed. Otherwise flipping ICARUS_AST_CHUNKING would silently do
+        nothing for any already-connected repo -- `chunks.jsonl` and its
+        `vectors.json` cache stay mutually consistent with EACH OTHER
+        regardless (vector_cache's own ref-coverage check already self-heals
+        once chunks.jsonl is regenerated -- see vector_cache.load_vectors),
+        but neither one ever picks up a chunking-logic change on its own."""
+        from evals.ingest import (
+            CHUNKING_SCHEME_AST,
+            CHUNKING_SCHEME_LINE_WINDOW,
+            ast_chunking_enabled,
+        )
+        meta = load_meta(cache_dir / "meta.json")
+        if meta is None:
+            # chunks.jsonl with no meta.json is an unexpected, ambiguous
+            # state (the two are always written together) -- serve what's
+            # there rather than force a possibly-slow re-ingest on a hunch.
+            return False
+        current = CHUNKING_SCHEME_AST if ast_chunking_enabled() else CHUNKING_SCHEME_LINE_WINDOW
+        # A corpus from before this field existed has no "chunking" key at
+        # all -- it was necessarily chunk_text, since ast_chunk/ts_chunk
+        # didn't exist yet.
+        stored = meta.get("chunking", CHUNKING_SCHEME_LINE_WINDOW)
+        return stored != current
 
     def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
         """Ingest/cache a repo, publish lexical search, then upgrade to semantic.
@@ -178,6 +228,20 @@ class Library:
                 self._phase = None
             return self.status_snapshot()
         corpus_dir, needs_ingest = self._resolve(repo, private)
+        # T6 staleness check: only when we actually have the means to act on
+        # it, and never for the committed default repo -- that corpus is the
+        # frozen, reproducible board the eval suite depends on, never
+        # silently re-ingested over the network regardless of this flag (the
+        # same exemption _resolve already gives it unconditionally). A
+        # private repo can't be re-ingested without the caller's token (the
+        # eviction-replay resume path in registry.py calls connect_sync with
+        # token=None on purpose, for an existing private corpus it can't
+        # re-authenticate) -- in that case, serve the existing corpus as-is
+        # rather than force a re-ingest attempt that would fail. A public
+        # repo never needs a token, so its staleness always applies.
+        if (repo != self._default_repo and not needs_ingest
+                and not (private and token is None)):
+            needs_ingest = self._corpus_is_stale(corpus_dir)
         with self._lock:
             already_indexing = repo in self._inflight
             if not already_indexing:

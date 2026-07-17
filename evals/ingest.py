@@ -68,11 +68,33 @@ _EXTENSION_SOURCES = {
     ".rs": "code", ".java": "code", ".rb": "code", ".c": "code", ".h": "code",
     ".cpp": "code", ".swift": "code", ".kt": "code", ".php": "code",
     ".cs": "code", ".scala": "code", ".sh": "code",
+    # code -- Objective-C/C++ implementations. `.h` was already here, so before
+    # these landed a React Native repo indexed every iOS DECLARATION and zero
+    # implementations: measured 2026-07-17 on wix/react-native-navigation, 280
+    # .h indexed against 298 .mm silently dropped (its whole ios/ tree). That
+    # asymmetry is worse than dropping both -- the corpus looks like it covers
+    # the module, so an honest "no one wrote this down" was really "nobody
+    # showed me the file". `.m` is also MATLAB, which is likewise code.
+    ".m": "code", ".mm": "code",
+    # code -- JS dialects the .js/.ts entries missed. `.jsx` is rare in modern
+    # RN (which is .tsx) but standard in plain React; .mjs/.cjs are how real
+    # tooling config (eslint.config.mjs, metro.config.cjs) is written.
+    ".jsx": "code", ".mjs": "code", ".cjs": "code",
     # doc
     ".md": "doc", ".rst": "doc", ".txt": "doc",
     # config
     ".yaml": "config", ".yml": "config", ".toml": "config", ".cfg": "config",
     ".ini": "config", ".sql": "config",
+    # config -- the mobile-native build manifests, same role .toml plays for
+    # Python: hand-written, low-volume, and where build/dependency decisions
+    # (minSdkVersion, native deps) are actually recorded.
+    ".gradle": "config", ".podspec": "config",
+    # NOT here, deliberately: `.json`. It was the single biggest dropped
+    # extension on a real RN app (mattermost-mobile: 123 files, 5.9MB), but the
+    # volume is Xcode asset catalogs (30x Contents.json) and i18n locale
+    # bundles -- machine-authored or pure translation data, zero "why" signal --
+    # against ~8 real package.json. Indexing it would skew BM25/IDF corpus-wide.
+    # If package.json ever needs to be evidence, allowlist that FILENAME.
 }
 
 # Path segments that exclude a file regardless of extension (vendored/build/VCS
@@ -169,6 +191,24 @@ def chunk_text(text: str, ref_prefix: str) -> List[dict]:
                 break
             joined = candidate
             end += 1
+        if len(joined) > _CHUNK_MAX_CHARS:
+            # The floor-of-one-line-of-progress guarantee above means `joined`
+            # can still be over budget here -- but ONLY if lines[start] alone
+            # already was (the inner loop never lets a window grow past the
+            # budget otherwise). Found live 2026-07-17: a machine-generated
+            # ~250,000-char single line (one object literal spanning almost no
+            # real newlines) made a whole 125-line file into ONE oversized
+            # chunk, since the file's LINE count never tripped any limit.
+            # Truncate rather than skip: both downstream consumers already
+            # silently ignore anything past this point today (synth.py caps
+            # code chunks at this same _CHUNK_MAX_CHARS for the writer; the
+            # embedder truncates at 512 tokens regardless) -- so this makes an
+            # EXISTING effective truncation honest and logged once at ingest,
+            # instead of silently repeated by two different downstream layers.
+            print(f"ingest: line {start + 1} of {ref_prefix!r} is "
+                  f"{len(joined)} chars, exceeds the {_CHUNK_MAX_CHARS}-char "
+                  f"chunk budget alone; truncating", file=sys.stderr)
+            joined = joined[:_CHUNK_MAX_CHARS] + " …[truncated]"
         ref = f"{ref_prefix}#L{start + 1}-L{end}"
         chunks.append({"ref": ref, "text": joined + "\n"})
         if end == total:
@@ -178,6 +218,58 @@ def chunk_text(text: str, ref_prefix: str) -> List[dict]:
         # whenever a window is never char-bound-limited (the common case).
         start = max(start + 1, end - _CHUNK_OVERLAP_LINES)
     return chunks
+
+
+# T4 of docs/plans/2026-07-17-ast-chunking-all-languages.md: dispatch a CODE
+# chunk's text to the best available chunker for its extension, behind an env
+# flag so the switch can be rolled back without a redeploy if a real repo
+# surfaces a problem T1-T3's proof didn't catch. Default OFF -- the committed
+# `simonw/llm` board and every existing corpus keep chunking exactly as before
+# until this is deliberately turned on.
+ICARUS_AST_CHUNKING_ENV = "ICARUS_AST_CHUNKING"
+
+# T6: the value stamped into meta.json's "chunking" field, so a later connect
+# can tell whether a corpus already on disk was chunked by the scheme
+# currently active -- see `ast_chunking_enabled` and demo/library.py's
+# staleness check in `Library._resolve`.
+CHUNKING_SCHEME_AST = "ast"
+CHUNKING_SCHEME_LINE_WINDOW = "chunk_text"
+
+
+def ast_chunking_enabled() -> bool:
+    """The single source of truth for whether ICARUS_AST_CHUNKING is on.
+    Shared by `_chunk_code` (what actually chunks a file) and `ingest_repo`
+    (what stamps meta.json's "chunking" field) so the two can never silently
+    disagree about which scheme was really used for a given corpus -- a
+    duplicated truthy-parsing implementation in each caller would be exactly
+    the kind of drift that makes a staleness check lie."""
+    return os.environ.get(ICARUS_AST_CHUNKING_ENV, "").strip().lower() in ("1", "true", "yes")
+
+
+def _chunk_code(text: str, ref_prefix: str, ext: str) -> List[dict]:
+    """Split a CODE file's text with the best chunker available for `ext`,
+    when `ICARUS_AST_CHUNKING` is enabled -- otherwise identical to calling
+    `chunk_text` directly. Doc/config sources never reach this function; only
+    the `fetch_code` code-walk source is code-structured enough for a
+    function/class-boundary chunker to make sense of.
+
+    `ast_chunk`/`ts_chunk` are imported HERE, not at this module's top level,
+    because both import FROM `ingest` (`chunk_text`, `_CHUNK_MAX_CHARS`,
+    `_CHUNK_WINDOW_LINES`) -- importing them eagerly at import time would be a
+    circular import. This also keeps `ingest.py` importable without
+    tree-sitter-language-pack installed even when the flag is on: `ts_chunk`'s
+    own lazy import inside `_get_parser` falls back to `chunk_text` per file,
+    it never raises.
+    """
+    if not ast_chunking_enabled():
+        return chunk_text(text, ref_prefix)
+    if ext == ".py":
+        from .ast_chunk import ast_chunk
+        return ast_chunk(text, ref_prefix)
+    from .ts_chunk import _LANGUAGE_BY_EXT, ts_chunk
+    if ext in _LANGUAGE_BY_EXT:
+        return ts_chunk(text, ref_prefix, ext)
+    return chunk_text(text, ref_prefix)
 
 
 def classify_file(path: Path, root: Path) -> Optional[str]:
@@ -405,15 +497,37 @@ def fetch_issues(repo, issue_ids, token=None):
 
 
 def fetch_code(repo, commit, code_dir, token=None):
-    # Full clone keeps the pinned-commit checkout byte-reproducible (the eval
-    # board depends on it); timeouts bound the clone, size caps bound memory so a
-    # hostile/huge repo can't hang or OOM us.
+    # Fetch ONLY the pinned commit, never full history. This used to be a full
+    # `git clone`, whose stated reason was keeping an ARBITRARY pinned commit
+    # checkout-able (the eval board pins simonw/llm @ 94769b8) -- something
+    # `clone --depth 1` genuinely cannot do, since it only fetches a branch tip.
+    #
+    # But a full clone made large real repos un-ingestable outright: measured
+    # 2026-07-17, Expensify/App (2.7GB, the largest real public React Native
+    # app) died with `fatal: early EOF` past the 120s _SUBPROCESS_TIMEOUT. Not
+    # a truncated corpus -- a hard failure, at any cap.
+    #
+    # Fetching the SHA directly at depth 1 satisfies both constraints. GitHub
+    # serves a reachable SHA to a depth-1 fetch, so the checkout stays exactly
+    # as byte-reproducible as before while skipping all history. Verified live:
+    # Expensify/App 27s (was >120s failure), the board's own pin 2s, each
+    # landing that exact SHA. The token still rides in via _git_env's
+    # http.extraHeader, which applies to fetch exactly as it did to clone --
+    # never argv, never the URL.
+    #
+    # Timeouts still bound every call; size caps still bound memory.
     chunks, total = [], 0
     with tempfile.TemporaryDirectory() as d:
-        subprocess.run(["git", "clone", "--quiet", f"https://github.com/{repo}.git", d],
-                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
-        subprocess.run(["git", "-C", d, "checkout", "--quiet", commit],
-                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=_git_env(token))
+        env = _git_env(token)
+        subprocess.run(["git", "init", "--quiet", d],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
+        subprocess.run(["git", "-C", d, "remote", "add", "origin",
+                        f"https://github.com/{repo}.git"],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
+        subprocess.run(["git", "-C", d, "fetch", "--depth", "1", "--quiet", "origin", commit],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
+        subprocess.run(["git", "-C", d, "checkout", "--quiet", "FETCH_HEAD"],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
         # Resolve once, consistently: _safe_code_dir already resolves its own
         # return value, and on macOS /var is a symlink to /private/var, so an
         # unresolved `d` used in relative_to() below would mismatch against
@@ -442,7 +556,12 @@ def fetch_code(repo, commit, code_dir, token=None):
                 continue  # e.g. vanished mid-walk, permission change, a dangling
                           # symlink/socket/fifo classify_file's is_file() let through
             total += len(text.encode("utf-8", "replace"))
-            for sub in chunk_text(text, f"{source}:{rel}"):
+            # AST-aware chunking (T4) only ever applies to CODE -- a doc/config
+            # file has no function/class structure for a boundary-aware
+            # chunker to make sense of.
+            parts = (_chunk_code(text, f"{source}:{rel}", path.suffix.lower())
+                     if source == "code" else chunk_text(text, f"{source}:{rel}"))
+            for sub in parts:
                 # HARD cap, enforced per-chunk (not just per-file): a single file
                 # whose windows cross the cap must not overshoot silently. Log and
                 # stop the instant we hit it, so a truncated corpus never reads as
@@ -486,7 +605,9 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     for c in code:
         counts[c["source"]] = counts.get(c["source"], 0) + 1
     counts.setdefault("code", 0)
-    write_meta(out_dir / "meta.json", repo=repo, commit=commit, code_dir=code_dir, counts=counts)
+    chunking = CHUNKING_SCHEME_AST if ast_chunking_enabled() else CHUNKING_SCHEME_LINE_WINDOW
+    write_meta(out_dir / "meta.json", repo=repo, commit=commit, code_dir=code_dir,
+               counts=counts, chunking=chunking)
     return counts
 
 

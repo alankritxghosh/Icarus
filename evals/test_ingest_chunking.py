@@ -230,6 +230,95 @@ class DenseShortFileTests(unittest.TestCase):
         self.assertEqual(covered, set(range(1, total_lines + 1)))
 
 
+class SingleOversizedLineTests(unittest.TestCase):
+    """A single PHYSICAL line that alone exceeds _CHUNK_MAX_CHARS.
+
+    Found live 2026-07-17 indexing real React Native repos: `chunk_text`'s
+    windowing loop makes a "floor of one line of progress" per window (so a
+    pathological line can't stall the loop forever), but never revisits
+    whether that one line, by itself, still exceeds the char budget --
+    DenseShortFileTests above already covers "many merely-long lines", which
+    the multi-line char-budget check handles correctly; this is the sharper
+    case that check cannot reach, because there is no second line to stop
+    accumulating BEFORE.
+
+    Measured on real files this actually produced: mm/app/utils/emoji/
+    index.ts (125 lines, one machine-generated object-literal line ~250,000
+    chars -> the WHOLE FILE became one chunk, since 125 <= _CHUNK_WINDOW_LINES
+    but the line-by-line loop still floors at "at least one line" progress
+    regardless of that line's own size), and a 15-line eslint rule file where
+    a single line alone was ~26,500 chars. Both pre-date and are independent
+    of the tree-sitter/AST chunking work -- this is `chunk_text` itself, the
+    baseline every other chunker in this codebase falls back to.
+
+    The fix truncates (not skips) an over-budget line to _CHUNK_MAX_CHARS,
+    rather than emit it whole: both the writer (synth.build_prompt caps code
+    chunks at _MAX_CODE_CHUNK_CHARS) and the embedder (bge-small-en-v1.5
+    truncates at 512 tokens) already silently ignore anything past that
+    point today, so truncating at ingest makes an EXISTING effective
+    truncation honest and logged instead of silently repeated twice
+    downstream -- it does not newly hide anything a user could otherwise see.
+    """
+
+    def test_single_line_alone_over_budget_is_truncated_not_emitted_whole(self):
+        huge_line = "X" * (_CHUNK_MAX_CHARS * 3)
+        text = f"before\n{huge_line}\nafter\n"
+        chunks = chunk_text(text, "code:pkg/one_huge_line.ts")
+        for c in chunks:
+            self.assertLessEqual(len(c["text"]), _CHUNK_MAX_CHARS + 200,
+                                 f"chunk exceeds the char budget: {len(c['text'])} chars")
+
+    def test_short_file_with_one_giant_line_still_splits(self):
+        # Reproduces the exact real shape: FEW lines (well under the 300-line
+        # window, so the whole-file short-circuit would otherwise fire), one
+        # of them enormous -- the emoji-file shape, not the dense-lines shape.
+        huge_line = "export const Emojis = {" + "x" * (_CHUNK_MAX_CHARS * 5) + "};"
+        text = f"import x from 'y';\n{huge_line}\nexport default Emojis;\n"
+        self.assertLess(len(text.splitlines()), _CHUNK_WINDOW_LINES)
+        chunks = chunk_text(text, "code:pkg/emoji_shape.ts")
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertLessEqual(len(c["text"]), _CHUNK_MAX_CHARS + 200)
+
+    def test_no_content_from_the_oversized_line_is_silently_lost(self):
+        # Truncated, not dropped: the START of the line (where a real
+        # definition's name/signature lives) must survive, matching what
+        # both downstream consumers (writer, embedder) can already see today.
+        huge_line = "MARKER_AT_START_" + "y" * (_CHUNK_MAX_CHARS * 3)
+        text = f"before\n{huge_line}\nafter\n"
+        chunks = chunk_text(text, "code:pkg/marker.ts")
+        self.assertTrue(any("MARKER_AT_START_" in c["text"] for c in chunks))
+
+    def test_truncation_is_marked_not_silent(self):
+        huge_line = "X" * (_CHUNK_MAX_CHARS * 3)
+        text = f"before\n{huge_line}\nafter\n"
+        chunks = chunk_text(text, "code:pkg/marked.ts")
+        big = max(chunks, key=lambda c: len(c["text"]))
+        self.assertIn("truncated", big["text"].lower())
+
+    def test_refs_stay_unique_even_when_a_line_is_truncated(self):
+        # evals/retriever.py's SemanticRetriever keys embeddings by chunk ref
+        # (self._vectors[c.ref]) -- two chunks sharing a ref would silently
+        # collide, corrupting semantic scoring for one of them. Truncating
+        # in place (never emitting two separate chunks for one real line)
+        # must keep every ref unique.
+        huge_line = "X" * (_CHUNK_MAX_CHARS * 3)
+        text = f"before\n{huge_line}\nafter\n"
+        chunks = chunk_text(text, "code:pkg/unique.ts")
+        refs = [c["ref"] for c in chunks]
+        self.assertEqual(len(refs), len(set(refs)))
+
+    def test_ref_line_range_stays_a_real_github_linkable_range(self):
+        # demo/links.py builds a real GitHub URL from #Lstart-Lend; a
+        # truncated chunk's ref must still point at the REAL line(s) it came
+        # from, never a synthetic/fractional number.
+        huge_line = "X" * (_CHUNK_MAX_CHARS * 3)
+        text = f"before\n{huge_line}\nafter\n"
+        chunks = chunk_text(text, "code:pkg/honest_ref.ts")
+        for c in chunks:
+            self.assertRegex(c["ref"], r"^code:pkg/honest_ref\.ts(#L\d+-L\d+)?$")
+
+
 class RefPrefixContractTests(unittest.TestCase):
     def test_hash_in_ref_prefix_is_rejected(self):
         # A "#" in ref_prefix would produce a ref with two "#"s for a

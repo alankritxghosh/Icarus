@@ -3,6 +3,7 @@
 counts. Offline: the network fetches are monkeypatched."""
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -11,10 +12,41 @@ from unittest import mock
 
 from . import ingest
 from .corpus_meta import load_meta
-from .ingest import _MAX_FILE_BYTES, _MAX_TOTAL_BYTES, REPO
+from .ingest import (
+    CHUNKING_SCHEME_AST,
+    CHUNKING_SCHEME_LINE_WINDOW,
+    ICARUS_AST_CHUNKING_ENV,
+    _MAX_FILE_BYTES,
+    _MAX_TOTAL_BYTES,
+    REPO,
+    _chunk_code,
+    chunk_text,
+)
 
 
-class IngestRepoTests(unittest.TestCase):
+class _EnvVarGuard(unittest.TestCase):
+    """Base class: always restores ICARUS_AST_CHUNKING to its prior state,
+    even on failure -- a leaked env var here would silently change every
+    OTHER test's fetch_code behavior in the same process."""
+
+    def setUp(self):
+        self._prior = os.environ.get(ICARUS_AST_CHUNKING_ENV)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._prior is None:
+            os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)
+        else:
+            os.environ[ICARUS_AST_CHUNKING_ENV] = self._prior
+
+    def _set(self, value):
+        if value is None:
+            os.environ.pop(ICARUS_AST_CHUNKING_ENV, None)
+        else:
+            os.environ[ICARUS_AST_CHUNKING_ENV] = value
+
+
+class IngestRepoTests(_EnvVarGuard):
     def test_writes_corpus_and_meta_to_target_dir(self):
         prs = ([{"ref": "pr:1", "source": "pr", "text": "why X"}], {7})
         issues = [{"ref": "issue:7", "source": "issue", "text": "ctx"}]
@@ -32,6 +64,30 @@ class IngestRepoTests(unittest.TestCase):
             self.assertEqual(m["repo"], "octo/repo")
             self.assertEqual(m["commit"], "abc123")
 
+    def test_meta_stamps_chunk_text_scheme_when_flag_off(self):
+        self._set(None)
+        code = [{"ref": "code:a.py", "source": "code", "text": "x=1"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_code", return_value=code):
+            ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
+            m = load_meta(Path(d) / "meta.json")
+            self.assertEqual(m["chunking"], CHUNKING_SCHEME_LINE_WINDOW)
+
+    def test_meta_stamps_ast_scheme_when_flag_on(self):
+        self._set("1")
+        code = [{"ref": "code:a.py", "source": "code", "text": "x=1"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_code", return_value=code):
+            ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
+            m = load_meta(Path(d) / "meta.json")
+            self.assertEqual(m["chunking"], CHUNKING_SCHEME_AST)
+
 
 def _write(root, rel_path, content, binary=False):
     path = Path(root) / rel_path
@@ -43,17 +99,28 @@ def _write(root, rel_path, content, binary=False):
     return path
 
 
-def _fake_run_cloning_fixture(fixture_root):
-    """Build a subprocess.run fake that, on `git clone`, populates the clone
-    destination from `fixture_root` (copying real files) instead of touching
-    the network -- so fetch_code walks a real fixture tree on disk without a
-    live clone. `git checkout` and any `gh` calls are no-ops/empty."""
+def _fake_run_cloning_fixture(fixture_root, calls=None):
+    """Build a subprocess.run fake that, on `git fetch`, populates the working
+    tree from `fixture_root` (copying real files) instead of touching the
+    network -- so fetch_code walks a real fixture tree on disk without a live
+    network fetch. `git init`/`remote add`/`checkout` and any `gh` calls are
+    no-ops/empty. Every call is appended to `calls` if provided, so a test can
+    assert on the git wire protocol itself (depth, target ref).
+    """
     import shutil
 
     def fake_run(args, **kwargs):
+        if calls is not None:
+            calls.append(list(args))
         prog = args[0]
-        if prog == "git" and args[1] == "clone":
-            dest = Path(args[-1])
+        if prog == "git" and args[1] == "init":
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if prog == "git" and args[1] == "-C" and "remote" in args:
+            return subprocess.CompletedProcess(args, 0, stdout="")
+        if prog == "git" and args[1] == "-C" and "fetch" in args:
+            # The fetch is what materializes the tree, so this is where the
+            # fixture lands (it was the `clone` before the shallow-fetch fix).
+            dest = Path(args[2])
             shutil.copytree(fixture_root, dest, dirs_exist_ok=True)
             return subprocess.CompletedProcess(args, 0, stdout="")
         if prog == "git" and args[1] == "-C" and "checkout" in args:
@@ -61,6 +128,58 @@ def _fake_run_cloning_fixture(fixture_root):
         raise AssertionError(f"unexpected subprocess call in fetch_code test: {args}")
 
     return fake_run
+
+
+class ShallowFetchTests(unittest.TestCase):
+    """fetch_code must fetch ONLY the pinned commit, never full history.
+
+    Found live 2026-07-17 while indexing real React Native repos: a
+    full-history `git clone` of Expensify/App (2.7GB, the largest real public
+    RN app) died with `fatal: early EOF` and blew the 120s subprocess timeout
+    -- Icarus could not ingest it AT ALL, at any size cap. This was filed in
+    docs/HANDOFF.md Part 3 as cosmetic "post-alpha hardening"; it is actually a
+    hard blocker on exactly the customer-sized repos Icarus is sold into.
+
+    The full clone was deliberate -- it kept an ARBITRARY pinned commit
+    checkout-able, which `clone --depth 1` cannot do (that only gets a branch
+    tip), and the eval board pins simonw/llm @ 94769b8. Fetching the SHA
+    directly at depth 1 satisfies both: verified live at 27s on Expensify/App
+    (vs. >120s hard failure) and 2s on the board's own pin, landing that exact
+    SHA both times. These tests lock in the protocol so a future edit can't
+    quietly reintroduce the full clone.
+    """
+
+    def _fetch_recording_calls(self, commit="deadbeef"):
+        calls = []
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "pkg/ok.py", "x = 1\n")
+            with mock.patch("evals.ingest.subprocess.run",
+                            side_effect=_fake_run_cloning_fixture(fixture, calls)):
+                ingest.fetch_code("octo/repo", commit, ".")
+        return calls
+
+    def test_never_performs_a_full_history_clone(self):
+        # The actual defect: `git clone <url> <dir>` with no depth limit.
+        for args in self._fetch_recording_calls():
+            self.assertNotIn("clone", args,
+                             f"full-history clone reintroduced: {args}")
+
+    def test_fetches_the_pinned_commit_at_depth_one(self):
+        calls = self._fetch_recording_calls(commit="94769b8b076cde9392059d76bd766453cf900180")
+        fetches = [a for a in calls if "fetch" in a]
+        self.assertEqual(len(fetches), 1, f"expected exactly one fetch, got {calls}")
+        args = fetches[0]
+        self.assertIn("--depth", args)
+        self.assertEqual(args[args.index("--depth") + 1], "1")
+        # The pinned SHA must be the fetch target -- that is what preserves the
+        # board's byte-reproducible checkout without full history.
+        self.assertIn("94769b8b076cde9392059d76bd766453cf900180", args)
+
+    def test_checks_out_the_fetched_commit(self):
+        calls = self._fetch_recording_calls()
+        checkouts = [a for a in calls if "checkout" in a]
+        self.assertEqual(len(checkouts), 1, f"expected exactly one checkout, got {calls}")
+        self.assertIn("FETCH_HEAD", checkouts[0])
 
 
 class FetchCodeWholeRepoWalkTests(unittest.TestCase):
@@ -608,10 +727,15 @@ class AuthenticatedIngestTests(unittest.TestCase):
 
     def test_token_reaches_subprocess_env_never_args(self):
         """Drive a real ingest_repo(...) call with subprocess.run faked at the
-        lowest level (git ls-remote / gh / git clone / git checkout) and prove:
-        the token string never appears in any `args` list, and the recorded
-        `env` kwarg for git calls carries _git_env's header, for gh calls
-        carries GH_TOKEN."""
+        lowest level (git ls-remote / gh / git init / git remote add / git
+        fetch / git checkout) and prove: the token string never appears in any
+        `args` list, and the recorded `env` kwarg for git calls carries
+        _git_env's header, for gh calls carries GH_TOKEN.
+
+        The shallow-fetch fix (2026-07-17) widened this proof rather than
+        narrowing it: the token must stay out of argv across FOUR git calls
+        now, including the `remote add` that carries the clone URL -- the most
+        tempting place for a credential to end up embedded."""
         token = "SECRET-TOKEN"
         calls = []
 
@@ -620,11 +744,11 @@ class AuthenticatedIngestTests(unittest.TestCase):
             prog = args[0]
             if prog == "git" and args[1] == "ls-remote":
                 return subprocess.CompletedProcess(args, 0, stdout="deadbeef\tHEAD\n")
-            if prog == "git" and args[1] == "clone":
-                dest = Path(args[-1])
-                dest.mkdir(parents=True, exist_ok=True)
+            if prog == "git" and args[1] == "init":
+                Path(args[-1]).mkdir(parents=True, exist_ok=True)
                 return subprocess.CompletedProcess(args, 0, stdout="")
             if prog == "git" and args[1] == "-C":
+                # covers `remote add`, `fetch --depth 1`, and `checkout`
                 return subprocess.CompletedProcess(args, 0, stdout="")
             if prog == "gh":
                 if "pr" in args and "list" in args:
@@ -652,6 +776,138 @@ class AuthenticatedIngestTests(unittest.TestCase):
                               ingest._git_env(token)["GIT_CONFIG_VALUE_0"])
         for c in gh_calls:
             self.assertEqual(c["env"]["GH_TOKEN"], token)
+
+
+class ChunkCodeDispatchTests(_EnvVarGuard):
+    """_chunk_code (T4): dispatches a CODE file's text to the right chunker
+    for its extension, behind ICARUS_AST_CHUNKING. Tests the DISPATCH
+    decision in isolation (via mock.patch on ast_chunk/ts_chunk) -- whether
+    those chunkers themselves produce good chunks is already proven by
+    evals/test_ast_chunk.py, test_ast_chunking_eval.py, test_ts_chunk.py, and
+    test_ts_chunking_eval.py (T1-T3); this file's job is only "does the right
+    file extension reach the right function". Always runs -- ts_chunk.py
+    imports cleanly without tree-sitter-language-pack installed (its own
+    tree-sitter import is deferred inside _get_parser), so this needs no
+    self-skip guard.
+    """
+
+    def test_default_off_never_calls_ast_chunk_or_ts_chunk(self):
+        self._set(None)  # unset -- the real default, not just "0"
+        with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+            result = _chunk_code("def f():\n    return 1\n", "code:a.py", ".py")
+        m_ast.assert_not_called()
+        m_ts.assert_not_called()
+        self.assertEqual(result, chunk_text("def f():\n    return 1\n", "code:a.py"))
+
+    def test_flag_off_explicitly_behaves_identically_to_unset(self):
+        for off_value in ("0", "false", "no", "", "garbage"):
+            with self.subTest(value=off_value):
+                self._set(off_value)
+                with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                        mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+                    _chunk_code("x = 1\n", "code:a.py", ".py")
+                m_ast.assert_not_called()
+                m_ts.assert_not_called()
+
+    def test_flag_on_recognizes_common_truthy_spellings(self):
+        for on_value in ("1", "true", "TRUE", "True", "yes", "YES"):
+            with self.subTest(value=on_value):
+                self._set(on_value)
+                with mock.patch("evals.ast_chunk.ast_chunk") as m_ast:
+                    _chunk_code("def f():\n    return 1\n", "code:a.py", ".py")
+                m_ast.assert_called_once()
+
+    def test_flag_on_routes_py_to_ast_chunk(self):
+        self._set("1")
+        with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+            _chunk_code("def f():\n    return 1\n", "code:a.py", ".py")
+        m_ast.assert_called_once_with("def f():\n    return 1\n", "code:a.py")
+        m_ts.assert_not_called()
+
+    def test_flag_on_routes_react_native_languages_to_ts_chunk(self):
+        self._set("1")
+        for ext in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mm", ".m", ".java", ".kt"):
+            with self.subTest(ext=ext):
+                with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                        mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+                    _chunk_code("irrelevant text", f"code:a{ext}", ext)
+                m_ts.assert_called_once_with("irrelevant text", f"code:a{ext}", ext)
+                m_ast.assert_not_called()
+
+    def test_flag_on_still_leaves_h_on_chunk_text(self):
+        # The deliberate exclusion (see ts_chunk.py's module docstring: both
+        # the c and objc grammars produced too many ERROR nodes on real RN
+        # headers) must survive the wiring, not just exist in ts_chunk.py's
+        # own extension table.
+        self._set("1")
+        with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+            result = _chunk_code("void foo();\n", "code:a.h", ".h")
+        m_ast.assert_not_called()
+        m_ts.assert_not_called()
+        self.assertEqual(result, chunk_text("void foo();\n", "code:a.h"))
+
+    def test_flag_on_leaves_other_languages_on_chunk_text(self):
+        # Go/Rust/Ruby/etc. have no ast_chunk/ts_chunk coverage at all --
+        # confirm the flag doesn't accidentally route them somewhere broken.
+        self._set("1")
+        for ext in (".go", ".rs", ".rb", ".c", ".cpp", ".swift", ".php", ".cs", ".scala", ".sh"):
+            with self.subTest(ext=ext):
+                with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                        mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+                    result = _chunk_code("irrelevant", f"code:a{ext}", ext)
+                m_ast.assert_not_called()
+                m_ts.assert_not_called()
+                self.assertEqual(result, chunk_text("irrelevant", f"code:a{ext}"))
+
+
+class FetchCodeAstChunkingWiringTests(_EnvVarGuard):
+    """The same dispatch, exercised through the real fetch_code walk (not
+    just _chunk_code in isolation) -- proves doc/config sources never reach
+    the dispatcher at all (only `source == "code"` should), and that the
+    committed board's reproducibility is untouched when the flag is off
+    (the real, load-bearing default)."""
+
+    def _fetch(self, fixture_root, code_dir="."):
+        with mock.patch("evals.ingest.subprocess.run",
+                        side_effect=_fake_run_cloning_fixture(fixture_root)):
+            return ingest.fetch_code("octo/repo", "deadbeef", code_dir)
+
+    def test_default_off_matches_plain_chunk_text_byte_for_byte(self):
+        self._set(None)
+        src = "def f():\n    return 1\n\n\ndef g():\n    return 2\n"
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "pkg/mod.py", src)
+            chunks = self._fetch(fixture)
+        expected = chunk_text(src, "code:pkg/mod.py")
+        self.assertEqual([{"ref": c["ref"], "text": c["text"]} for c in chunks],
+                         [{"ref": e["ref"], "text": e["text"]} for e in expected])
+
+    def test_flag_on_doc_and_config_files_never_reach_ast_ts_chunk(self):
+        self._set("1")
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "README.md", "# Title\n\nSome docs about a function.\n")
+            _write(fixture, "config/app.yaml", "name: icarus\nversion: 1\n")
+            with mock.patch("evals.ast_chunk.ast_chunk") as m_ast, \
+                    mock.patch("evals.ts_chunk.ts_chunk") as m_ts:
+                self._fetch(fixture)
+            m_ast.assert_not_called()
+            m_ts.assert_not_called()
+
+    def test_flag_on_python_code_file_is_chunked_differently_than_chunk_text(self):
+        self._set("1")
+        src = "def f():\n    return 1\n\n\ndef g():\n    return 2\n"
+        with tempfile.TemporaryDirectory() as fixture:
+            _write(fixture, "pkg/mod.py", src)
+            chunks = self._fetch(fixture)
+        # AST chunking splits this into two per-function chunks with #Lstart-Lend
+        # refs; chunk_text's whole-file short-circuit would return ONE chunk
+        # with no line-range suffix at all (well under the window/char caps).
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertIn("#L", c["ref"])
 
 
 if __name__ == "__main__":

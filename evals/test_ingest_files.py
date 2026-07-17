@@ -41,6 +41,64 @@ class ClassifyFileTests(unittest.TestCase):
         path = self._write("config/app.yaml", "name: icarus\nversion: 1\n")
         self.assertEqual(classify_file(path, self.root), "config")
 
+    # --- React Native coverage (2026-07-17, tester-reported) -----------------
+    # Measured against two real RN repos rather than guessed: wix/
+    # react-native-navigation drops 298 .mm files (its ENTIRE ios/ tree) while
+    # indexing 280 .h headers, so Icarus read every Objective-C declaration and
+    # none of the implementations -- it could see a method exist and never see
+    # what it did. Same silent-invisibility class as the wolf3d uppercase bug
+    # documented in classify_file.
+
+    def test_objective_c_implementation_is_code(self):
+        # AppDelegate.m is the canonical entry point of every RN iOS app.
+        path = self._write("ios/AppDelegate.m", "@implementation AppDelegate\n@end\n")
+        self.assertEqual(classify_file(path, self.root), "code")
+
+    def test_objective_cpp_implementation_is_code(self):
+        # The 298-file case: RN's iOS native bridge is overwhelmingly .mm.
+        path = self._write("ios/TopBarTitlePresenter.mm",
+                           "@implementation TopBarTitlePresenter\n@end\n")
+        self.assertEqual(classify_file(path, self.root), "code")
+
+    def test_objective_c_header_and_implementation_classify_together(self):
+        # The asymmetry itself is the bug: a header indexed while its
+        # implementation is dropped is worse than dropping both, because the
+        # corpus then *looks* like it covers the module.
+        header = self._write("ios/RNNBridge.h", "@interface RNNBridge\n@end\n")
+        impl = self._write("ios/RNNBridge.mm", "@implementation RNNBridge\n@end\n")
+        self.assertEqual(classify_file(header, self.root), "code")
+        self.assertEqual(classify_file(impl, self.root), "code")
+
+    def test_jsx_file_is_code(self):
+        path = self._write("src/App.jsx", "export default () => <View />;\n")
+        self.assertEqual(classify_file(path, self.root), "code")
+
+    def test_esm_and_cjs_modules_are_code(self):
+        # metro.config.cjs / eslint.config.mjs are real, hand-written config.
+        mjs = self._write("eslint.config.mjs", "export default [];\n")
+        cjs = self._write("metro.config.cjs", "module.exports = {};\n")
+        self.assertEqual(classify_file(mjs, self.root), "code")
+        self.assertEqual(classify_file(cjs, self.root), "code")
+
+    def test_gradle_file_is_config(self):
+        path = self._write("android/app/build.gradle", "android {\n  minSdkVersion 21\n}\n")
+        self.assertEqual(classify_file(path, self.root), "config")
+
+    def test_podspec_file_is_config(self):
+        path = self._write("RNNavigation.podspec", "Pod::Spec.new do |s|\nend\n")
+        self.assertEqual(classify_file(path, self.root), "config")
+
+    def test_json_is_rejected_despite_being_the_biggest_rn_drop(self):
+        # DELIBERATE exclusion, not an oversight -- locks the decision in.
+        # .json was the single largest dropped extension on a real RN app
+        # (mattermost-mobile: 123 files, 5.9MB), but the volume is Xcode asset
+        # catalogs (30x Contents.json) and i18n locale bundles, against ~8 real
+        # package.json. Indexing it would skew BM25/IDF corpus-wide with
+        # translation strings. If package.json specifically ever needs to be
+        # evidence, allowlist that FILENAME -- do not open the extension.
+        locale = self._write("assets/i18n/zh-TW.json", '{"login": "登入"}\n')
+        self.assertIsNone(classify_file(locale, self.root))
+
     def test_markdown_file_is_doc(self):
         path = self._write("README.md", "# Title\n\nSome docs.\n")
         self.assertEqual(classify_file(path, self.root), "doc")

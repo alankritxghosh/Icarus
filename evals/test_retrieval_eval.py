@@ -59,7 +59,13 @@ class HybridRetrievalEvalTests(unittest.TestCase):
         chunks = load_chunks(CORPUS)
         lexical = LexicalRetriever(chunks)
         semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
-        hybrid = HybridRetriever(lexical, semantic)
+        # Weighted per T7's measured production config (demo/library.py) --
+        # plain 1:1 RRF fusion, once AST chunking fixed semantic retrieval's
+        # 512-token truncation, scores WORSE than semantic alone (see
+        # evals/retriever.py's HybridRetriever docstring). This is the same
+        # retriever construction Icarus actually ships, not an unweighted
+        # stand-in.
+        hybrid = HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
         cls.hybrid_board = grade(QUESTIONS, RetrievalPipeline(hybrid), k=5)
         # Same-run baseline (not a hardcoded historical number) so the comparison
         # stays fair if the corpus or question set ever changes.
@@ -102,8 +108,9 @@ class HybridComprehensionEvalTests(unittest.TestCase):
         cls.questions = raw["questions"] if isinstance(raw, dict) else raw
         chunks = load_chunks(CORPUS)
         cls.lexical = LexicalRetriever(chunks)
-        semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
-        cls.hybrid = HybridRetriever(cls.lexical, semantic)
+        cls.semantic = SemanticRetriever(chunks, LocalEmbeddingProvider())
+        # Same production weighting as demo/library.py -- see T7 note above.
+        cls.hybrid = HybridRetriever(cls.lexical, cls.semantic, semantic_weight=20.0, lexical_weight=1.0)
 
     def _boards(self, phrasing):
         variant = [dict(q, question=q[phrasing]) for q in self.questions]
@@ -130,6 +137,26 @@ class HybridComprehensionEvalTests(unittest.TestCase):
         self.assertGreater(
             hybrid["quality"]["retrieval_recall_at_k"],
             bm25["quality"]["retrieval_recall_at_k"],
+        )
+
+    def test_weighted_hybrid_recall_matches_semantic_alone(self):
+        """T7's actual payoff, same-run and never hardcoded: on this board,
+        plain unweighted 1:1 RRF fusion scored WORSE (69.2%) than semantic
+        retrieval alone (84.6%) -- see evals/retriever.py's HybridRetriever
+        docstring for the measured root cause (RRF structurally rewards
+        consensus over one retriever's excellent rank). Beating-BM25 alone
+        (the tests above) doesn't catch that regression, since BM25 never
+        hurts the fused score, it just dilutes it below semantic's own
+        ceiling. This proves the actual fix: with production's weighting
+        (semantic_weight=20, lexical_weight=1), fused recall must reach
+        semantic-alone's recall, not merely exceed BM25's."""
+        variant = [dict(q, question=q["question"]) for q in self.questions]
+        hybrid_board = grade(variant, RetrievalPipeline(self.hybrid), k=5)
+        semantic_board = grade(variant, RetrievalPipeline(self.semantic), k=5)
+        self._assert_gates(hybrid_board)
+        self.assertGreaterEqual(
+            hybrid_board["quality"]["retrieval_recall_at_k"],
+            semantic_board["quality"]["retrieval_recall_at_k"],
         )
 
 

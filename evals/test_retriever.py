@@ -364,6 +364,118 @@ class HybridRetrieverTests(unittest.TestCase):
         result = HybridRetriever(EmptyRetriever(), EmptyRetriever()).search("anything", k=5)
         self.assertEqual(result, [])
 
+    def test_default_construction_leaves_weights_at_one(self):
+        # Locks the unweighted contract every hand-computed test above
+        # depends on -- omitting semantic_weight/lexical_weight must never
+        # silently change behavior.
+        self.assertEqual(self.hybrid.semantic_weight, 1.0)
+        self.assertEqual(self.hybrid.lexical_weight, 1.0)
+
+
+class WeightedHybridRetrieverTests(unittest.TestCase):
+    """T7 (docs/plans/2026-07-17-ast-chunking-all-languages.md): proves the
+    optional semantic_weight/lexical_weight scale each list's RRF
+    contribution before summing, using the SAME fixture as
+    HybridRetrieverTests above so the only variable is the weighting.
+
+    With semantic_weight=15, lexical_weight=1, rrf_constant=60:
+      - code:a.py: lexical rank 1 -> 1 * 1/61 = 0.016393442...; absent from
+        semantic -> +0. Total = 1/61.
+      - code:b.py: absent from lexical -> +0; semantic rank 1 ->
+        15 * 1/61 = 15/61 = 0.245901639... Total = 15/61.
+      - code:c.py: lexical rank 2 -> 1 * 1/62 = 0.016129032...; semantic
+        rank 2 -> 15 * 1/62 = 15/62 = 0.241935484... Total = 16/62 =
+        0.258064516...
+
+    Expected fused order: code:c.py (0.2581) > code:b.py (0.2459) >
+    code:a.py (0.0164) -- a real reordering versus the unweighted fixture
+    above, where code:a.py and code:b.py tied. This is the exact mechanism
+    behind the fix found live: weighting semantic higher lets a
+    semantically-excellent, lexically-invisible ref (code:b.py here) win out
+    over a merely lexical-only one, instead of both being flattened to the
+    same score.
+    """
+
+    def setUp(self):
+        self.query = "cache invalidation strategy"
+        self.chunks = [
+            Chunk("code:a.py", "code", "cache invalidation strategy for the token cache invalidation cache"),
+            Chunk("code:b.py", "code", "evicting stale entries when the ttl expires"),
+            Chunk("code:c.py", "code", "cache invalidation strategy uses a ttl to evict stale entries"),
+        ]
+        self.lexical = LexicalRetriever(self.chunks)
+        vectors = {
+            self.query: [1.0, 0.0],
+            self.chunks[0].text: [0.0, 1.0],
+            self.chunks[1].text: [0.98, 0.02],
+            self.chunks[2].text: [0.9, 0.1],
+        }
+        self.provider = StaticEmbeddingProvider(vectors)
+        self.semantic = SemanticRetriever(self.chunks, self.provider)
+        assert self.lexical.search(self.query, k=10) == ["code:a.py", "code:c.py"]
+        assert self.semantic.search(self.query, k=10) == ["code:b.py", "code:c.py"]
+
+    def test_weighting_is_stored_verbatim(self):
+        hybrid = HybridRetriever(self.lexical, self.semantic, semantic_weight=15.0, lexical_weight=1.0)
+        self.assertEqual(hybrid.semantic_weight, 15.0)
+        self.assertEqual(hybrid.lexical_weight, 1.0)
+
+    def test_heavier_semantic_weight_matches_hand_computed_order(self):
+        hybrid = HybridRetriever(self.lexical, self.semantic, semantic_weight=15.0, lexical_weight=1.0)
+        self.assertEqual(
+            hybrid.search(self.query, k=3),
+            ["code:c.py", "code:b.py", "code:a.py"],
+        )
+
+    def test_heavier_semantic_weight_reorders_versus_the_unweighted_tie(self):
+        # The exact same fixture, unweighted, ties code:a.py/code:b.py at
+        # 1/61 (ref-ascending puts a before b -- see HybridRetrieverTests).
+        # Weighting semantic must break that tie in b's favor, proving the
+        # weight parameter actually changes fusion behavior, not just stores
+        # a number nothing reads.
+        unweighted = HybridRetriever(self.lexical, self.semantic).search(self.query, k=3)
+        weighted = HybridRetriever(
+            self.lexical, self.semantic, semantic_weight=15.0, lexical_weight=1.0
+        ).search(self.query, k=3)
+        self.assertEqual(unweighted[1:], ["code:a.py", "code:b.py"])
+        self.assertEqual(weighted[1:], ["code:b.py", "code:a.py"])
+
+    def test_exact_weighted_scores_match_hand_computation(self):
+        rrf_constant = 60
+        semantic_weight = 15.0
+        lexical_weight = 1.0
+        hybrid = HybridRetriever(
+            self.lexical, self.semantic, rrf_constant=rrf_constant,
+            semantic_weight=semantic_weight, lexical_weight=lexical_weight,
+        )
+        # Rebuild the raw scores the same way HybridRetriever does internally.
+        scores = {}
+        for ranked, weight in (
+            (self.lexical.search(self.query, 20), lexical_weight),
+            (self.semantic.search(self.query, 20), semantic_weight),
+        ):
+            for rank, ref in enumerate(ranked, start=1):
+                scores[ref] = scores.get(ref, 0.0) + weight / (rrf_constant + rank)
+
+        self.assertAlmostEqual(scores["code:a.py"], 1.0 / 61)
+        self.assertAlmostEqual(scores["code:b.py"], 15.0 / 61)
+        self.assertAlmostEqual(scores["code:c.py"], 1.0 / 62 + 15.0 / 62)
+        self.assertEqual(hybrid.search(self.query, k=3), ["code:c.py", "code:b.py", "code:a.py"])
+
+    def test_zero_lexical_weight_fully_excludes_lexical_contribution(self):
+        # A degenerate but valid weighting (0.0) must zero out that list's
+        # score contribution entirely -- proving the multiplier is applied
+        # to the score, not just used as a tiebreak nudge. HybridRetriever
+        # doesn't filter zero-score refs (that's LexicalRetriever/
+        # SemanticRetriever's own "> 0" job, not the fuser's), so
+        # code:a.py -- lexical-only in this fixture -- still appears in the
+        # fused list, but with a zeroed score it must sort dead last, behind
+        # every ref that earned a real positive contribution.
+        hybrid = HybridRetriever(self.lexical, self.semantic, semantic_weight=1.0, lexical_weight=0.0)
+        results = hybrid.search(self.query, k=3)
+        self.assertEqual(results[-1], "code:a.py")
+        self.assertEqual(set(results), {"code:a.py", "code:b.py", "code:c.py"})
+
 
 class NormalizingRetrieverTests(unittest.TestCase):
     """Q2: wraps any .search()-compatible retriever, normalizing the query
