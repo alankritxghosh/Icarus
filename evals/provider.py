@@ -256,71 +256,6 @@ class EmbeddingProvider:
         raise NotImplementedError
 
 
-class GeminiEmbeddingProvider(EmbeddingProvider):
-    """Calls Google Gemini's embedContent REST endpoint. Network. Stdlib only.
-
-    Same free tier / same GEMINI_API_KEY as GeminiProvider (the writer) -- this
-    is the free embeddings tier, so private_safe stays False, same reasoning as
-    GeminiProvider. Model id verified against the live /v1beta/models list
-    before being hardcoded (see PaidGeminiProvider's docstring for why this
-    project never guesses a model id from training data): gemini-embedding-001
-    is the stable, non-preview production embedding model."""
-
-    BASE = GeminiProvider.BASE
-    KEY_ENV = "GEMINI_API_KEY"
-
-    def __init__(self, model: str = "gemini-embedding-001", timeout: float = 60.0):
-        self.model = model
-        self.timeout = timeout
-
-    def _build_request(self, text: str, key: str) -> urllib.request.Request:
-        # Key goes in the x-goog-api-key header, NOT the URL -- same reasoning
-        # as GeminiProvider._build_request.
-        url = f"{self.BASE}/{self.model}:embedContent"
-        body = json.dumps({"content": {"parts": [{"text": text}]}}).encode()
-        return urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": _USER_AGENT,
-                "x-goog-api-key": key,
-            },
-        )
-
-    @staticmethod
-    def _parse_embedding(data: dict) -> list:
-        return data["embedding"]["values"]
-
-    def embed(self, text: str) -> list:
-        key = os.environ.get(self.KEY_ENV)
-        if not key:
-            raise RuntimeError(f"{self.KEY_ENV} not set")
-        req = self._build_request(text, key)
-
-        def _do():
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                return json.loads(resp.read())
-
-        return self._parse_embedding(_with_retry(_do))
-
-
-class PaidGeminiEmbeddingProvider(GeminiEmbeddingProvider):
-    """Gemini embeddings on a BILLING-ENABLED key. Billing is confirmed enabled
-    (2026-07-04, project owner); the written no-training policy link is NOT YET
-    recorded -- see the open checklist item in
-    docs/plans/2026-07-04-private-repos-per-user-isolation.md before treating
-    this as a settled, audited fact. The dedicated KEY_ENV is deliberate: code
-    cannot tell a free key string from a paid one, so placing a key in
-    GEMINI_PAID_API_KEY is the operator's attestation that it is billed. Model
-    default follows the free provider; the eval board picks upgrades (Gemini 3.x
-    welcome -- verify the exact model id against the live API before changing
-    the default)."""
-
-    KEY_ENV = "GEMINI_PAID_API_KEY"
-    private_safe = True
-
-
 class StaticEmbeddingProvider(EmbeddingProvider):
     """Test double: deterministic, content-addressable vectors for testing.
 
@@ -401,14 +336,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
 
 _EMBEDDING_PROVIDERS = {
-    "gemini": GeminiEmbeddingProvider,
-    "gemini-paid": PaidGeminiEmbeddingProvider,
     "local": LocalEmbeddingProvider,
-}
-_EMBEDDING_KEY_ENV = {
-    "gemini": "GEMINI_API_KEY",
-    "gemini-paid": "GEMINI_PAID_API_KEY",
-    # "local" intentionally absent: the local embedder needs no key.
 }
 
 
@@ -419,9 +347,3 @@ def make_embedding_provider(name: str) -> EmbeddingProvider:
         return _EMBEDDING_PROVIDERS[name]()
     except KeyError:
         raise ValueError(f"unknown provider: {name}")
-
-
-def has_embedding_provider_key(name: str) -> bool:
-    """True if the env key for this embedding provider is set -- mirrors
-    has_provider_key."""
-    return bool(os.environ.get(_EMBEDDING_KEY_ENV.get(name, "")))

@@ -233,11 +233,13 @@ removing, or renaming files). For class/function-level detail see
   URL), `OpenRouterProvider`, `StaticProvider`, and `PaidGeminiProvider` (a
   billing-enabled, `private_safe=True` Gemini on its own `GEMINI_PAID_API_KEY`);
   `make_provider` factory + 429 backoff. Stdlib `urllib`; keys from env. Also the
-  `EmbeddingProvider` family for semantic retrieval: `GeminiEmbeddingProvider`/
-  `PaidGeminiEmbeddingProvider` (hosted, quota-limited — deprecated for this use),
-  `StaticEmbeddingProvider` (test double), and **`LocalEmbeddingProvider`** (the
-  decided FREE route: local ONNX transformer via `fastembed` (bge-small-en-v1.5), `private_safe=True`, no
-  key/network/quota, lazily imported); `make_embedding_provider` factory.
+  `EmbeddingProvider` family for semantic retrieval: `StaticEmbeddingProvider`
+  (test double) and **`LocalEmbeddingProvider`** (the decided FREE route: local
+  ONNX transformer via `fastembed` (bge-small-en-v1.5), `private_safe=True`, no
+  key/network/quota, lazily imported); `make_embedding_provider` factory. (The
+  hosted `GeminiEmbeddingProvider`/`PaidGeminiEmbeddingProvider` were removed
+  2026-07-18 — nothing selected them once serving standardized on the local
+  embedder.)
 - `evals/trust.py` — the deterministic trust interlock: `assert_safe_for_private`
   raises `PrivateDataError` unless a provider declares `private_safe=True`
   (never inferred from a key string) — private code's only gate to a writer.
@@ -462,7 +464,10 @@ removing, or renaming files). For class/function-level detail see
   URL; unknown/malformed → None.
 - `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON.
 - `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
-  `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, backed by a
+  `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
+  `NormalizingRetriever` (Brick Q query normalization, wired into serving
+  2026-07-18) so messy/typo'd query phrasing is corrected toward real corpus
+  terms before retrieval; backed by a
   process-shared `_shared_embedder` (the fastembed model loads ONCE; falls back
   to lexical-only if fastembed is unavailable) and the `evals/vector_cache`
   on-disk cache so restarts/reconnects don't re-embed. `connect_sync`

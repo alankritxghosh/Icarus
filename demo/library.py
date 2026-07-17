@@ -15,7 +15,10 @@ from pathlib import Path
 
 from evals.corpus import load_chunks
 from evals.corpus_meta import load_meta
-from evals.retriever import LexicalRetriever, SemanticRetriever, HybridRetriever
+from evals.retriever import (
+    LexicalRetriever, SemanticRetriever, HybridRetriever, NormalizingRetriever,
+)
+from evals.query_normalize import build_vocabulary
 from evals.provider import make_provider
 from evals.pipeline import GatedPipeline
 from evals.ingest import ingest_repo
@@ -77,12 +80,18 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     regardless of how slow the host's embedder is, instead of blocking on a
     cold embed that a CPU-throttled host can take many minutes -- or, proven
     live, never finish inside a bounded timeout at all -- to complete."""
+    # Brick Q: normalize the query (stdlib fuzzy spelling toward real corpus
+    # terms) before it hits ANY retriever -- proven live to close messy-phrasing
+    # recall@5 up to the clean baseline without regressing clean phrasing (see
+    # evals/test_query_normalization_eval.py). Vocabulary is the corpus's own
+    # tokens; only the SEARCH text is normalized, never what the writer sees.
+    vocab = build_vocabulary(chunks)
     lexical = LexicalRetriever(chunks)
     if fast:
-        return lexical
+        return NormalizingRetriever(lexical, vocab)
     embedder = _shared_embedder()
     if embedder is None:
-        return lexical
+        return NormalizingRetriever(lexical, vocab)
     from evals.vector_cache import load_vectors, save_vectors
     model = getattr(embedder, "model_name", "unknown")
     cache_path = Path(corpus_dir) / "vectors.json"
@@ -107,7 +116,8 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     # ceiling starting at weight=15 and holding flat through 100; 20 sits
     # inside that plateau with margin. See evals/retriever.py's
     # HybridRetriever docstring for the full measurement.
-    return HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
+    hybrid = HybridRetriever(lexical, semantic, semantic_weight=20.0, lexical_weight=1.0)
+    return NormalizingRetriever(hybrid, vocab)
 
 
 def _build_gated_pipeline(corpus_dir, fast=False):
@@ -119,16 +129,13 @@ def _build_gated_pipeline(corpus_dir, fast=False):
     return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider)
 
 
-_default_build_pipeline = _build_gated_pipeline
-
-
 def _slug(repo):
     return repo.replace("/", "__")
 
 
 class Library:
     def __init__(self, default_corpus_dir, cache_root, default_repo,
-                 build_pipeline=_default_build_pipeline, ingest_fn=ingest_repo,
+                 build_pipeline=_build_gated_pipeline, ingest_fn=ingest_repo,
                  private_root=None, private_ingest_fn=None):
         self._default_dir = Path(default_corpus_dir)
         self._cache_root = Path(cache_root)  # SHARED public-repo cache (deduped across users)

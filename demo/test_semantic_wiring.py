@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from evals.corpus import Chunk
-from evals.retriever import LexicalRetriever, HybridRetriever
+from evals.retriever import LexicalRetriever, HybridRetriever, NormalizingRetriever
 from demo import library
 
 try:
@@ -60,8 +60,11 @@ class SemanticWiringFallbackTests(unittest.TestCase):
         # Graceful degradation: no embedder -> lexical-only, never a crash.
         with mock.patch.object(library, "_shared_embedder", return_value=None):
             retr = library._build_retriever(_FAKE_CHUNKS, CORPUS_DIR)
-        self.assertIsInstance(retr, LexicalRetriever)
-        self.assertNotIsInstance(retr, HybridRetriever)
+        # Query normalization (Brick Q) wraps every retriever; the inner one is
+        # lexical-only, never hybrid, when no embedder is available.
+        self.assertIsInstance(retr, NormalizingRetriever)
+        self.assertIsInstance(retr._retriever, LexicalRetriever)
+        self.assertNotIsInstance(retr._retriever, HybridRetriever)
 
     def test_builds_hybrid_when_embedder_present(self):
         # With a (stub) embedder present, the demo builds a HybridRetriever.
@@ -71,7 +74,8 @@ class SemanticWiringFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with mock.patch.object(library, "_shared_embedder", return_value=embedder):
                 retr = library._build_retriever(_FAKE_CHUNKS, Path(d))
-        self.assertIsInstance(retr, HybridRetriever)
+        self.assertIsInstance(retr, NormalizingRetriever)
+        self.assertIsInstance(retr._retriever, HybridRetriever)
 
     def test_second_build_uses_cache_and_does_not_re_embed_chunks(self):
         # The whole point of the cache: a server restart / repo reconnect must
@@ -89,8 +93,8 @@ class SemanticWiringFallbackTests(unittest.TestCase):
                 after_first = list(spy.embedded)
                 r2 = library._build_retriever(chunks, corpus_dir)
                 during_second = spy.embedded[len(after_first):]
-            self.assertIsInstance(r1, HybridRetriever)
-            self.assertIsInstance(r2, HybridRetriever)
+            self.assertIsInstance(r1._retriever, HybridRetriever)
+            self.assertIsInstance(r2._retriever, HybridRetriever)
             self.assertEqual(set(after_first), {"alpha alpha", "beta beta"})  # embedded once
             self.assertEqual(during_second, [])  # cache hit -> no chunk re-embed
             self.assertTrue((corpus_dir / "vectors.json").exists())
@@ -118,13 +122,14 @@ class SemanticWiringLiveTests(unittest.TestCase):
         _reset_shared_embedder()
 
     def test_default_pipeline_wires_hybrid_over_the_corpus(self):
-        pipe = library._default_build_pipeline(self.corpus)
-        self.assertIsInstance(pipe._retriever, HybridRetriever)
+        pipe = library._build_gated_pipeline(self.corpus)
+        self.assertIsInstance(pipe._retriever, NormalizingRetriever)
+        self.assertIsInstance(pipe._retriever._retriever, HybridRetriever)
 
     def test_semantic_retrieval_finds_a_paraphrase_bm25_would_miss(self):
         # The whole point of wiring semantic in: a query phrased unlike the code
         # still retrieves. Sanity that the wired hybrid returns results.
-        pipe = library._default_build_pipeline(self.corpus)
+        pipe = library._build_gated_pipeline(self.corpus)
         hits = pipe._retriever.search("how are command line arguments parsed", 5)
         self.assertTrue(hits)
 

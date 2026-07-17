@@ -35,7 +35,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
-from .library import Library, _default_build_pipeline
+from .library import Library, _build_gated_pipeline
 from evals.ingest import ingest_repo
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -52,7 +52,7 @@ class LibraryRegistry:
         self._default_dir = Path(default_corpus_dir)
         self._storage_root = Path(storage_root)
         self._default_repo = default_repo
-        self._base_build = build_pipeline or _default_build_pipeline
+        self._base_build = build_pipeline or _build_gated_pipeline
         self._ingest_fn = ingest_fn or ingest_repo
         self._max_live = max_live
         # One shared cache for every public repo (see module docstring).
