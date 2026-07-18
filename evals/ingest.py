@@ -536,7 +536,7 @@ def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
     return None
 
 
-def fetch_code(repo, commit, code_dir, token=None):
+def fetch_code(repo, commit, code_dir, token=None, stats=None):
     # Fetch ONLY the pinned commit, never full history. This used to be a full
     # `git clone`, whose stated reason was keeping an ARBITRARY pinned commit
     # checkout-able (the eval board pins simonw/llm @ 94769b8) -- something
@@ -584,10 +584,13 @@ def fetch_code(repo, commit, code_dir, token=None):
             if total > _MAX_TOTAL_BYTES or len(chunks) >= _MAX_TOTAL_CHUNKS:
                 # Stop once we've read enough across all sources, by bytes OR by
                 # chunk count. Not silent: a truncated corpus must not read as
-                # "covered everything" (esp. before sharing with testers).
+                # "covered everything" (esp. before sharing with testers) -- both
+                # logged to stderr AND flagged in `stats` so it reaches /status.
                 why = "byte" if total > _MAX_TOTAL_BYTES else "chunk"
                 print(f"ingest: {why} cap reached; truncating code walk of {repo!r} "
                       f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
+                if stats is not None:
+                    stats["truncated"] = True
                 break
             rel = path.relative_to(root).as_posix()
             try:
@@ -609,6 +612,8 @@ def fetch_code(repo, commit, code_dir, token=None):
                 if len(chunks) >= _MAX_TOTAL_CHUNKS:
                     print(f"ingest: chunk cap reached; truncating code walk of {repo!r} "
                           f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
+                    if stats is not None:
+                        stats["truncated"] = True
                     return chunks
                 chunks.append({"ref": sub["ref"], "source": source, "text": sub["text"]})
     return chunks
@@ -631,7 +636,8 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     # without touching fetch_prs' own linked-issue detection.
     issue_ids = issue_ids | fetch_all_issue_ids(repo, token=token)
     issues = fetch_issues(repo, issue_ids, token=token)
-    code = fetch_code(repo, commit, code_dir, token=token)
+    code_stats = {}
+    code = fetch_code(repo, commit, code_dir, token=token, stats=code_stats)
     all_chunks = prs + issues + code
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -647,7 +653,7 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
     counts.setdefault("code", 0)
     chunking = CHUNKING_SCHEME_AST if ast_chunking_enabled() else CHUNKING_SCHEME_LINE_WINDOW
     write_meta(out_dir / "meta.json", repo=repo, commit=commit, code_dir=code_dir,
-               counts=counts, chunking=chunking)
+               counts=counts, chunking=chunking, truncated=code_stats.get("truncated", False))
     return counts
 
 

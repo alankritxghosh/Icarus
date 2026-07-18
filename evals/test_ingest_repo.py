@@ -64,6 +64,31 @@ class IngestRepoTests(_EnvVarGuard):
             self.assertEqual(m["repo"], "octo/repo")
             self.assertEqual(m["commit"], "abc123")
 
+    def test_meta_records_truncation_when_the_code_walk_hits_a_cap(self):
+        # Brick 2a: a size cap that stops fetch_code early must reach meta.json
+        # (and thence /status) -- a partial corpus never reads as "complete".
+        def truncating_fetch_code(*a, stats=None, **k):
+            if stats is not None:
+                stats["truncated"] = True
+            return [{"ref": "code:a.py", "source": "code", "text": "x=1"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_code", side_effect=truncating_fetch_code):
+            ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
+            self.assertTrue(load_meta(Path(d) / "meta.json")["truncated"])
+
+    def test_meta_truncated_false_when_walk_completes(self):
+        code = [{"ref": "code:a.py", "source": "code", "text": "x=1"}]
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_code", return_value=code):
+            ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
+            self.assertFalse(load_meta(Path(d) / "meta.json")["truncated"])
+
     def test_meta_stamps_chunk_text_scheme_when_flag_off(self):
         self._set(None)
         code = [{"ref": "code:a.py", "source": "code", "text": "x=1"}]

@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def write_meta(path, repo: str, commit: str, code_dir: str, counts: dict,
-               chunking: str = "chunk_text") -> None:
+               chunking: str = "chunk_text", truncated: bool = False) -> None:
     """`chunking` records which chunking scheme actually produced this
     corpus ("chunk_text" or "ast", see evals/ingest.py's CHUNKING_SCHEME_*
     constants) -- T6 of docs/plans/2026-07-17-ast-chunking-all-languages.md,
@@ -27,6 +27,9 @@ def write_meta(path, repo: str, commit: str, code_dir: str, counts: dict,
         "code_dir": code_dir,
         "counts": counts,
         "chunking": chunking,
+        # True when a size cap (bytes/chunks) stopped the code walk early, so the
+        # corpus is PARTIAL -- surfaced to the user (never silently "complete").
+        "truncated": truncated,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }, indent=2) + "\n")
 

@@ -34,6 +34,17 @@ class CorpusMetaTests(unittest.TestCase):
                        counts={"pr": 0, "issue": 0, "code": 0}, chunking="ast")
             self.assertEqual(load_meta(p)["chunking"], "ast")
 
+    def test_truncated_field_round_trips_and_defaults_false(self):
+        # Brick 2a: a partial corpus (a size cap stopped the walk) must be
+        # recorded, and default to False for callers that omit it.
+        with tempfile.TemporaryDirectory() as d:
+            p, q = Path(d) / "a.json", Path(d) / "b.json"
+            write_meta(p, repo="o/r", commit="c", code_dir=".",
+                       counts={"code": 0}, truncated=True)
+            self.assertTrue(load_meta(p)["truncated"])
+            write_meta(q, repo="o/r", commit="c", code_dir=".", counts={"code": 0})
+            self.assertFalse(load_meta(q)["truncated"])
+
     def test_chunking_defaults_to_chunk_text_for_callers_that_omit_it(self):
         # Every corpus written before this field existed was chunk_text --
         # existing callers (most tests) that don't pass `chunking` at all

@@ -178,6 +178,9 @@ class Library:
         self._repo = meta.get("repo", default_repo)
         self._commit = meta.get("commit", "")
         self._counts = meta.get("counts")
+        # True when a size cap truncated the code walk -> the corpus is PARTIAL,
+        # so /status can tell the user some files aren't covered (never silent).
+        self._truncated = bool(meta.get("truncated", False))
         self._pipeline = self._build_pipeline(self._default_dir)
         self._status = "ready"
 
@@ -290,6 +293,7 @@ class Library:
                 self._repo = connected_repo
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
+                self._truncated = bool(meta.get("truncated", False))
                 self._private = private
                 self._status, self._error = "ready", None
                 # Ready to search NOW (lexical); stage 2 upgrades to semantic in
@@ -352,4 +356,4 @@ class Library:
         with self._lock:
             return {"state": self._status, "repo": self._repo, "commit": self._commit,
                     "counts": self._counts, "error": self._error, "phase": self._phase,
-                    "private": self._private}
+                    "private": self._private, "truncated": self._truncated}

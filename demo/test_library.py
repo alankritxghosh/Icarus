@@ -55,6 +55,11 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(s["repo"], "simonw/llm")
         self.assertEqual(self.lib.current_pipeline(), f"pipeline::{self.default_dir}")
 
+    def test_status_exposes_truncated_flag(self):
+        # Brick 2a: /status carries whether the corpus was partially indexed.
+        # A normal (untruncated) default corpus reports False, never omitted.
+        self.assertFalse(self.lib.status_snapshot()["truncated"])
+
     def test_connect_uncached_ingests_then_switches(self):
         self.lib.connect_sync("octo/new")
         self.assertEqual(self.ingested, ["octo/new"])
