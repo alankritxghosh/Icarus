@@ -1,0 +1,37 @@
+name: dmg
+
+# Build a shareable Icarus.dmg on demand and attach it to the run as an artifact,
+# so a tester can grab a ready-to-run app without a local Xcode. Manual only
+# (Actions tab -> "dmg" -> Run workflow) plus on an `alpha-*` release tag --
+# packaging is heavy, and only wanted when handing a build to someone.
+on:
+  workflow_dispatch:
+    inputs:
+      brain_url:
+        description: "Hosted brain URL stamped into the app (blank = local 127.0.0.1, do not share)"
+        required: false
+        default: "https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io"
+  push:
+    tags: ["alpha-*"]
+
+jobs:
+  dmg:
+    # macos-15 for Xcode 16.3+/Swift 6.1 -- same reason as the security.yml swift
+    # job (app targets Swift 6; pinned KeyboardShortcuts 2.4.0 needs tools 6.1).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode 16 (Swift 6.1)
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
+      - name: Build + package Icarus.dmg
+        working-directory: mac/Icarus
+        env:
+          # A tag build has no workflow input, so fall back to the live brain URL.
+          ICARUS_BRAIN_URL: ${{ inputs.brain_url || 'https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io' }}
+        run: bash scripts/package_dmg.sh
+      - name: Upload Icarus.dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: Icarus-dmg
+          path: mac/Icarus/Icarus.dmg
+          if-no-files-found: error
