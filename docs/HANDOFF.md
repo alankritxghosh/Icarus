@@ -1,3 +1,104 @@
+# Icarus — Session Handoff (2026-07-18 late: leanness pass shipped, AST-on-in-prod, live pressure test found+fixed a P0, capacity ceiling proven — 4 deploys)
+
+**READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
+supersede the 2026-07-16 business-path mandate** (ICP / pricing / trust-legal /
+outreach is still the default job once engineering settles). This was a long,
+productive engineering session driven by real live testing — not open-ended
+building. Live testing surfaced real gaps and they were fixed the prescribed
+way (reproduce live → root-cause in real code → red→green → verify → deploy).
+**The live revision at end of session is `icarus-brain--0000014`, healthy,
+100% traffic, 4 GiB / 2 CPU.**
+
+## What happened, in order (all verified, not assumed)
+
+**1. Ponytail leanness pass (committed `07dbd7f`, deployed rev 0000011).**
+Deleted dead hosted-embedding code (`GeminiEmbeddingProvider`/
+`PaidGeminiEmbeddingProvider` + `has_embedding_provider_key` — nothing selected
+them once serving standardized on `LocalEmbeddingProvider`), the
+`_default_build_pipeline` alias, and two abandoned git worktrees. **Wired Brick
+Q into serving** (`demo/library.py._build_retriever` now wraps the retriever in
+`NormalizingRetriever` — it was proven-in-eval but dead in production). Net
+~−90 dead lines; Brick Q's ~114 lines moved from dead to live. evals/demo green;
+the query-normalization recall eval was re-run in the `.venv` (fastembed) and
+passed (it self-skips without fastembed — that env gap is why my first runs
+showed high skip counts).
+
+**2. AST chunking flipped ON in production (rev 0000012).** `ICARUS_AST_CHUNKING`
+was OFF; verified the tree-sitter grammars actually load in the deployed image
+(tsx/js/java/kotlin/objc) BEFORE flipping. Now fresh connects AST-chunk Python +
+JS/TS/JSX/ObjC/Java/Kotlin; `.h`/Go/Rust/C/Ruby stay on line-windows by design.
+**T6 staleness means a previously-connected repo auto re-ingests on its next
+connect** (scheme changed) — expected, not a bug. Verified live on excalidraw:
+`.tsx` median chunk dropped ~10× (2,234 → ~229 tokens); ~22% of chunks still
+exceed the 512-token embed budget (large single functions AST keeps whole — an
+honest, disclosed limit, not a defect).
+
+**3. Live pressure test — 10 heavy-LOC repos, honesty-first (scorecard artifact
+built for tracking).** Result: **honesty groundedness held on 30/31 questions;
+8/9 fabricated-premise probes correctly abstained.** Two verification lessons:
+TWICE (excalidraw `types.ts`, tokio budget=128) a "why/what" I expected to trip
+it was actually CORRECT — well-maintained repos document rationale in comments
+more than a skeptic assumes. Also confirmed the morning's finding that **voice
+transcription (not the brain) causes false abstentions** — a garbled mic
+question ("X Calle draw") abstains where the typed version answers perfectly.
+
+**4. THE P0, found + fixed + deployed same day (rev 0000014, commit `54b6cd4`).**
+"How does Redis's **HYPERVECTOR** data type store embeddings?" got a confident
+CITED answer. Redis has no HYPERVECTOR type, but its real vector code
+(`modules/vector-sets/`, `src/vector.c`) let the writer ground to adjacent real
+code and answer as if it existed — groundedness held, but the SUBJECT was
+fabricated. This is the disclosed honesty gap (handoff Part 3, Decision 5), now
+proven live. **Fixed with guard (c) in `evals/gate.py`** (`_named_identifiers`/
+`_is_distinctive`): a question naming a distinctive code identifier (snake_case
+/ camelCase / long non-acronym ALL-CAPS, reduced to the leaf of a qualified
+name) that appears NOWHERE in the evidence the writer saw is forced to unknown.
+Deterministic, fail-safe, evidence-gated, off for `.explain()`; common acronyms
++ single Title-case words deliberately not flagged (accepted gap: a fabricated
+single-Capitalized-word type). Red→green: 7 new `EntityPresenceGuardTests`.
+Verified: evals 437 / demo 189 green; **paid board GREEN — gates 100%/100%,
+answer correctness 100% (zero real answers changed)**; and **confirmed live:
+HYPERVECTOR now abstains** after redeploy. Memory: [[entity-presence-gate-fix]].
+
+**5. Large-repo capacity ceiling PROVEN (rev 0000013 = the 4 GiB/2 CPU bump).**
+`huggingface/transformers` OOM-killed the container at 2 GiB (exit 137);
+`rust-lang/rust` OOM'd even at 4 GiB. Diagnosed via Azure system logs (exit 137
+= OOM). **The fix is NOT more RAM** (whack-a-mole — kubernetes-scale won't fit,
+and it burns the trial credit): it's the deferred **lean-ingest** work —
+`git clone --depth 1` + streaming embeddings to disk instead of holding the
+whole corpus + vector map in memory. Container left at 4 GiB / 2 CPU (helps
+medium repos). kubernetes DID index fine at 4 GiB (Go/line-window).
+
+## Open, unresolved (carried forward)
+
+- **react / rails false-abstentions** (from the pressure test): honest (no
+  bluff) but likely the **50k total-chunk cap silently truncating** large-repo
+  indexes and dropping the real files. NOT root-caused yet. Cheap first step:
+  compare `/status` code counts vs the repo's real size. Probably the same root
+  as the OOMs → the lean-ingest fix likely resolves both.
+- **Lean-ingest fix** (`--depth 1` + streaming embeds) — now the highest-value
+  engineering brick: unblocks giant repos AND probably the truncation
+  false-abstains. Deferred, well-motivated, not started.
+- Business path (2026-07-16 Part 2) still the standing default once engineering
+  settles.
+
+## State right now (literally true)
+
+- `main` @ `54b6cd4` (leanness pass + Brick Q wiring + entity-presence guard),
+  pushed to GitHub. Nothing else uncommitted from this session except the
+  usual pre-existing untracked paths (`.agents/`, `.claude/*`, `plugins/`).
+- Azure rev **`icarus-brain--0000014`** live, healthy, 100% traffic, 4 GiB/2 CPU,
+  image `alpha-20260718-entity-presence`. `ICARUS_AST_CHUNKING=1` is ON.
+- Suites: evals 437, demo 189, both green (57/5 expected skips locally — the
+  skips need `.venv` fastembed; the live boards pass there). Paid board GREEN.
+- No `.dmg` rebuild happened or was needed this session — all changes are
+  server-side Python brain.
+- **Deploy gotcha unchanged:** `az acr build` is BLOCKED on this registry (ACR
+  Tasks disabled) — build LOCALLY (`docker build --platform linux/amd64`),
+  push to ACR `caec8849f1f0acr`, `az containerapp update`. Each redeploy resets
+  active user sessions (data survives on durable `/data`).
+
+---
+
 # Icarus — Session Handoff (2026-07-18: T5+T7 landed — AST-chunking-all-languages arc complete; Ponytail leanness pass queued next)
 
 **READ THIS FIRST — supersedes the engineering-state claims below (T1-T7 of
