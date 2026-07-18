@@ -1,3 +1,113 @@
+# Icarus — Session Handoff (2026-07-19: tester-driven fixes — live PR/issue fetch, lean-ingest bricks 2a+2b, app banner, CI-now-green + DMG artifact job; voice-pill design chosen)
+
+**READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
+supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
+outreach is still the default once engineering settles). This session was
+entirely tester-feedback-driven — real remarks from people trying Icarus,
+fixed the prescribed way (reproduce/root-cause in real code → red→green →
+verify → deploy). **Live revision at end of session: `icarus-brain--0000016`,
+healthy, 100% traffic, 4 GiB/2 CPU, AST chunking ON. `main` tip = `000366a`.**
+
+## What shipped this session (all verified, not assumed)
+
+**1. Live on-demand PR/issue #N fetch (fix "1"; commit `ed65505`, rev 0000015).**
+Tester on react/react: "talk to me about PR 400" → "no one wrote this down".
+Root cause: ingest indexes only the most-recent `PR_LIMIT=200` PRs, and react
+has ~34k — PR #400 is never in the corpus. Also we never fetched PR/issue
+COMMENTS (title+body only). Fix: `evals/ingest.fetch_ref_detail(repo, number)`
+live-fetches ONE PR/issue + its comments (`gh pr view`→`gh issue view`,
+fail-safe None); `GatedPipeline(live_fetch=…)` anchors an explicit `#N` that
+isn't in the indexed slice; `synth.build_prompt` gives pr/issue the larger
+(code) budget so comments reach the writer; `demo/library` wires it
+**public-safe** (token-less — a private repo the server can't read fails to a
+safe abstention, no exposure; private exact-ref would need the caller's
+request-time token, a known gap). Live-verified: react PR #400 fetches with
+body+comment. Board GREEN.
+
+**2. Lean-ingest, brick by brick (the "why not a background task / we lose
+code+docs" remark).** Decomposed into 2a/2b/2c:
+- **2a — honest coverage (`f2161cd`).** The 50k-chunk / 100 MB caps already
+  truncate a big repo but only logged to stderr — the user never knew the index
+  was PARTIAL. Now `fetch_code` records a cap-hit (a `stats` out-param),
+  `ingest_repo` threads it into `write_meta`'s new `truncated` field, and
+  `/status` exposes it. Dropped-file "no one wrote this down" is now
+  explainable, never mistaken for full coverage.
+- **2b — packed float32 vectors (`5f02155`, rev 0000016).** The
+  `dict{ref: list[float]}` representation is what OOM-killed the container:
+  measured **248.5 MB → 30.7 MB (8.1×)** for 20k×384. `SemanticRetriever` now
+  packs vectors into a numpy float32 matrix + row norms; search is one matmul
+  (faster at scale too). numpy is LAZY (ships with fastembed → always in
+  serving; ABSENT in the stdlib-only test env) with a pure-Python fallback —
+  identical rankings both ways, proven on the paid board + both interpreters.
+  Blast radius stayed inside `retriever.py` (the cache/library `{ref:vector}`
+  contract untouched).
+- **2c — true async background ingest with live progress: NOT STARTED.** The
+  "background task instead of all at once" part. Next real brick.
+
+**3. App-side partial-index banner (`32fb86f`).** `RepoStatus` decodes the new
+optional `truncated`; `HomeView` shows an amber "Large repo — partial index"
+banner (honest-unknown palette) when set. **Compile-verified on CI only** — see
+CI note below.
+
+**4. CI was silently RED on Swift — now green, plus a real bug fixed.**
+`Package.swift` declared swift-tools 6.0 but the `macos-14` runner had Swift
+5.10, so the `swift` job failed at the tools-version gate on EVERY push
+(independent of any change). Journey (recorded so it isn't re-attempted wrong):
+lowering tools→5.10 was WRONG — the app is written against Swift 6's
+actor-isolation model, so 5.10 cascaded `main actor-isolated … non-isolated`
+errors across every SwiftUI view (a full re-annotation, not a fix). Reverted to
+6.0 and pointed CI at **`macos-15` / Xcode 16.3+/Swift 6.1** (the pinned
+`KeyboardShortcuts 2.4.0` needs tools 6.1, so even Xcode 16.0.3 was too old).
+Now green (`76a5b63`). Also fixed a genuine **`VoiceModel` concurrency capture**
+(`[weak self]` on the nested Task; `7db4bda`) surfaced along the way — correct
+under 6.x too.
+
+**5. On-demand DMG artifact CI job (`000366a`).** New `.github/workflows/dmg.yml`
+(`workflow_dispatch` + `alpha-*` tags) builds `Icarus.dmg` on macos-15 via
+`scripts/package_dmg.sh`, stamps the live brain URL, and uploads it as a run
+artifact. **Verified by an actual run: a real 864 KB `Icarus-dmg` artifact.**
+Testers now get a ready-to-run app WITHOUT a local Xcode: Actions → "dmg" → Run
+workflow → download the artifact → follow the bundled READ ME FIRST.
+
+**6. Voice-pill UI redesign — DESIGN CHOSEN, code NOT started.** Tester: the
+speech-to-text surface is too big/clunky; wants a Wispr-Flow-style bottom-of-
+screen pill ("wayform" = waveform + "glass finish"). Built 3 Figma mockups
+(file `Icarus — Voice Pill Options`, key `wXMrZTiioqV9OLm3iPX4r1`, Pantheon
+team). **Alankrit chose Option A: a glass pill that morphs upward into a flat,
+honest answer card; hold-⌥ to talk.** Reusable pieces for the build:
+`FloatingPanel` (reposition to bottom-center pill), `VoiceModel.partialTranscript`
+(live transcript already streams), `PushToTalkMonitor`. Genuinely new work: the
+pill layout, a REAL audio-reactive waveform (tap `AVAudioEngine`'s mic power —
+must not be a fake loop, per "no fake confidence"), and the listening→answer
+transition. Not built.
+
+## Open / next (nothing here is started unless said)
+
+- **Retry transformers/rust LIVE** to see if 2b's 8× memory cut lets them fit at
+  4 GiB — this is the real proof of 2b and is NOT yet verified live. If they
+  still OOM, the next lever is **text-memory reduction** (BM25 keeps only tokens;
+  load the top-k full chunk text on demand for the writer) — the chunk texts are
+  the other big in-RAM cost 2b doesn't touch.
+- **2c — async background ingest with live progress** (the remaining lean-ingest
+  brick).
+- **Voice pill Option A** — design chosen, implement per §6.
+- **DMG for testers** — run the `dmg` workflow (or push an `alpha-*` tag) to
+  produce a build; the app banner ships with it.
+
+## Environment constraints discovered this session (save the rediscovery)
+
+- **This Mac has NO Xcode — Command Line Tools only** (`xcode-select` →
+  `/Library/Developer/CommandLineTools`). So Swift can't be built/tested and the
+  DMG can't be packaged LOCALLY here — use CI (now green) for both.
+- **numpy** is present in serving (`.venv`, via fastembed) but ABSENT in the
+  stdlib-only test env (system `python3`) — this is why 2b's numpy path is lazy
+  with a pure-Python fallback; run numpy-path tests under `.venv`.
+- Deploy path unchanged: `az acr build` is BLOCKED (ACR Tasks disabled) → build
+  LOCALLY `--platform linux/amd64`, push to ACR `caec8849f1f0acr`,
+  `az containerapp update`. Each redeploy resets active user sessions.
+
+---
+
 # Icarus — Session Handoff (2026-07-18 late: leanness pass shipped, AST-on-in-prod, live pressure test found+fixed a P0, capacity ceiling proven — 4 deploys)
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
