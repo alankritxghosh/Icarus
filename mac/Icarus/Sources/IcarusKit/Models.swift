@@ -48,7 +48,13 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     /// "Reading the repository…"). Optional so an older brain without the field
     /// still decodes; nil means nothing specific to show.
     public let phase: String?
+    /// True when a size cap stopped the code walk early, so the corpus is
+    /// PARTIAL — some files aren't covered. Surfaced so a dropped file's honest
+    /// "no one wrote this down" is explainable, never mistaken for full coverage.
+    /// Optional so an older brain without the field still decodes.
+    public let truncated: Bool?
 
     public var isReady: Bool { state == "ready" }
     public var isError: Bool { state == "error" }
+    public var isTruncated: Bool { truncated == true }
 }

@@ -24,6 +24,7 @@ struct HomeView: View {
     private var dashboard: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            if status.status?.isTruncated == true { truncatedBanner }
             HStack(alignment: .top, spacing: 16) {
                 heroCard.frame(maxWidth: .infinity)
                 metricsCard.frame(width: 200)
@@ -33,6 +34,28 @@ struct HomeView: View {
                 ProofDrawerView(entry: history.mostRecent, counts: status.counts).frame(width: 264)
             }
         }
+    }
+
+    /// Honest coverage notice (Brick 2a/2b): a big repo that hit the size cap is
+    /// only PARTIALLY indexed, so a dropped file's "no one wrote this down" is
+    /// explained rather than mistaken for full coverage. Amber = the same
+    /// honest-unknown palette, deliberately.
+    private var truncatedBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("⚠").font(.system(size: 13)).foregroundStyle(Theme.unknown)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Large repo — partial index")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text("This repo hit the index size cap, so some files aren't covered yet. A question about an unindexed file may honestly return \u{201C}no one wrote this down.\u{201D}")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.unknownBg)
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.unknown.opacity(0.5), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 9))
     }
 
     private var header: some View {

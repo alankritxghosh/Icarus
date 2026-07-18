@@ -81,4 +81,18 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(noPhase.phase)
     }
 
+    func testDecodesTruncatedFlag() throws {
+        // Brick 2a/2b: a partially-indexed big repo surfaces `truncated`.
+        let partial = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"ready","repo":"o/r","commit":"c","counts":null,"error":null,"truncated":true}"#.utf8))
+        XCTAssertTrue(partial.isTruncated)
+        let full = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"ready","repo":"o/r","commit":"c","counts":null,"error":null,"truncated":false}"#.utf8))
+        XCTAssertFalse(full.isTruncated)
+        // Absent (older brain) still decodes -> not truncated.
+        let old = try decoder.decode(RepoStatus.self, from: Data(
+            #"{"state":"ready","repo":"o/r","commit":"c","counts":null,"error":null}"#.utf8))
+        XCTAssertFalse(old.isTruncated)
+    }
+
 }
