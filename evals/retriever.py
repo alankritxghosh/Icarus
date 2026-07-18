@@ -1,5 +1,7 @@
 # evals/retriever.py
-"""Retrievers over corpus chunks: BM25 (lexical) and cosine (semantic). Stdlib only.
+"""Retrievers over corpus chunks: BM25 (lexical) and cosine (semantic). Pure
+stdlib, with an OPTIONAL numpy fast-path in SemanticRetriever (packed float32
+matrix) that engages only when numpy is importable -- see the import below.
 
 BM25 is the standard keyword-ranking baseline: it scores a chunk by how often
 the query's terms appear in it, weighting rare terms higher (idf) and damping
@@ -22,6 +24,19 @@ from collections import Counter
 from typing import List
 
 from .corpus import Chunk
+
+# Optional numpy fast-path for SemanticRetriever. numpy ships with fastembed
+# (onnxruntime) so it's ALWAYS present wherever real embeddings are produced
+# (serving), but ABSENT in the stdlib-only test env -- so it's lazy and every
+# code path has a pure-Python fallback. When present, chunk vectors are packed
+# into ONE float32 matrix (a Python list[float] is ~6-8x heavier per number)
+# and search is a single vectorized matmul -- both the memory and the speed
+# that make a 50k-chunk repo viable. When absent, the old dict + per-chunk
+# pure-Python cosine runs unchanged (identical rankings, just heavier/slower).
+try:
+    import numpy as _np
+except Exception:  # pragma: no cover - environment-dependent
+    _np = None
 
 _TOKEN = re.compile(r"[a-z0-9_]+")
 
@@ -93,28 +108,26 @@ class SemanticRetriever:
 
     def __init__(self, chunks: List[Chunk], provider, vectors=None, timeout=None, on_progress=None):
         self.chunks = chunks
-        # Keyed by ref, not a list parallel to `chunks` -- `chunks` is a public
-        # attribute (matching LexicalRetriever's convention), so a caller (e.g.
-        # a future hybrid ranker) mutating/reordering it post-construction must
-        # never silently pair the wrong vector with the wrong ref.
-        #
+        self._provider = provider
+        # Row order for the packed matrix / dict fallback, captured once. Chunk
+        # vectors are addressed by this order (numpy) or by ref (fallback), never
+        # silently mispaired if a caller reorders `self.chunks` later -- search()
+        # scores exactly the set embedded at construction.
+        self._order = [c.ref for c in chunks]
         # `vectors` lets a caller supply precomputed chunk embeddings (e.g. from
-        # an on-disk cache) to skip the expensive embed-every-chunk pass. It MUST
-        # cover every chunk's ref (search() indexes self._vectors[c.ref]); the
-        # caller owns that guarantee. The provider is still kept for embedding
-        # the QUERY at search time, so a real embedder is always required.
+        # the on-disk cache) to skip the embed-every-chunk pass. It MUST cover
+        # every chunk's ref; the caller owns that guarantee. The provider is
+        # still kept for embedding the QUERY at search time.
         if vectors is not None:
             missing = {c.ref for c in chunks} - set(vectors)
             if missing:
-                # Fail LOUD at construction rather than KeyError at query time:
-                # search() indexes self._vectors[c.ref] for every chunk.
+                # Fail LOUD at construction, not KeyError at query time.
                 raise ValueError(
                     f"vectors missing {len(missing)} of {len(chunks)} chunk ref(s)"
                 )
-            self._vectors = vectors
+            self._store([vectors[r] for r in self._order])
         else:
-            self._vectors = self._embed_all(chunks, provider, timeout, on_progress)
-        self._provider = provider
+            self._store(self._embed_all(chunks, provider, timeout, on_progress))
 
     @staticmethod
     def _embed_all(chunks, provider, timeout, on_progress):
@@ -122,7 +135,8 @@ class SemanticRetriever:
         batched into a single call (measured: batching all-at-once was ~10x
         SLOWER for this workload, not faster -- fastembed's internal batch
         path evidently doesn't help here, so don't "optimize" this into a
-        single provider.embed(texts) call).
+        single provider.embed(texts) call). Returns a list of per-chunk
+        embeddings in chunk order; `_store` packs it.
 
         `timeout` (seconds, wall-clock) bounds the whole loop so a
         pathologically slow embedder -- e.g. a CPU-throttled host -- fails
@@ -137,26 +151,53 @@ class SemanticRetriever:
         a silent black box."""
         start = time.monotonic()
         total = len(chunks)
-        vectors = {}
+        rows = []
         for i, c in enumerate(chunks):
             if timeout is not None and time.monotonic() - start > timeout:
                 raise TimeoutError(
                     f"embedding timed out after {timeout:.0f}s ({i}/{total} chunks done)"
                 )
-            vectors[c.ref] = provider.embed(c.text)
+            rows.append(provider.embed(c.text))
             if on_progress is not None:
                 on_progress(i + 1, total)
-        return vectors
+        return rows
+
+    def _store(self, rows):
+        """Pack per-chunk embeddings (in self._order order). numpy present -> ONE
+        float32 matrix + precomputed row norms (compact + one matmul per search);
+        absent -> a {ref: list} dict for the pure-Python cosine fallback. Both
+        produce identical rankings; the matrix is ~6-8x lighter and far faster at
+        scale (a 50k-chunk repo's list-of-lists is what OOM'd the container)."""
+        if _np is None:
+            self._matrix = self._norms = None
+            self._dict = {ref: list(v) for ref, v in zip(self._order, rows)}
+            return
+        self._dict = None
+        if not rows:
+            self._matrix = _np.zeros((0, 0), dtype=_np.float32)
+            self._norms = _np.zeros((0,), dtype=_np.float32)
+            return
+        self._matrix = _np.asarray(rows, dtype=_np.float32)       # (n, dim), raw
+        self._norms = _np.linalg.norm(self._matrix, axis=1)       # (n,), for cosine denom
 
     @property
     def vectors(self):
-        """The {ref: embedding} map -- exposed so a caller can persist it to a
-        cache after construction (see demo/library.py's vector cache)."""
-        return self._vectors
+        """The {ref: embedding} map -- exposed so a caller can persist it to the
+        on-disk cache (see demo/library.py). Rebuilt from the packed matrix on
+        demand (numpy path); float32 values reproduce the same cosine rankings on
+        reload, which is all the cache needs."""
+        if self._matrix is None:
+            return self._dict
+        return {ref: self._matrix[i].tolist() for i, ref in enumerate(self._order)}
 
     def search(self, query: str, k: int = 20) -> List[str]:
+        if not self._order:
+            return []
         q_vec = self._provider.embed(query)
-        scored = [(_cosine(q_vec, self._vectors[c.ref]), c.ref) for c in self.chunks]
+        if self._matrix is not None:
+            scored = self._search_np(q_vec)
+        else:
+            scored = [(_cosine(q_vec, self._dict[ref]), ref) for ref in self._order]
         # rank by similarity desc, ref asc for determinism (mirrors LexicalRetriever).
         # Cosine's natural range is [-1, 1], where 0 means "no relationship" and
         # negative means "opposite" -- both are non-matches, so "> 0" (not ">=
@@ -165,6 +206,21 @@ class SemanticRetriever:
         # toward the query, exactly mirroring BM25's "no evidence at all" cutoff.
         scored.sort(key=lambda x: (-x[0], x[1]))
         return [ref for s, ref in scored[:k] if s > 0]
+
+    def _search_np(self, q_vec):
+        """Vectorized cosine: one (n, dim) @ (dim,) matmul, then divide by the
+        precomputed chunk norms * the query norm. A zero-norm chunk (or query)
+        yields 0 similarity -> dropped by the > 0 cutoff, exactly as _cosine's
+        norm-zero guard does."""
+        q = _np.asarray(q_vec, dtype=_np.float32)
+        qn = float(_np.linalg.norm(q))
+        if qn == 0.0:
+            return []
+        dots = self._matrix @ q                                   # (n,)
+        denom = self._norms * qn
+        with _np.errstate(divide="ignore", invalid="ignore"):
+            sims = _np.where(denom > 0, dots / denom, 0.0)
+        return list(zip(sims.tolist(), self._order))
 
 
 class HybridRetriever:

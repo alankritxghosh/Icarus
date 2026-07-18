@@ -524,5 +524,46 @@ class NormalizingRetrieverTests(unittest.TestCase):
         self.assertIn("code:a#L1-L2", r.search("authenicate", k=5))  # normalized: hit
 
 
+try:
+    import numpy  # noqa: F401
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
+
+@unittest.skipUnless(_HAS_NUMPY, "numpy fast-path not available in this env")
+class SemanticNumpyPackingTests(unittest.TestCase):
+    """Brick 2b: when numpy is present (always in serving, via fastembed), chunk
+    vectors are packed into ONE float32 matrix instead of a dict of Python-float
+    lists (~6-8x lighter, the difference that OOM'd a 50k-chunk repo). The
+    rankings must be IDENTICAL to the pure-Python fallback -- self-skips in the
+    stdlib-only test env, which already covers the fallback path."""
+
+    def _retriever(self):
+        chunks = [Chunk("code:a", "code", "close"),
+                  Chunk("code:b", "code", "opposite"),
+                  Chunk("code:c", "code", "orthogonal")]
+        vectors = {"close": [0.9, 0.1], "opposite": [-1.0, 0.0],
+                   "orthogonal": [0.0, 1.0], "query": [1.0, 0.0]}
+        return SemanticRetriever(chunks, StaticEmbeddingProvider(vectors))
+
+    def test_matrix_packing_engaged_not_dict_fallback(self):
+        r = self._retriever()
+        self.assertIsNotNone(r._matrix)                  # packed, not the fallback dict
+        self.assertIsNone(r._dict)
+        self.assertEqual(str(r._matrix.dtype), "float32")
+
+    def test_numpy_search_matches_expected_cosine_ranking(self):
+        r = self._retriever()
+        result = r.search("query", k=3)
+        self.assertEqual(result, ["code:a"])             # close ranks; orthogonal(0) + opposite(<0) dropped
+
+    def test_vectors_property_rebuilds_dict_for_the_cache(self):
+        r = self._retriever()
+        v = r.vectors                                    # rebuilt from the matrix for persistence
+        self.assertEqual(set(v), {"code:a", "code:b", "code:c"})
+        self.assertEqual(len(v["code:a"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
