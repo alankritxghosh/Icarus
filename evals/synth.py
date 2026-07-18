@@ -46,7 +46,11 @@ def build_prompt(question: str, chunks: List[Chunk]) -> str:
     blocks = []
     for c in chunks:
         text = c.text.strip()
-        cap = _MAX_CODE_CHUNK_CHARS if c.source == "code" else _MAX_CHUNK_CHARS
+        # code AND pr/issue discussion get the larger budget: a live-fetched PR
+        # (title + body + its comments -- the "why") is legitimately large
+        # evidence, and truncating it to the small prose cap hid the discussion
+        # the user actually asked about. doc/config keep the small cap.
+        cap = _MAX_CODE_CHUNK_CHARS if c.source in ("code", "pr", "issue") else _MAX_CHUNK_CHARS
         if len(text) > cap:
             text = text[:cap] + " …"
         blocks.append(f"[{c.ref}]\n{text}")

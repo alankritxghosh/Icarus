@@ -25,6 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional
 
+from .corpus import Chunk
 from .corpus_meta import write_meta
 from .synth import _MAX_CODE_CHUNK_CHARS as _CHUNK_MAX_CHARS
 
@@ -494,6 +495,45 @@ def fetch_issues(repo, issue_ids, token=None):
             continue
         chunks.append({"ref": f"issue:{n}", "source": "issue", "text": f"Issue #{n}: {it['title']}\n\n{it.get('body') or ''}"})
     return chunks
+
+
+# A single PR/issue's title + body + discussion can be large; bound the live
+# chunk so one fetched ref can't dominate memory or the writer prompt.
+_REF_DETAIL_MAX_CHARS = 10000
+
+
+def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
+    """Live-fetch ONE pull request or issue #number -- its title, body, AND its
+    discussion COMMENTS -- as a single Chunk, for an explicit "#N" the pre-indexed
+    slice (fetch_prs/fetch_issues cap at PR_LIMIT/ISSUE_LIMIT most-recent) doesn't
+    cover. A number is either a PR or an issue on GitHub, so try `gh pr view`
+    first, then `gh issue view`; whichever resolves wins. Returns None on any
+    failure -- not found, network, auth, timeout, bad JSON -- so the caller
+    abstains exactly as before (never a bluff). Leak-safe token via _gh_env; with
+    token=None the caller's own gh identity is used, so a private repo the server
+    can't read simply fails to None rather than exposing anything."""
+    for source in ("pr", "issue"):
+        try:
+            data = _gh_json(
+                [source, "view", str(number), "-R", repo,
+                 "--json", "number,title,body,comments"],
+                token=token,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+            continue
+        if not data:
+            continue
+        n = data["number"]
+        parts = [f"{source.upper()} #{n}: {data.get('title') or ''}", data.get("body") or ""]
+        for c in data.get("comments") or []:
+            body = (c.get("body") or "").strip()
+            if body:
+                parts.append(f"Comment: {body}")
+        text = "\n\n".join(p for p in parts if p).strip()
+        if len(text) > _REF_DETAIL_MAX_CHARS:
+            text = text[:_REF_DETAIL_MAX_CHARS] + "\n…[truncated]"
+        return Chunk(ref=f"{source}:{n}", source=source, text=text)
+    return None
 
 
 def fetch_code(repo, commit, code_dir, token=None):

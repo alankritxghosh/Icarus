@@ -113,5 +113,91 @@ class ExactRefAnchorLookupTests(unittest.TestCase):
         self.assertIn("issue:1", r.retrieved)
 
 
+class LiveRefFetchTests(unittest.TestCase):
+    """When a question names a PR/issue #N the corpus never indexed (it caps at
+    the most-recent PR_LIMIT/ISSUE_LIMIT), the pipeline fetches that exact ref +
+    its comments LIVE and answers -- instead of a useless 'no one wrote this
+    down' on, e.g., react/react's ancient PR #400. Fail-safe: a fetch miss, or
+    no live_fetch configured (the eval board), abstains exactly as before, and
+    an already-indexed ref is served from cache with no network call."""
+
+    def _chunks(self):
+        return [Chunk("code:a.py#L1-L5", "code", "def f():\n    return 1")]
+
+    def test_unindexed_pr_is_live_fetched_and_answered(self):
+        chunks = self._chunks()  # no pr:400 in corpus
+        got = Chunk("pr:400", "pr", "PR #400: Add streaming ingest.\n\nComment: chose streaming to bound memory.")
+        calls = []
+        raw = json.dumps({"verdict": "answer",
+                          "answer": "PR #400 added streaming ingest to bound memory.",
+                          "citations": ["pr:400"]})
+        pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
+                             live_fetch=lambda num: (calls.append(num) or (got if num == 400 else None)))
+        r = pipe.answer("talk to me about PR 400")
+        self.assertEqual(r.verdict, "answer")
+        self.assertIn("pr:400", r.citations)
+        self.assertEqual(calls, [400])          # the miss triggered exactly one live fetch
+
+    def test_indexed_ref_uses_cache_without_live_fetch(self):
+        chunks = [Chunk("pr:400", "pr", "PR #400: Add streaming ingest.")]
+        called = []
+        raw = json.dumps({"verdict": "answer", "answer": "It adds streaming.", "citations": ["pr:400"]})
+        pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
+                             live_fetch=lambda num: (called.append(num) or None))
+        r = pipe.answer("talk about PR 400")
+        self.assertEqual(r.verdict, "answer")
+        self.assertEqual(called, [])            # already indexed -> never fetched
+
+    def test_live_fetch_miss_still_abstains(self):
+        chunks = self._chunks()
+        raw = json.dumps({"verdict": "answer", "answer": "made up", "citations": ["pr:999"]})
+        pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
+                             live_fetch=lambda num: None)   # ref genuinely not found
+        self.assertEqual(pipe.answer("talk about PR 999").verdict, "unknown")
+
+    def test_no_live_fetch_configured_is_backcompat(self):
+        chunks = self._chunks()
+        raw = json.dumps({"verdict": "answer", "answer": "y", "citations": ["pr:400"]})
+        pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw))  # board default
+        self.assertEqual(pipe.answer("talk about PR 400").verdict, "unknown")
+
+
+class FetchRefDetailTests(unittest.TestCase):
+    """`fetch_ref_detail` builds one Chunk (title + body + comments) for a single
+    PR/issue, tries PR then issue, and fails safe to None."""
+
+    def test_builds_pr_chunk_with_comments(self):
+        from unittest import mock
+        from evals import ingest
+        def fake(args, token=None):
+            self.assertEqual(args[:2], ["pr", "view"])
+            return {"number": 400, "title": "Add streaming", "body": "Bound memory.",
+                    "comments": [{"body": "why: it OOM'd"}, {"body": ""}]}
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            ch = ingest.fetch_ref_detail("o/r", 400)
+        self.assertEqual((ch.ref, ch.source), ("pr:400", "pr"))
+        self.assertIn("Add streaming", ch.text)
+        self.assertIn("why: it OOM'd", ch.text)     # comment discussion is included
+
+    def test_falls_back_to_issue_when_not_a_pr(self):
+        import subprocess as sp
+        from unittest import mock
+        from evals import ingest
+        def fake(args, token=None):
+            if args[0] == "pr":
+                raise sp.CalledProcessError(1, "gh")   # N is an issue, not a PR
+            return {"number": 400, "title": "A bug", "body": "desc", "comments": []}
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            ch = ingest.fetch_ref_detail("o/r", 400)
+        self.assertEqual((ch.ref, ch.source), ("issue:400", "issue"))
+
+    def test_returns_none_on_total_failure(self):
+        import subprocess as sp
+        from unittest import mock
+        from evals import ingest
+        with mock.patch.object(ingest, "_gh_json", side_effect=sp.CalledProcessError(1, "gh")):
+            self.assertIsNone(ingest.fetch_ref_detail("o/r", 400))
+
+
 if __name__ == "__main__":
     unittest.main()

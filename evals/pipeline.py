@@ -95,12 +95,19 @@ class GatedPipeline(Pipeline):
     # question (the common case: select a line, click "Ask Icarus").
     _DEFAULT_EXPLAIN_QUESTION = "What does this code do, and why is it here?"
 
-    def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 10):
+    def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 10,
+                 live_fetch=None):
         self._retriever = retriever
         self._by_ref = {c.ref: c for c in chunks}
         self._provider = provider
         self._recall_n = recall_n
         self._writer_k = writer_k
+        # Optional `live_fetch(number:int) -> Optional[Chunk]`: resolves an explicit
+        # "PR/issue #N" the corpus never indexed (it caps at the most-recent
+        # PR_LIMIT/ISSUE_LIMIT) by fetching that one ref + its comments on demand.
+        # None (the eval board / tests) keeps the pipeline fully offline and
+        # reproducible; serving binds the real gh-backed fetch (demo/library.py).
+        self._live_fetch = live_fetch
 
     def answer(self, question: str) -> Result:
         # An explicit "issue/PR #N" mention gets a guaranteed anchor lookup
@@ -110,14 +117,22 @@ class GatedPipeline(Pipeline):
         # one. Anchor first, then ordinary search results, de-duplicated;
         # mirrors .explain()'s own anchor-then-neighbors merge exactly.
         anchor_refs = []
+        fetched = {}
         for n in _ISSUE_OR_PR_REF.findall(question):
-            for ref in (f"issue:{n}", f"pr:{n}"):
-                if ref in self._by_ref:
-                    anchor_refs.append(ref)
-                    break
+            hit = next((f"{s}:{n}" for s in ("issue", "pr") if f"{s}:{n}" in self._by_ref), None)
+            if hit is not None:
+                anchor_refs.append(hit)                 # indexed -> use the cached chunk
+            elif self._live_fetch is not None:
+                # Not in the indexed slice: fetch that exact PR/issue live. Fail-safe
+                # -- a None result just leaves it unanchored, as if unmentioned.
+                ch = self._live_fetch(int(n))
+                if ch is not None and ch.ref not in fetched:
+                    fetched[ch.ref] = ch
+                    anchor_refs.append(ch.ref)
         searched = self._retriever.search(question, self._recall_n)
         retrieved = list(dict.fromkeys(anchor_refs + searched))
-        top = [self._by_ref[r] for r in retrieved[: self._writer_k] if r in self._by_ref]
+        lookup = {**self._by_ref, **fetched} if fetched else self._by_ref
+        top = [lookup[r] for r in retrieved[: self._writer_k] if r in lookup]
         return self._answer_from(question, top, retrieved)
 
     def explain(self, path: str, start: int, end: int, question: str = None) -> Result:

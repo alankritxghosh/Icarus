@@ -41,9 +41,17 @@ class BuildPromptTests(unittest.TestCase):
         self.assertIn("insufficient", low)                 # insufficient evidence -> unknown
         self.assertIn("not a reason to abstain", low)      # messy phrasing != insufficient evidence
 
-    def test_truncates_very_long_chunks(self):
-        big = Chunk("pr:2", "pr", "x" * 5000)
+    def test_truncates_very_long_prose_chunks(self):
+        # doc/config keep the small prose cap.
+        big = Chunk("doc:a.md", "doc", "x" * 5000)
         self.assertLess(len(build_prompt("q", [big])), 4000)
+
+    def test_pr_issue_discussion_gets_the_larger_budget(self):
+        # A live-fetched PR (body + comments = the "why") must reach the writer,
+        # not be cut at the small prose cap.
+        from .synth import _MAX_CHUNK_CHARS
+        pr = Chunk("pr:400", "pr", "x" * 5000)
+        self.assertGreater(len(build_prompt("q", [pr])), _MAX_CHUNK_CHARS + 2000)
 
     def test_code_chunks_get_a_larger_but_still_bounded_budget(self):
         # Code chunks get _MAX_CODE_CHUNK_CHARS (so a 300-line window is visible),
