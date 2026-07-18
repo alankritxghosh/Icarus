@@ -47,7 +47,10 @@ public final class VoiceModel {
         partialTranscript = ""
         do {
             try await recognizer.start(onPartial: { [weak self] text in
-                Task { @MainActor in self?.partialTranscript = text }
+                // Capture self weakly in the Task too (not the outer closure's
+                // captured var) -- Swift 5.10 strict-concurrency flags the nested
+                // reference otherwise; harmless and clearer under 6.0 as well.
+                Task { @MainActor [weak self] in self?.partialTranscript = text }
             })
             state = .recording
         } catch let reason as SpeechStartError {
