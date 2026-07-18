@@ -62,9 +62,10 @@ header and Tasks list mark T5/T7 LANDED; "What T5 found" and "What T7 found"
 sections added with full mechanism writeups. This closes the entire T1-T7
 arc except two explicitly-deferred, disclosed items: `.h` files stay on
 `chunk_text` (neither the `c` nor `objc` grammar parses real RN headers
-cleanly — a measured, honest gap, not a bug) and `ICARUS_AST_CHUNKING` stays
-OFF in production (T6 already removed the technical blocker; flipping it on
-for real traffic is still a separate, deliberate rollout decision).
+cleanly — a measured, honest gap, not a bug) and `ICARUS_AST_CHUNKING` — which,
+as of the 2026-07-18 deploy below, is now **flipped ON in production** (see the
+"State right now" note; this was the deliberate rollout decision, made before
+morning testing).
 
 **5. Full regression run, this session:** `evals` 441 tests (13 skipped, all
 expected — self-skips needing live API keys/`RUN_*` flags not set locally),
@@ -103,8 +104,12 @@ running it via an interactive terminal himself.
   assuming anything about what's landed vs. still working-tree-only.
 - Suites confirmed green this session: evals 441 (13 expected skips), demo
   189 (2 expected skips), secrets scan clean.
-- `ICARUS_AST_CHUNKING` still OFF in production — T5/T7's fixes are proven
-  on the committed eval board, not yet wired into live serving.
+- `ICARUS_AST_CHUNKING` **flipped ON in production 2026-07-18** (Azure revision
+  `icarus-brain--0000012`), after the leanness pass shipped on `0000011`. Fresh
+  connects now AST-chunk Python + JS/TS/JSX/ObjC/Java/Kotlin; `.h`/others stay
+  on line-windows by design. T6 staleness means a previously-connected repo
+  auto re-ingests on its next connect (scheme changed). tree-sitter grammars
+  verified present in the deployed image before flipping.
 
 ## Next session's task (explicit, from Alankrit): a real leanness pass
 

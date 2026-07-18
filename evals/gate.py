@@ -21,11 +21,14 @@ HONEST BOUNDARY (what is and isn't deterministic here):
   resolved back to a genuinely-retrieved ref, with a valid, contained line
   window -- the writer can never make us cite invented or unretrieved evidence.
 - ABSTENTION when the answer was never written down is only PARTLY provable in
-  code. The (b) guard below deterministically catches the clearest dodge -- a
-  "why" question answered from evidence that records no reason (a bare code
-  constant) -- but the gate cannot semantically verify that arbitrary evidence
-  truly ENTAILS an arbitrary answer without becoming a model itself. For cases
-  (b) doesn't cover, abstention still leans on the cite-or-abstain writer. So:
+  code. Two deterministic guards catch the clearest dodges: (b) a "why" question
+  answered from evidence that records no reason (a bare code constant), and (c) a
+  question naming a DISTINCTIVE code identifier that appears nowhere in the
+  evidence the writer saw -- a fabricated symbol grounded to adjacent real code
+  (Redis's non-existent "HYPERVECTOR" over the real vector-set code, found live).
+  Neither makes the gate a model: it cannot semantically verify that arbitrary
+  evidence truly ENTAILS an arbitrary answer. For cases (b)/(c) don't cover,
+  abstention still leans on the cite-or-abstain writer. So:
   no bluffed citations, ever (deterministic); "I don't know when unrecorded" is
   code-enforced for the clear case and writer-reliant beyond it. Don't overclaim.
 """
@@ -185,6 +188,59 @@ def _states_reason(text) -> bool:
     return any(m in low for m in _RATIONALE_MARKERS)
 
 
+# --- (c) entity-presence guard ------------------------------------------------
+# Groundedness proves the citation was retrieved, not that the question's SUBJECT
+# exists. A fabricated symbol whose name sits next to real, adjacent code -- "how
+# does Redis's HYPERVECTOR type store embeddings?" over the real vector-set code
+# -- can be answered confidently even though `HYPERVECTOR` appears NOWHERE in the
+# evidence (found live 2026-07-18). This guard extracts the DISTINCTIVE code
+# identifiers a question names (snake_case, an internal camelCase boundary, or a
+# long ALL-CAPS token -- the shapes that must appear verbatim in real code) and,
+# if any is absent from every evidence chunk the writer saw, forces unknown.
+# Deterministic and fail-safe: only ever turns answer -> unknown, so it cannot
+# weaken groundedness or abstention recall; its only cost is possible
+# over-abstention (a QUALITY trade, measured on the board). A plain word or a
+# single Title-case word (`Interceptor`, `Scheduler`) is deliberately NOT
+# distinctive -- flagging those would over-abstain on ordinary prose; the
+# accepted gap is a fabricated single-Capitalized-word type. Only active when the
+# caller supplies `evidence` (the serving path); 2-arg callers are unaffected.
+_IDENT_TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:(?:\.|::)[A-Za-z_][A-Za-z0-9_]*)*")
+
+# Common all-caps tech acronyms that read as ordinary subject words, not code
+# symbols -- excluded so "how does HTTP parsing work" is never force-abstained
+# just for naming a real, non-identifier acronym.
+_COMMON_ACRONYMS = frozenset({
+    "HTTP", "HTTPS", "JSON", "HTML", "XML", "YAML", "TOML", "REST", "GRPC",
+    "SQL", "TCP", "UDP", "DNS", "URL", "URI", "CORS", "OAUTH", "JWT", "CSS",
+    "CLI", "SDK", "SSL", "TLS", "API", "CRUD", "UUID", "ASCII", "UTF", "RPC",
+})
+
+
+def _is_distinctive(sym: str) -> bool:
+    """A code-identifier-shaped token unusual enough that real evidence would
+    contain it verbatim if the question were truly about it: snake_case, an
+    internal camelCase boundary, or a long non-acronym ALL-CAPS token."""
+    if "_" in sym:
+        return True
+    if re.search(r"[a-z][A-Z]", sym):
+        return True
+    return sym.isupper() and sym.isalpha() and len(sym) >= 4 and sym not in _COMMON_ACRONYMS
+
+
+def _named_identifiers(question) -> list:
+    """The distinctive identifiers a question names, each reduced to its LEAF
+    symbol (`runtime::Builder::enable_io` -> `enable_io`) -- the thing actually
+    asked about, not its qualifiers."""
+    if not isinstance(question, str):
+        return []
+    out = []
+    for tok in _IDENT_TOKEN.findall(question):
+        leaf = re.split(r"\.|::", tok)[-1]
+        if _is_distinctive(leaf) and leaf not in out:
+            out.append(leaf)
+    return out
+
+
 def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
     data = _extract_json(raw)
     verdict = data.get("verdict") if isinstance(data, dict) else None
@@ -205,6 +261,18 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
             grounded.append(r)
     if not grounded:
         return Result(verdict="unknown")
+    # (c) The question's distinctive named identifiers must actually appear in the
+    # evidence the writer saw. A fabricated symbol grounded to adjacent real code
+    # (Redis's non-existent "HYPERVECTOR" over the real vector-set code) is a
+    # bluff: the citation resolves, but the thing asked about isn't there. Absent
+    # -> abstain. Fail-safe: only ever answer -> unknown. (Off for callers that
+    # pass no evidence, and for .explain(), which passes question=None.)
+    if evidence is not None:
+        idents = _named_identifiers(question)
+        if idents:
+            haystack = "\n".join(evidence.values()).lower()
+            if not all(sym.lower() in haystack for sym in idents):
+                return Result(verdict="unknown", retrieved=list(retrieved))
     # (b) A rationale-seeking ("why") question needs grounded evidence that
     # actually RECORDS a reason -- otherwise the writer answered an easier
     # question than the one asked (the "why 32?" -> "it's 32" dodge). A recorded

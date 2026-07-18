@@ -263,6 +263,13 @@ removing, or renaming files). For class/function-level detail see
   rationale guard: when given the question + evidence, a "why" question whose
   grounded evidence records no reason (a bare code constant, not pr/issue/doc or
   rationale prose) is forced to "unknown" — catching the why→what dodge.
+  And the (c) entity-presence guard (added 2026-07-18): a question naming a
+  DISTINCTIVE code identifier (snake_case / camelCase / long non-acronym
+  ALL-CAPS, reduced to its leaf symbol) that appears NOWHERE in the evidence the
+  writer saw is forced to "unknown" — catching a fabricated symbol grounded to
+  adjacent real code (found live: Redis has no `HYPERVECTOR` type, but its real
+  vector-set code let the writer answer as if it did). Fail-safe, evidence-gated,
+  off for `.explain()`; single Title-case words are deliberately not flagged.
   A named source prefix must equal the retrieved ref's source (`code:1489` never
   grounds to `pr:1489`); only a bare-body citation gets the prefix-drop tolerance.
 - `evals/judge.py` — the answer-correctness judge (quality dial, NOT a gate):

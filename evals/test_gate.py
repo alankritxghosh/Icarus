@@ -124,5 +124,79 @@ class RationaleGuardTests(unittest.TestCase):
         self.assertEqual(r.verdict, "answer")
 
 
+class EntityPresenceGuardTests(unittest.TestCase):
+    """(c) A question naming a DISTINCTIVE code identifier that appears NOWHERE
+    in the evidence the writer saw is forced to unknown -- catching a fabricated
+    symbol grounded to adjacent real code (found live 2026-07-18: Redis has no
+    `HYPERVECTOR` type, but its real vector-set code let the writer answer as if
+    it did). Only active with `evidence`; fail-safe (only ever adds abstention)."""
+
+    # Real Redis vector code -- note it never contains the fabricated "HYPERVECTOR".
+    VECTOR_EVIDENCE = {"code:src/vector.c#L1-L50":
+                       "int vectorSetTypeAdd(robj *o) { /* store an embedding vector */ }"}
+
+    def test_fabricated_identifier_absent_from_evidence_forces_unknown(self):
+        r = gate(_ans("Redis's HYPERVECTOR type stores embeddings in a vector set.",
+                      ["code:src/vector.c#L1-L50"]),
+                 ["code:src/vector.c#L1-L50"],
+                 question="How does Redis's HYPERVECTOR data type store embeddings?",
+                 evidence=self.VECTOR_EVIDENCE)
+        self.assertEqual(r.verdict, "unknown")
+
+    def test_qualified_fabricated_leaf_absent_forces_unknown(self):
+        # The LEAF symbol is what's checked: real siblings enable_io/enable_all
+        # are present, but the fabricated enable_speculative_io is not.
+        ev = {"code:tokio/src/runtime/builder.rs#L1-L80":
+              "pub fn enable_io(&mut self) -> &mut Self {} pub fn enable_all(&mut self) {}"}
+        r = gate(_ans("enable_speculative_io turns on speculative IO.",
+                      ["code:tokio/src/runtime/builder.rs#L1-L80"]),
+                 ["code:tokio/src/runtime/builder.rs#L1-L80"],
+                 question="How does tokio's runtime::Builder::enable_speculative_io() work?",
+                 evidence=ev)
+        self.assertEqual(r.verdict, "unknown")
+
+    def test_real_identifier_present_still_answers(self):
+        ev = {"code:django/db/models/query.py#L1-L50":
+              "def bulk_create(self, objs): # resolve conflicts via on_conflict"}
+        r = gate(_ans("bulk_create resolves conflicts with on_conflict.",
+                      ["code:django/db/models/query.py#L1-L50"]),
+                 ["code:django/db/models/query.py#L1-L50"],
+                 question="How does Django's bulk_create() handle conflicts?", evidence=ev)
+        self.assertEqual(r.verdict, "answer")
+
+    def test_plain_english_question_never_fires(self):
+        # No distinctive identifier in the question -> guard is inert.
+        ev = {"code:pkg/scheduler.go#L1-L50": "// selects the best node for the pod"}
+        r = gate(_ans("It scores nodes and picks the best.", ["code:pkg/scheduler.go#L1-L50"]),
+                 ["code:pkg/scheduler.go#L1-L50"],
+                 question="How does the scheduler decide which node a pod lands on?", evidence=ev)
+        self.assertEqual(r.verdict, "answer")
+
+    def test_common_acronym_not_over_abstained(self):
+        # A common tech acronym (HTTP) reads as a subject word, not a code symbol;
+        # it must not force abstain merely for being all-caps and absent verbatim.
+        ev = {"code:src/http.c#L1-L20": "// parse the request line and headers"}
+        r = gate(_ans("It parses the request line and headers.", ["code:src/http.c#L1-L20"]),
+                 ["code:src/http.c#L1-L20"],
+                 question="How does HTTP request parsing work?", evidence=ev)
+        self.assertEqual(r.verdict, "answer")
+
+    def test_single_titlecase_word_not_flagged(self):
+        # A single Title-case word (Interceptor) is ordinary prose, deliberately
+        # NOT treated as a distinctive identifier -> guard stays inert.
+        ev = {"code:okhttp/RealCall.kt#L1-L30": "the chain proceeds through each stage"}
+        r = gate(_ans("The chain runs each stage in order.", ["code:okhttp/RealCall.kt#L1-L30"]),
+                 ["code:okhttp/RealCall.kt#L1-L30"],
+                 question="How does the Interceptor chain process a request?", evidence=ev)
+        self.assertEqual(r.verdict, "answer")
+
+    def test_guard_inactive_without_evidence(self):
+        # 2-arg / no-evidence callers are unaffected (back-compat).
+        r = gate(_ans("HYPERVECTOR stores embeddings.", ["code:src/vector.c#L1-L50"]),
+                 ["code:src/vector.c#L1-L50"],
+                 question="How does Redis's HYPERVECTOR data type store embeddings?")
+        self.assertEqual(r.verdict, "answer")
+
+
 if __name__ == "__main__":
     unittest.main()
