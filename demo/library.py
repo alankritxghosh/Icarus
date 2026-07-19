@@ -26,13 +26,24 @@ from evals.ingest import ingest_repo
 _log = logging.getLogger(__name__)
 
 # Bounds a cold embed's wall-clock time (see evals/retriever.py's
-# SemanticRetriever._embed_all). A CPU-throttled host can be slow enough that
-# an unbounded embed loop hangs with no signal either way -- this happened for
-# real (docs/HANDOFF.md): a private-repo connect on Render's free tier ran 35+
-# minutes with zero visibility. Generous on purpose (not the shortest bound
-# that "should" be enough) since we have no confirmed data point yet for how
-# slow that tier really is; the point is BOUNDED and OBSERVABLE, not fast.
-_EMBED_TIMEOUT_SECONDS = 900
+# SemanticRetriever._embed_all) so a stuck embed can't hang forever with no
+# signal -- BOUNDED and OBSERVABLE, not fast. But it must SCALE with corpus size:
+# embedding is ~sequential and unbatched on purpose (fastembed's batch path pads
+# every text in a batch to the longest one -- measured 3.3x SLOWER on real
+# variable-length code, 2026-07-19), so a 50k-chunk repo legitimately takes ~an
+# hour on the warm 2-CPU replica. A fixed 900s cap silently killed the BACKGROUND
+# semantic embed of any big repo, leaving it stuck lexical-only (found live:
+# huggingface/transformers, 50k chunks). Scale ~0.1s/chunk over a 900s floor:
+# small/medium repos keep the same generous bound; a 50k repo gets ~83 min so its
+# background embed can actually finish. Ceiling, not the expected time.
+_EMBED_TIMEOUT_FLOOR_SECONDS = 900
+_EMBED_SECONDS_PER_CHUNK = 0.1
+
+
+def _embed_timeout(n_chunks):
+    """Wall-clock ceiling for embedding `n_chunks`: a 900s floor, scaled up for
+    large corpora so a big repo's background semantic embed isn't cut off."""
+    return max(_EMBED_TIMEOUT_FLOOR_SECONDS, int(n_chunks * _EMBED_SECONDS_PER_CHUNK))
 
 
 def _log_embed_progress(done, total):
@@ -102,7 +113,7 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     else:
         semantic = SemanticRetriever(  # embeds every chunk now
             chunks, embedder,
-            timeout=_EMBED_TIMEOUT_SECONDS,
+            timeout=_embed_timeout(len(chunks)),
             on_progress=_log_embed_progress,
         )
         save_vectors(cache_path, model, semantic.vectors)

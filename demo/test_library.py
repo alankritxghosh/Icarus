@@ -525,5 +525,24 @@ class ConnectSyncStalenessTests(unittest.TestCase):
         self.assertEqual(self.ingested, [])
 
 
+class EmbedTimeoutScalingTests(unittest.TestCase):
+    """The background semantic embed's wall-clock ceiling must SCALE with corpus
+    size: a fixed 900s cap silently killed a big repo's embed (transformers, 50k
+    chunks, ~an hour), leaving it stuck lexical-only. Small/medium repos keep the
+    generous floor; large ones get proportional headroom."""
+
+    def test_small_and_medium_repos_keep_the_floor(self):
+        from demo.library import _embed_timeout, _EMBED_TIMEOUT_FLOOR_SECONDS
+        self.assertEqual(_embed_timeout(0), _EMBED_TIMEOUT_FLOOR_SECONDS)
+        self.assertEqual(_embed_timeout(470), _EMBED_TIMEOUT_FLOOR_SECONDS)   # default repo
+        self.assertEqual(_embed_timeout(5000), _EMBED_TIMEOUT_FLOOR_SECONDS)  # still under floor
+
+    def test_large_repo_gets_proportional_headroom(self):
+        from demo.library import _embed_timeout, _EMBED_TIMEOUT_FLOOR_SECONDS, _EMBED_SECONDS_PER_CHUNK
+        big = _embed_timeout(50000)
+        self.assertGreater(big, _EMBED_TIMEOUT_FLOOR_SECONDS)          # not cut at the floor
+        self.assertEqual(big, int(50000 * _EMBED_SECONDS_PER_CHUNK))   # ~0.1s/chunk
+
+
 if __name__ == "__main__":
     unittest.main()
