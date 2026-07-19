@@ -1,12 +1,13 @@
-# Icarus — Session Handoff (2026-07-19: tester-driven fixes — live PR/issue fetch, lean-ingest bricks 2a+2b, app banner, CI-now-green + DMG artifact job; voice-pill design chosen)
+# Icarus — Session Handoff (2026-07-19: tester-driven fixes — live PR/issue fetch, lean-ingest 2a+2b + scaled embed timeout, app banner, CI-now-green + DMG artifact job; voice-pill design chosen)
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
 supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
 outreach is still the default once engineering settles). This session was
 entirely tester-feedback-driven — real remarks from people trying Icarus,
 fixed the prescribed way (reproduce/root-cause in real code → red→green →
-verify → deploy). **Live revision at end of session: `icarus-brain--0000016`,
-healthy, 100% traffic, 4 GiB/2 CPU, AST chunking ON. `main` tip = `000366a`.**
+verify → deploy). **Live revision at end of session: `icarus-brain--0000017`,
+healthy, 100% traffic, 4 GiB/2 CPU, AST chunking ON. `main` tip is the handoff
+commit (was `9ca9f61` before this doc update).**
 
 ## What shipped this session (all verified, not assumed)
 
@@ -41,8 +42,23 @@ code+docs" remark).** Decomposed into 2a/2b/2c:
   identical rankings both ways, proven on the paid board + both interpreters.
   Blast radius stayed inside `retriever.py` (the cache/library `{ref:vector}`
   contract untouched).
+- **Scaled embed timeout (`9ca9f61`, rev 0000017).** Live-tested transformers
+  (via local repro — 50,700 chunks, HIT the 50k cap so it's a partial index):
+  **it does NOT OOM anymore — 2b confirmed** (ran on a 9 GB Mac at ~1.9% mem,
+  nowhere near 4 GiB). But a NEW bottleneck surfaced: embedding is ~sequential
+  and slow (~30-40 min for 50k), and the fixed **900s** background-embed timeout
+  was silently killing it → stuck lexical-only. **Batched embedding was
+  investigated and REFUTED — measured 3.3x SLOWER** on real code (fastembed pads
+  every text in a batch to the longest one; confirms the pre-existing "batching
+  is slower" note) — NOT built. Instead scaled the timeout: `_embed_timeout(n)` =
+  `max(900s, ~0.1s/chunk)`, so a 50k repo gets ~83 min and its background
+  semantic embed can finish. Big-repo story is now coherent: 2b (no OOM) + 2a
+  (honest "partial index") + scaled timeout (semantic isn't cut off).
 - **2c — true async background ingest with live progress: NOT STARTED.** The
-  "background task instead of all at once" part. Next real brick.
+  "background task instead of all at once" part. Next real brick (note: a big
+  repo's semantic embed is inherently ~1 hr; 2c is about UX/progress, not speed —
+  faster embedding would need length-bucketed batching or a smaller model, both
+  deferred and unproven).
 
 **3. App-side partial-index banner (`32fb86f`).** `RepoStatus` decodes the new
 optional `truncated`; `HomeView` shows an amber "Large repo — partial index"
@@ -83,13 +99,20 @@ transition. Not built.
 
 ## Open / next (nothing here is started unless said)
 
-- **Retry transformers/rust LIVE** to see if 2b's 8× memory cut lets them fit at
-  4 GiB — this is the real proof of 2b and is NOT yet verified live. If they
-  still OOM, the next lever is **text-memory reduction** (BM25 keeps only tokens;
-  load the top-k full chunk text on demand for the writer) — the chunk texts are
-  the other big in-RAM cost 2b doesn't touch.
+- **Confirm transformers LIVE in the app** (only proxy-verified via local repro
+  so far): connect it, watch it NOT OOM, reach lexical-ready fast, and finish
+  the background semantic embed within the scaled timeout (~1 hr). Couldn't do
+  this from here — /connect needs the caller's GitHub auth.
 - **2c — async background ingest with live progress** (the remaining lean-ingest
-  brick).
+  brick). NB: a big repo's embed is inherently ~1 hr — 2c improves the UX/
+  progress of that wait, it does not speed it up.
+- **Text-memory reduction** (only if a repo bigger than transformers OOMs
+  despite 2b): BM25 keeps only tokens; load top-k full chunk text on demand.
+  The chunk texts are the other big in-RAM cost 2b doesn't touch — NOT needed
+  for transformers (which fits comfortably now), so this is speculative.
+- **Faster embedding** is deferred and UNPROVEN: batched is 3.3× slower here;
+  the only candidates are length-bucketed batching or a smaller model — don't
+  attempt without measuring first.
 - **Voice pill Option A** — design chosen, implement per §6.
 - **DMG for testers** — run the `dmg` workflow (or push an `alpha-*` tag) to
   produce a build; the app banner ships with it.
