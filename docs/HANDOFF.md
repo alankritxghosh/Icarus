@@ -1,11 +1,14 @@
-# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers)
+# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers; CI actions un-deprecated)
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
 supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
 outreach is still the default once engineering settles). Short, single-brick
 session, tester-driven: "when I ask what a specific commit changed, I get no
 answers." **Live revision at end of session: `icarus-brain--0000018`, image
-`alpha-20260720-commit-lookup`, active, 100% traffic.**
+`alpha-20260720-commit-lookup`, active, 100% traffic. `main` tip is the handoff
+commit (was `5d64420` before this doc update); CI green, pushed.** Note the
+deployed image was built from the working tree just BEFORE `bc8a8ab` — code is
+byte-identical, but the image tag isn't derived from a git SHA.
 
 ## What shipped
 
@@ -37,6 +40,17 @@ distort BM25's IDF for every ordinary question — deliberate, not an oversight)
 failures with the anchor disabled) → green. Suites evals **457** / demo **192**,
 both green. Secrets scan clean. Live fetch proven against the real API
 (`simonw/llm @ 94769b8` → real message + diff; bogus SHA → `None`).
+
+**CI actions bumped off deprecated Node 20 (`5d64420`).** Every run was emitting
+a Node-20 deprecation warning. Bumped to each action's CURRENT major — note **v5
+is stale for all three**, so don't "bump to v5": `checkout` v4→**v7**,
+`setup-python` v5→**v6**, `upload-artifact` v4→**v7**. Checked the one breaking
+change first (checkout v7 blocks fork-PR checkout under `pull_request_target`/
+`workflow_run`); both workflows trigger only on push/pull_request/
+workflow_dispatch/tags, so it doesn't apply. CI green after, and the run log
+now has **zero** Node-deprecation warnings (was 2). Caveat: `dmg.yml`'s
+`upload-artifact@v7` is NOT exercised by that run (dmg is workflow_dispatch-
+only) — it gets its first real test on the next tester DMG build.
 
 ## Open / next
 
