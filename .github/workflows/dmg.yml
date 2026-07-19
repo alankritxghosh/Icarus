@@ -20,7 +20,7 @@ jobs:
     # job (app targets Swift 6; pinned KeyboardShortcuts 2.4.0 needs tools 6.1).
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Select newest Xcode 16 (Swift 6.1)
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)"
       - name: Build + package Icarus.dmg
@@ -30,7 +30,7 @@ jobs:
           ICARUS_BRAIN_URL: ${{ inputs.brain_url || 'https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io' }}
         run: bash scripts/package_dmg.sh
       - name: Upload Icarus.dmg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Icarus-dmg
           path: mac/Icarus/Icarus.dmg
