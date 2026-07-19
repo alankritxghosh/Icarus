@@ -1,3 +1,55 @@
+# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers)
+
+**READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
+supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
+outreach is still the default once engineering settles). Short, single-brick
+session, tester-driven: "when I ask what a specific commit changed, I get no
+answers." **Live revision at end of session: `icarus-brain--0000018`, image
+`alpha-20260720-commit-lookup`, active, 100% traffic.**
+
+## What shipped
+
+**Commit lookup by SHA.** Root cause was NOT retrieval: `evals/ingest.py`
+fetches PRs, issues, and code — **commits were never an evidence source at
+all**, so a SHA had zero chunks and the gate abstained, correctly. Fixed by
+mirroring the 2026-07-19 live `#N` fetch path rather than indexing commit
+history (a real repo has 10k–1M commits; they'd swamp the 50k chunk cap and
+distort BM25's IDF for every ordinary question — deliberate, not an oversight):
+
+- `evals/ingest.fetch_commit_detail(repo, sha)` — one `gh api
+  repos/{repo}/commits/{sha}` → message, author, per-file diff as a
+  `commit:<full-sha>` chunk. Fail-safe `None` on not-found/network/auth/timeout/
+  bad JSON; leak-safe token via `_gh_env`.
+- `evals/pipeline.py` — new `live_commit_fetch=` param; `answer()` anchors a
+  named SHA the same way it anchors `#N`. A **bare** hex string must contain a
+  digit (`defaced`, `decade` are hex-shaped real English); an explicit
+  `commit ` prefix lifts that requirement.
+- `evals/gate.py` — `commit` added to `_KNOWN_SOURCES`, and a commit message
+  counts as recorded rationale for the (b) "why" guard (an author explaining a
+  change in prose is the same artifact as a PR body).
+- `demo/library.py` wires it (public-safe, `token=None` — same known private-
+  repo gap as `#N`: an unreadable private repo fails to a safe abstention;
+  private exact-ref needs the caller's request-time token, which isn't held
+  there). `demo/links.py` → `/commit/<sha>`. `evals/synth.py` gives commit
+  chunks the 10k code budget so diffs reach the writer.
+
+**Verified:** `evals/test_commit_lookup.py`, 6 tests, proven RED first (3
+failures with the anchor disabled) → green. Suites evals **457** / demo **192**,
+both green. Secrets scan clean. Live fetch proven against the real API
+(`simonw/llm @ 94769b8` → real message + diff; bogus SHA → `None`).
+
+## Open / next
+
+- **NOT end-to-end live-verified.** `/ask` needs a user's GitHub bearer, which
+  the session couldn't hold. The fetch and the wiring are each proven, but
+  nobody has yet asked the DEPLOYED brain a commit question and seen a cited
+  answer. **First check next session:** connect a repo in the app, ask "what did
+  commit &lt;sha&gt; change?", expect a citation chip linking to `/commit/<sha>`.
+- Everything in the 2026-07-19 open list below still stands (2c async ingest,
+  voice pill Option A, confirming transformers live).
+
+---
+
 # Icarus — Session Handoff (2026-07-19: tester-driven fixes — live PR/issue fetch, lean-ingest 2a+2b + scaled embed timeout, app banner, CI-now-green + DMG artifact job; voice-pill design chosen)
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT

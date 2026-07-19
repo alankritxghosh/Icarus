@@ -25,6 +25,12 @@ _ISSUE_OR_PR_REF = re.compile(
     r"(?:\b(?:issue|pr|pull\s*request)s?\s*#?|#)\s*(\d+)\b", re.IGNORECASE
 )
 
+# Same exact-identifier problem for a commit SHA, which is never indexed at all
+# (see ingest.fetch_commit_detail). Hex-only English words are real ("defaced",
+# "decade"), so a bare SHA must contain a digit; an explicit "commit " prefix
+# lifts that requirement.
+_COMMIT_SHA = re.compile(r"\b(commits?\s+)?([0-9a-fA-F]{7,40})\b")
+
 
 @dataclass
 class Result:
@@ -96,7 +102,7 @@ class GatedPipeline(Pipeline):
     _DEFAULT_EXPLAIN_QUESTION = "What does this code do, and why is it here?"
 
     def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 10,
-                 live_fetch=None):
+                 live_fetch=None, live_commit_fetch=None):
         self._retriever = retriever
         self._by_ref = {c.ref: c for c in chunks}
         self._provider = provider
@@ -108,6 +114,10 @@ class GatedPipeline(Pipeline):
         # None (the eval board / tests) keeps the pipeline fully offline and
         # reproducible; serving binds the real gh-backed fetch (demo/library.py).
         self._live_fetch = live_fetch
+        # Optional `live_commit_fetch(sha:str) -> Optional[Chunk]`: resolves an
+        # explicit commit SHA, which is NEVER indexed (commits are excluded from
+        # ingest by design). Same fail-safe contract as live_fetch.
+        self._live_commit_fetch = live_commit_fetch
 
     def answer(self, question: str) -> Result:
         # An explicit "issue/PR #N" mention gets a guaranteed anchor lookup
@@ -126,6 +136,14 @@ class GatedPipeline(Pipeline):
                 # Not in the indexed slice: fetch that exact PR/issue live. Fail-safe
                 # -- a None result just leaves it unanchored, as if unmentioned.
                 ch = self._live_fetch(int(n))
+                if ch is not None and ch.ref not in fetched:
+                    fetched[ch.ref] = ch
+                    anchor_refs.append(ch.ref)
+        if self._live_commit_fetch is not None:
+            for prefix, sha in _COMMIT_SHA.findall(question):
+                if not prefix and not any(c.isdigit() for c in sha):
+                    continue  # hex-shaped English word, not a SHA
+                ch = self._live_commit_fetch(sha)
                 if ch is not None and ch.ref not in fetched:
                     fetched[ch.ref] = ch
                     anchor_refs.append(ch.ref)

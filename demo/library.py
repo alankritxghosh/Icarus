@@ -134,7 +134,7 @@ def _build_retriever(chunks, corpus_dir, fast=False):
 def _build_gated_pipeline(corpus_dir, fast=False):
     """Build the one trust-checked writer pipeline; `fast` changes retrieval only."""
     from evals.trust import assert_safe_for_private
-    from evals.ingest import fetch_ref_detail
+    from evals.ingest import fetch_ref_detail, fetch_commit_detail
     provider = make_provider("gemini-paid")
     assert_safe_for_private(provider)
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
@@ -147,9 +147,11 @@ def _build_gated_pipeline(corpus_dir, fast=False):
     # identity can't read it, so it fails safe to None (no exposure, just an
     # abstention) -- private exact-ref fetch would need the caller's request-time
     # token, which isn't held here. Public repos (the common case) work.
+    # Same treatment for an explicit commit SHA, which is never indexed at all.
     live = (lambda num: fetch_ref_detail(repo, num)) if repo else None
+    live_commit = (lambda sha: fetch_commit_detail(repo, sha)) if repo else None
     return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider,
-                         live_fetch=live)
+                         live_fetch=live, live_commit_fetch=live_commit)
 
 
 def _slug(repo):

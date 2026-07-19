@@ -164,6 +164,10 @@ removing, or renaming files). For class/function-level detail see
   navigation's `ios/`): 1,624 real chunks, `.mm` files split from 1 whole-file
   chunk to per-method chunks (e.g. `RNNCommandsHandler.mm` 1→19), `.h` stayed
   on `chunk_text` unchanged.
+  `fetch_commit_detail(repo, sha)` live-fetches ONE commit (message, author,
+  per-file diff) as a `commit:<full-sha>` chunk — commits are deliberately NOT
+  indexed (a real repo has 10k-1M; they'd swamp the 50k cap and BM25's IDF), so
+  a named SHA is resolved on demand exactly like `fetch_ref_detail`'s `#N`.
 - `evals/ast_chunk.py` — `ast_chunk(text, ref_prefix)`: AST-aware code chunking,
   splitting Python at function/class boundaries (stdlib `ast`, NO new
   dependency) instead of `ingest.chunk_text`'s fixed 300-line windows. Exists
@@ -360,6 +364,12 @@ removing, or renaming files). For class/function-level detail see
   the real `fetch_code` walk (doc/config sources never reach the dispatcher;
   the flag-off path matches plain chunk_text byte-for-byte, protecting the
   committed board's reproducibility).
+- `evals/test_commit_lookup.py` — a named commit SHA is an exact-identifier
+  LOOKUP, not a search: proves `GatedPipeline`'s live commit anchor fetches the
+  SHA and grounds a citation, fails safe to honest-unknown when the fetch
+  returns None, never fires on hex-shaped English ("defaced"), stays a no-op
+  with no fetcher wired (the offline eval board), and that the gate's (b)
+  rationale guard accepts a commit message as recorded rationale.
 - `evals/test_ingest_smoke.py` — skippable live ingest of a tiny public repo
   (`RUN_INGEST_SMOKE=1`).
 - `evals/test_env_file.py` — the `.env` loader: parses KEY=VALUE, doesn't override

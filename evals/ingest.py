@@ -536,6 +536,40 @@ def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
     return None
 
 
+def fetch_commit_detail(repo, sha, token=None) -> Optional[Chunk]:
+    """Live-fetch ONE commit -- its message, author, and per-file diff -- as a
+    single Chunk, for an explicit SHA in the question.
+
+    Commits are deliberately NOT indexed (a real repo has 10k-1M of them; they'd
+    swamp the 50k chunk cap and BM25's IDF for zero benefit on ordinary
+    questions). But "what did commit abc123 change?" names an exact identifier,
+    so it's a lookup, not a search -- the same shape as fetch_ref_detail's #N.
+    Fail-safe: None on not-found/network/auth/timeout/bad JSON, so the caller
+    abstains exactly as before. Leak-safe token via _gh_env; token=None uses the
+    server's own gh identity, so an unreadable private repo fails to None."""
+    try:
+        data = _gh_json(["api", f"repos/{repo}/commits/{sha}"], token=token)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+        return None
+    if not data or not data.get("sha"):
+        return None
+    full = data["sha"]
+    commit = data.get("commit") or {}
+    author = (commit.get("author") or {}).get("name") or "?"
+    date = (commit.get("author") or {}).get("date") or "?"
+    parts = [f"Commit {full[:12]}: {commit.get('message') or ''}".strip(),
+             f"Author: {author} on {date}"]
+    for f in data.get("files") or []:
+        parts.append(
+            f"{f.get('status', 'modified')} {f.get('filename')} "
+            f"(+{f.get('additions', 0)}/-{f.get('deletions', 0)})\n{f.get('patch') or ''}".strip()
+        )
+    text = "\n\n".join(p for p in parts if p).strip()
+    if len(text) > _REF_DETAIL_MAX_CHARS:
+        text = text[:_REF_DETAIL_MAX_CHARS] + "\n…[truncated]"
+    return Chunk(ref=f"commit:{full}", source="commit", text=text)
+
+
 def fetch_code(repo, commit, code_dir, token=None, stats=None):
     # Fetch ONLY the pinned commit, never full history. This used to be a full
     # `git clone`, whose stated reason was keeping an ARBITRARY pinned commit

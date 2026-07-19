@@ -72,7 +72,7 @@ _LINES = re.compile(r"#L(\d+)(?:-L(\d+))?$")
 # prefix -- so a path that itself contains a ':' (legal in a git path, e.g.
 # `dir/a:b.py`) is NOT mistaken for a source, which would false-reject a
 # citation to it. Keep in sync if ingest gains a new source.
-_KNOWN_SOURCES = frozenset({"code", "doc", "config", "pr", "issue"})
+_KNOWN_SOURCES = frozenset({"code", "doc", "config", "pr", "issue", "commit"})
 
 
 def _source(ref: str):
@@ -283,7 +283,9 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
     # honest unknown even when the WHAT is right there in the code.)
     if evidence is not None and _seeks_rationale(question):
         def _records_reason(r):
-            return _source(r) in ("pr", "issue", "doc") or _states_reason(evidence.get(r, ""))
+            # A commit message is written rationale in the same sense as a PR or
+            # issue body -- an author explaining a change in prose.
+            return _source(r) in ("pr", "issue", "doc", "commit") or _states_reason(evidence.get(r, ""))
         if not any(_records_reason(r) for r in grounded):
             return Result(verdict="unknown", retrieved=list(retrieved))
     return Result(verdict="answer", answer=answer.strip(), citations=grounded, retrieved=list(retrieved))
