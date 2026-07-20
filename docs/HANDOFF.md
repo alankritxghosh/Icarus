@@ -91,14 +91,17 @@ clamp measured width to the available width in both `sizeThatFits` and
 a ref degrades to `commit:8384…45779` (both ends carry meaning) instead of
 being cut. One fix, all callers.
 
-- **The fix is compile+test-verified, NOT yet visually confirmed.** `swift
-  build` and 58/58 IcarusKit tests pass. Rebuilding a stamped bundle to SEE the
-  fixed drawer hit a **Keychain prompt**: an ad-hoc re-signed bundle has a
-  different signature than the installed app, so macOS won't release the stored
-  GitHub token to it without explicit user approval (not something an agent
-  should click through). To finish: approve that prompt on a locally-built
-  bundle, or install a CI-built DMG, then re-ask a commit question and look at
-  the proof drawer.
+- **VISUALLY CONFIRMED FIXED.** `swift build` clean, 58/58 IcarusKit tests
+  pass, and the rebuilt bundle was run and looked at: the same question on the
+  same repo now renders `commit:83840…f6b1b14945779` in the proof drawer —
+  middle-truncated, pill border closed, fully inside the card — while the wide
+  ask overlay still shows the full untruncated ref, so the clamp caused no
+  regression on the surface that was already correct.
+- Gotcha for the next local app rebuild: an ad-hoc re-signed bundle has a
+  different signature than the installed one, so macOS raises a **Keychain
+  prompt** before releasing the stored GitHub token. Expected, needs a human
+  click (an agent must not approve a credential dialog). Approve it once per
+  build, or install a CI-built DMG instead.
 - **Environment correction:** the 2026-07-19 note below says this Mac can't
   build/test Swift (Command Line Tools only). **That is now STALE** — `swift
   --version` reports **6.2.4** and `swift test --package-path mac/Icarus` runs
