@@ -92,4 +92,69 @@ final class VoiceModelTests: XCTestCase {
 
         XCTAssertEqual(model.partialTranscript, "")
     }
+
+    // MARK: - Waveform levels (Option A's listening pill)
+
+    /// Measured mic levels stream into `levels`, which is the waveform's ONLY data
+    /// source — so a moving waveform always means real audio was heard.
+    func testMicLevelsStreamIntoLevels() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(
+            .transcript(partials: [], final: "hi"), levels: [0.1, 0.5, 0.9]))
+
+        await model.startRecording()
+        await Task.yield()
+        XCTAssertEqual(model.levels, [0.1, 0.5, 0.9])
+    }
+
+    /// Silence must render as silence. If nothing is heard the bars stay flat rather
+    /// than animating decoratively — the honesty rule applied to the UI.
+    func testNoLevelsMeansEmptyWaveform() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(
+            .transcript(partials: ["quiet"], final: "quiet")))
+
+        await model.startRecording()
+        await Task.yield()
+        XCTAssertTrue(model.levels.isEmpty)
+    }
+
+    /// The window is bounded: a long hold keeps only the most recent samples, newest
+    /// last, so memory can't grow without limit while the key is held.
+    func testLevelWindowIsBoundedAndKeepsNewest() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(.transcript(partials: [], final: "")))
+        await model.startRecording()
+
+        for i in 0..<(VoiceModel.levelWindow + 10) {
+            model.appendLevel(Float(i) / 1000)
+        }
+
+        XCTAssertEqual(model.levels.count, VoiceModel.levelWindow)
+        XCTAssertEqual(model.levels.last, Float(VoiceModel.levelWindow + 9) / 1000)
+    }
+
+    /// A NaN or out-of-range level (live audio maths can produce one) is clamped, never
+    /// drawn as a bar off the top of the pill.
+    func testHostileLevelsAreClamped() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(.transcript(partials: [], final: "")))
+        await model.startRecording()
+
+        model.appendLevel(.nan)
+        model.appendLevel(-3)
+        model.appendLevel(42)
+
+        XCTAssertEqual(model.levels, [0, 0, 1])
+    }
+
+    /// Levels reset between sessions, so a new hold never opens showing the last one's
+    /// waveform.
+    func testLevelsResetOnStopAndOnNextStart() async {
+        let model = VoiceModel(recognizer: StubSpeechRecognizer(
+            .transcript(partials: [], final: "done"), levels: [0.4, 0.8]))
+
+        await model.startRecording()
+        await Task.yield()
+        XCTAssertFalse(model.levels.isEmpty)
+
+        await model.stopAndTranscribe()
+        XCTAssertTrue(model.levels.isEmpty)
+    }
 }

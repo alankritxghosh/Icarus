@@ -24,7 +24,31 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
     private var latestTranscript = ""
     private var finishContinuation: CheckedContinuation<String, Never>?
 
-    func start(onPartial: @escaping @Sendable (String) -> Void) async throws {
+    /// Quietest level the waveform shows movement for, in dBFS. Speech into a built-in
+    /// Mac mic sits roughly -40...-10 dBFS, room tone below -55, so -55 puts normal
+    /// speech across most of the pill's height without amplifying silence into noise.
+    /// This is the calibration knob: raise it if the waveform looks twitchy in a quiet
+    /// room, lower it if a soft speaker barely moves the bars.
+    private static let levelFloorDB: Float = -55
+
+    /// Root-mean-square loudness of one buffer, mapped to 0...1 over `levelFloorDB`.
+    /// RMS (not peak) because peak spikes on a single click and reads as noise; RMS
+    /// tracks perceived loudness, so the bars follow the voice.
+    private static func normalizedLevel(of buffer: AVAudioPCMBuffer) -> Float {
+        guard let channel = buffer.floatChannelData?[0] else { return 0 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return 0 }
+        var sumOfSquares: Float = 0
+        for i in 0..<count { sumOfSquares += channel[i] * channel[i] }
+        let rms = (sumOfSquares / Float(count)).squareRoot()
+        guard rms > 0 else { return 0 }
+        let db = 20 * log10(rms)
+        guard db.isFinite else { return 0 }
+        return min(max((db - levelFloorDB) / -levelFloorDB, 0), 1)
+    }
+
+    func start(onPartial: @escaping @Sendable (String) -> Void,
+               onLevel: @escaping @Sendable (Float) -> Void) async throws {
         guard try await Self.authorizeSpeech() else { throw SpeechStartError.notAuthorized }
         guard await AVCaptureDevice.requestAccess(for: .audio) else { throw SpeechStartError.micDenied }
         guard let recognizer, recognizer.isAvailable else { throw SpeechStartError.unavailable }
@@ -41,8 +65,12 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // ONE tap feeds both the recognizer and the waveform. Measuring here (rather than
+        // via a second tap or a timer) is what makes the waveform provably real: the bars
+        // are computed from the exact audio being transcribed.
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
+            onLevel(Self.normalizedLevel(of: buffer))
         }
         engine.prepare()
         try engine.start()

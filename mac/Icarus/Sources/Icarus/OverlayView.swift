@@ -76,16 +76,17 @@ struct OverlayView: View {
             Text("Hold Right Option (⌥) to speak")
                 .font(Theme.mono(11)).foregroundStyle(Theme.muted)
         case .recording:
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Circle().fill(Theme.unknown).frame(width: 9, height: 9)
-                    Text("Listening…").font(Theme.mono(12)).foregroundStyle(Theme.ink)
-                }
-                // Live transcript as you speak (like macOS dictation).
-                if !voice.partialTranscript.isEmpty {
-                    Text(voice.partialTranscript)
-                        .font(.system(size: 16)).foregroundStyle(Theme.muted)
-                }
+            // Option A's listening row: live level, then the words it's hearing.
+            HStack(spacing: 10) {
+                Circle().fill(Theme.unknown).frame(width: 9, height: 9)
+                WaveformView(levels: voice.levels)
+                // Truncate the HEAD, not the tail: dictation grows at the end, so the
+                // most recent words are the ones worth keeping on screen.
+                Text(voice.partialTranscript.isEmpty ? "Listening…" : voice.partialTranscript)
+                    .font(.system(size: 15))
+                    .foregroundStyle(voice.partialTranscript.isEmpty ? Theme.muted : Theme.ink)
+                    .lineLimit(1)
+                    .truncationMode(.head)
             }
         case .transcribing:
             HStack(spacing: 8) {

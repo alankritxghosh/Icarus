@@ -65,6 +65,37 @@ struct CitationChip: View {
     }
 }
 
+/// The listening waveform: one bar per measured microphone level, oldest at the left.
+///
+/// Every bar is REAL — `levels` comes from the audio buffers the recognizer is
+/// transcribing (see `AppleSpeechRecognizer.normalizedLevel`). There is deliberately no
+/// idle animation and no synthetic motion: silence renders as flat minimum-height bars,
+/// so a moving waveform is honest evidence the mic is actually hearing something.
+struct WaveformView: View {
+    let levels: [Float]
+    var barWidth: CGFloat = 3
+    var spacing: CGFloat = 2
+    var height: CGFloat = 22
+
+    var body: some View {
+        HStack(alignment: .center, spacing: spacing) {
+            // Pad the left with silence so the bars fill from the right as speech
+            // arrives, instead of a short window stretching to fit.
+            let padded = Array(repeating: Float(0),
+                               count: max(0, VoiceModel.levelWindow - levels.count)) + levels
+            ForEach(Array(padded.enumerated()), id: \.offset) { _, level in
+                Capsule()
+                    .fill(Theme.cited)
+                    .frame(width: barWidth,
+                           height: max(2, CGFloat(level) * height))
+            }
+        }
+        .frame(height: height)
+        .animation(.linear(duration: 0.08), value: levels)
+        .accessibilityLabel("Microphone level")
+    }
+}
+
 /// Filled ink primary button (Sign in / Connect / Ask).
 struct PrimaryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

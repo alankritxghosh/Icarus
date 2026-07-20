@@ -23,6 +23,15 @@ public final class VoiceModel {
     /// The running transcript shown live while recording (like macOS dictation).
     public private(set) var partialTranscript: String = ""
 
+    /// How many level samples the waveform shows at once (oldest first, newest last).
+    /// At ~43 buffers/sec this is roughly the last second of speech.
+    public static let levelWindow = 40
+
+    /// Rolling window of REAL microphone levels (0...1) while recording — the waveform's
+    /// only data source. Empty when idle, so the pill shows a flat, honest line rather
+    /// than a decorative animation when nothing is being heard.
+    public private(set) var levels: [Float] = []
+
     /// Called with the final, non-empty transcript when a hold ends. The app wires
     /// this to the ask path (set the question, submit to the brain).
     public var onTranscript: ((String) -> Void)?
@@ -45,12 +54,15 @@ public final class VoiceModel {
             return
         }
         partialTranscript = ""
+        levels = []
         do {
             try await recognizer.start(onPartial: { [weak self] text in
                 // Capture self weakly in the Task too (not the outer closure's
                 // captured var) -- Swift 5.10 strict-concurrency flags the nested
                 // reference otherwise; harmless and clearer under 6.0 as well.
                 Task { @MainActor [weak self] in self?.partialTranscript = text }
+            }, onLevel: { [weak self] level in
+                Task { @MainActor [weak self] in self?.appendLevel(level) }
             })
             state = .recording
         } catch let reason as SpeechStartError {
@@ -80,6 +92,19 @@ public final class VoiceModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         state = .idle
         partialTranscript = ""
+        levels = []
         if !trimmed.isEmpty { onTranscript?(trimmed) }
+    }
+
+    /// Append one measured mic level, clamped to 0...1 and capped to `levelWindow`.
+    /// Clamping is defensive: a level is computed from live audio, and a NaN or an
+    /// out-of-range value would otherwise draw a bar off the top of the pill.
+    func appendLevel(_ level: Float) {
+        guard state == .recording || state == .idle else { return }
+        let safe = level.isFinite ? min(max(level, 0), 1) : 0
+        levels.append(safe)
+        if levels.count > Self.levelWindow {
+            levels.removeFirst(levels.count - Self.levelWindow)
+        }
     }
 }

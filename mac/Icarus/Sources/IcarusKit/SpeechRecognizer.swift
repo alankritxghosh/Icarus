@@ -11,8 +11,15 @@ import Foundation
 /// yields an empty final transcript (nothing to ask) — no fabricated text.
 public protocol SpeechRecognizer: Sendable {
     /// Begin a streaming session. `onPartial` fires with the running transcript as
-    /// speech is recognized. Throws if the mic/recognizer is unavailable or denied.
-    func start(onPartial: @escaping @Sendable (String) -> Void) async throws
+    /// speech is recognized; `onLevel` fires with the REAL microphone loudness of each
+    /// audio buffer, normalized 0...1, which drives the listening waveform.
+    ///
+    /// `onLevel` exists so the waveform can never be a decorative animation loop: if the
+    /// mic is silent the bars are flat, because the value is measured from the same audio
+    /// buffers the recognizer consumes. A moving waveform is evidence of real input.
+    /// Throws if the mic/recognizer is unavailable or denied.
+    func start(onPartial: @escaping @Sendable (String) -> Void,
+               onLevel: @escaping @Sendable (Float) -> Void) async throws
     /// End the session and return the final transcript (empty if nothing was heard).
     func finish() async -> String
 }
@@ -42,10 +49,16 @@ public final class StubSpeechRecognizer: SpeechRecognizer, @unchecked Sendable {
     }
 
     private let behavior: Behavior
+    /// Scripted mic levels emitted on start, so the waveform is testable without a mic.
+    private let levels: [Float]
 
-    public init(_ behavior: Behavior) { self.behavior = behavior }
+    public init(_ behavior: Behavior, levels: [Float] = []) {
+        self.behavior = behavior
+        self.levels = levels
+    }
 
-    public func start(onPartial: @escaping @Sendable (String) -> Void) async throws {
+    public func start(onPartial: @escaping @Sendable (String) -> Void,
+                      onLevel: @escaping @Sendable (Float) -> Void) async throws {
         switch behavior {
         case .startFails:
             throw NSError(domain: "StubSpeechRecognizer", code: 1)
@@ -53,6 +66,7 @@ public final class StubSpeechRecognizer: SpeechRecognizer, @unchecked Sendable {
             throw reason
         case .transcript(let partials, _):
             for p in partials { onPartial(p) }
+            for l in levels { onLevel(l) }
         }
     }
 
