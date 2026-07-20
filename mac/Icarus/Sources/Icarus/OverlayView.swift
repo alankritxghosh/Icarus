@@ -44,10 +44,19 @@ struct OverlayView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, isExpanded ? 20 : 14)
         .frame(width: 560, alignment: .leading)
-        .background(Theme.card)
+        // Glass, not a flat card: real behind-window vibrancy, then a translucent wash of
+        // the card colour over it. The wash is not decoration — raw vibrancy alone lets
+        // whatever is behind the panel show through hard enough to hurt legibility, and an
+        // answer you can't read is a failure regardless of how good the blur looks.
+        .background {
+            ZStack {
+                VisualEffectBackground()
+                Theme.card.opacity(0.62)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(Theme.border, lineWidth: 1))
+            .stroke(Theme.border.opacity(0.8), lineWidth: 1))
         .animation(morph, value: isExpanded)
         .animation(morph, value: voice.isRecording)
     }

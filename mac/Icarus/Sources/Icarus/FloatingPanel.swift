@@ -26,6 +26,12 @@ final class FloatingPanel<Content: View>: NSPanel {
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
+        // Pin the panel to the light appearance. The vibrancy material follows the
+        // system theme, but Theme's palette is hardcoded light (dark ink on a light
+        // card) — so on a Mac in Dark Mode the glass would render dark and the answer
+        // text would be dark-on-dark. Until the palette itself is theme-aware, the
+        // honest fix is to keep the surface light rather than ship unreadable text.
+        appearance = NSAppearance(named: .aqua)
         // Size the panel from the SwiftUI content's ideal size, and keep resizing
         // as it changes — so a long answer is shown in full instead of clipped.
         let hosting = NSHostingController(rootView: content())

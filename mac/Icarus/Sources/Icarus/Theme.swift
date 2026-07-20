@@ -65,6 +65,33 @@ struct CitationChip: View {
     }
 }
 
+/// Frosted "glass" backing for the floating overlay — Option A's vibrancy.
+///
+/// `NSVisualEffectView`, not SwiftUI's `.ultraThinMaterial`: the panel's window is
+/// transparent (`backgroundColor = .clear`), so a SwiftUI material would blur nothing and
+/// read as flat translucency. `.behindWindow` blending samples what is actually BEHIND
+/// the panel — the user's editor, browser, desktop — which is what makes it read as glass
+/// floating over their work.
+///
+/// `state = .active` is load-bearing: the default follows the window's active state, and
+/// this is a NON-ACTIVATING panel that is usually not key, so the frost would otherwise
+/// drop out exactly when the overlay is in use.
+struct VisualEffectBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        view.material = material
+    }
+}
+
 /// The listening waveform: one bar per measured microphone level, oldest at the left.
 ///
 /// Every bar is REAL — `levels` comes from the audio buffers the recognizer is
