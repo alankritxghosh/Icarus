@@ -12,6 +12,25 @@ struct OverlayView: View {
     @Bindable var model: AskModel
     @Bindable var voice: VoiceModel
 
+    /// Option A's two shapes. Collapsed = a pill (asking, or listening); expanded = the
+    /// flat answer card it grows upward into. Derived from state rather than stored, so
+    /// the shape can never disagree with what's actually on screen.
+    ///
+    /// Listening is deliberately COLLAPSED even though a lot is happening: the waveform
+    /// row is the pill's content, which is exactly the mockup's "while listening" state.
+    private var isExpanded: Bool {
+        if voice.isRecording { return false }
+        if !auth.isSignedIn || !connect.isReady { return true }
+        if case .idle = model.state { return false }
+        return true
+    }
+
+    private var cornerRadius: CGFloat { isExpanded ? 20 : 30 }
+
+    /// One spring drives every part of the morph (shape, padding, content) so the pill
+    /// expands as a single object instead of several elements animating out of step.
+    private var morph: Animation { .spring(response: 0.34, dampingFraction: 0.85) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !auth.isSignedIn {
@@ -22,11 +41,15 @@ struct OverlayView: View {
                 askBox()
             }
         }
-        .padding(20)
+        .padding(.horizontal, 20)
+        .padding(.vertical, isExpanded ? 20 : 14)
         .frame(width: 560, alignment: .leading)
         .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(Theme.border, lineWidth: 1))
+        .animation(morph, value: isExpanded)
+        .animation(morph, value: voice.isRecording)
     }
 
     @ViewBuilder
@@ -40,30 +63,43 @@ struct OverlayView: View {
     @ViewBuilder
     private func askBox() -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            TextField("Ask Icarus about the codebase…", text: $model.question)
-                .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(Theme.ink)
-                .onSubmit { Task { await model.submit() } }
+            // While listening, the waveform row IS the whole pill — the text field would
+            // only compete with it, and the words are already shown live in the row.
+            if !voice.isRecording {
+                TextField("Ask Icarus about the codebase…", text: $model.question)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+                    .onSubmit { Task { await model.submit() } }
+            }
 
             voiceStatus()
 
-            switch model.state {
-            case .idle:
-                EmptyView()
-            case .loading:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Searching the codebase…").font(Theme.mono(12)).foregroundStyle(Theme.muted)
-                }
-            case .response(let r) where r.verdict == .answer:
-                answer(r)
-            case .response(let r):
-                honestUnknown(r)
-            case .unreachable:
-                Text("Can't reach Icarus's brain — check your internet connection.")
-                    .font(.system(size: 14)).foregroundStyle(Theme.muted)
+            // Grows upward out of the pill: the panel is pinned to its bottom edge
+            // (FloatingPanel.pinToBottomCenter), so a bottom-edge move transition reads
+            // as the answer rising out of the pill rather than dropping onto it.
+            resultSection()
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private func resultSection() -> some View {
+        switch model.state {
+        case .idle:
+            EmptyView()
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Searching the codebase…").font(Theme.mono(12)).foregroundStyle(Theme.muted)
             }
+        case .response(let r) where r.verdict == .answer:
+            answer(r)
+        case .response(let r):
+            honestUnknown(r)
+        case .unreachable:
+            Text("Can't reach Icarus's brain — check your internet connection.")
+                .font(.system(size: 14)).foregroundStyle(Theme.muted)
         }
     }
 
@@ -73,8 +109,12 @@ struct OverlayView: View {
     private func voiceStatus() -> some View {
         switch voice.state {
         case .idle:
-            Text("Hold Right Option (⌥) to speak")
-                .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+            // Only while collapsed: in the expanded answer card the hint is noise
+            // between the question and the answer, and the mockup doesn't carry it.
+            if !isExpanded {
+                Text("Hold Right Option (⌥) to speak")
+                    .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+            }
         case .recording:
             // Option A's listening row: live level, then the words it's hearing.
             HStack(spacing: 10) {
@@ -101,7 +141,7 @@ struct OverlayView: View {
     @ViewBuilder
     private func answer(_ r: AskResponse) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Rectangle().fill(Theme.border).frame(height: 1)
+            MonoLabel("THE ANSWER")
             Text(r.answer)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Theme.ink)
