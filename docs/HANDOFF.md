@@ -67,11 +67,42 @@ only) — it gets its first real test on the next tester DMG build.
     `searched`, ahead of every PR — the anchor path, not similarity.
   - Fabricated SHA (`7f3a91c2b8`) → `verdict: unknown`, empty answer, ZERO
     citations. Fails safe, no bluff.
-- **Not tested: the Mac app GUI itself.** The brain path is proven; what's
-  unverified is only how a `commit:` citation chip RENDERS in the overlay
-  (`CitationChip` treats refs generically, so low risk). `/Applications/
-  Icarus.app` on this Mac is the Jul-14 alpha-4 build and points at the hosted
-  brain, so it would exercise it.
+- **App GUI tested too — and it found a real layout bug (fixed, see below).**
+  Drove `/Applications/Icarus.app` (Jul-14 alpha-4 build, stamped at the hosted
+  brain) against `react/react`, which the app had auto-resumed — a DIFFERENT
+  repo from the pinned board, so an independent test. Asked "What did commit
+  83840902c8 change?": correct answer ("SSR support for nested parentEnter/
+  parentExit View Transitions … vt-parent-enter/vt-parent-exit annotations")
+  with a `commit:8384…45779` receipt chip. Fact-checked against the real
+  commit, not trusted: message is "[Fizz] Support nested enter/exit
+  ViewTransition animations" (Fizz = React's SSR renderer) and both
+  `vt-parent-enter`/`vt-parent-exit` appear in its 14-file diff.
+
+**Chip-overflow bug in `FlowLayout` (found live, fixed).** In HomeView's narrow
+proof drawer the commit chip overflowed its card and was clipped mid-ref with
+the pill border sliced off; the wide ask overlay rendered fine and never
+revealed it. **Root cause was NOT `CitationChip`** — `FlowLayout`
+(`mac/Icarus/Sources/Icarus/Theme.swift`) measured every subview with
+`.unspecified` and placed it at full intrinsic width, never clamped to
+`bounds.width`, so ANY oversized chip overflows (a long `code:` path does it
+too — commit lookup exposed the bug, it didn't cause it). Fixed at the layout:
+clamp measured width to the available width in both `sizeThatFits` and
+`placeSubviews`, plus `lineLimit(1)`/`.truncationMode(.middle)` on the chip so
+a ref degrades to `commit:8384…45779` (both ends carry meaning) instead of
+being cut. One fix, all callers.
+
+- **The fix is compile+test-verified, NOT yet visually confirmed.** `swift
+  build` and 58/58 IcarusKit tests pass. Rebuilding a stamped bundle to SEE the
+  fixed drawer hit a **Keychain prompt**: an ad-hoc re-signed bundle has a
+  different signature than the installed app, so macOS won't release the stored
+  GitHub token to it without explicit user approval (not something an agent
+  should click through). To finish: approve that prompt on a locally-built
+  bundle, or install a CI-built DMG, then re-ask a commit question and look at
+  the proof drawer.
+- **Environment correction:** the 2026-07-19 note below says this Mac can't
+  build/test Swift (Command Line Tools only). **That is now STALE** — `swift
+  --version` reports **6.2.4** and `swift test --package-path mac/Icarus` runs
+  clean (58 tests). Swift work no longer has to go through CI.
 - Everything in the 2026-07-19 open list below still stands (2c async ingest,
   voice pill Option A, confirming transformers live).
 

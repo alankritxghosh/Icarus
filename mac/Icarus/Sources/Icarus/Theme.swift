@@ -44,8 +44,14 @@ struct MonoLabel: View {
 struct CitationChip: View {
     let citation: Citation
     var body: some View {
+        // Truncate the MIDDLE, not the tail: a ref's meaning lives at both ends
+        // (`commit:` / `code:path` identifies the source, the tail
+        // disambiguates), so `commit:8384…45779` stays readable where a
+        // tail-truncated `commit:83840902c890f0eb85decda…` does not.
         let pill = Text(citation.ref)
             .font(Theme.mono(11, .bold))
+            .lineLimit(1)
+            .truncationMode(.middle)
             .foregroundStyle(Theme.cited)
             .padding(.horizontal, 9).padding(.vertical, 5)
             .background(Theme.card)
@@ -75,13 +81,19 @@ struct PrimaryButton: ButtonStyle {
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
 
+    // A subview wider than the row (a 40-hex-char `commit:` ref, or a long
+    // `code:` path) must be CLAMPED to the available width, not placed at its
+    // full intrinsic width -- unclamped it overflowed the parent card and was
+    // clipped mid-ref with the pill border sliced off. Found live 2026-07-20 in
+    // HomeView's narrow proof drawer; the wide ask overlay never revealed it.
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let maxWidth = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
         for sub in subviews {
             let size = sub.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
-            x += size.width + spacing
+            let width = min(size.width, maxWidth)
+            if x + width > maxWidth { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+            x += width + spacing
             rowHeight = max(rowHeight, size.height)
         }
         return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
@@ -91,9 +103,11 @@ struct FlowLayout: Layout {
         var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
         for sub in subviews {
             let size = sub.sizeThatFits(.unspecified)
-            if x - bounds.minX + size.width > bounds.width { x = bounds.minX; y += rowHeight + spacing; rowHeight = 0 }
-            sub.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
-            x += size.width + spacing
+            let width = min(size.width, bounds.width)
+            if x - bounds.minX + width > bounds.width { x = bounds.minX; y += rowHeight + spacing; rowHeight = 0 }
+            sub.place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                      proposal: ProposedViewSize(width: width, height: size.height))
+            x += width + spacing
             rowHeight = max(rowHeight, size.height)
         }
     }
