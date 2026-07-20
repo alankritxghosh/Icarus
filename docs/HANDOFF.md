@@ -1,4 +1,96 @@
-# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers; chip-overflow fix; CI actions un-deprecated; fresh DMG)
+# Icarus — Session Handoff (2026-07-20: commit lookup; Option A voice pill BUILT; a real crash found+fixed; chip-overflow fix; CI actions un-deprecated; fresh DMG)
+
+## Option A voice pill — BUILT (was "design chosen, code not started")
+
+The 2026-07-19 entry below lists this as chosen-but-unbuilt. **All three bricks
+are now built, installed, and verified by looking at them**, plus the glass
+finish and a crash the work uncovered. Commits `c950272`, `8134389`, `5edc8ce`,
+`83d01ad`, `3c81f9a`.
+
+**1. Real audio-reactive waveform (`c950272`).** The handoff called this the
+genuinely-hard part; it wasn't, and the reason matters: `AppleSpeechRecognizer`
+ALREADY installs a mic tap to feed `SFSpeechRecognizer`, so the same closure now
+also computes each buffer's RMS. No second tap, no new audio graph, no timer —
+which is exactly what makes the waveform provably real rather than a decorative
+loop (the UI equivalent of bluffing). RMS not peak (a peak spikes on a click and
+reads as noise). **−55 dBFS floor is the calibration knob**, documented in place,
+since mic gain varies by machine. `SpeechRecognizer.start` gained `onLevel`
+alongside `onPartial`; `VoiceModel` keeps a bounded 40-sample rolling `levels`
+window, clamped against NaN/out-of-range, cleared on start and stop. Silence
+renders flat — locked in by test. **Live-confirmed by Alankrit** speaking into
+it (I can't; see the verification limits below).
+
+**2. Bottom-centre anchoring (`8134389`).** Estimated as "a one-line change at
+`OverlayController.swift:86`" — that estimate was WRONG and the reason is
+load-bearing: `FloatingPanel` sets `sizingOptions = .preferredContentSize`, so
+the panel resizes on every content change, and AppKit's resize does not preserve
+the bottom edge. A one-shot `center()` would drift the instant the pill expanded.
+So `pinToBottomCenter()` re-applies on every `didResize` — that, not the initial
+placement, is what makes the morph grow upward. A user drag still wins
+(`userHasMoved` stops auto-pinning; an `isRepositioning` guard keeps our own
+moves from being mistaken for a drag), so the pre-existing drag behaviour was
+preserved rather than silently deleted.
+
+**3. The morph (`5edc8ce`).** `isExpanded` is DERIVED from state, never stored,
+so the shape can't disagree with what's on screen. Listening counts as collapsed
+on purpose — the waveform row IS the pill's content, per the mockup. Radius
+30→20 and padding 14→20 ride one spring so it expands as a single object. Text
+field hides while recording. **Verified visually: bottom edge held at y=755
+while the top rose 682→517** as the answer arrived.
+
+**4. Glass finish (`83d01ad`) — Alankrit had to ask for this twice.** I named it
+as a gap instead of closing it. The panel was painting a solid `Theme.card` over
+a window that was ALREADY transparent. Fixed with `NSVisualEffectView` +
+`.behindWindow` blending — **not** SwiftUI's `.ultraThinMaterial`, which would
+blur nothing (clear window background = nothing behind it to sample) and degrade
+to flat translucency. Two non-obvious details: `state = .active` is load-bearing
+(the default follows window active state, and this is a non-activating panel
+that's usually NOT key, so the frost would drop out exactly when in use); and
+`FloatingPanel` pins `.aqua` appearance because the material follows the system
+theme while `Theme`'s palette is hardcoded light — in Dark Mode the glass would
+render dark under dark ink. **The dial: `Theme.card.opacity(0.62)`** over the
+vibrancy; raw vibrancy alone hurts legibility. Verified over the DESKTOP, not
+over the app's own light window (which would have sampled a flat surface and
+proved nothing).
+
+**5. A REAL CRASH, found from crash reports (`3c81f9a`).** Alankrit hit "Icarus
+quit unexpectedly" while testing voice. Root-caused from
+`~/Library/Logs/DiagnosticReports/Icarus-*.ips`, not guessed: SIGABRT inside
+AVFAudio's `CreateRecordingTap` ← `installTapOnBus` ← `AppleSpeechRecognizer.
+start`. **`installTap` raises an ObjC NSException, which Swift CANNOT catch — a
+hard crash, not a thrown error.** Two real paths: (a) a tap already on the bus —
+`finish()` removes it normally, but `try engine.start()` sat AFTER `installTap`,
+so a session failing there left the tap installed and **the next hold of the
+talk key killed the app**; (b) a degenerate input format (zero channels/sample
+rate) when the mic is unavailable or the device changes mid-session (AirPods
+handoff). Both now handled BEFORE the call: clear any stale tap (safe when
+absent), validate the format and throw typed `.unavailable`, and remove the tap
+if `engine.start()` throws. **This bug predates this session** — `engine.start()`
+was always after `installTap` — but the waveform brick touched this exact
+function without noticing it; it surfaced because Alankrit was the first to hold
+the key repeatedly. Alankrit confirmed no further crashes after the fix.
+
+**Verification limits, stated honestly:**
+- The AVFoundation crash path is NOT unit-testable (needs real audio hardware,
+  and the failure is an uncatchable exception). Fixed by construction; the
+  state-machine half IS tested (`.failed` must stay retryable — that retry is
+  what crashed).
+- I cannot test voice myself: I can't speak, and `PushToTalkMonitor` listens for
+  the RIGHT Option key specifically, which synthetic key events don't reliably
+  distinguish. Voice verification needs a human at the keyboard.
+- Every local app rebuild is ad-hoc re-signed, so macOS raises a **Keychain
+  prompt** before releasing the stored GitHub token. Expected; needs a human
+  click (an agent must not approve a credential dialog).
+
+**Not built / open on the pill:** the mockup's collapse-back-to-pill on dismiss
+was not explicitly implemented (the panel just hides); no "thinking" state
+distinct from `Searching the codebase…`; `Theme` is still hardcoded light, which
+is why the panel pins `.aqua` rather than supporting Dark Mode properly.
+
+IcarusKit **64/64** green throughout (6 new tests this arc).
+
+---
+
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
 supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
