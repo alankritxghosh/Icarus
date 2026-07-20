@@ -54,11 +54,24 @@ only) — it gets its first real test on the next tester DMG build.
 
 ## Open / next
 
-- **NOT end-to-end live-verified.** `/ask` needs a user's GitHub bearer, which
-  the session couldn't hold. The fetch and the wiring are each proven, but
-  nobody has yet asked the DEPLOYED brain a commit question and seen a cited
-  answer. **First check next session:** connect a repo in the app, ask "what did
-  commit &lt;sha&gt; change?", expect a citation chip linking to `/commit/<sha>`.
+- **END-TO-END LIVE-VERIFIED — this item is CLOSED.** Authenticated against the
+  deployed brain (rev 0000018) using the local `gh` CLI token as the bearer —
+  the brain resolves identity via GitHub `/user`, so a `gh` token works and no
+  Mac-app GUI is needed to exercise `/ask`. Both directions proven on
+  `simonw/llm`:
+  - Real SHA (`94769b8`) → `verdict: answer`, citation
+    `commit:94769b8b076cde…` resolving to the correct
+    `github.com/simonw/llm/commit/…` URL, answer factually matching the real
+    commit ("fix a test that fails with sqlite-utils 4.0rc1", modified
+    `tests/test_fragments_cli.py`). The commit anchor ranked FIRST in
+    `searched`, ahead of every PR — the anchor path, not similarity.
+  - Fabricated SHA (`7f3a91c2b8`) → `verdict: unknown`, empty answer, ZERO
+    citations. Fails safe, no bluff.
+- **Not tested: the Mac app GUI itself.** The brain path is proven; what's
+  unverified is only how a `commit:` citation chip RENDERS in the overlay
+  (`CitationChip` treats refs generically, so low risk). `/Applications/
+  Icarus.app` on this Mac is the Jul-14 alpha-4 build and points at the hosted
+  brain, so it would exercise it.
 - Everything in the 2026-07-19 open list below still stands (2c async ingest,
   voice pill Option A, confirming transformers live).
 
