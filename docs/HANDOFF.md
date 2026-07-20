@@ -1,4 +1,4 @@
-# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers; CI actions un-deprecated)
+# Icarus — Session Handoff (2026-07-20: commit lookup — a named SHA now answers; chip-overflow fix; CI actions un-deprecated; fresh DMG)
 
 **READ THIS FIRST — supersedes every engineering-state claim below. Does NOT
 supersede the 2026-07-16 business-path mandate** (ICP/pricing/trust-legal/
@@ -104,8 +104,25 @@ being cut. One fix, all callers.
   build, or install a CI-built DMG instead.
 - **Environment correction:** the 2026-07-19 note below says this Mac can't
   build/test Swift (Command Line Tools only). **That is now STALE** — `swift
-  --version` reports **6.2.4** and `swift test --package-path mac/Icarus` runs
-  clean (58 tests). Swift work no longer has to go through CI.
+  --version` reports **6.2.4**, `swift test --package-path mac/Icarus` runs
+  clean (58 tests), and `scripts/package_dmg.sh` builds a DMG locally. Swift
+  work and DMG packaging no longer have to go through CI.
+
+**Fixed build installed + a fresh DMG cut (both local, both verified).**
+`/Applications/Icarus.app` was replaced with the fixed build (old alpha-4
+backed up to the session scratchpad first) and re-confirmed live: same
+question, correct answer, drawer chip truncating properly. Then
+`ICARUS_BRAIN_URL=<azure> scripts/package_dmg.sh` rebuilt
+`mac/Icarus/Icarus.dmg` (894 KB, was the Jul-15 alpha-4). Verified by MOUNTING
+it, not by trusting the script: contains `Icarus.app` + `Applications` symlink
++ `READ ME FIRST.txt`, brain URL stamped to the live Azure endpoint (not the
+`127.0.0.1` fallback that silently makes a shared build useless), signature
+valid, and its binary's **SHA-256 is identical to the installed build the chip
+fix was visually confirmed on** — so the DMG ships exactly the proven build,
+not a lookalike rebuild. Still NOT notarized: recipients take the one-time
+Gatekeeper step in the bundled README. The DMG is git-ignored
+(`mac/.gitignore:10`) — it's a local artifact, nothing to commit; the `dmg`
+CI workflow remains the way to give testers a self-serve download.
 - Everything in the 2026-07-19 open list below still stands (2c async ingest,
   voice pill Option A, confirming transformers live).
 
