@@ -157,4 +157,25 @@ final class VoiceModelTests: XCTestCase {
         await model.stopAndTranscribe()
         XCTAssertTrue(model.levels.isEmpty)
     }
+
+    /// A failed start must leave the model RETRYABLE, because retry-after-failure is the
+    /// exact sequence that crashed the app live (2026-07-20): the first attempt failed
+    /// after installing its audio tap, and the second hold hit a bus that already had
+    /// one. The recognizer-side fix is in AppleSpeechRecognizer (it now clears any stale
+    /// tap and tears down on a failed start); this guards the state machine half -- if
+    /// .failed ever became terminal, the user would be stuck until relaunch.
+    func testRecordingCanBeRetriedAfterAFailedStart() async {
+        let failing = VoiceModel(recognizer: StubSpeechRecognizer(.startFailsWith(.unavailable)))
+        await failing.startRecording()
+        guard case .failed = failing.state else {
+            return XCTFail("expected a failed start, got \(failing.state)")
+        }
+
+        // Same model, a working recognizer would now be reachable: .failed must not block
+        // a fresh attempt.
+        let retryable = VoiceModel(recognizer: StubSpeechRecognizer(
+            .transcript(partials: ["second try"], final: "second try"), levels: [0.3]))
+        await retryable.startRecording()
+        XCTAssertEqual(retryable.state, .recording)
+    }
 }

@@ -65,6 +65,25 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+
+        // installTap raises an ObjC NSException -- which Swift CANNOT catch, so it is a
+        // hard crash, not a thrown error -- in two real situations. Both are handled
+        // before the call rather than after, because after is too late.
+        //
+        // 1. A tap already on the bus. finish() removes it on the normal path, but a
+        //    session that failed AFTER the install (see engine.start below) left one
+        //    behind, and the NEXT hold of the talk key then crashed the app. Observed
+        //    live 2026-07-20 (two crash reports, both aborting inside
+        //    CreateRecordingTap). removeTap is safe when no tap is present.
+        input.removeTap(onBus: 0)
+        // 2. A degenerate input format (no channels / zero sample rate), which happens
+        //    when the mic is unavailable or the input device changes mid-session --
+        //    unplugged headphones, AirPods handing off. A typed error gives the user the
+        //    honest "not available right now" path instead of killing the app.
+        guard format.channelCount > 0, format.sampleRate > 0 else {
+            throw SpeechStartError.unavailable
+        }
+
         // ONE tap feeds both the recognizer and the waveform. Measuring here (rather than
         // via a second tap or a timer) is what makes the waveform provably real: the bars
         // are computed from the exact audio being transcribed.
@@ -73,7 +92,14 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
             onLevel(Self.normalizedLevel(of: buffer))
         }
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            // Never leave the tap installed on a failed start -- that stale tap is
+            // exactly what crashed the next attempt.
+            input.removeTap(onBus: 0)
+            throw SpeechStartError.unavailable
+        }
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
