@@ -215,8 +215,19 @@ not a lookalike rebuild. Still NOT notarized: recipients take the one-time
 Gatekeeper step in the bundled README. The DMG is git-ignored
 (`mac/.gitignore:10`) — it's a local artifact, nothing to commit; the `dmg`
 CI workflow remains the way to give testers a self-serve download.
+
+**DMG RECUT at end of session — this is the one to ship (919 KB).** The 894 KB
+cut above predates every app commit, so it carries neither the Option A pill nor
+the crash fix. **Do not circulate it**: it still has the stale-audio-tap bug, so
+it dies on a second voice attempt after any failed start. The recut was verified
+the same way (mounted, not trusted): correct contents, brain URL stamped,
+signature valid, and binary **SHA-256 `dc2c9e6f3f43…` identical to
+`/Applications/Icarus.app`** — the exact build Alankrit hammered on voice with
+no crashes. Not a rebuild that should match; byte-for-byte the verified one.
+Still not notarized (one-time Gatekeeper step in the bundled README).
 - Everything in the 2026-07-19 open list below still stands (2c async ingest,
-  voice pill Option A, confirming transformers live).
+  confirming transformers live). Voice pill Option A is DONE — see the top
+  section; only the leftovers listed there remain.
 
 ---
 
