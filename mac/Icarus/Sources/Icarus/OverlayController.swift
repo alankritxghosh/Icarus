@@ -83,7 +83,7 @@ final class OverlayController {
                 OverlayView(auth: self.auth, connect: self.connect, model: self.model, voice: self.voice)
             }
             self.panel = panel
-            panel.center()
+            panel.pinToBottomCenter()
         }
         panel.makeKeyAndOrderFront(nil)
     }

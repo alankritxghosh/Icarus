@@ -31,6 +31,46 @@ final class FloatingPanel<Content: View>: NSPanel {
         let hosting = NSHostingController(rootView: content())
         hosting.sizingOptions = .preferredContentSize
         contentViewController = hosting
+
+        // Option A anchors the pill to the bottom of the screen and lets it grow UPWARD
+        // into the answer card. Positioning once isn't enough: `.preferredContentSize`
+        // resizes the panel every time the content changes state, and AppKit's resize
+        // does not keep the bottom edge where we put it. So re-pin on every resize --
+        // that, not the initial placement, is what makes the morph grow upward instead
+        // of drifting or running off-screen.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pinToBottomCenter() }
+        }
+        // A drag is the user overriding us; once they move it, stop re-pinning so the
+        // panel stays where they put it (the pre-existing behaviour this must not break).
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: self, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.isRepositioning else { return }
+                self.userHasMoved = true
+            }
+        }
+    }
+
+    /// True once the user has dragged the panel — auto-pinning yields to them from then on.
+    private(set) var userHasMoved = false
+    /// Guards the drag detector against our OWN programmatic moves.
+    private var isRepositioning = false
+
+    /// Place the panel bottom-centre on the active screen, clear of the Dock and menu
+    /// bar (`visibleFrame` already excludes both). No-op once the user has dragged it.
+    func pinToBottomCenter(margin: CGFloat = 28) {
+        guard !userHasMoved, let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let visible = screen.visibleFrame
+        let origin = NSPoint(x: visible.midX - frame.width / 2,
+                             y: visible.minY + margin)
+        guard origin != frame.origin else { return }
+        isRepositioning = true
+        setFrameOrigin(origin)
+        isRepositioning = false
     }
 
     // A panel can take key focus (so the text field is typable) but never
