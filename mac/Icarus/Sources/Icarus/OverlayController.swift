@@ -40,7 +40,10 @@ final class OverlayController {
     private func speak(for state: AskModel.State) {
         guard case .response(let r) = state else { return }
         if r.verdict == .answer {
-            speaker.speak(r.answer)
+            // Speak the HEADLINE, not the whole answer: the overlay carries the full
+            // text and the quoted proof, so reciting all of it talks over the reading.
+            // A strict subset of the grounded answer -- never a re-generated summary.
+            speaker.speak(SpokenSummary.summarize(r.answer))
         } else {
             speaker.speak("I couldn’t find where anyone wrote this down.")
         }

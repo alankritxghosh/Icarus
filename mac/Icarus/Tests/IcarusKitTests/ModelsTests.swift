@@ -95,4 +95,29 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(old.isTruncated)
     }
 
+
+    /// The excerpt is optional on the wire. A brain deployed before the field existed
+    /// omits it entirely, and the app must still decode the answer and show the ref --
+    /// a missing quote must never cost the user the whole response.
+    func testCitationDecodesWithoutAnExcerpt() throws {
+        let json = """
+        {"verdict":"answer","answer":"Because of the restart window.",
+         "citations":[{"ref":"pr:1482","url":"https://github.com/a/b/pull/1482"}],
+         "searched":["pr:1482"]}
+        """.data(using: .utf8)!
+        let r = try JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertEqual(r.citations.first?.ref, "pr:1482")
+        XCTAssertNil(r.citations.first?.excerpt)
+    }
+
+    func testCitationDecodesTheExcerptWhenPresent() throws {
+        let json = """
+        {"verdict":"answer","answer":"Because of the restart window.",
+         "citations":[{"ref":"code:retry.go#L1-L40","url":null,
+                       "excerpt":"const maxRetries = 3\\n…"}],
+         "searched":["code:retry.go#L1-L40"]}
+        """.data(using: .utf8)!
+        let r = try JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertEqual(r.citations.first?.excerpt, "const maxRetries = 3\n…")
+    }
 }

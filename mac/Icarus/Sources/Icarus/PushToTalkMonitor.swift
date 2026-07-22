@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox   // kVK_RightOption
+import IcarusKit
 
 /// Push-to-talk on a single key: hold **Right Option (⌥)** to talk. A modifier-only
 /// key can't be a Carbon hotkey, so this watches `.flagsChanged` instead of using
@@ -13,7 +14,7 @@ import Carbon.HIToolbox   // kVK_RightOption
 final class PushToTalkMonitor {
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var isDown = false
+    private var state = PushToTalkState()
     private let onDown: () -> Void
     private let onUp: () -> Void
 
@@ -44,19 +45,22 @@ final class PushToTalkMonitor {
         if let l = localMonitor { NSEvent.removeMonitor(l) }
         globalMonitor = nil
         localMonitor = nil
+        // Tearing down the monitors means no release event can ever arrive, so close any
+        // open session here rather than leaving the microphone live.
+        if state.forceStop() == .stop { onUp() }
     }
 
-    /// Right Option is keyCode 61; left Option is 58 (ignored, so accented-character
-    /// typing on the left key is unaffected). `.option` present ⇒ down, absent ⇒ up.
+    /// Every flags event is fed to the state machine — note this is NOT gated on the
+    /// key code any more. Gating the whole handler on right-Option meant a release that
+    /// arrived as any other event was never seen, leaving the mic open with no key held
+    /// (see PushToTalkState for the full account). Starting stays right-Option-only;
+    /// PushToTalkState owns that asymmetry.
     private func handle(_ event: NSEvent) {
-        guard event.keyCode == UInt16(kVK_RightOption) else { return }
-        let held = event.modifierFlags.contains(.option)
-        if held, !isDown {
-            isDown = true
-            onDown()
-        } else if !held, isDown {
-            isDown = false
-            onUp()
+        switch state.apply(keyCode: event.keyCode,
+                           optionHeld: event.modifierFlags.contains(.option)) {
+        case .start: onDown()
+        case .stop:  onUp()
+        case .none:  break
         }
     }
 }

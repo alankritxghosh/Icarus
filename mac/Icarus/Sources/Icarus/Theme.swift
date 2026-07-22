@@ -98,27 +98,43 @@ struct VisualEffectBackground: NSViewRepresentable {
 /// transcribing (see `AppleSpeechRecognizer.normalizedLevel`). There is deliberately no
 /// idle animation and no synthetic motion: silence renders as flat minimum-height bars,
 /// so a moving waveform is honest evidence the mic is actually hearing something.
+/// Drawn in a single `Canvas`, not as 40 stacked `Capsule` views.
+///
+/// The view-per-bar version rebuilt and animated 40 view identities on every level
+/// update — with implicit animation on an array whose every index shifts each tick, that
+/// is ~1,700 view animations a second, on top of a live vibrancy blur. Canvas is one draw
+/// call with no view identity to diff.
+///
+/// There is deliberately NO implicit animation here either: the data arrives ~14x/sec and
+/// IS the motion. Interpolating between real measurements would smooth the mic reading
+/// into something prettier than the truth, which is the one thing this waveform exists not
+/// to do.
 struct WaveformView: View {
     let levels: [Float]
     var barWidth: CGFloat = 3
     var spacing: CGFloat = 2
     var height: CGFloat = 22
 
+    private var width: CGFloat {
+        CGFloat(VoiceModel.levelWindow) * (barWidth + spacing) - spacing
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: spacing) {
-            // Pad the left with silence so the bars fill from the right as speech
-            // arrives, instead of a short window stretching to fit.
-            let padded = Array(repeating: Float(0),
-                               count: max(0, VoiceModel.levelWindow - levels.count)) + levels
-            ForEach(Array(padded.enumerated()), id: \.offset) { _, level in
-                Capsule()
-                    .fill(Theme.cited)
-                    .frame(width: barWidth,
-                           height: max(2, CGFloat(level) * height))
+        Canvas(opaque: false, rendersAsynchronously: false) { context, size in
+            // Pad the left with silence so bars fill from the right as speech arrives.
+            let pad = max(0, VoiceModel.levelWindow - levels.count)
+            for index in 0..<VoiceModel.levelWindow {
+                let level = index < pad ? 0 : levels[index - pad]
+                let barHeight = max(2, CGFloat(level) * size.height)
+                let rect = CGRect(x: CGFloat(index) * (barWidth + spacing),
+                                  y: (size.height - barHeight) / 2,
+                                  width: barWidth,
+                                  height: barHeight)
+                context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2),
+                             with: .color(Theme.cited))
             }
         }
-        .frame(height: height)
-        .animation(.linear(duration: 0.08), value: levels)
+        .frame(width: width, height: height)
         .accessibilityLabel("Microphone level")
     }
 }

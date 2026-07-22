@@ -27,9 +27,15 @@ struct OverlayView: View {
 
     private var cornerRadius: CGFloat { isExpanded ? 20 : 30 }
 
-    /// One spring drives every part of the morph (shape, padding, content) so the pill
-    /// expands as a single object instead of several elements animating out of step.
-    private var morph: Animation { .spring(response: 0.34, dampingFraction: 0.85) }
+    /// Deliberately a short opacity/shape animation, NOT a spring on the layout.
+    ///
+    /// The panel sizes itself from its content (`FloatingPanel`'s
+    /// `sizingOptions = .preferredContentSize`), so animating anything that changes
+    /// HEIGHT makes AppKit resize the window on every frame of the animation — and each
+    /// resize re-runs the bottom-pin and recomputes the vibrancy blur behind it. That is
+    /// what made the morph lag. Now the window resizes ONCE and the content fades in over
+    /// it, which reads as the same gesture and costs a fraction as much.
+    private var morph: Animation { .easeOut(duration: 0.18) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -42,8 +48,12 @@ struct OverlayView: View {
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, isExpanded ? 20 : 14)
-        .frame(width: 560, alignment: .leading)
+        // Constant, not isExpanded-dependent: animating padding animates HEIGHT, which
+        // resizes the window every frame (see `morph`).
+        .padding(.vertical, 16)
+        // 430pt, not 560: "cannot occupy much of the screen" is a stated constraint, and
+        // the narrower measure also keeps the answer near a readable line length.
+        .frame(width: 430, alignment: .leading)
         // Glass, not a flat card: real behind-window vibrancy, then a translucent wash of
         // the card colour over it. The wash is not decoration — raw vibrancy alone lets
         // whatever is behind the panel show through hard enough to hurt legibility, and an
@@ -84,11 +94,12 @@ struct OverlayView: View {
 
             voiceStatus()
 
-            // Grows upward out of the pill: the panel is pinned to its bottom edge
-            // (FloatingPanel.pinToBottomCenter), so a bottom-edge move transition reads
-            // as the answer rising out of the pill rather than dropping onto it.
+            // Opacity only, no `.move`. A move transition animates the section's height,
+            // which drags the window through a resize on every frame; a fade lets the
+            // panel take its new size once and the content appear over it. The upward
+            // growth still reads, because the panel is pinned to its bottom edge.
             resultSection()
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(.opacity)
         }
     }
 
@@ -147,22 +158,42 @@ struct OverlayView: View {
         }
     }
 
+    /// Direction 03 "Receipt": the spoken headline, then the PROOF ITSELF quoted from the
+    /// source — not a pointer to it. A pointer still makes you leave the overlay to check
+    /// anything, which is the wrong default for a product whose claim is that it never
+    /// asks to be taken on faith.
     @ViewBuilder
     private func answer(_ r: AskResponse) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            MonoLabel("THE ANSWER")
+        VStack(alignment: .leading, spacing: 11) {
             Text(r.answer)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.ink)
                 .textSelection(.enabled)
-            if !r.citations.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    MonoLabel("RECEIPTS", Theme.cited)
-                    FlowLayout(spacing: 8) {
-                        ForEach(r.citations) { CitationChip(citation: $0) }
-                    }
+                .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(r.citations) { citation in
+                evidence(citation)
+            }
+        }
+    }
+
+    /// One piece of quoted evidence: the excerpt behind a green rule, with its ref
+    /// beneath as the link. When the brain is older than the excerpt field, this
+    /// degrades to the ref alone rather than showing an empty quote block.
+    @ViewBuilder
+    private func evidence(_ citation: Citation) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if let excerpt = citation.excerpt, !excerpt.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Rectangle().fill(Theme.cited).frame(width: 2)
+                    Text(excerpt)
+                        .font(Theme.mono(10.5))
+                        .foregroundStyle(Theme.ink.opacity(0.78))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            CitationChip(citation: citation)
         }
     }
 

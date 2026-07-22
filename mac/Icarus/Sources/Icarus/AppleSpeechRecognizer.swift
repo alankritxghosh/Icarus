@@ -87,9 +87,18 @@ final class AppleSpeechRecognizer: NSObject, SpeechRecognizer, @unchecked Sendab
         // ONE tap feeds both the recognizer and the waveform. Measuring here (rather than
         // via a second tap or a timer) is what makes the waveform provably real: the bars
         // are computed from the exact audio being transcribed.
+        // Level updates are DECIMATED, the recogniser's are not. At 44.1kHz a 1024-frame
+        // buffer arrives ~43x/sec, and each level crossed to the main actor and
+        // invalidated the overlay — ~43 view updates/sec behind a live vibrancy blur,
+        // which is what made the UI lag. Every 3rd buffer is ~14/sec: still visibly
+        // reactive to speech, a third of the work. The audio itself is never dropped.
+        var bufferIndex = 0
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
-            onLevel(Self.normalizedLevel(of: buffer))
+            bufferIndex &+= 1
+            if bufferIndex % 3 == 0 {
+                onLevel(Self.normalizedLevel(of: buffer))
+            }
         }
         engine.prepare()
         do {

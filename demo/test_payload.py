@@ -2,6 +2,7 @@
 import unittest
 
 from evals.pipeline import Result
+from . import payload
 from .payload import build_payload
 
 REPO = "simonw/llm"
@@ -15,7 +16,7 @@ class BuildPayloadTests(unittest.TestCase):
         p = build_payload(r, REPO, COMMIT)
         self.assertEqual(p["verdict"], "answer")
         self.assertEqual(p["answer"], "Because Y.")
-        self.assertEqual(p["citations"], [{"ref": "pr:1435", "url": "https://github.com/simonw/llm/pull/1435"}])
+        self.assertEqual(p["citations"], [{"ref": "pr:1435", "url": "https://github.com/simonw/llm/pull/1435", "excerpt": ""}])
         self.assertEqual(p["searched"], ["pr:1435", "code:llm/x.py"])
 
     def test_unknown_is_empty_answer_no_citations_but_shows_searched(self):
@@ -33,8 +34,51 @@ class BuildPayloadTests(unittest.TestCase):
 
     def test_citation_without_url_still_appears(self):
         r = Result(verdict="answer", answer="a", citations=["slack:9"], retrieved=["slack:9"])
-        self.assertEqual(build_payload(r, REPO, COMMIT)["citations"], [{"ref": "slack:9", "url": None}])
+        self.assertEqual(build_payload(r, REPO, COMMIT)["citations"], [{"ref": "slack:9", "url": None, "excerpt": ""}])
 
 
 if __name__ == "__main__":
     unittest.main()
+
+class ExcerptTests(unittest.TestCase):
+    """The excerpt is PROOF shown inline, so its bounds and its truncation
+    marking are correctness, not cosmetics: an unmarked clip misrepresents the
+    evidence."""
+
+    def test_short_evidence_is_shown_whole_and_unmarked(self):
+        self.assertEqual(payload.excerpt("const maxRetries = 3"), "const maxRetries = 3")
+
+    def test_blank_lines_are_dropped(self):
+        self.assertEqual(payload.excerpt("a\n\n\nb"), "a\nb")
+
+    def test_extra_lines_are_clipped_and_marked(self):
+        out = payload.excerpt("l1\nl2\nl3\nl4\nl5\nl6")
+        self.assertEqual(out.splitlines()[:4], ["l1", "l2", "l3", "l4"])
+        self.assertTrue(out.endswith("…"), "a clipped excerpt must be marked")
+
+    def test_one_enormous_line_is_bounded_and_marked(self):
+        # A machine-generated file can hold a single ~250k-char line; a line cap
+        # alone never trips on it.
+        out = payload.excerpt("x" * 250_000)
+        self.assertLess(len(out), 200)
+        self.assertIn("…", out)
+
+    def test_no_evidence_yields_empty_string(self):
+        self.assertEqual(payload.excerpt(""), "")
+
+    def test_payload_carries_the_excerpt_for_each_citation(self):
+        r = Result(verdict="answer", answer="Because of the restart window.",
+                   citations=["code:sched/retry.go#L1-L40"],
+                   retrieved=["code:sched/retry.go#L1-L40"],
+                   evidence={"code:sched/retry.go#L1-L40": "// 5 masked a dead node\nconst maxRetries = 3"})
+        out = payload.build_payload(r, "acme/sched", "abc1234")
+        self.assertEqual(out["citations"][0]["excerpt"],
+                         "// 5 masked a dead node\nconst maxRetries = 3")
+
+    def test_unknown_verdict_carries_no_citations_and_no_excerpts(self):
+        r = Result(verdict="unknown", retrieved=["code:a.py#L1-L10"],
+                   evidence={"code:a.py#L1-L10": "should not leak"})
+        out = payload.build_payload(r, "acme/sched", "abc1234")
+        self.assertEqual(out["citations"], [])
+        self.assertNotIn("should not leak", str(out))
+

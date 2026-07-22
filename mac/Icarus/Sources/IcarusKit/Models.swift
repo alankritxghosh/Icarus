@@ -13,7 +13,21 @@ public enum Verdict: String, Decodable, Sendable {
 public struct Citation: Decodable, Identifiable, Hashable, Sendable {
     public let ref: String
     public let url: String?
+    /// A bounded quote of the cited evidence, sent by the brain so the overlay can
+    /// show the PROOF rather than a pointer to it. Optional on purpose: a brain
+    /// deployed before this field existed simply omits it, and the app falls back
+    /// to showing the ref alone instead of failing to decode the whole answer.
+    /// Truncation is already marked with '…' server-side (demo/payload.excerpt).
+    public let excerpt: String?
     public var id: String { ref }
+
+    /// `excerpt` defaults to nil so a citation can still be constructed from just a ref
+    /// and URL — the shape older code and tests already use.
+    public init(ref: String, url: String?, excerpt: String? = nil) {
+        self.ref = ref
+        self.url = url
+        self.excerpt = excerpt
+    }
 }
 
 /// The `/ask` response, mirroring demo/payload.py:

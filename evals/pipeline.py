@@ -12,7 +12,7 @@ do-nothing stub, so we can stand up an honest red baseline first.
 
 import re
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List
 
 from .corpus import chunk_covers_lines
 
@@ -48,6 +48,10 @@ class Result:
     answer: str = ""
     citations: List[str] = field(default_factory=list)
     retrieved: List[str] = field(default_factory=list)
+    # evidence: {cited ref -> the chunk text the writer actually saw}, for CITED
+    # refs only. Lets a caller show the proof itself rather than a pointer to it.
+    # Never an input to the honesty gate -- purely what was already used.
+    evidence: Dict[str, str] = field(default_factory=dict)
 
 
 class Pipeline:
@@ -216,4 +220,9 @@ class GatedPipeline(Pipeline):
         result = gate(self._provider.complete(build_prompt(question, top)), retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
+        # Carry the text of the CITED evidence back out, so a caller can show the
+        # proof instead of a pointer to it. Cited-only, and read from the same map
+        # the writer and gate saw -- it cannot surface anything that wasn't already
+        # grounded, so this adds no new honesty surface.
+        result.evidence = {ref: evidence[ref] for ref in result.citations if ref in evidence}
         return result
