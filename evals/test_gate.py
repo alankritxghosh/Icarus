@@ -200,3 +200,66 @@ class EntityPresenceGuardTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SelfDisclaimingAnswerGuardTests(unittest.TestCase):
+    """Guard (d): the writer's `verdict` field is a CLAIM, not a fact.
+
+    Found live 2026-07-22 on psf/requests: verdict="answer" whose prose was
+    plainly an abstention ("the evidence does not state a specific reason").
+    Guard (b) had passed it because the cited 107-line chunk happened to contain
+    "to ensure" in an unrelated comment. Believe the sentence, not the field.
+    """
+
+    REF = "code:src/requests/models.py#L1-L107"
+    # A head-of-file chunk whose UNRELATED comment satisfies _states_reason --
+    # this is what made guard (b) insufficient, so the fixture keeps it.
+    EVIDENCE = {REF: ("# models.py\nimport datetime\n"
+                      "# alias to ensure compatibility.\n"
+                      "DEFAULT_REDIRECT_LIMIT = 30\n")}
+
+    def _gate(self, answer, question="Why is DEFAULT_REDIRECT_LIMIT exactly 30?"):
+        raw = json.dumps({"verdict": "answer", "answer": answer, "citations": [self.REF]})
+        return gate(raw, [self.REF], question=question, evidence=self.EVIDENCE)
+
+    def test_the_live_case_is_forced_to_unknown(self):
+        r = self._gate("The evidence does not state a specific reason for why the limit "
+                       "is 30; it only defines DEFAULT_REDIRECT_LIMIT as 30 in the source code.")
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.citations, [])
+
+    def test_other_self_disclaimers_are_caught(self):
+        for answer in [
+            "No specific reason is given in the retrieved code.",
+            "The rationale was never documented in the linked pull request.",
+            "The provided context doesn't explain why this value was chosen.",
+            "No explanation for the choice appears in the evidence.",
+        ]:
+            with self.subTest(answer=answer):
+                self.assertEqual(self._gate(answer).verdict, "unknown")
+
+    def test_real_answers_containing_negation_are_NOT_abstained(self):
+        """The expensive failure mode for this guard is over-abstention, so these
+        must all survive: each is a genuine answer that merely contains 'not'."""
+        for answer in [
+            "The code does not validate input, so callers must sanitize it first.",
+            "The timeout is not configurable because the socket is shared across sessions.",
+            "Three retries were chosen because five masked a dead node for a staging week.",
+            "requests does not specify a default timeout, so a hung server blocks forever.",
+            "HTTP/2 is unsupported because urllib3 lacks support for it.",
+            "The reason given in PR 1482 is that five retries hid failures.",
+        ]:
+            with self.subTest(answer=answer):
+                self.assertEqual(self._gate(answer).verdict, "answer")
+
+    def test_guard_applies_without_question_or_evidence(self):
+        """It reads only the answer, so 2-arg callers and .explain() are protected too."""
+        raw = json.dumps({"verdict": "answer",
+                          "answer": "No specific reason is given for this value.",
+                          "citations": [self.REF]})
+        self.assertEqual(gate(raw, [self.REF]).verdict, "unknown")
+
+    def test_guard_never_turns_unknown_into_answer(self):
+        """Fail-safe direction: it can only ever remove an answer."""
+        raw = json.dumps({"verdict": "unknown", "answer": "", "citations": []})
+        self.assertEqual(gate(raw, [self.REF]).verdict, "unknown")
+

@@ -181,6 +181,50 @@ def _seeks_rationale(question) -> bool:
     return isinstance(question, str) and _SEEKS_RATIONALE.search(question) is not None
 
 
+# --- (d) self-disclaiming answer guard ----------------------------------------
+# The gate takes the writer's own `verdict` field at face value. A writer can set
+# verdict="answer" and then write prose that is plainly an ABSTENTION -- found
+# live 2026-07-22 on psf/requests:
+#
+#   Q: "Why is DEFAULT_REDIRECT_LIMIT exactly 30?"
+#   A: "The evidence does not state a specific reason for why the limit is 30;
+#       it only defines DEFAULT_REDIRECT_LIMIT as 30 in the source code."
+#   verdict: "answer"   <- wrong; this is an honest unknown wearing the wrong label
+#
+# Guard (b) let it through because the cited 107-line chunk happened to contain
+# "to ensure" in an UNRELATED comment, which satisfied _states_reason. Rather than
+# trying to make (b) semantically precise (that way lies building a model), this
+# guard reads the ANSWER: if the writer says it doesn't know, believe it, whatever
+# the verdict field claims.
+#
+# Nothing about groundedness changes -- this only ever turns "answer" into
+# "unknown", so it cannot admit a bluff. The risk is the opposite one, over-
+# abstention, which is why the patterns require a disclaimer ABOUT A REASON or
+# about the evidence itself, not any ordinary negation. "The code does not
+# validate input" and "the timeout is not configurable" are real answers and must
+# not trip it; the board is the check on that.
+_DISCLAIMS_ANSWER = (
+    # "does not state/give/explain ... a reason" (also doesn't / did not / don't)
+    re.compile(r"\b(?:do(?:es)?|did)\s*n(?:o|')t\s+"
+               r"(?:state|say|specify|explain|mention|provide|indicate|give|record|document)\b"
+               r"[^.]{0,60}?\b(?:reason|rationale|explanation|why|justification|motivation)\b", re.I),
+    # "the reason is not stated / was never documented"
+    re.compile(r"\b(?:reason|rationale|explanation|justification)\b[^.]{0,40}?"
+               r"\b(?:is|was|are|were)\s+(?:not|never)\s+"
+               r"(?:stated|specified|explained|given|provided|recorded|documented)\b", re.I),
+    # "no specific reason is given" / "no explanation"
+    re.compile(r"\bno\s+(?:specific\s+|explicit\s+|documented\s+|stated\s+)?"
+               r"(?:reason|rationale|explanation|justification)\b", re.I),
+)
+
+
+def _disclaims_answer(answer) -> bool:
+    """True when the answer's own prose says the reason isn't recorded."""
+    if not isinstance(answer, str):
+        return False
+    return any(p.search(answer) for p in _DISCLAIMS_ANSWER)
+
+
 def _states_reason(text) -> bool:
     if not isinstance(text, str):
         return False
@@ -288,4 +332,10 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
             return _source(r) in ("pr", "issue", "doc", "commit") or _states_reason(evidence.get(r, ""))
         if not any(_records_reason(r) for r in grounded):
             return Result(verdict="unknown", retrieved=list(retrieved))
+    # (d) The writer's verdict field is a CLAIM, not a fact. If the prose itself
+    # says the reason isn't recorded, that is an abstention regardless of the label
+    # -- believe the sentence, not the field. Unconditional: it reads only the
+    # answer, so it protects .explain() and 2-arg callers too.
+    if _disclaims_answer(answer):
+        return Result(verdict="unknown", retrieved=list(retrieved))
     return Result(verdict="answer", answer=answer.strip(), citations=grounded, retrieved=list(retrieved))
