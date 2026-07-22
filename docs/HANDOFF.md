@@ -1,3 +1,138 @@
+# Icarus — Session Handoff (2026-07-22: overlay shows the written proof; honesty-gate verdict gap CLOSED; YC application drafted)
+
+**READ THIS FIRST — supersedes every engineering-state claim below.** The
+standing 2026-07-16 business mandate is now ACTIVE, not deferred: **Alankrit is
+filling out the YC application within ~18 hours of this entry.** Default to
+supporting that, not to new engineering.
+
+**Live: `icarus-brain--0000020`. `main` @ the handoff commit (was `38082ee`).
+DMG current. evals 462 · demo 199 · IcarusKit 80 — all green. Paid board GREEN.**
+
+## 1. The overlay now shows the written PROOF (direction 03, `aaf5f8b`)
+
+Alankrit rejected the previous UI as generic/cluttered/unpremium, and chose
+direction 03 ("Receipt") from a wireframe board. Constraints he set: translucent,
+small, speech is a 1–2 line summary, **the written proof stays on screen**.
+
+The scope discovery: **the brain never sent the evidence text.** `Citation` was
+`{ref, url}` — pointers only — so "show the proof" needed a server change, not a
+view change.
+- `Result.evidence` carries the text of CITED refs only, read from the same map
+  the writer and gate already saw, so it cannot surface anything ungrounded.
+- `payload.excerpt()` bounds by BOTH lines and chars (one generated line can be
+  ~250k) and **always marks a clip with `…`** — an unmarked clip would quietly
+  misrepresent the proof.
+- `Citation.excerpt` is OPTIONAL on the wire: an older brain omits it and the app
+  degrades to showing the ref rather than failing to decode the whole answer.
+- Overlay narrowed 560pt → 430pt.
+
+**Speech is now a strict SUBSET of the grounded answer** (`SpokenSummary`): the
+first sentence, never a re-generated summary — a second generation is a second
+thing that can drift from the citations. Tested that spoken text always appears
+verbatim in the answer.
+
+## 2. Push-to-talk could strand the MICROPHONE OPEN (`aaf5f8b`)
+
+Found while testing: app stuck in "listening", orange mic indicator, no key held.
+`PushToTalkMonitor.handle` returned early unless `keyCode == right-Option`, so a
+release arriving as any other event was never seen and `isDown` stayed true.
+Extracted `PushToTalkState`: **starting stays right-Option-only** (left Option
+must never open a mic), **stopping accepts ANY event showing Option released**,
+plus `forceStop()` on teardown. 7 tests.
+*Caveat:* triggered with synthetic key events, so it is unproven that a human
+hits it the same way — but the code gap is real (focus change mid-hold, revoked
+Input Monitoring).
+
+## 3. Overlay transition lag — STILL UNRESOLVED, and I was wrong twice
+
+Alankrit reports transitions are laggy. **Two hypotheses were falsified by
+measurement — do not re-run them:**
+- "The waveform's ~1,700 view-animations/sec" — `sample` on the app during a full
+  ask+expand showed **5,426 of 5,692 main-thread samples IDLE** in `mach_msg_trap`.
+  Icarus is not CPU-bound.
+- "WindowServer is being crushed by the blur" — instantaneous sampling across six
+  open/close cycles: baseline ~31–36%, peak **41.5%**. A bump, not saturation.
+
+Context that IS true: the machine was loaded (Claude Helper renderer at ~75% CPU,
+load avg 2.7). The perf changes that shipped (Canvas waveform instead of 40
+animated views, ~14Hz instead of 43Hz levels, no per-frame window resize) are
+defensible on their own merits but are **NOT a proven lag fix** — do not record
+them as one.
+**Remaining untested hypothesis:** the panel now resizes ONCE and content fades,
+which trades stutter for a *jump*. The proper fix is to stop letting SwiftUI's
+layout drive window size and animate the frame explicitly (`NSAnimationContext` +
+`panel.animator().setFrame`). Before building it, ask Alankrit the one
+distinguishing question: does the panel **snap/jump**, or **stutter/tear**?
+
+## 4. Honesty gate: the writer-verdict gap is CLOSED (guard (d), `38082ee`, rev 0000020)
+
+The long-standing gap in memory `gate-gap-writer-verdict-trust` is fixed. Found
+live while dry-running the demo on `psf/requests`:
+
+> Q: "Why is DEFAULT_REDIRECT_LIMIT exactly 30?"
+> A: "The evidence does not state a specific reason for why the limit is 30…"
+> verdict: **"answer"**
+
+An honest unknown wearing the wrong label — it rendered as a cited answer instead
+of the "No one wrote this down" hero state, i.e. **the product's most important
+moment was silently not firing on the most natural question a user can ask.**
+
+Root cause, reproduced deterministically first: guard (b) accepted the evidence
+because the cited 107-line chunk contained **"to ensure" in an unrelated comment**,
+satisfying `_states_reason`. Guard (d) does NOT try to make (b) semantically
+precise (that path ends in building a model inside the gate) — it reads the
+ANSWER: if the writer disclaims knowing, believe it whatever the verdict field
+says. Unconditional, so `.explain()` and 2-arg callers are covered.
+
+Risk direction is over-abstention, never bluffing. Patterns require a disclaimer
+**about a reason or about the evidence**, never ordinary negation — "the code does
+not validate input" and "the timeout is not configurable because…" are tested to
+survive. **Paid board GREEN after: gates 100%/100%, answer correctness 100% —
+zero real answers lost** (this check mattered; guard (b) once dropped it to 50%).
+Live-verified both directions on rev 0000020.
+
+## 5. Docs + YC
+
+- **`docs/DESIGN_VISION.md` reconciled (`7e65267`).** It had banned glassmorphism
+  outright while the app shipped frosted vibrancy. Alankrit's call is
+  translucency, so the ban is **deliberately and datedly reversed for the
+  floating overlay only**, argued as a *spatial* device (the overlay sits on the
+  user's work and must say so), with a tripwire: if translucency ever softens a
+  border or blurs the receipts, it is back in the ban. Principle 6 ("no fake
+  confidence") untouched. Still banned everywhere else.
+- **`docs/YC_APPLICATION.md` drafted (`7e65267`).** Every factual claim
+  verifiable; sections only Alankrit can answer (why this idea, founder
+  background, incorporation, company URL) are marked `[ALANKRIT]` and left blank
+  rather than guessed. It states plainly there are no users and no revenue —
+  **keep it that way.**
+
+## 6. Demo dry run — verified beats (use these, they are checked)
+
+Ran on `psf/requests` (200 PR / 500 issue / 680 code chunks, not truncated).
+- **Cited answer:** "Why does requests not support HTTP/2?" → cites `issue:6752`
+  + `issue:6856`, both URLs return 200.
+- **The refusal:** "Why is DEFAULT_REDIRECT_LIMIT exactly 30?" (now the STRONGEST
+  beat post-guard-(d) — a specific number sitting in the code), plus
+  "…CaseInsensitiveDict instead of a plain dict?", "…iter_content 512 bytes?",
+  "…stream False by default?"
+- **Fabricated symbol refused:** "How does the HyperSessionPool class reuse
+  sockets?" and "What does adaptive_backoff_window control?"
+- **Record on `psf/requests`, not `react/react`** — indexes in seconds vs ~30 min
+  of background embedding, and the beats are already verified there.
+
+## Open / next
+
+- **YC application** — the `[ALANKRIT]` sections, then a 90-second demo video
+  (script in `docs/YC_APPLICATION.md`, leads with the refusal).
+- **Overlay transition lag** (§3) — ask the distinguishing question first.
+- Doc debt, not on the critical path: `CLAUDE.md` still states the 2026-07-16
+  priority; `docs/WORKFLOWS.md` predates the Mac app, voice, extension, private
+  repos and hosting.
+- Everything in the 2026-07-19/20 open lists still stands (2c async ingest,
+  GitHub App to replace the broad `repo` OAuth scope, notarization).
+
+---
+
 # Icarus — Session Handoff (2026-07-20: commit lookup; Option A voice pill BUILT; a real crash found+fixed; chip-overflow fix; CI actions un-deprecated; fresh DMG)
 
 ## Option A voice pill — BUILT (was "design chosen, code not started")
