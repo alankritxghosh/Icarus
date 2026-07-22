@@ -27,15 +27,56 @@ loudly. Polish where it aids reading; brutalism where it signals honesty.
    "searched" list — is mono. It reads as "machine truth," and visually separates
    *the model's prose* from *the repo's receipts*.
 2. **Structure is visible.** Real 1.5–2px solid borders, hard **offset shadows
-   (no blur)** as the signature motif. Cards are flat blocks, not floating glass.
+   (no blur)** as the signature motif. Cards are flat blocks — *in the windowed
+   app*. The floating ask overlay is the deliberate exception; see "The overlay
+   exception" below.
 3. **Calm base, loud truth-moments.** Quiet layout; the two hero states (cited
    answer, honest unknown) are where boldness is spent.
 4. **Blunt language, big.** Confident headings, plain words. "No one wrote this
    down." is a *headline*, not a toast.
 5. **Restraint in color.** Near-monochrome paper + ink, one signal accent, two
    semantic tones. High contrast (brutalist) without circus.
-6. **No fake confidence.** No glossy gradients, glassmorphism, soft drop-shadow
-   soup, or AI-sparkle clichés. The credibility comes from structure, not effects.
+6. **No fake confidence.** No glossy gradients, AI-sparkle clichés, or effects
+   standing in for substance. The credibility comes from structure, not polish.
+   This principle is untouched by the overlay exception below: translucency
+   there is a *spatial* device, not a confidence device.
+
+## The overlay exception (decided 2026-07-22, Alankrit)
+
+**The floating ask overlay is translucent. The windowed app is not.** This
+reverses an earlier blanket ban on glass, deliberately and with a reason —
+recorded here so it is not re-litigated, and not quietly re-drifted either way.
+
+Why the exception is principled rather than a taste climb-down:
+
+- The overlay **sits on top of your actual work** and must be dismissable from
+  attention without being dismissed from the screen. Translucency is how a
+  surface says "I am temporary and I am over your editor" — it is spatial
+  information, not decoration. The windowed app makes no such claim, so it keeps
+  the flat blocks and hard offset shadows.
+- The **honesty principles are unaffected.** Evidence stays monospace, the
+  refusal stays a headline, the palette stays restrained. What was banned was
+  gloss substituting for substance; a blur that communicates layering is not
+  that. If translucency ever starts hiding structure — softening a border,
+  blurring the receipts — it has crossed back into the ban.
+
+Constraints the overlay carries (from live use, 2026-07-22):
+
+- **Small.** It must not occupy much of the screen. Direction 03 ("Receipt") is
+  ~430pt wide.
+- **The written proof is on screen**, quoted from the source — not a pointer you
+  must click to verify. An overlay that shows only refs makes the user leave it
+  to check anything, which is the wrong default for a product whose whole claim
+  is that it never asks to be taken on faith.
+- **Speech is a summary; the screen is the record.** Icarus speaks the first
+  sentence of the grounded answer, never the whole thing and never a separately
+  generated précis (a second generation is a second thing that can drift from
+  the citations).
+
+**Known open:** transition smoothness on the overlay is unresolved as of
+2026-07-22. Profiling showed the app's main thread is essentially idle during
+transitions, so the cause is NOT in-process CPU; do not "fix" it by reaching for
+more animation tuning without measuring first.
 
 ## Tokens (a starting palette — tune in Figma)
 Lean "paper & ink" so citations and code feel native; works light or dark.
@@ -81,9 +122,14 @@ software moves directly. The "thinking" state is a calm, structural placeholder
 (skeleton block / blinking caret in mono), not a spinner.
 
 ## Anti-patterns (do not)
-Glassmorphism · decorative gradients · blurred drop shadows · everything-rounded ·
-emoji-as-UI · gradient "AI" buttons · a chat-bubble thread look · centered hero
-marketing fluff. None of it matches a tool whose pitch is *it won't lie to you.*
+Decorative gradients · blurred drop shadows · everything-rounded · emoji-as-UI ·
+gradient "AI" buttons · a chat-bubble thread look · centered hero marketing
+fluff. None of it matches a tool whose pitch is *it won't lie to you.*
+
+**Glassmorphism was on this list until 2026-07-22** and is now permitted on the
+floating overlay ONLY, for the spatial reason given in "The overlay exception".
+It remains an anti-pattern everywhere else — the windowed app, the web demo, any
+marketing surface.
 
 ## Carrying forward
 The macOS app (Phase 3) adds a translucent overlay — Honest Brutalism still holds:
