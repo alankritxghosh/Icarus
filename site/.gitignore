@@ -1,0 +1,3 @@
+# Build artifact — the DMG is produced by mac/Icarus/scripts/package_dmg.sh,
+# copied here only to serve locally. Don't bloat git history with a binary.
+Icarus.dmg

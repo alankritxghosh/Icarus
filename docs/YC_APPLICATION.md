@@ -109,28 +109,122 @@ Two things, and the second is the defensible one.
    for the clear cases and writer-reliant beyond them. We publish that boundary
    rather than claiming perfection.
 
-**Who are your competitors, and what do you understand that they don't?**
+**Who are your competitors? What do you understand that they don't?**
+*(Final answer, 2026-07-22.)*
 
-Code-comprehension tools (Cursor, Greptile, Sourcegraph Cody, Unblocked) and
-enterprise search (Glean). They are strong products, better resourced, and most
-are aimed at *writing* code or *finding* code.
+Competitors: code-comprehension and code-gen tools — Cursor, Greptile,
+Sourcegraph Cody, Unblocked, GitHub Copilot — and enterprise search like Glean.
+All better resourced than us, and most are genuinely good at what they're aimed
+at, which is *writing* code or *finding* code. The real incumbent, though, is the
+status quo: asking the one person who's been there five years, or `git blame`
+and a guess.
 
-The understanding we're betting on: **for organizational memory, a confident
-wrong answer is worse than no answer.** If a tool tells you why a timeout is 30
-seconds and it's guessing, you've been handed a fact you will now repeat, and
-you have no way to know. That makes "I don't know" a feature you must be able to
-*trust*, which makes it an engineering problem — a deterministic gate, an eval
-board, a published failure boundary — not a prompt. Tools optimized for
-generation are structurally reluctant to build it, because the same machinery
-that makes them feel magical is what makes them bluff.
+What we understand that they don't:
 
-**How will you make money?**
+1. **The reason isn't in the code, so indexing the code can't find it.**
+   Competitors index the artifact. The *why* lives in the argument that produced
+   it — pull request discussions, issue threads, commit messages — and then it
+   walks out the door when the author leaves. That's a different corpus, and it
+   changes what you retrieve and what counts as evidence.
 
-Per-developer subscription, the standard developer-tools shape. Rough starting
-point $20–40/developer/month, with design partners discounted or free while they
-prove the product. There is a real cost of goods — each question is a paid model
-call — so pricing has a genuine floor. **[ALANKRIT]** — decide whether to state a
-number or say "per-seat, priced above our per-query cost."
+2. **Abstention is the product, and it is commercially hard for them to ship.**
+   Not technically hard — commercially. A coding assistant is judged on how often
+   it produces something useful; every "I don't know" is a failed interaction by
+   that metric, so the whole system is tuned toward always answering. We're
+   judged on whether the answer can be trusted, which makes "no one wrote this
+   down" a success. Same capability, opposite incentive. That gap is why we think
+   this doesn't get closed by a competitor adding a feature.
+
+3. **Honesty has to be enforced outside the model, and that means throwing away
+   work.** Ours is deterministic code between the model and the user, and it
+   regularly rejects answers the model was happy with. A real example from this
+   week: the model produced a fluent answer *and labelled it valid*, but its own
+   prose said "the evidence does not state a specific reason." Our gate caught the
+   contradiction and converted it to a refusal. A team optimizing for engagement
+   doesn't build the thing that deletes its own output.
+
+Where they're ahead, and we know it: they have users, revenue, and distribution;
+we have neither users nor revenue yet. They're far better at code generation — we
+don't write code at all, deliberately. If a company only wants faster code, we're
+the wrong product.
+
+**How do or will you make money? How much could you make?**
+*(Final answer, 2026-07-22.)*
+
+Per-developer subscription, billed monthly or annually — the standard shape for
+dev tools, and the one an engineering lead can approve without procurement.
+Planned starting price **$30/developer/month**; design partners free or heavily
+discounted while they prove it with us. Per-seat over per-query on purpose: if
+asking costs money, people stop asking, and a tool nobody asks isn't
+organizational memory.
+
+The cost constraint, stated honestly: every question is a paid model call, so our
+marginal cost isn't ~zero. The prompt is bounded in code (≤10 evidence chunks,
+code capped at 10k chars each) — a worst-case question is ~25k input tokens on a
+cheap model, typically far less. **We have not instrumented cost-per-question
+yet** and would measure it before quoting a gross margin. Structural answer: price
+the seat above realistic monthly usage, plus a fair-use ceiling.
+
+How much: at $30/dev/mo = $360/dev/year.
+
+| developers | ≈ companies (avg 30 devs) | ARR |
+|---|---|---|
+| 1,000 | ~33 | $360K |
+| 10,000 | ~333 | $3.6M |
+| 100,000 | ~3,300 | $36M |
+
+A venture-scale outcome needs ~3,000 mid-sized engineering orgs — a small
+fraction of companies with 10+ engineers, a legacy codebase, and turnover.
+Expansion, both already in the architecture: an enterprise tier for
+single-tenant / in-customer-cloud (security-conscious buyers pay a multiple),
+and sources beyond GitHub (Slack, Linear, Notion), which raises per-seat value
+because more of the "why" gets captured. The real bet, unproven: that teams pay
+for *understanding* code, not only for writing it. The first thing we test with
+design partners isn't answer quality — it's whether anyone opens it twice in a
+week.
+
+**What tech stack are you using? (incl. AI models and AI coding tools)**
+*(Final answer, 2026-07-22 — verified against the repo, not memory.)*
+
+Brain: Python 3.12, almost entirely standard library (BM25 retrieval, the honesty
+gate, the eval harness, a stdlib `http.server` — no web framework). Three deps:
+`fastembed` for local ONNX embeddings (`BAAI/bge-small-en-v1.5`, no PyTorch), and
+`tree-sitter` + `tree-sitter-language-pack` for AST-aware code chunking.
+Embeddings run locally, so customer code is never sent out to be indexed.
+Retrieval is hybrid — BM25 fused with semantic, weighted from a measured sweep.
+
+Models we rent: answer-writing is Google **Gemini 3.1 Flash Lite** on a
+billing-enabled key — one model for every repo. Evaluation uses *different*
+providers so the judge is never the writer (Groq / Llama 3.3 70B, and Gemini),
+cross-provider. Speech in/out is Apple's on-device framework.
+
+Deliberately NOT a model: the honesty gate — deterministic Python that verifies
+every citation resolves to genuinely-retrieved evidence within a valid line
+range, and refuses otherwise. No prompt talks it out of that; it doesn't change
+when we swap models.
+
+Clients: macOS app in Swift 6 (SwiftUI + AppKit, SwiftPM); Chrome extension in
+vanilla JS (MV3, no build step). Infra: Docker on Azure Container Apps, Azure
+Files for per-tenant isolated storage, GitHub OAuth, GitHub Actions CI. ~740
+automated tests across brain, server, app.
+
+AI coding tools: Claude Code writes most of the code, against a checked-in
+engineering constitution (`AGENTS.md`) that requires a failing test before any
+brain change. We also run adversarial review with a *different* model (GPT-5.6)
+aimed at breaking the honesty gate — that's how we found the verdict-trust bug
+above and fixed it deterministically.
+
+**Other ideas you considered.** **[ALANKRIT — do not let anyone fill this for
+you.]** YC sometimes funds the idea listed HERE, so a fabricated one is a real
+liability: you could be interviewed on something you never thought about. Real
+candidates surfaced from your own environment (confirm/correct/discard each,
+2026-07-22): (1) a **personal AI memory system** — your `CLAUDE.md` walls off a
+personal memory under `../brain/`; Icarus is that idea pointed at a company
+instead of a person; (2) a **productized design-to-build pipeline** (brief →
+style guide → Figma → WordPress) you already automated as a skill; (3)
+**Pantheon**, a multi-agent critique/synthesis system wired as its own MCP.
+Framing rules: 2–3 not 10; say why you didn't pick it (shows judgement); never
+list one you'd resent building; prefer ideas you've already made something for.
 
 ---
 
