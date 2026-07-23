@@ -1,3 +1,100 @@
+# Icarus — Session Handoff (2026-07-23: NEXT JOB — design the Icarus website)
+
+**READ THIS FIRST. This entry is an instruction to the next session, not a
+state report — the state report is the 2026-07-22 entry below, still true.**
+
+## Your job this session: design the Icarus marketing/download website
+
+Alankrit's explicit instruction: **build the website, wireframe it in Figma
+first, and use REAL product snapshots captured from the live macOS app via
+computer use.** He says the required macOS permissions are now granted. The
+work is design + real assets, not new product engineering.
+
+### Do it in this order
+
+1. **Verify the two capabilities BEFORE designing — last session both were
+   half-connected and it wasted a round trip:**
+   - **Screen capture.** Last session `screencapture` failed with "could not
+     create image from display" (Screen Recording denied to the shell), and the
+     computer-use `save_to_disk` returned no file path either. Alankrit says
+     permissions are now granted — CONFIRM it with one throwaway capture before
+     relying on it. Fastest reliable path if it still fails: ask Alankrit to
+     press ⌘⇧4 twice himself (answer overlay + refusal) into `site/`.
+   - **Figma Dev Mode MCP.** Last session `mcp__Figma__get_metadata` returned a
+     setup message: needs Figma desktop → Preferences → "Enable Dev Mode MCP
+     Server", then a Claude restart. And note the CEILING: the connected Figma
+     server is READ-ONLY (`get_metadata`/`get_screenshot`/`get_design_context`/
+     `get_variable_defs` + code-connect). It CANNOT create a design. The
+     write-capable server (`use_figma`/`create_new_file`/`generate_design`) that
+     made last week's Option A/B/C mockups keeps dropping mid-session — it must
+     be reconnected in an interactive terminal before "wireframe in Figma" is
+     literally possible. If it isn't available, say so and fall back rather than
+     pretending; do not claim a Figma file was created that wasn't.
+
+2. **Capture the real product.** Connect the app to `psf/requests` (indexes in
+   seconds; `react/react` takes ~30 min of background embedding — don't). Then
+   capture the two hero states that are already verified to render correctly:
+   - **Cited answer:** "Why does requests not support HTTP/2?" → cites
+     `issue:6856` + `issue:6752`, quoted excerpt on screen.
+   - **The refusal:** "Why is DEFAULT_REDIRECT_LIMIT exactly 30?" → "No one
+     wrote this down." (This ONLY refuses correctly on brain rev 0000020+, via
+     gate guard (d) — the whole point of yesterday's fix. On an older brain it
+     wrongly answered. Confirm the live brain is 0000020+ first.)
+   - Gotcha seen live: with 3 citations the overlay fills half the screen (each
+     excerpt is 4 lines) — frame the shot, or ask a question with 1–2 citations.
+
+3. **A website scaffold already exists — extend it, don't restart.**
+   `site/index.html` (UNCOMMITTED, untracked) is a full one-page site in the
+   repo's "Honest Brutalism" language (`docs/DESIGN_VISION.md`): hero, a
+   two-specimen "it tells you when it doesn't know" section, how-it-works,
+   "what it will not do", privacy facts, Gatekeeper install steps, and a
+   **live JS replay** of the two real exchanges (every string is verbatim real
+   output — a source comment says re-capture rather than reword). `site/Icarus.dmg`
+   is the current 948 KB build beside it. The specimens are currently faithful
+   CSS re-creations; the job is to swap in REAL screenshots. One real CSS bug
+   was already found+fixed there (a `.wrap` vs `section` specificity collision
+   that zeroed all vertical padding) — verify layout by measurement, not eye.
+
+4. **Assets: real product = real screenshots. Generated = atmosphere ONLY.**
+   The hard rule, and it is the product's whole thesis: **never fake the
+   product.** A generated video/image of a UI that isn't the real UI is exactly
+   the fabrication Icarus exists to refuse — do not put one on the page.
+   Generated ambient texture / background / OG card is fine and misleads no one.
+   Higgsfield MCP is CONNECTED but the account has **0 credits on the free plan**
+   — any `generate_image`/`generate_video` fails until Alankrit starts the
+   3-day trial ($0 today, MCP-only 100 credits, **auto-charges $49 in 3 days
+   unless cancelled** — he can say "cancel auto-renewal" here). Do NOT generate
+   anything until he gives the go; select the workspace first (currently
+   unselected) and show him a brief before spending credits.
+
+### Two decisions that block SHIPPING (get Alankrit's call early)
+
+- **Hosting.** His Icarus repo is PRIVATE, so GitHub Pages + public Releases are
+  unavailable without a paid plan. The clean free path is a SEPARATE PUBLIC repo
+  for the site. Creating that publishes an unnotarized binary (`repo`-scoped
+  OAuth) to anyone — outward-facing and hard to walk back, so get an explicit go
+  before creating anything public on his account.
+- **Notarization.** The DMG is not notarized; a public download button means
+  strangers hit Gatekeeper's "unverified developer" wall. Install steps are on
+  the page, but he chose direct download over an email gate — that's his call,
+  already made, don't relitigate.
+
+### Loose ends from 2026-07-22 that are NOT this session's job (but don't lose)
+
+- **The four newest YC answers exist ONLY in chat, not on disk.** `docs/
+  YC_APPLICATION.md` (committed `7e65267`) has the earlier draft, but the
+  answers written 2026-07-22 for **tech stack, competitors, how-you-make-money,
+  and other-ideas** were never saved. If continuing the YC work, recover them
+  from the prior transcript or regenerate — they were good and grounded.
+  Still `[ALANKRIT]`-blank and unanswered: the "something impressive each
+  founder built" question (PG calls it the most important), why-this-idea,
+  founder background, incorporation.
+- **Overlay transition lag** still unresolved; **overlay-too-tall with 3+
+  citations** is a real new UI issue (likely fix: show the excerpt for only the
+  top citation). Both engineering, both deferred behind the website + YC work.
+
+---
+
 # Icarus — Session Handoff (2026-07-22: overlay shows the written proof; honesty-gate verdict gap CLOSED; YC application drafted)
 
 **READ THIS FIRST — supersedes every engineering-state claim below.** The
