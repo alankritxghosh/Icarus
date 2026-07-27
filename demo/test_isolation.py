@@ -320,3 +320,121 @@ class ProvenanceIsolationTests(_IsolationTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedPrivateCorpusTests(_IsolationTestBase):
+    """T1 + T3 together: a private corpus is shared between entitled readers,
+    and the entitlement check is the ONLY thing keeping everyone else out.
+
+    Each half is proven on its own elsewhere. This proves the combination,
+    because two individually-correct pieces can still compose into a hole: T1
+    removed the storage separation that used to isolate tenants, on the promise
+    that T3's guard replaces it. If that guard is ever bypassed or unwired, the
+    shared corpus is exposed and nothing else is left to stop it.
+    """
+
+    PRIVATE = "acme/secret"
+
+    def setUp(self):
+        super().setUp()
+        self.ingests = []
+        # Re-wire ingest to count how many times the SAME private repo is cloned.
+        def counting_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+            self.ingests.append((repo, token))
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+        self.registry._ingest_fn = counting_ingest
+        # A can read the private repo; B cannot. This is what GitHub would say.
+        access = unittest.mock.patch(
+            "demo.server.github_access.repo_info",
+            side_effect=lambda repo, token: {"private": True} if token == self.TOK_A else None)
+        access.start()
+        self.addCleanup(access.stop)
+
+    def test_one_ingest_is_shared_and_lands_in_the_private_root(self):
+        status, _ = _connect(self.base, self.TOK_A, self.PRIVATE)
+        self.assertIn(status, (200, 202))
+        _wait_until_ready(self.base, self.TOK_A)
+        shared = self.storage / "private.cache" / "acme__secret" / "chunks.jsonl"
+        self.assertTrue(shared.exists(), "the private corpus lives in the shared private root")
+        self.assertFalse((self.storage / self.USER_A / "private").exists())
+        self.assertFalse((self.storage / "public.cache" / "acme__secret").exists())
+        self.assertEqual([r for r, _ in self.ingests], [self.PRIVATE])
+
+    def test_an_unentitled_caller_cannot_read_the_shared_private_corpus(self):
+        # The whole safety argument for T1, exercised end to end: A's private
+        # corpus is now on a shared shelf, and only the live GitHub check stops
+        # B -- who is a perfectly valid, signed-in user -- from reading it.
+        _connect(self.base, self.TOK_A, self.PRIVATE)
+        _wait_until_ready(self.base, self.TOK_A)
+
+        # B points at the same private repo. GitHub refuses them at /connect.
+        # (urlopen raises on 4xx, so this is assertRaises rather than a status
+        # comparison -- the same shape the other refusal tests in this file use.)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _connect(self.base, self.TOK_B, self.PRIVATE)
+        self.assertEqual(cm.exception.code, 403)
+
+        # ...and even asking directly cannot reach it: B's own library is still
+        # on the default repo, and its content never mentions acme/secret.
+        _, b_status = _status(self.base, self.TOK_B)
+        self.assertEqual(b_status["repo"], self.DEFAULT_REPO)
+        _, b_answer = _ask(self.base, self.TOK_B, "what is here?")
+        self.assertNotIn("acme__secret", json.dumps(b_answer))
+        self.assertNotIn("acme/secret", json.dumps(b_answer))
+
+
+class RevokedAccessLosesTheSharedCorpusTests(_IsolationTestBase):
+    """The case that actually justifies the read-side guard.
+
+    /connect was always gated, so a stranger never reaches a private repo. The
+    dangerous case is someone who WAS entitled: they connect legitimately, their
+    library points at the shared corpus, and then they leave the company. With
+    per-user storage this barely mattered -- it was their own copy. With a
+    SHARED corpus, nothing but the read-side check stands between an ex-employee
+    and their former employer's code, and the only bound on that is the TTL.
+    """
+
+    PRIVATE = "acme/secret"
+
+    def setUp(self):
+        super().setUp()
+        self.fx.close()                     # rebuild with an access verifier wired in
+        from .auth import RepoAccessVerifier
+        self.entitled = {self.TOK_A, self.TOK_B}
+
+        def access_fn(repo, token):
+            return {"private": True} if token in self.entitled else None
+
+        # ttl=0 so revocation is observable in a test without faking a clock;
+        # the TTL itself is unit-tested in demo/test_auth.py.
+        self.fx = _ServerFixture(
+            self.registry, require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            access_verifier=RepoAccessVerifier(access_fn=access_fn, ttl=0.0),
+            default_repo=self.DEFAULT_REPO)
+        self.base = self.fx.base
+        patcher = unittest.mock.patch(
+            "demo.server.github_access.repo_info", side_effect=access_fn)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_reads_stop_once_github_revokes_access(self):
+        _connect(self.base, self.TOK_B, self.PRIVATE)
+        _wait_until_ready(self.base, self.TOK_B)
+        status, _ = _ask(self.base, self.TOK_B, "what is here?")
+        self.assertEqual(status, 200, "entitled while employed")
+
+        self.entitled.discard(self.TOK_B)          # they leave; GitHub revokes
+
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _ask(self.base, self.TOK_B, "what is here?")
+        self.assertEqual(cm.exception.code, 403, "and the shared corpus closes behind them")
+
+    def test_a_colleague_who_still_has_access_is_unaffected(self):
+        # Revoking one person must not lock out the rest of the team.
+        _connect(self.base, self.TOK_A, self.PRIVATE)
+        _wait_until_ready(self.base, self.TOK_A)
+        self.entitled.discard(self.TOK_B)
+        status, _ = _ask(self.base, self.TOK_A, "what is here?")
+        self.assertEqual(status, 200)

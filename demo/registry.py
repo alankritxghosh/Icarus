@@ -9,17 +9,30 @@
   each user a private copy of identical public data isn't privacy, it's waste
   (30 testers connecting the same repo would mean 30 identical clones + embeds).
   This is the same read-only-sharing the default demo corpus already used.
-- WHO connected WHAT, their history, and their questions stay per-user: each
-  user gets their own `Library` (active repo, in-memory state) and their own
-  `<storage_root>/<user_id>/` record dir. (Private/customer repos, if ever
-  re-enabled, must ingest into a per-user dir -- NEVER the shared path.)
+- A PRIVATE repo's index is ALSO ingested once, into its own shared
+  `<storage_root>/private.cache/<repo>/`, and read by everyone GitHub says may
+  read that repo (T1, 2026-07-27). Shared-between-entitled-readers is NOT the
+  same as public, hence a separate root that no unauthenticated path serves.
+  **What isolates private corpora is no longer the storage layout** -- it is the
+  read-side entitlement check in `demo/server.py` (`_entitled`, backed by
+  `demo/auth.RepoAccessVerifier`), which asks GitHub on every read. Before that
+  guard existed, per-user directories were the only thing separating tenants;
+  duplicating a corpus per person is now pure waste, and it is what stopped
+  colleagues at one company from sharing a brain.
+- WHO connected WHAT stays per-user: each user gets their own `Library` (active
+  repo, in-memory state) and their own `<storage_root>/<user_id>/` record dir,
+  so one person exploring a public repo never moves anyone else's view.
 
 Live libraries are LRU-bounded. The registry remembers each user's last repo
 outside the evictable `Library` objects and replays its disk-cache hit when the
 library is rebuilt, so eviction never silently reverts a user to the demo repo.
 
 `disconnect` forgets the user's connection and deletes their own record dir --
-never the shared public cache, which is nobody's private data.
+never a shared corpus, public or private. Under shared storage the old
+"disconnect deletes the corpus" behaviour would let one person destroy their
+whole team's brain while tidying up their own account (D4, 2026-07-27). It also
+means an engineer can point Icarus at any public repo to try something out and
+disconnect again without touching their company's index.
 
 Concurrency: the shared cache is written atomically (ingest into a temp dir,
 then `os.replace` into place), and a per-repo lock single-flights concurrent
@@ -44,6 +57,12 @@ _ANON = "anon"  # unauthenticated GETs share one read-only default view
 # never be produced by `_key` (whose whitelist forbids '.'), so no user id can
 # ever collide with or reach into the shared cache.
 _PUBLIC_CACHE_SUBDIR = "public.cache"
+# Shared PRIVATE-corpus root. Shared between everyone GitHub says may read that
+# repo -- which is not the same as public, and it is deliberately a separate root
+# so no unauthenticated/public path can ever serve out of it. Same '.' trick as
+# above: `_key`'s whitelist forbids '.', so no user id can collide with or reach
+# into either cache.
+_PRIVATE_CACHE_SUBDIR = "private.cache"
 
 
 class LibraryRegistry:
@@ -57,6 +76,8 @@ class LibraryRegistry:
         self._max_live = max_live
         # One shared cache for every public repo (see module docstring).
         self._public_cache = self._storage_root / _PUBLIC_CACHE_SUBDIR
+        # One shared corpus per PRIVATE repo, read by everyone entitled to it.
+        self._private_cache = self._storage_root / _PRIVATE_CACHE_SUBDIR
         # Built once, shared read-only across every user (see module docstring).
         self._default_pipeline = self._base_build(self._default_dir)
         self._libraries: OrderedDict[str, Library] = OrderedDict()
@@ -77,8 +98,14 @@ class LibraryRegistry:
                 lock = self._ingest_locks[slug] = threading.Lock()
             return lock
 
-    def _shared_ingest(self, repo, out_dir, code_dir=".", commit=None, token=None):
-        """Ingest a public repo into the SHARED cache, once, atomically.
+    def _ingest_once(self, repo, out_dir, code_dir=".", commit=None, token=None):
+        """Ingest a repo into `out_dir`, once, atomically — public or private.
+
+        One function for both since T1 (2026-07-27). Which root `out_dir` sits
+        under is chosen by `Library` (public cache vs private cache) and that
+        choice is the whole separation; the publish mechanics are identical, and
+        private corpora now need the same single-flight lock public ones always
+        had, because two colleagues can race to connect the same private repo.
 
         `out_dir` is the final shared slug dir (Library resolves it against the
         shared cache root). Fast path: if it already holds a corpus, do nothing --
@@ -111,26 +138,6 @@ class LibraryRegistry:
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise
 
-    def _private_ingest(self, repo, out_dir, code_dir=".", commit=None, token=None):
-        """Ingest a PRIVATE repo into the caller's own per-user storage, with the
-        caller's own token. Deliberately NOT `_shared_ingest`: private code is
-        per-tenant and must NEVER touch the shared public cache or be pooled
-        across users. No cross-user lock is needed -- each user has their own
-        Library and their own private_root -- but the publish is still atomic
-        (temp dir + os.replace) so a crashed ingest can't leave a partial corpus.
-        `token` is used only to authenticate the clone and is never stored."""
-        out_dir = Path(out_dir)
-        if (out_dir / "chunks.jsonl").exists():
-            return  # already cached in this user's private storage
-        out_dir.parent.mkdir(parents=True, exist_ok=True)
-        tmp = Path(tempfile.mkdtemp(prefix=".tmp-priv-", dir=out_dir.parent))
-        try:
-            self._ingest_fn(repo, tmp, code_dir=code_dir, commit=commit, token=token)
-            os.replace(tmp, out_dir)
-        except Exception:
-            shutil.rmtree(tmp, ignore_errors=True)
-            raise
-
     @staticmethod
     def _key(user_id):
         key = user_id if user_id is not None else _ANON
@@ -152,9 +159,9 @@ class LibraryRegistry:
             # (never shared, never pooled) and ingest with the caller's token.
             lib = Library(self._default_dir, self._public_cache,
                           self._default_repo, build_pipeline=self._build,
-                          ingest_fn=self._shared_ingest,
-                          private_root=self._storage_root / key / "private",
-                          private_ingest_fn=self._private_ingest)
+                          ingest_fn=self._ingest_once,
+                          private_root=self._private_cache,
+                          private_ingest_fn=self._ingest_once)
             self._libraries[key] = lib
             self._libraries.move_to_end(key)
             if len(self._libraries) > self._max_live:
@@ -183,8 +190,8 @@ class LibraryRegistry:
         return lib
 
     def disconnect(self, user_id):
-        """Forget the user's library and last-connected repo, and delete their
-        storage from disk."""
+        """Forget the caller's library and last-connected repo, and delete their
+        OWN record dir -- never a shared corpus (see module docstring, D4)."""
         key = self._key(user_id)
         with self._lock:
             self._libraries.pop(key, None)
