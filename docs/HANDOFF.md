@@ -101,9 +101,19 @@ Because `install.sh` pins the DMG's hash, dropping in a new disk image by hand
 silently breaks every terminal install — and it breaks for *testers*, not for
 whoever cut the build. `release-dmg.sh` (website repo) takes a DMG from either
 source (a local `package_dmg.sh` build **or** the `dmg.yml` CI artifact), copies
-it in, and stamps its real hash into `install.sh` and `index.html` from one
-source of truth: the image itself. `package_dmg.sh` now prints a pointer to it
-at the moment you would otherwise copy the file across by hand.
+it in, and stamps its real hash from one source of truth — the image itself —
+into **all four places it is pinned, across two repos**: `install.sh`,
+`index.html`, and the Homebrew cask's `sha256` *and* `version`.
+`package_dmg.sh` now prints a pointer to it at the moment you would otherwise
+copy the file across by hand.
+
+**It needs the tap checked out** at `$ICARUS_TAP_DIR` or `../homebrew-icarus`,
+and **refuses to publish without it** rather than skipping silently — a stale
+cask leaves `brew install` serving the previous build while every other path
+moves on, which is the hardest kind of drift to notice because it is invisible
+to everyone except brew users. `--skip-cask` makes that a deliberate choice and
+says so in the output. The tap is located *before* anything is copied or
+stamped, so a missing tap cannot leave the website updated and the cask stale.
 
 It also **refuses to publish a build stamped at `127.0.0.1` or with no brain URL
 at all** — that build works perfectly for whoever made it and fails for every
