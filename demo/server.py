@@ -29,7 +29,7 @@ from evals.env_file import load_env_file
 
 from .payload import build_payload
 from .registry import LibraryRegistry
-from .auth import bearer_token, GitHubTokenVerifier
+from .auth import bearer_token, GitHubTokenVerifier, RepoAccessVerifier
 from . import github_oauth
 from .ratelimit import RateLimiter
 from evals import github_access
@@ -115,7 +115,8 @@ def _resolve_storage_root(raw, default):
 
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
-                 sync_connect: bool = False, background_upgrade: bool = False):
+                 sync_connect: bool = False, background_upgrade: bool = False,
+                 access_verifier=None, default_repo=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -135,6 +136,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     `sync_connect` changes how /connect is served -- see its use below. Default
     (False) matches every host tried before it: a real VM/box (local, Oracle)
     where a background thread just keeps running after the response returns.
+
+    `access_verifier` (a `RepoAccessVerifier`) is the entitlement check on READS
+    of the active repo -- see `_entitled`. It exists because a shared per-repo
+    index means the storage layout is no longer the isolation. `default_repo` is
+    the built-in public demo, exempted from that check.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
@@ -216,6 +222,35 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if not token or verifier is None:
                 return None
             return verifier.verify(token)
+
+        def _entitled(self, lib) -> bool:
+            """May this caller READ the library's currently-active repo?
+
+            A verified identity is not the same as entitlement. Once a repo's
+            corpus is shared between everyone who can read it, "whose directory
+            is it in" stops answering that question and this does -- by asking
+            GitHub, which is the authority on repo access (see
+            demo/auth.RepoAccessVerifier).
+
+            Two deliberate exemptions:
+            - Auth off means a single local operator on loopback. There is no
+              tenancy to enforce, and demanding a GitHub token would break local
+              development for no gain.
+            - The built-in demo repo is public and identical for everyone, so
+              proving entitlement to it would burn a GitHub API call to confirm
+              something already public.
+
+            Every OTHER repo is checked, including ones recorded as public. That
+            is deliberate: a repo can be made private after it was indexed, and
+            re-asking GitHub each time is what contains that, where trusting the
+            visibility we recorded at connect time would not.
+            """
+            if not require_auth or access_verifier is None:
+                return True
+            repo = (lib.status_snapshot() or {}).get("repo")
+            if not repo or repo == default_repo:
+                return True
+            return access_verifier.can_read(repo, bearer_token(self.headers))
 
         def do_GET(self):
             if not self._authorized():
@@ -365,6 +400,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not ask_limiter.allow(identity):
                     self._send_json(429, {"error": "slow down -- try again in a minute"})
                     return
+                # Entitlement BEFORE the body is parsed and long before the
+                # writer: a caller who may not read this repo must cost nothing
+                # at the model provider.
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
                 try:
                     question = self._body()["question"]
                 except (ValueError, KeyError, TypeError):
@@ -442,9 +483,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             /ask, so it shares that budget rather than getting its own. `repo`
             must match the caller's CURRENTLY connected repo (refuses, never
             silently answers about a repo the caller isn't connected to, and
-            never switches repos as a side effect of asking)."""
+            never switches repos as a side effect of asking).
+
+            Guarded by the same read-entitlement check as /ask -- it reads the
+            same corpus, so protecting /ask alone would leave a side door open."""
             if not ask_limiter.allow(identity):
                 self._send_json(429, {"error": "slow down -- try again in a minute"})
+                return
+            if not self._entitled(lib):
+                self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
                 return
             try:
                 body = self._body()
@@ -514,6 +561,9 @@ def serve(host: str = None, port: int = None):
     registry = _LazyRegistry(lambda: LibraryRegistry(CORPUS_DIR, storage_root, default_repo))
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
+    # Read entitlement for a shared per-repo index. Only meaningful with auth on
+    # (without it there is a single local operator and no tenancy to enforce).
+    access_verifier = RepoAccessVerifier() if require_auth else None
     allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
     # OAuth callback: a public HTTPS URL when hosted (ICARUS_PUBLIC_URL), else the
     # loopback callback for local dev. GitHub must have this exact URL registered.
@@ -531,7 +581,8 @@ def serve(host: str = None, port: int = None):
     background_upgrade = bool(os.environ.get("ICARUS_BACKGROUND_UPGRADE"))
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
-                           sync_connect=sync_connect, background_upgrade=background_upgrade)
+                           sync_connect=sync_connect, background_upgrade=background_upgrade,
+                           access_verifier=access_verifier, default_repo=default_repo)
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"

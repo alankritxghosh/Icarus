@@ -1235,3 +1235,154 @@ class SyncConnectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- T3: entitlement enforced on reads -------------------------------------
+# Once a repo's index is SHARED, the storage layout stops being the isolation
+# and this check becomes it. These tests pin the failure direction: ambiguity
+# denies, and a denied caller must never reach the billed writer.
+
+class _CountingPipeline(Pipeline):
+    """Records whether the (billed) writer was reached at all."""
+
+    def __init__(self):
+        self.answer_calls = 0
+        self.explain_calls = 0
+
+    def answer(self, question):
+        self.answer_calls += 1
+        return Result(verdict="unknown", retrieved=[])
+
+    def explain(self, path, start, end, question=None):
+        self.explain_calls += 1
+        return Result(verdict="unknown", retrieved=[])
+
+
+class _RepoLibrary(_StubLibrary):
+    """A library whose active repo is configurable (the default demo repo is
+    special-cased by the guard, so tests need a NON-default repo)."""
+
+    def __init__(self, repo, pipeline=None):
+        super().__init__()
+        self._repo = repo
+        if pipeline is not None:
+            self._pipe = pipeline
+
+    def provenance(self):
+        return (self._repo, COMMIT)
+
+    def status_snapshot(self):
+        snap = super().status_snapshot()
+        snap["repo"] = self._repo
+        return snap
+
+
+class _StubAccess:
+    """Stand-in for RepoAccessVerifier: allows the listed (repo, token) pairs."""
+
+    def __init__(self, allowed=()):
+        self._allowed = set(allowed)
+        self.calls = []
+
+    def can_read(self, repo, token):
+        self.calls.append((repo, token))
+        return (repo, token) in self._allowed
+
+
+def _ask_as(base, token, question="anything"):
+    data = json.dumps({"question": question}).encode()
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(base + "/ask", data=data, headers=headers)
+    with urllib.request.urlopen(req) as resp:
+        return resp.status, json.loads(resp.read())
+
+
+class ReadEntitlementTests(unittest.TestCase):
+    PRIVATE = "acme/secrets"
+
+    def _fixture(self, allowed=(), pipeline=None):
+        from .auth import StaticTokenVerifier
+        lib = _RepoLibrary(self.PRIVATE, pipeline=pipeline)
+        return _ServerFixture(
+            lib, require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            access_verifier=_StubAccess(allowed),
+            default_repo=REPO,
+        ), lib
+
+    def test_caller_without_repo_access_is_refused(self):
+        fx, _ = self._fixture(allowed=[(self.PRIVATE, "tok-a")])
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _ask_as(fx.base, "tok-b")          # valid identity, no repo access
+            self.assertEqual(cm.exception.code, 403)
+        finally:
+            fx.close()
+
+    def test_refused_caller_never_reaches_the_billed_writer(self):
+        # The whole point of checking before the pipeline: a refused request must
+        # cost nothing at the model provider.
+        pipe = _CountingPipeline()
+        fx, _ = self._fixture(allowed=[(self.PRIVATE, "tok-a")], pipeline=pipe)
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                _ask_as(fx.base, "tok-b")
+            self.assertEqual(pipe.answer_calls, 0, "a denied caller must not bill the writer")
+        finally:
+            fx.close()
+
+    def test_entitled_caller_gets_an_answer(self):
+        fx, _ = self._fixture(allowed=[(self.PRIVATE, "tok-a")])
+        try:
+            status, body = _ask_as(fx.base, "tok-a")
+            self.assertEqual(status, 200)
+            self.assertIn("verdict", body)
+        finally:
+            fx.close()
+
+    def test_explain_is_guarded_the_same_way(self):
+        # /explain reads the same corpus; guarding /ask alone would leave the
+        # side door open.
+        fx, _ = self._fixture(allowed=[(self.PRIVATE, "tok-a")])
+        try:
+            data = json.dumps({"repo": self.PRIVATE, "path": "a.py",
+                               "start": 1, "end": 5}).encode()
+            req = urllib.request.Request(
+                fx.base + "/explain", data=data,
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer tok-b"})
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(req)
+            self.assertEqual(cm.exception.code, 403)
+        finally:
+            fx.close()
+
+    def test_builtin_demo_repo_needs_no_entitlement_check(self):
+        # The public demo must keep working for anyone signed in, and must not
+        # burn a GitHub API call to prove what is already public.
+        from .auth import StaticTokenVerifier
+        access = _StubAccess()                      # allows nothing
+        fx = _ServerFixture(_RepoLibrary(REPO), require_auth=True,
+                            verifier=StaticTokenVerifier({"tok-a": "1001"}),
+                            access_verifier=access, default_repo=REPO)
+        try:
+            status, _ = _ask_as(fx.base, "tok-a")
+            self.assertEqual(status, 200)
+            self.assertEqual(access.calls, [], "the built-in repo needs no check")
+        finally:
+            fx.close()
+
+    def test_local_mode_is_unaffected(self):
+        # Auth off = a single local operator on loopback. There is no tenancy to
+        # enforce, and demanding a GitHub token would break local development.
+        access = _StubAccess()
+        fx = _ServerFixture(_RepoLibrary(self.PRIVATE), access_verifier=access,
+                            default_repo=REPO)
+        try:
+            status, _ = _ask_as(fx.base, None)
+            self.assertEqual(status, 200)
+            self.assertEqual(access.calls, [])
+        finally:
+            fx.close()
