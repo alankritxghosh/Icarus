@@ -23,6 +23,8 @@ import time
 import urllib.error
 import urllib.request
 
+from evals import github_access
+
 
 def bearer_token(headers) -> str | None:
     """Extract the token from an `Authorization: Bearer <token>` header, else None."""
@@ -90,3 +92,50 @@ class GitHubTokenVerifier(TokenVerifier):
             return None
         self._cache[token] = (user_id, now + self._ttl)
         return user_id
+
+
+class RepoAccessVerifier:
+    """Can THIS caller read THIS repo, right now — asked of GitHub, not modelled here.
+
+    This is the entitlement check for a SHARED per-repo index. Once a corpus is
+    shared, the storage layout stops being the isolation and this becomes it.
+
+    Deliberately no org/team/membership model. GitHub already knows who may read
+    a repo and is authoritative; any membership list we kept would be a second
+    copy that can go stale, and a stale access list is a breach. Asking GitHub
+    each time also makes offboarding free: access revoked there, refused here,
+    with no code of ours involved.
+
+    Answers are cached per (repo, token) for `ttl` seconds so a busy team does
+    not exhaust GitHub's rate limit. The accepted cost, decided 2026-07-27: a
+    caller whose access is revoked keeps it for up to `ttl` (default 5 minutes).
+    That window is the only reason this class holds any state at all.
+
+    Fail-safe in one direction only: no token, a refusal, a network error, or an
+    exception all mean DENIED. Wrongly denying is an outage; wrongly allowing
+    hands one company's private code to another.
+    """
+
+    def __init__(self, access_fn=None, ttl: float = 300.0, clock=time.time):
+        self._access = access_fn or github_access.repo_info
+        self._ttl = ttl
+        self._clock = clock
+        # (repo, token) -> (allowed, expiry). Keyed on the TOKEN as well as the
+        # repo: keying on repo alone would let the first authorised reader
+        # silently unlock that repo for every other caller.
+        self._cache: dict[tuple[str, str], tuple[bool, float]] = {}
+
+    def can_read(self, repo: str, token: str | None) -> bool:
+        if not repo or not token:
+            return False  # never ask GitHub to authorise an anonymous caller
+        key = (repo, token)
+        now = self._clock()
+        entry = self._cache.get(key)
+        if entry is not None and entry[1] > now:
+            return entry[0]
+        try:
+            allowed = self._access(repo, token) is not None
+        except Exception:
+            return False  # an outage denies; it does not raise and does not allow
+        self._cache[key] = (allowed, now + self._ttl)
+        return allowed
