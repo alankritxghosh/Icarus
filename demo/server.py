@@ -27,6 +27,7 @@ from urllib.parse import urlparse, parse_qs
 from evals.corpus_meta import load_meta
 from evals.env_file import load_env_file
 
+from .ledger import Ledger
 from .payload import build_payload
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier, RepoAccessVerifier
@@ -116,7 +117,7 @@ def _resolve_storage_root(raw, default):
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
                  sync_connect: bool = False, background_upgrade: bool = False,
-                 access_verifier=None, default_repo=None):
+                 access_verifier=None, default_repo=None, ledger=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -141,6 +142,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     of the active repo -- see `_entitled`. It exists because a shared per-repo
     index means the storage layout is no longer the isolation. `default_repo` is
     the built-in public demo, exempted from that check.
+
+    `ledger` (a `demo.ledger.Ledger`) records each ask against the repo, so a
+    team accumulates one shared record -- and, in its unknowns, a map of what
+    the organisation never wrote down. None disables recording entirely.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
@@ -276,6 +281,32 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(503, {"error": "starting up, try again shortly"})
                     return
                 self._send_json(200, lib.status_snapshot())
+            elif route == "/ledger":
+                # The team's questions about their own code -- at least as
+                # sensitive as the corpus, so guarded by the same check rather
+                # than a weaker one.
+                identity = self._identity()
+                if require_auth and identity is None:
+                    self._send_json(401, {"error": "sign in with GitHub to continue"})
+                    return
+                if ledger is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                try:
+                    lib = registry.library_for(identity)
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
+                repo, _commit = lib.provenance()
+                q = parse_qs(urlparse(self.path).query)
+                unknowns = q.get("unknowns", ["0"])[0] not in ("0", "", "false")
+                self._send_json(200, {
+                    "repo": repo,
+                    "entries": ledger.entries(repo, unknowns_only=unknowns),
+                })
             elif route == "/auth/github/callback":
                 self._github_callback()
             else:
@@ -425,6 +456,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     print(f"/ask writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                     self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                     return
+                if ledger is not None:
+                    # Recorded against the REPO, not the person, so a team builds
+                    # one shared record. Never allowed to fail the answer the
+                    # caller actually asked for -- the ledger is an asset, not a
+                    # dependency (Ledger.record swallows its own I/O errors; this
+                    # catches anything else, including a broken ledger object).
+                    try:
+                        ledger.record(repo, user=identity, question=question,
+                                      verdict=result.verdict, citations=result.citations)
+                    except Exception as e:
+                        print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(200, build_payload(result, repo, commit))
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
@@ -564,6 +606,12 @@ def serve(host: str = None, port: int = None):
     # Read entitlement for a shared per-repo index. Only meaningful with auth on
     # (without it there is a single local operator and no tenancy to enforce).
     access_verifier = RepoAccessVerifier() if require_auth else None
+    # The shared ask ledger. A sibling of the corpus caches, never inside one --
+    # ingest publishes a corpus with os.replace(), which would take the team's
+    # whole question history with it on the next re-index. The '.' matches the
+    # cache roots' convention: `registry._key` forbids '.', so no user id can
+    # ever collide with or reach into it.
+    ledger = Ledger(storage_root / "ask.ledger")
     allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
     # OAuth callback: a public HTTPS URL when hosted (ICARUS_PUBLIC_URL), else the
     # loopback callback for local dev. GitHub must have this exact URL registered.
@@ -582,7 +630,8 @@ def serve(host: str = None, port: int = None):
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
                            sync_connect=sync_connect, background_upgrade=background_upgrade,
-                           access_verifier=access_verifier, default_repo=default_repo)
+                           access_verifier=access_verifier, default_repo=default_repo,
+                           ledger=ledger)
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"

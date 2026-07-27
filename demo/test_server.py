@@ -1386,3 +1386,92 @@ class ReadEntitlementTests(unittest.TestCase):
             self.assertEqual(access.calls, [])
         finally:
             fx.close()
+
+
+# --- T4: the shared ask ledger ---------------------------------------------
+
+class AskLedgerTests(unittest.TestCase):
+    """Every ask is recorded against the REPO, so a team accumulates one record
+    instead of N private histories -- and the unknowns become a map of what the
+    organisation never wrote down."""
+
+    PRIVATE = "acme/secrets"
+
+    def setUp(self):
+        from .auth import StaticTokenVerifier
+        from .ledger import Ledger
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ledger = Ledger(Path(self.tmp.name) / "ledger")
+        self.fx = _ServerFixture(
+            _RepoLibrary(self.PRIVATE), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            access_verifier=_StubAccess([(self.PRIVATE, "tok-a")]),
+            default_repo=REPO, ledger=self.ledger)
+        self.base = self.fx.base
+
+    def tearDown(self):
+        self.fx.close()
+        self.tmp.cleanup()
+
+    def _get(self, path, token):
+        req = urllib.request.Request(self.base + path,
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def test_an_ask_is_recorded_against_the_repo(self):
+        _ask_as(self.base, "tok-a", "Why the Responses API as a new class?")
+        got = self.ledger.entries(self.PRIVATE)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["question"], "Why the Responses API as a new class?")
+        self.assertEqual(got[0]["user"], "1001")
+        self.assertEqual(got[0]["verdict"], "answer")
+
+    def test_an_honest_unknown_is_recorded_as_a_gap(self):
+        # The whole point: the questions nobody could answer are the asset.
+        _ask_as(self.base, "tok-a", "something nobody documented")
+        gaps = self.ledger.entries(self.PRIVATE, unknowns_only=True)
+        self.assertEqual([e["question"] for e in gaps], ["something nobody documented"])
+
+    def test_ledger_endpoint_returns_the_teams_questions(self):
+        _ask_as(self.base, "tok-a", "Why the Responses API as a new class?")
+        status, body = self._get("/ledger", "tok-a")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["repo"], self.PRIVATE)
+        self.assertEqual(len(body["entries"]), 1)
+
+    def test_ledger_endpoint_can_filter_to_unknowns(self):
+        _ask_as(self.base, "tok-a", "Why the Responses API as a new class?")   # answered
+        _ask_as(self.base, "tok-a", "undocumented thing")                       # unknown
+        _, body = self._get("/ledger?unknowns=1", "tok-a")
+        self.assertEqual([e["question"] for e in body["entries"]], ["undocumented thing"])
+
+    def test_the_ledger_is_guarded_by_the_same_entitlement_check(self):
+        # It contains the team's questions about their own private code, so it
+        # is at least as sensitive as the corpus and must not be more readable.
+        _ask_as(self.base, "tok-a", "Why the Responses API as a new class?")
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self._get("/ledger", "tok-b")
+        self.assertEqual(cm.exception.code, 403)
+
+    def test_a_broken_ledger_never_breaks_answering(self):
+        # The ledger is an asset, not a dependency: if recording fails, the user
+        # must still get the answer they asked for.
+        class _Boom:
+            def record(self, *a, **k):
+                raise RuntimeError("disk on fire")
+
+            def entries(self, *a, **k):
+                return []
+        from .auth import StaticTokenVerifier
+        fx = _ServerFixture(
+            _RepoLibrary(self.PRIVATE), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001"}),
+            access_verifier=_StubAccess([(self.PRIVATE, "tok-a")]),
+            default_repo=REPO, ledger=_Boom())
+        try:
+            status, body = _ask_as(fx.base, "tok-a", "Why the Responses API as a new class?")
+            self.assertEqual(status, 200)
+            self.assertIn("verdict", body)
+        finally:
+            fx.close()
