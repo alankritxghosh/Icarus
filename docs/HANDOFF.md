@@ -1,3 +1,261 @@
+# Icarus — Session Handoff (2026-07-27: the beta is downloadable — site live, four install paths, browser login narrowed to identity-only)
+
+**READ THIS FIRST — supersedes every distribution and website claim below,
+including the 2026-07-23 entries. Does NOT supersede the standing business
+mandate: design partners / ICP / pricing is still the actual priority, and
+nothing in this session moved it.**
+
+**Live: `icarus-brain--0000021`, image `alpha-20260726-web-scope`, healthy,
+100% traffic. Website live on Vercel. `main` @ `9b5ba9e`. demo 203 · evals 462
+· secrets scan clean.**
+
+This session spanned several days (2026-07-23 → 27) and was almost entirely
+distribution work: making Icarus something a stranger can actually download,
+install, and run. The engineering core was not touched apart from one auth fix.
+
+## Where everything lives now (three repos, two of them newly PUBLIC)
+
+- `alankritxghosh/Icarus` (private, unchanged) — the product.
+- **`alankritxghosh/Icarus-Website` — now PUBLIC.** Source of the site; Vercel
+  auto-deploys `main`. Made public deliberately for the installer's auditability
+  (see 1B below); its full history was scanned first — five commits, eight
+  files, nothing secret-shaped, and every file was already served publicly by
+  Vercel, so nothing became visible that was not already.
+- **`alankritxghosh/homebrew-icarus` — new, PUBLIC.** The Homebrew tap. A tap
+  has to be public to be usable.
+- Site: <https://icarus-website-kappa.vercel.app/>. `site/index.html` in this
+  repo is kept byte-identical to the website repo's copy — **if you edit one,
+  mirror it**, they drift silently otherwise.
+
+## 1. Real product screenshots replaced the CSS re-creations
+
+The two "it tells you when it doesn't know" specimens were faithful CSS
+re-creations of the overlay. They are now **real screenshots** captured from the
+running Mac app against `psf/requests` on the live brain:
+`site/shots/panel_cited.png` (the HTTP/2 answer with both quoted issue excerpts
+and receipt chips) and `site/shots/panel_refusal.png` (the amber honest-unknown
+with its searched-sources list). Re-creating the product's own output in CSS is
+the exact fabrication this product exists to refuse; it should never have been
+the shipped artwork.
+
+**The refusal question changed** from "Why is DEFAULT_REDIRECT_LIMIT exactly
+30?" to **"Why is the redirect limit 30?"** — the overlay's question field is
+single-line and truncated the longer one mid-sentence, burying the punchline.
+Both were verified to refuse. If you re-shoot, check the field width first.
+
+## 2. Beta-testing the public download found a real blocker (fixed)
+
+Downloaded the DMG exactly as a stranger would and inspected it. Good news
+first, all verified: the DMG's contents are correct, its **brain URL is properly
+stamped to Azure** (not the `127.0.0.1` fallback that silently makes a shared
+build useless), and the shipped binary's SHA-256 is **identical to the installed
+build that had been live-tested** — testers get the proven build, not a
+lookalike rebuild.
+
+**The blocker: the install instructions were wrong for macOS 15+.** The page
+said "Right-click Icarus → Open". Apple removed that Gatekeeper bypass in macOS
+15; this Mac runs **macOS 26**, where it does nothing. Every tester would have
+followed step 3, failed, and concluded the app was broken. The DMG's own
+`READ ME FIRST.txt` already had the correct steps — the website simply did not
+match it. Fixed.
+
+**Also fixed: there was no feedback channel at all.** The only link on the
+entire page was the download, so a tester who hit a problem had nowhere to
+report it — losing the one signal a beta exists to collect. `ayushghosh2015@
+gmail.com` now appears in the install section and the footer.
+
+## 3. Working around notarization (no Developer ID until funding)
+
+Alankrit's call: no $99 Apple Developer ID until there is funding. So
+notarization is worked around, **not solved**. Four install paths now exist,
+all live and each tested end to end:
+
+**The mechanism, verified empirically rather than assumed:** the "Apple cannot
+check it for malicious software" block is triggered by the `com.apple.quarantine`
+flag, and *the browser* applies that flag — not macOS. Confirmed on this
+machine: a `curl`-downloaded DMG carries **no** quarantine attribute, while
+Chrome's downloads all carry `0381;…;Chrome;…`. No flag, no dialog. This is
+Apple's documented design, not a trick.
+
+1. **`install.sh` (recommended), fetched from raw.githubusercontent.com.** The
+   page leads with **download → read → run as three separate steps**, because
+   piping a remote script into a shell means executing code you have not read
+   and a stranger has no reason to extend us that. Serving it from the public
+   repo means the exact bytes come from a versioned source with a readable
+   history, rather than whatever a marketing site serves today.
+2. **Homebrew** — `brew install --cask alankritxghosh/icarus/icarus`, plus a
+   required `xattr -dr` line (see §5, this is the surprising one).
+3. **The one-liner** (`curl … | sh`), kept for anyone who prefers it.
+4. **The DMG**, with instructions that now work on current macOS.
+
+`install.sh` verifies the DMG against a pinned SHA-256 and refuses to install on
+mismatch (proven: a deliberately wrong hash aborts with nothing written). The
+page publishes that hash and says plainly what it does and does not prove —
+it detects a corrupted or altered download, and **is not a substitute for
+Apple's signature**. It also states that the terminal path skips the *prompt*,
+not a real inspection: macOS has not checked this app on any path.
+
+## 4. `release-dmg.sh` — the pinned checksum can no longer go stale
+
+Because `install.sh` pins the DMG's hash, dropping in a new disk image by hand
+silently breaks every terminal install — and it breaks for *testers*, not for
+whoever cut the build. `release-dmg.sh` (website repo) takes a DMG from either
+source (a local `package_dmg.sh` build **or** the `dmg.yml` CI artifact), copies
+it in, and stamps its real hash into `install.sh` and `index.html` from one
+source of truth: the image itself. `package_dmg.sh` now prints a pointer to it
+at the moment you would otherwise copy the file across by hand.
+
+It also **refuses to publish a build stamped at `127.0.0.1` or with no brain URL
+at all** — that build works perfectly for whoever made it and fails for every
+tester, remotely and with no obvious cause. All three refusal paths (local
+brain, missing brain URL, not an Icarus image) are tested. It immediately caught
+real drift: the page claimed "~950 KB" when the DMG is **926 KB**.
+
+## 5. The Homebrew tap — and two wrong turns worth not repeating
+
+**A tap does NOT dodge Gatekeeper.** From Homebrew's own source:
+`cask/installer.rb:42` defaults `quarantine: true`, and the cask DSL exposes no
+quarantine option — a cask cannot waive it for you. That is correct design.
+
+Then two stale-advice traps, both caught only by *running* the published command:
+
+- **`--no-quarantine` no longer exists.** Current Homebrew (6.0.11) answers
+  `Error: invalid option: --no-quarantine`. Had that shipped, it would have
+  failed for every user.
+- **`HOMEBREW_CASK_OPTS=--no-quarantine` does not work either.** Measured twice,
+  including exported into the environment: the app came out quarantined anyway
+  and Homebrew's own bypass warning never fired.
+
+**What actually works:** install normally, then `xattr -dr com.apple.quarantine
+/Applications/Icarus.app` — verified end to end, recursively, with no nested
+attribute surviving. Both the cask caveats and the tap README say the old advice
+is stale so nobody rediscovers this the hard way.
+
+One more checked rather than assumed: `depends_on macos: :sonoma` reads as a
+**minimum**, not an exact match (`cask/dsl/depends_on.rb:108` parses with
+`comparator: ">="`), confirmed empirically by installing on macOS 26. The
+opposite reading would have refused every user on a newer macOS.
+
+**Honest verdict:** brew is the *worse* Gatekeeper story — one extra step the
+curl path never needs, since that one never acquires the flag. What it buys is
+familiarity, `brew upgrade`, clean `brew uninstall`, a checksum brew enforces
+itself, and a public auditable formula. The site offers it as an alternative,
+not the recommendation.
+
+## 6. The browser login now asks for identity only (deployed, rev 0000021)
+
+`OAuthFlow.begin()` called `authorize_url()` without a scope, so **all three
+login surfaces silently inherited its `repo` default** — the browser trial asked
+a first-time visitor to grant read AND write on every repository they own, to
+look at a public demo repo. Largest possible ask, on the surface a stranger
+meets first, for a capability it never uses.
+
+Scope is now per surface (`_WEB_SCOPE`/`_NATIVE_SCOPE`): `web` → `read:user`,
+while `app`/`extension` keep `repo` because connecting a private repo is what
+they actually do. A public repo needs no repository scope: the token only
+identifies the caller and checks, as them, that the repo is readable.
+
+Red→green: `LoginScopeByModeTests` failed on the web assertion while the app,
+extension and default assertions already passed — a real red, not a fixture that
+could never have been green. **Verified live on rev 0000021**: `web` →
+`scope=read:user`, `app`/`extension` → `scope=repo`, the extension open-redirect
+guard still 400s a bad target, and citations still work (a known-answerable board
+question returned `verdict: answer` citing `issue:1435` + `pr:1435`).
+
+**Two limits, both in the code comments:** GitHub keeps the union of scopes
+already granted to an OAuth App, so this **narrows NEW logins only** — anyone
+who previously authorised with `repo`, Alankrit included, keeps it until they
+revoke access in GitHub settings. And **web users can no longer connect private
+repos**, the intended trade for a browser trial.
+
+⚠️ **This deploy reset all active sessions** (expected, flagged beforehand).
+
+## What did NOT happen — do not record these as done
+
+- **The Figma wireframe was skipped entirely.** The instructed sequence was
+  wireframe-first, then build; the screenshots went straight into the HTML and
+  Figma was never opened. Handed to Codex — see the 2026-07-23 entry directly
+  below, which is still the live instruction for that job.
+- **The demo recording failed twice and is unfinished.** Both attempts used a
+  cropped screen region: the first died because `screencapture -v` stops on the
+  first keystroke when backgrounded (no stdin), the second missed the opening
+  beat because the recording start raced the script. Alankrit rejected the
+  result outright and wants a **full-screen recording of the whole workflow with
+  a script approved first**. A draft script exists only in the session
+  transcript, and four questions about it were never answered. NB
+  `site/shots/icarus_product_demo_2026-07-24.mov` appears to be Alankrit's own
+  recording — do not assume it is the deliverable without asking.
+- **Nothing on the business path moved.** ICP, pricing, trust/legal, design
+  partner outreach — all still open, and still the actual priority.
+
+## Open / next
+
+- **Notarization is still the real blocker**, and everything above is packaging
+  around it rather than fixing it. A first-time user still has to override a
+  macOS security warning for a product whose entire pitch is trustworthiness.
+  It is a *launch* blocker, not a beta blocker — for the first handful of
+  developer design partners it genuinely does not matter. $99/yr, and enrolment
+  approval is the long pole, not the work.
+- **Get design partners using it.** The distribution path now works end to end;
+  that was the prerequisite, not the goal. Suggested ICP hypothesis from this
+  session, worth testing rather than trusting: teams that **discuss decisions in
+  PRs and issues but have lost the people who made them** — 20–200 engineers,
+  3+ year old codebase, recent turnover. Icarus's value is conditional on the
+  customer's own documentation hygiene; if a team never wrote down why, an
+  honest "no one wrote this down" is truthful and useless to them. Qualifying
+  question for a first call: *"when someone asks why a thing is the way it is,
+  where do they look today?"*
+- **Pick design partners with medium-sized repos.** Big monorepos still hit the
+  50k-chunk cap and index partially. It is honestly disclosed (the partial-index
+  banner shipped), but it is a poor first impression. If a partner hits it, that
+  is the signal to do lean-ingest — not before.
+- **A GitHub App** still replaces the broad `repo` scope for app/extension; the
+  web surface no longer needs it.
+- **Agent-consumable Icarus (MCP server)** was discussed, not built: wrap
+  `/ask`/`/explain` as MCP tools so coding agents can call the honesty gate.
+  Cheap (days), standards-aligned, and opens a different buyer — but it is a
+  *second* wedge and should not displace human design-partner outreach. The
+  real work is per-tenant service credentials, not the endpoints. Note the
+  prompt-injection surface sharpens when the consumer *acts* on answers: Icarus
+  must return grounded evidence and citations, never commands.
+- Everything in the earlier open lists still stands (2c async ingest, overlay
+  transition lag, overlay-too-tall with 3+ citations, doc debt in `CLAUDE.md`
+  and `docs/WORKFLOWS.md`).
+
+## Environment gotchas found this session (save the rediscovery)
+
+- **This Mac now runs macOS 26** — Gatekeeper's right-click→Open bypass is gone.
+- **No system `ffmpeg`**, but a working one ships inside the user's own Tempo
+  project: `~/Tempo/render-server/node_modules/@remotion/compositor-darwin-arm64/
+  ffmpeg` — needs `DYLD_LIBRARY_PATH` set to that directory or it fails to load
+  `libavdevice.dylib`. Used it to compress the YC founder video 112.5 MB → 89.4
+  MB (2-pass x264 @4.2 Mbps, resolution/duration/audio untouched, frames
+  verified visually identical). macOS `avconvert` could not do it: its presets
+  either stay full-res at 130 MB or shrink by **downscaling to 480×320**.
+- **Gatekeeper approval is cached by cdhash**, so a stranger's first-run cannot
+  be faithfully reproduced on a Mac that has already approved the app — a
+  quarantined test copy launched with no prompt here. `spctl -a -t exec` →
+  `rejected` is the reliable evidence, not a launch test.
+- **The Claude Code window is pinned above everything** and cannot be covered,
+  even by a maximised window — it will appear in any full-screen recording.
+  `screencapture` sees it; computer-use screenshots filter it out but do not
+  return a usable file path.
+- Deploy path unchanged: `az acr build` BLOCKED → build locally
+  `--platform linux/amd64`, push to ACR `caec8849f1f0acr`, `az containerapp
+  update -n icarus-brain -g icarus-rg`. **Verify the built image contains your
+  change before pushing** (run it: a stale layer or `.dockerignore` gap would
+  otherwise deploy the old behaviour silently).
+
+## Commits
+
+Main repo: `20c17f2` (auth scope), `a36a2a6` (screenshots + install fix +
+feedback), `0af016b` (Figma handover), `4b29dcc` (read-then-run + GitHub
+source), `9b5ba9e` (Homebrew).
+Website repo: `7c206df`, `e2bff2f`, `e435cb5`, `12d7360`, `17e933d`, `0ac66c4`.
+Tap repo: `924837e`, `ae1087a`.
+
+---
+
 # Icarus — Session Handoff (2026-07-23, later: Figma wireframe handover — Codex picks this up)
 
 **READ THIS FIRST — this narrows the "design the Icarus website" job below
