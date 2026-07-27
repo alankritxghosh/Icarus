@@ -515,7 +515,7 @@ removing, or renaming files). For class/function-level detail see
   `StaticTokenVerifier` (test double mapping tokens to ids). Enforced only in
   the auth mode.
 - `demo/github_oauth.py` — server-side GitHub web-login flow: `authorize_url`
-  (identity-only `read:user` scope for the public-repo alpha), `exchange_code`
+  (takes an explicit `scope`, defaulting to `repo`), `exchange_code`
   (uses the client SECRET, injectable opener), and `OAuthFlow` (single-use
   state/session, TTL). `begin(mode, redirect_target=None)` tags each login
   `app` (Mac app), `web` (browser), or Brick D's `extension` (a browser
@@ -524,6 +524,13 @@ removing, or renaming files). For class/function-level detail see
   `https://<32 a-p chars>.chromiumapp.org/` so a caller can never turn this
   into an open redirect to an arbitrary URL); `complete` returns `(session_id,
   mode, redirect_target)` so the callback knows where to send the user. The
+  **requested scope is per-surface** (`_WEB_SCOPE`/`_NATIVE_SCOPE`, added
+  2026-07-26): `web` asks for `read:user` (identity only -- the browser trial
+  connects PUBLIC repos, which need no repo scope, so the consent screen a
+  stranger meets first no longer demands read/write on all their private
+  repositories), while `app`/`extension` keep `repo` because connecting a
+  private repo is what they actually do. Only NEW logins narrow -- GitHub keeps
+  the union of scopes already granted to an OAuth App. The
   secret lives only here, never in the app or extension.
 - `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
@@ -557,11 +564,15 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's
   token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
-- `demo/test_github_oauth.py` — the web-login flow: authorize-url building
-  (including the identity-only scope), offline token exchange, and the single-use
+- `demo/test_github_oauth.py` — the web-login flow: authorize-url building,
+  offline token exchange, and the single-use
   state/session lifecycle. Brick D's `extension` mode: the redirect_target
   carried through `begin`→`complete`, and the open-redirect guard rejecting a
-  missing/non-chromiumapp.org/malformed-id target.
+  missing/non-chromiumapp.org/malformed-id target. `LoginScopeByModeTests`
+  pins the per-surface scope: `web` asks `read:user` and must NOT ask for
+  `repo`, while `app`/`extension`/the default keep `repo` (the three
+  non-web cases passed before the change, so the web one failing first was a
+  real red, not a vacuous fixture).
 - `demo/test_library.py` — the `Library`: default repo, cache-hit vs. ingest,
   single-flight concurrent connect, generic (non-leaking) ingest errors, and
   private connect (token/private routing, refusal without the paid writer,

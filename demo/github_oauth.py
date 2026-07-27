@@ -31,6 +31,25 @@ _USER_AGENT = "icarus/0.1"
 # attacker-controlled URL instead of the genuine extension.
 _CHROMIUMAPP_REDIRECT = re.compile(r"^https://[a-p]{32}\.chromiumapp\.org/$")
 
+# Login scope per surface. Ask each surface for what it can actually use, and
+# nothing more -- the consent screen is the first honest claim a stranger sees.
+#
+# The browser trial (`web`) only ever connects PUBLIC repositories, and a public
+# repo needs no repository scope at all: the caller's token is used to identify
+# them and to check, as them, that the repo is readable. So it asks for identity
+# alone. A web user who tries to connect a PRIVATE repo is refused by
+# demo/server.py's caller-scoped check -- correctly, and with a message that is
+# true either way ("doesn't exist or your GitHub account can't read it").
+#
+# The native surfaces DO connect private repositories, which is the product, so
+# they keep `repo` until the per-repo GitHub App replaces it (see authorize_url).
+#
+# Note this only narrows what NEW logins request. GitHub keeps the union of
+# scopes already granted to an OAuth App, so anyone who previously authorised
+# with `repo` keeps it until they revoke access in their GitHub settings.
+_WEB_SCOPE = "read:user"
+_NATIVE_SCOPE = "repo"
+
 
 def new_state() -> str:
     """A URL-safe, unguessable token for CSRF `state` and session ids."""
@@ -117,17 +136,22 @@ class OAuthFlow:
         https://<id>.chromiumapp.org/ redirect target, required and validated
         for that mode -- see _CHROMIUMAPP_REDIRECT's docstring for why).
         `redirect_target` is ignored (never stored) for any mode other than
-        "extension" -- only that mode's callback ever reads it back."""
+        "extension" -- only that mode's callback ever reads it back.
+
+        The requested SCOPE also depends on the mode: the browser trial asks for
+        identity only, the native surfaces ask for repository access, because
+        only they can connect a private repo. See _WEB_SCOPE/_NATIVE_SCOPE."""
         if mode == "extension":
             if not redirect_target or not _CHROMIUMAPP_REDIRECT.match(redirect_target):
                 raise ValueError("extension mode requires a valid chromiumapp.org redirect_target")
         else:
             redirect_target = None
+        scope = _WEB_SCOPE if mode == "web" else _NATIVE_SCOPE
         state = new_state()
         with self._lock:
             self._sweep()
             self._pending[state] = (time.time(), mode, redirect_target)
-        return state, authorize_url(self._cid, self._redirect, state)
+        return state, authorize_url(self._cid, self._redirect, state, scope=scope)
 
     def complete(self, state: str, code: str) -> tuple[str, str, str | None]:
         """Validate the state, exchange the code, store the token under a fresh

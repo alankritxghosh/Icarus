@@ -46,6 +46,44 @@ class AuthorizeUrlTests(unittest.TestCase):
         self.assertIn("scope=repo", url)
 
 
+class LoginScopeByModeTests(unittest.TestCase):
+    """The consent screen a user sees must match what that surface can actually do.
+
+    The browser trial only ever connects PUBLIC repositories, so asking it for
+    `repo` -- read AND write to every repository the person owns, public and
+    private -- overstates what it needs by an enormous margin, on the very
+    surface a stranger meets first. The native surfaces genuinely do connect
+    private repositories, so they keep `repo` until the per-repo GitHub App
+    replaces it.
+    """
+
+    def _flow(self):
+        def fake_exchange(code, *, client_id, client_secret, redirect_uri):
+            return f"token-for-{code}"
+        return OAuthFlow("cid", "secret", "http://127.0.0.1:8000/auth/github/callback",
+                         exchanger=fake_exchange)
+
+    def test_web_login_asks_for_identity_only(self):
+        _state, url = self._flow().begin("web")
+        self.assertIn("scope=read%3Auser", url)
+        # The whole point: the browser trial must NOT request repository access.
+        self.assertNotIn("scope=repo", url)
+
+    def test_app_login_still_asks_for_repo(self):
+        _state, url = self._flow().begin("app")
+        self.assertIn("scope=repo", url)
+
+    def test_extension_login_still_asks_for_repo(self):
+        _state, url = self._flow().begin(
+            "extension", "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/")
+        self.assertIn("scope=repo", url)
+
+    def test_default_mode_is_treated_as_the_app(self):
+        # begin() with no mode is the Mac app; it must not be silently narrowed.
+        _state, url = self._flow().begin()
+        self.assertIn("scope=repo", url)
+
+
 class ExchangeCodeTests(unittest.TestCase):
     def test_parses_access_token(self):
         token = exchange_code("thecode", client_id="c", client_secret="s",
