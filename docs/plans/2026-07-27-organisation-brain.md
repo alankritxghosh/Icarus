@@ -66,17 +66,44 @@ shared storage that would let one person destroy their whole team's index. It
 becomes "forget MY active repo", never "delete the shared corpus". Deleting a
 shared corpus is a separate, deliberate action and is **out of scope here**.
 
+## Corrections made after reading the code (2026-07-27, before any code)
+
+**Public corpora are ALREADY shared.** `demo/registry.py`'s `_public_cache`
+ingests each public repo once into `<storage_root>/public.cache/<slug>/` and
+reuses it for everyone — a public index is a deterministic function of public
+input, so per-user copies would be waste, not privacy. The duplication this plan
+set out to fix therefore applies **only to PRIVATE repos**, which is where it
+actually matters, since companies keep their code private. Scope is narrower than
+originally written.
+
+**The original task order would have opened a security hole.** Today, what keeps
+one tenant's private corpus away from another is that it is filed under their
+user id — the *storage layout is the isolation*; there is no read-side access
+check because nothing is shared. Moving private corpora to shared per-repo
+storage BEFORE the access check exists would leave a window in which any
+signed-in caller could query another company's private index.
+
+**So the order is reversed: build the doorman before removing the walls.**
+T2 (verifier) and T3 (enforcement) land first and change nothing a user sees.
+Only once enforcement is proven does T1 merge private storage.
+
 ## Tasks
 
 Each task is red→green: write the failing test first, then the code.
+**Order matters — see the correction above. T2 → T3 → T1 → T4 → T5 → T6.**
 
-### T1 — Repo-scoped storage
-`demo/registry.py`. Key libraries and storage by `owner/repo` instead of user id.
-- **Test (red first):** two *different* identities connecting the same repo
-  resolve to the **same** `Library` and the same storage directory.
+### T1 — Shared per-repo PRIVATE storage (LANDS AFTER T3, NOT FIRST)
+`demo/registry.py`. Private corpora move from `<storage_root>/<user_id>/private/`
+to a per-repo path shared by everyone entitled to read that repo. Public corpora
+already work this way and are untouched.
+- **Precondition:** T3 is green. Do not land this while reads are unguarded.
+- **Test (red first):** two *different* identities connecting the same private
+  repo resolve to the **same** corpus directory — one ingest, not two.
 - **Test:** two different repos stay separate.
 - **Test:** hostile repo names cannot escape the storage root (path traversal) —
   the existing hostile-id rejection test is the model.
+- **Test:** an identity WITHOUT access cannot reach it (this is T3's guard, and
+  it must be re-proven at this layer once storage is genuinely shared).
 
 ### T2 — Repo access verifier with a 5-minute TTL
 `demo/auth.py` (mirror the shape of `GitHubTokenVerifier`, which already caches
