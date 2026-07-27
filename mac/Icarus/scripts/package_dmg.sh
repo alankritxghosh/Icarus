@@ -73,3 +73,9 @@ hdiutil create -volname "${VOLNAME}" -srcfolder "${STAGE}" -ov -format UDZO "${D
 
 echo "==> done: ${ROOT}/${DMG}"
 echo "    share this file. Recipients follow the bundled READ ME FIRST.txt."
+echo
+echo "    To publish it on the website, do NOT copy it across by hand — the site"
+echo "    pins this image's SHA-256 in install.sh and refuses to install anything"
+echo "    that doesn't match. Run the website repo's release script instead:"
+echo "        ./release-dmg.sh ${ROOT}/${DMG}"
+echo "    which restamps the hash (and size) everywhere it appears."

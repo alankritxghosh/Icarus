@@ -61,6 +61,12 @@
         color:var(--cited);border:1.5px solid var(--cited);background:var(--cited-bg);margin-right:6px}
   .refuse{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:-.02em;margin:6px 0 10px}
 
+  /* real product screenshots: framed like a brutalist block, no recreation */
+  .specimen{margin:0}
+  .specimen img{display:block;width:100%;height:auto;
+    border:2px solid var(--ink);box-shadow:7px 7px 0 var(--ink)}
+  .specimens{align-items:start}
+
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:26px;margin-top:8px}
   .steps{counter-reset:s;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:26px}
   .step{border-top:2px solid var(--ink);padding-top:12px}
@@ -114,7 +120,7 @@
   </p>
   <div class="ctarow">
     <a class="cta" href="Icarus.dmg" download>↓ Download for macOS</a>
-    <span class="meta">Apple silicon · ~950 KB · free alpha</span>
+    <span class="meta">Apple silicon · ~926 KB · free alpha</span>
   </div>
 
   <!-- Live replay of a REAL exchange. Every string below is verbatim output from
@@ -144,34 +150,20 @@
     enforced by code, not by asking a model nicely.
   </p>
 
-  <div class="grid" style="margin-top:30px">
-    <div>
+  <div class="grid specimens" style="margin-top:30px">
+    <figure class="specimen">
       <p class="eyebrow">A reason that was recorded</p>
-      <div class="block shot">
-        <div class="q">Why does requests not support HTTP/2?</div>
-        <div class="a">
-          HTTP/2 is a complex protocol, and it is unlikely that Requests will achieve good support for
-          it in its current form anytime soon. Additionally, support is likely blocked by the lack of
-          HTTP/2 support in the underlying <code>urllib3</code> library.
-        </div>
-        <div class="excerpt">Issue #6856: HTTP/2
-I am trying to get HTTP/2 with requests, and I found these:
-&gt; It can: http://hyper.readthedocs.org/en/development/…
-…</div>
-        <span class="chip">issue:6856</span><span class="chip">issue:6752</span>
-      </div>
-    </div>
-    <div>
+      <img src="shots/panel_cited.png" width="828" height="872" loading="lazy"
+           alt="The Icarus overlay answering &quot;Why does requests not support HTTP/2?&quot; with a cited answer, quoting issue #6856 and issue #6752." />
+    </figure>
+    <figure class="specimen">
       <p class="eyebrow">A reason that was never recorded</p>
-      <div class="block amber shot">
-        <div class="q">Why is DEFAULT_REDIRECT_LIMIT exactly 30?</div>
-        <div class="refuse">No one wrote this down.</div>
-        <p class="meta" style="margin:0">searched 20 sources · 0 recorded reasons</p>
-      </div>
-    </div>
+      <img src="shots/panel_refusal.png" width="828" height="488" loading="lazy"
+           alt="The Icarus overlay answering &quot;Why is the redirect limit 30?&quot; with an amber &quot;No one wrote this down.&quot; and the list of sources it searched." />
+    </figure>
   </div>
   <p class="meta" style="margin-top:22px">
-    Both are real answers from Icarus about <code>psf/requests</code>, a repository it had not seen before.
+    Real screenshots of Icarus answering about <code>psf/requests</code>, a repository it had not seen before.
   </p>
 </section>
 
@@ -225,22 +217,54 @@ I am trying to get HTTP/2 with requests, and I found these:
 <section class="wrap">
   <h2>Install</h2>
   <p>
-    Icarus is not yet notarized by Apple, so macOS will refuse to open it on the first try. This is a
-    one-time step:
+    Icarus is not notarized by Apple — notarization requires a paid Developer ID this alpha does not
+    have yet, so macOS cannot vouch for it. Rather than paper over that: both install paths are below,
+    along with the checksum, so you can verify what you downloaded yourself.
   </p>
-  <pre>1.  Download and open Icarus.dmg
-2.  Drag Icarus into Applications
-3.  Right-click Icarus in Applications → Open
-4.  Click "Open" in the dialog that appears</pre>
+
+  <p class="eyebrow" style="margin-top:28px">Terminal — one line, no dialogs</p>
+  <pre>curl -fsSL https://icarus-website-kappa.vercel.app/install.sh | sh</pre>
+  <p class="meta">
+    A browser tags its downloads as quarantined, and that tag is what triggers the "unverified
+    developer" dialog. <code>curl</code> does not tag them, so this path never hits it. To be clear
+    about what that means: it skips the <em>prompt</em>, not a real inspection — macOS has not checked
+    this app on either path. <a href="install.sh">Read the script</a> before piping it to a shell.
+  </p>
+
+  <p class="eyebrow" style="margin-top:28px">Or the disk image, by hand</p>
+  <pre>1.  Download Icarus.dmg below and open it
+2.  Drag Icarus onto the Applications folder beside it
+3.  Open Icarus. macOS says it "cannot be opened because Apple
+    cannot check it for malicious software" — this is expected
+4.  System Settings → Privacy &amp; Security, scroll down, then
+    click "Open Anyway" beside the Icarus message and confirm</pre>
+  <p class="meta">
+    If no "Open Anyway" button appears, open Terminal and run
+    <code>xattr -dr com.apple.quarantine /Applications/Icarus.app</code>, then open Icarus normally.
+    (On macOS 14 and earlier you can instead right-click Icarus → Open.)
+  </p>
+  <p class="meta">
+    SHA-256 of <code>Icarus.dmg</code> —
+    <code>a899cf2e338660cf02d661c06348117e456cbc7196d95414613f1c7081e2f795</code><br />
+    Check yours with <code>shasum -a 256 Icarus.dmg</code>. This detects a corrupted or altered
+    download; it is not a substitute for Apple's signature, and does not pretend to be.
+  </p>
   <p>After that first launch it opens normally. Microphone and speech permissions are requested the
      first time you hold the talk key; both can be declined and typed questions still work.</p>
+  <p>Stuck, or something behaved oddly? Email
+     <a href="mailto:ayushghosh2015@gmail.com?subject=Icarus%20beta%20feedback">ayushghosh2015@gmail.com</a>.
+     This is an early beta — reports of what broke are genuinely useful.</p>
   <div class="ctarow">
     <a class="cta" href="Icarus.dmg" download>↓ Download for macOS</a>
-    <span class="meta">Apple silicon · ~950 KB</span>
+    <span class="meta">Apple silicon · ~926 KB</span>
   </div>
 </section>
 
 <footer class="wrap">
+  <p style="margin:0 0 12px">
+    Beta feedback, bugs, and questions →
+    <a href="mailto:ayushghosh2015@gmail.com?subject=Icarus%20beta%20feedback">ayushghosh2015@gmail.com</a>
+  </p>
   Icarus · a conversational engineering brain that answers <em>why</em> — with receipts, and an honest
   "no one wrote this down" when there isn't one.
 </footer>
@@ -264,7 +288,7 @@ I am trying to get HTTP/2 with requests, and I found these:
       refs: ["issue:6856", "issue:6752"]
     },
     {
-      q: "Why is DEFAULT_REDIRECT_LIMIT exactly 30?",
+      q: "Why is the redirect limit 30?",
       refuse: true,
       a: "No one wrote this down.",
       excerpt: "",
