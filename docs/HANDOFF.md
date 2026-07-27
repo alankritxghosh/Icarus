@@ -1,3 +1,113 @@
+# Icarus — Session Handoff (2026-07-23, later: Figma wireframe handover — Codex picks this up)
+
+**READ THIS FIRST — this narrows the "design the Icarus website" job below
+into one specific next step, handed to Codex because this session is out of
+budget to keep going. Don't re-do what's listed as done; don't skip the
+sequencing problem flagged below.**
+
+## What actually happened this session (the honest version)
+
+Alankrit's original instruction was: wireframe the site in Figma first, using
+real macOS-app screenshots, then build the page. **That sequencing was not
+followed.** This session verified capabilities, captured two real
+screenshots, then skipped straight to editing the existing HTML scaffold with
+them — Figma was never opened. Alankrit caught this and asked for a handover
+instead of continuing to burn budget redoing it inline. So: the Figma
+wireframe is still not built, and the HTML (`site/index.html`) is now AHEAD
+of the design step that was supposed to produce it. Whoever picks this up
+should decide whether to (a) build the Figma wireframe now as a proper record
+of the design and pull the HTML in line with it, or (b) treat the HTML as the
+design and use Figma only for whatever hasn't been laid out yet. That call
+was not made — don't assume one, ask Alankrit if it's not obvious from the
+state below.
+
+## Done — do not recapture or redo
+
+- **Two real screenshots from the live macOS app**, not recreations:
+  - `site/shots/panel_cited.png` (828×872) — the overlay answering "Why does
+    requests not support HTTP/2?" with a cited answer, two quoted issue
+    excerpts, receipt chips `issue:6856` / `issue:6752`.
+  - `site/shots/panel_refusal.png` (828×488) — the overlay answering "Why is
+    the redirect limit 30?" with the amber "HONEST UNKNOWN — No one wrote
+    this down." and the full list of searched sources.
+  - Both captured against the LIVE brain (confirmed rev 0000020+ — the
+    writer-verdict gap is closed, the refusal fires for real, not a stale
+    build) connected to `psf/requests` (200 PR / 500 issue / 680 code chunks
+    indexed).
+  - Both are already swapped into `site/index.html`'s "It tells you when it
+    doesn't know" section, replacing the earlier CSS re-creations. Verified
+    by measurement in-browser: clean two-column grid, no horizontal overflow,
+    both images load at native resolution.
+- **Screen capture confirmed working** (Alankrit's permissions grant is good).
+- **Live brain healthy**: `/health` and `/status` both green on
+  `https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io`.
+
+## Not done — this is the job
+
+**Build the Figma wireframe**, using the two real screenshots above as the
+actual visual material (not placeholders) for the hero/specimen sections, plus
+whatever layout Alankrit still wants explored before it's locked into HTML.
+
+Figma MCP status in this environment, as last observed:
+- A **read-only** server was connected: `get_metadata` / `get_screenshot` /
+  `get_design_context` / `get_variable_defs` (+ code-connect tools). It
+  cannot create or edit a design — read-only means read-only.
+- A **write-capable** server (tool prefix
+  `mcp__b25f8afd-5a53-4288-a1ec-940ef45f62cc__…`) was ALSO available this
+  session, exposing `create_new_file`, `use_figma`, `generate_design`,
+  `generate_design_structured`, `download_assets`, `upload_assets`,
+  `export_video`, `get_design_context`, etc. — this is the one that matters
+  here. It was never invoked. **Verify it's still connected before starting**
+  — the 2026-07-19/22 handoffs noted this server drops mid-session and needs
+  reconnecting in an interactive terminal; if Codex hits the same drop, say
+  so rather than working around it silently.
+- In this session's harness (Claude Code), two Figma-specific skills were
+  MANDATORY prerequisites before calling the write tools:
+  `figma-create-new-file` before `create_new_file`, `figma-use` before
+  `use_figma`. Codex's own tool setup may or may not have an equivalent gate
+  — check `CODEX.md` and whatever MCP config Codex is running under; don't
+  assume Claude Code's rules carry over.
+
+## Assets available to hand to Figma
+
+- `site/shots/panel_cited.png`, `site/shots/panel_refusal.png` — the two real
+  screenshots above.
+- `site/index.html` — the current one-page scaffold in "Honest Brutalism"
+  (`docs/DESIGN_VISION.md`), already has these two swapped in. Read it for the
+  existing structure/copy before redesigning from scratch.
+- `site/Icarus.dmg` — the current build (948 KB), linked from the download CTA.
+
+## Two decisions Alankrit has already made — don't relitigate
+
+- **Hosting: Vercel** (his call, this session — supersedes the earlier
+  "GitHub Pages needs a separate public repo" framing in the entry below).
+  Note `site/.gitignore` excludes `Icarus.dmg` as a build artifact — a
+  git-based Vercel deploy won't include it; a `vercel` CLI deploy uploads
+  untracked files and would. Whoever deploys needs to pick one deliberately.
+- **Notarization**: DMG is not notarized; direct download over an email gate
+  was already decided. Don't re-raise it.
+
+## Also open, not this handover's job
+
+- **The demo recording is broken and unfinished.** Two attempts this session
+  used a cropped screen-region capture (`screencapture -v`/`-V`) and both
+  failed for real reasons: the first stopped early because `-v`'s interactive
+  stop-on-keystroke mode doesn't work backgrounded (no stdin), the second
+  missed the opening beat because the recording start raced the demo script.
+  Alankrit rejected the result outright — "terrible video" — and wants a
+  FULL-SCREEN recording of the whole workflow, not a cropped answer-panel
+  loop, with a written script approved before anything is recorded again. A
+  draft script exists in this session's chat transcript (not yet saved to a
+  file) covering: dashboard → invoke overlay → cited answer → refusal →
+  optional proof-persists close. Four open questions were asked and dismissed
+  without an answer (how to keep the Claude Code chat window out of frame,
+  dashboard-vs-editor backdrop, beat order, whether to include the closing
+  beat) — get real answers before recording, don't guess. This is explicitly
+  NOT part of the Figma job; sequencing per Alankrit is Figma first, demo
+  after.
+
+---
+
 # Icarus — Session Handoff (2026-07-23: NEXT JOB — design the Icarus website)
 
 **READ THIS FIRST. This entry is an instruction to the next session, not a
