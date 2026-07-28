@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Six commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Eight commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
-**Live: `icarus-brain--0000027`, image `alpha-20260728-cov3`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 519 · demo 250 · IcarusKit 91 ·
+**Live: `icarus-brain--0000028`, image `alpha-20260728-commits`, healthy, 100%
+traffic. `main` @ the handoff commit. evals 537 · demo 250 · IcarusKit 91 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -210,6 +210,50 @@ in the index. Naming it still live-fetches the full thread on demand
 thousands cannot). Lifting this needs hand-written GraphQL with bounded nested
 page sizes and per-page retry.
 
+## 6. `91a9b7c` — commit messages are indexed (live, rev 0000028)
+
+Commits were readable only by naming a SHA, which kept the densest "why" in any
+codebase out of search: a commit message is the one place a change explains
+itself at the moment it was made, and you could only read one if you already
+knew which to ask for. **6,488 of them on psf/requests alone.**
+
+The exclusion was priced wrong. `git fetch --filter=blob:none` at full depth
+pulls all 6,488 commits in **1.6s** into a **3.6 MB** .git -- commit and tree
+objects are tiny and file contents are never transferred. On a full ingest that
+is **162.8s against 161.1s: 1.7 seconds for the project's entire history.**
+
+It needs its OWN fetch. `fetch_code` fetches at depth 1 on purpose (a full clone
+made Expensify/App fail outright, 2026-07-17), so it has no history to read, and
+deepening it would drag every blob along.
+
+Message-only, NOT `--name-only`: per-commit file lists cost a tree diff each,
+measured **27s against 2s**, for information the PR-level "Files changed" line
+already carries. NUL between fields and RS between records, because a commit
+message can contain newlines, tabs and nearly any printable byte -- git forbids
+NUL in a commit object, so those delimiters cannot collide. Tested with
+multiline and pipe/tab-laden bodies.
+
+**Nothing is filtered, and the cost is stated rather than quietly avoided:**
+1,612 of the 6,488 are merge commits largely restating a PR title, and bot
+commits are verbose. Both dilute BM25's idf. Dropping them is a product
+judgement, not a plumbing one, so it is disclosed instead of decided in code.
+
+`commit:` was already known to the gate, `links.ref_to_url` and
+`fetch_commit_detail`, so an indexed commit cites and links with no downstream
+change -- and naming a SHA still live-fetches the full DIFF, which the indexed
+message deliberately lacks.
+
+**Live-verified on rev 0000028:** `/status` reports `commit: 6488`, and *"Why
+was an AI policy added to the project?"* -- a reason recorded ONLY in a commit
+message -- returns `verdict: answer` citing
+`commit:c4367f231b5dc54f23f2983828562ce3a7555a8a`, whose GitHub URL resolves 200.
+
+⚠️ **The corpus is now ~14,481 chunks for psf/requests** (3,087 pr + 4,167 issue
++ 6,488 commit + 680 code + doc/config), against 1,425 at the start of the day --
+**10x**. Lexical search is live the moment connect returns; the semantic embed
+runs for a long time afterwards. That is the price of the coverage bar and it is
+paid on every large repo.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -282,7 +326,8 @@ Ranked by how much history they silently drop:
    The DMG is built and verified; only publishing is left.
 3. **Share the per-user connection pointer across replicas**, or pin sessions,
    before a team uses this concurrently (see the latent risk above).
-4. **Index commits**, and raise discussion depth past 400 (hand-written GraphQL).
+4. **Raise discussion depth past 400** (hand-written GraphQL with bounded
+   nested page sizes). Commits are done.
 5. **Morphic.** Everything else is prerequisite, not goal.
 
 ## Commits
@@ -290,7 +335,7 @@ Ranked by how much history they silently drop:
 `7c666f1` (display + Repo/Company Brain), `da9a5ba` (discussion ingest + caller
 token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
 (vector cache keyed on corpus content), `5347b30` (every PR and issue indexed),
-`8d58968` (corpus format 3 so cached repos refresh).
+`8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4).
 
 ---
 
