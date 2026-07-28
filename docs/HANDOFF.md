@@ -1,3 +1,210 @@
+# Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
+
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Three commits
+landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
+
+**Live: `icarus-brain--0000024`, image `alpha-20260728-refresh`, healthy, 100%
+traffic. `main` @ `f414d31`. evals 504 · demo 250 · IcarusKit 91 · extension 31 ·
+secrets scan clean.**
+
+## The standing bar Alankrit set this session (write it down, it governs)
+
+> "Every word and line, as insignificant as it may seem, needs to be ingested.
+> When a user uses Icarus they are talking to the entire repo, the product they
+> built. Only things that do not exist anywhere in the repo will go unanswered."
+
+Treat every ingest cap, excluded extension, and unfetched field as a **defect
+against that bar**, not a reasonable default — and when reporting what Icarus can
+do, **lead with what is NOT covered.**
+
+## 1. `7c666f1` — the display fix (fix #2 from the previous handoff)
+
+`Result.anchored` carries the refs resolved by EXACT LOOKUP — because the
+question named them ("PR 6952"), or because `.explain()`'s caller selected those
+lines — split out from the ones search merely suggested. Both were already in
+`retrieved` (anchor-first); the flat list is what made a correctly-anchored
+abstention read as "ignored the question and searched blindly".
+
+Set on **both** exits of `_answer_from`: an abstention is exactly the case that
+needed it. Display only — it travels beside the honesty decision, never into it,
+and `searched` still lists everything so "all of them shown" stays true.
+OPTIONAL on the wire, so an older brain degrades to the old flat list.
+
+Rendered in the overlay ("you named: issue:6952" / "then searched 19 more"), the
+dashboard rows, the web demo, and the extension.
+
+**Repo Brain vs Company Brain** (Alankrit's call): a shared PRIVATE index is a
+company's memory; a public repo's is just that repo's. Read from `/status`'s
+`private` flag — `RepoStatus.isPrivate`, which the server always sent and Swift
+had dropped — never inferred from a repo name. Absent flag falls back to public:
+never over-claim that code is private.
+
+**That flushed out four claims false since private repos were re-enabled
+2026-07-16**, same class as the privacy screen the org-brain session caught: the
+sidebar badge, `SetupView`'s "public repositories only", `BrainClient`'s refusal
+copy, and the extension's hardcoded label — all shown while a PRIVATE repo was
+connected. One in the other direction: `demo/index.html` offered private repos on
+the WEB surface, which cannot read them since the login narrowed to `read:user`.
+
+## 2. `da9a5ba` — PR/issue chunks carry the DISCUSSION
+
+**This was the sharpest violation of the bar above.** Indexed PR/issue chunks
+held `title` + `body` only. The reason a change was made lives in the review
+thread far more often than in the description — so Icarus said "no one wrote this
+down" about things the team HAD written down, three comments further in. Never a
+bluff (nothing was fabricated), but a customer cannot distinguish "nobody
+recorded this" from "you didn't read it", and the whole promise rests on that
+distinction holding.
+
+**What made it invisible:** `fetch_ref_detail` (the LIVE path, used ONLY for a
+`#N` OUTSIDE the indexed slice) had always fetched comments. So ancient
+unindexed PRs answered richly while the most recent 200 answered from the
+description alone. Exactly backwards, and silent.
+
+Chunks now carry comments, review bodies + verdicts, changed files with line
+counts, and state/author/labels — all returned by the SAME single
+`gh … list --json` call that already fetched title+body (fields verified against
+`gh` first), so the N+1 that once made ingest take 2.5 minutes is not
+reintroduced. Both paths share one builder now, so indexed and live-fetched refs
+can never silently diverge again.
+
+Ordering is load-bearing: **title and description stay FIRST**, because
+retrieval and the writer read a chunk from its head and the embedder sees only
+its first ~512 tokens. The discussion extends the description, never displaces
+it. Empty sections are omitted rather than rendered as bare headers — a header
+repeated across every PR is a term with no discriminating power that dilutes
+BM25's idf.
+
+Two things caught by reading the code:
+- **The CALLER's token now reaches the live fetch.** It was hardcoded
+  `token=None`, so a private repo's exact-ref fetch always failed safe to None:
+  the Company Brain had **no exact-ref depth at all**. Passed per call, never
+  stored — a pipeline is shared across a repo's users, so a retained token would
+  be one caller's credential available to the next one's request. Test-guarded.
+- **`corpus_version` in `meta.json`.** `chunking` records the CODE chunker only,
+  so this change left it byte-identical — without a format version the fix would
+  have deployed and been inert for every already-connected repo.
+
+**Honest ceiling, stated in the code:** `files` is the changed-file LIST with
+line counts, **not diff hunks**. Hunks need a per-PR `gh pr diff` (the N+1 this
+avoids). A named commit SHA still resolves to a real diff.
+
+## 3. `f414d31` — the refresh bug, found ONLY by verifying the deploy
+
+Item 2 deployed correctly and **did nothing.** `psf/requests` kept answering from
+title+body; a reconnect returned in 1 second. A repo that had NEVER been cached
+ingested perfectly — that is what isolated it.
+
+`Library.connect_sync` computed staleness correctly and asked for a re-ingest.
+`registry._ingest_once` saw `chunks.jsonl` on disk and returned without doing
+one. **Two layers each holding their own cache logic, and the lower one silently
+overruled the upper one** — so the entire staleness mechanism, including T6's
+AST-chunking refresh, had been decorative for every shared-cache repo since it
+was written. It failed the worst possible way: silently, looking exactly like
+success.
+
+A REFRESH is now distinct from a cache FILL and skips both fast paths.
+Publishing needed real work, not a flag: `os.replace` publishes atomically onto a
+MISSING destination but **cannot replace a non-empty directory** (ENOTEMPTY),
+which is precisely the refresh case — so `_publish` swaps the corpus aside,
+publishes, then deletes. A reader arriving in the two-rename gap sees a cache
+miss and waits on the same per-slug lock: a redundant wait, never a partial
+corpus. A refresh that dies mid-ingest leaves the old corpus serving (tested) —
+a stale corpus beats none.
+
+## Live-verified on rev 0000024 (not assumed — run against production)
+
+- **The handoff's own regression is finally fixed.** "What did PR 6952 change?"
+  on `psf/requests` → `verdict: answer`, citing `issue:6952`: *"#6952 is an
+  issue, not a pull request, and it concerns a request for a new release."*
+- **A comment-only reason is now answerable.** "In issue 6952, which CVE
+  identifiers were raised?" → cites `issue:6952`, answers *CVE-2015-2296 and
+  CVE-2014-1830* — content that exists ONLY in comment #3.
+- **`anchored` rides every response**: `['pr:1435']`, `['issue:6952']`.
+- Excerpts show the new chunk shape (`ISSUE #6952: …` / `[CLOSED by …]` /
+  `Comment by …`).
+- Both images were checked to CONTAIN their changes before pushing (15 assertions
+  then 5), per the established discipline.
+
+## ⚠️ Two defects found and NOT fixed — do not record as done
+
+1. **`vector_cache.load_vectors` validates by REF SET only**
+   (`set(vectors.keys()) != set(refs)`). A refreshed corpus at the SAME commit
+   has identical refs with **different text**, so stale embeddings are silently
+   reused for the new discussion text. Groundedness is unaffected (the writer
+   sees the real new text; only the RANKING is stale), but semantic retrieval is
+   quietly degraded. It did not bite during verification only because the
+   re-ingest also picked up a newer commit, which changed the code refs. **Fix:
+   put a corpus content hash in the cache key.** This is the top follow-up.
+2. **Observed once, not root-caused:** immediately after the 0000024 deploy,
+   `/status` reported `psf/requests` while `/ask` retrieved `simonw/llm` refs —
+   inconsistent state during the corpus swap window. A `/disconnect` +
+   `/connect` cleared it and it has not recurred. Cause unknown.
+
+## DMG — REBUILT, verified, NOT PUBLISHED
+
+`mac/Icarus/Icarus.dmg`, **940 KB**, sha256
+`d44f5d4222e728b4cfd87494d81aba2caf64b88784d6b4f608f3f9992ea0350d`, brain URL
+correctly stamped to Azure (not the 127.0.0.1 fallback).
+
+Verified to contain this session's app changes: `PRIVATE REPOSITORY ` and
+`nothing else searched` present, old `public repositories only` /
+`PUBLIC REPOSITORY ALPHA` gone.
+
+**Gotcha for whoever verifies a build next:** `strings` on a Swift binary will
+NOT find short literals — Swift inlines anything ≤15 UTF-8 bytes, so
+"COMPANY BRAIN", "REPO BRAIN" and "you named: " are genuinely absent from the
+string table while being present in the code. `strings` also breaks ASCII runs at
+multi-byte characters, so "PRIVATE REPOSITORY · ALPHA" only ever appears as
+"PRIVATE REPOSITORY ". Pick literals >15 bytes and ASCII-only, or you will
+"prove" a correct build is broken.
+
+**NOT published, and this needs a decision.** `release-dmg.sh` lives in the
+website repo, and **neither `Icarus-Website` nor `homebrew-icarus` is checked out
+on this machine** (searched to depth 5 under `~`). Publishing restamps the
+SHA-256 in FOUR places across TWO repos (`install.sh`, `index.html`, the cask's
+`sha256` and `version`) and changes what strangers download — clone both as
+siblings and run `./release-dmg.sh <dmg>`, which refuses to publish without the
+tap rather than leaving `brew install` on the previous build.
+
+## Still failing the coverage bar — the honest ledger
+
+Ranked by how much history they silently drop:
+
+1. **`PR_LIMIT = 200`, `ISSUE_LIMIT = 500`, most-recent only.** On a 3,000-PR
+   repo, **2,800 PRs are invisible to search** — reachable only by naming the
+   number. Biggest violation by a wide margin. NOT a one-line bump: the call now
+   returns comments/reviews/files per PR, a payload large enough to blow the
+   120s subprocess timeout. Needs pagination + measurement on a real large repo.
+2. **Commits are never indexed** — `fetch_commit_detail` resolves one only when
+   you name the SHA. Commit messages are the densest "why" in any repo.
+3. **Diff hunks never ingested** (file list + line counts only).
+4. **Whole languages unindexed**: `.html`, `.css`, `.vue`, `.svelte`, `.dart`,
+   `.ex`, `.clj`, `.lua`, `.tf`, `.proto`, `.graphql`, `Makefile`, `Dockerfile`.
+   One-line map edit, but needs a per-language recall check before shipping.
+5. **`.json` excluded** (2026-07-17: asset catalogs/i18n skewed BM25). Cost:
+   `package.json`, `tsconfig`, schemas.
+6. **Never fetched**: wikis, Discussions, releases/changelogs, and **inline
+   review-thread comments** — review BODIES are now ingested, but per-line diff
+   comments are a separate GraphQL field (`reviewThreads`) that isn't requested.
+7. Files >512KB skipped; 50k chunks; 100MB total.
+
+## Next, in order
+
+1. **Fix the vector-cache invalidation** (defect 1 above) — it silently degrades
+   retrieval on every refresh from here on.
+2. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
+3. **Raise the PR/issue caps properly** (pagination + measurement). This is the
+   biggest gap against Alankrit's bar.
+4. **Morphic.** Everything else is prerequisite, not goal.
+
+## Commits
+
+`7c666f1` (display + Repo/Company Brain), `da9a5ba` (discussion ingest + caller
+token + corpus_version), `f414d31` (refresh must actually re-ingest).
+
+---
+
 # Icarus — Session Handoff (2026-07-28, later: premise-correction fix landed, NOT deployed — session paused on credits)
 
 **READ THIS FIRST.** Session paused because Alankrit is low on credits, not
