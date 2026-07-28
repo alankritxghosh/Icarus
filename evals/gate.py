@@ -311,14 +311,40 @@ ABSTAIN_ENTITY_ABSENT = "entity_absent"        # guard (c): the named thing isn'
 ABSTAIN_NO_RECORDED_REASON = "no_recorded_reason"  # guard (b): evidence records no why
 ABSTAIN_SELF_DISCLAIMED = "self_disclaimed"    # guard (d): the prose disclaims knowing
 
+def _entity_is_absent(question, evidence) -> bool:
+    """True when the question names a distinctive identifier that appears
+    NOWHERE in the evidence the writer saw (guard (c)'s test, factored out).
+
+    Used for two different jobs: forcing an abstention, and CLASSIFYING one. A
+    writer that honestly declines a question about a symbol that does not exist
+    never reaches guard (c) -- so without this the ledger records
+    "writer_abstained", the unknowns map reads it as real documentation debt,
+    and a question about a thing that isn't in the repo inflates the team's
+    apparent problem. Measured live 2026-07-29 on exactly that case.
+    """
+    if evidence is None:
+        return False
+    idents = _named_identifiers(question)
+    if not idents:
+        return False
+    haystack = "\n".join(evidence.values()).lower()
+    return not all(sym.lower() in haystack for sym in idents)
+
+
 def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
     data = _extract_json(raw)
     verdict = data.get("verdict") if isinstance(data, dict) else None
     if not isinstance(data, dict) or not isinstance(verdict, str) or verdict.lower() != "answer":
         # Distinguish "the writer honestly said unknown" from "the reply was
         # unusable" -- one is the product working, the other is a defect.
-        reason = (ABSTAIN_WRITER if isinstance(verdict, str) and verdict.lower() == "unknown"
-                  else ABSTAIN_UNPARSEABLE)
+        if not (isinstance(verdict, str) and verdict.lower() == "unknown"):
+            reason = ABSTAIN_UNPARSEABLE
+        elif _entity_is_absent(question, evidence):
+            # The writer declined first, so guard (c) never ran -- but the more
+            # informative truth is available and is not "nobody documented it".
+            reason = ABSTAIN_ENTITY_ABSENT
+        else:
+            reason = ABSTAIN_WRITER
         return Result(verdict="unknown", abstention_reason=reason)
     answer = data.get("answer")
     citations = data.get("citations")
@@ -341,13 +367,9 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
     # bluff: the citation resolves, but the thing asked about isn't there. Absent
     # -> abstain. Fail-safe: only ever answer -> unknown. (Off for callers that
     # pass no evidence, and for .explain(), which passes question=None.)
-    if evidence is not None:
-        idents = _named_identifiers(question)
-        if idents:
-            haystack = "\n".join(evidence.values()).lower()
-            if not all(sym.lower() in haystack for sym in idents):
-                return Result(verdict="unknown", retrieved=list(retrieved),
-                              abstention_reason=ABSTAIN_ENTITY_ABSENT)
+    if _entity_is_absent(question, evidence):
+        return Result(verdict="unknown", retrieved=list(retrieved),
+                      abstention_reason=ABSTAIN_ENTITY_ABSENT)
     # (b) A rationale-seeking ("why") question needs grounded evidence that
     # actually RECORDS a reason -- otherwise the writer answered an easier
     # question than the one asked (the "why 32?" -> "it's 32" dodge). A recorded

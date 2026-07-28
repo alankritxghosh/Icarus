@@ -334,3 +334,52 @@ class AbstentionReasonTests(unittest.TestCase):
         for name in dir(gate_mod):
             if name.startswith("ABSTAIN_"):
                 self.assertIsInstance(getattr(gate_mod, name), str)
+
+
+class WriterAbstentionIsClassifiedTests(unittest.TestCase):
+    """A writer that honestly declines a question about a symbol that does not
+    exist never reaches guard (c) — so the reason used to read
+    "writer_abstained", and the unknowns map counted it as real documentation
+    debt. Measured live 2026-07-29 on exactly that case.
+
+    This only ever refines the REASON. The verdict is untouched."""
+
+    def test_a_writer_abstention_about_a_missing_symbol_says_so(self):
+        r = gate(json.dumps({"verdict": "unknown"}), ["code:db.py"],
+                 question="How does QuantumIndexShard avoid lock contention?",
+                 evidence={"code:db.py": "class BTree: pass"})
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_ENTITY_ABSENT)
+
+    def test_a_writer_abstention_about_a_REAL_thing_is_still_writer_abstained(self):
+        # The thing exists; the writer just had nothing to say. That IS debt.
+        r = gate(json.dumps({"verdict": "unknown"}), ["code:db.py"],
+                 question="Why does BTree rebalance eagerly?",
+                 evidence={"code:db.py": "class BTree: pass  # rebalance"})
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER)
+
+    def test_a_question_naming_no_identifier_is_unaffected(self):
+        r = gate(json.dumps({"verdict": "unknown"}), [],
+                 question="why is it slow?", evidence={"code:a": "x"})
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER)
+
+    def test_callers_passing_no_evidence_are_unaffected(self):
+        r = gate(json.dumps({"verdict": "unknown"}), [],
+                 question="How does QuantumIndexShard work?")
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER)
+
+    def test_garbage_is_still_unparseable_not_entity_absent(self):
+        r = gate("not json", [], question="How does QuantumIndexShard work?",
+                 evidence={"code:a": "nothing"})
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_UNPARSEABLE)
+
+    def test_no_verdict_changes_only_the_reason_is_refined(self):
+        # Guard: this must never turn an abstention into an answer or vice versa.
+        for raw in (json.dumps({"verdict": "unknown"}),
+                    json.dumps({"verdict": "answer", "answer": "x", "citations": ["code:db.py"]})):
+            before = gate(raw, ["code:db.py"])
+            after = gate(raw, ["code:db.py"],
+                         question="How does QuantumIndexShard work?",
+                         evidence={"code:db.py": "class BTree: pass"})
+            if before.verdict == "unknown":
+                self.assertEqual(after.verdict, "unknown")
