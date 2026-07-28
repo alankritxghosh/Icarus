@@ -103,11 +103,15 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     embedder = _shared_embedder()
     if embedder is None:
         return NormalizingRetriever(lexical, vocab)
-    from evals.vector_cache import load_vectors, save_vectors
+    from evals.vector_cache import corpus_fingerprint, load_vectors, save_vectors
     model = getattr(embedder, "model_name", "unknown")
     cache_path = Path(corpus_dir) / "vectors.json"
     refs = [c.ref for c in chunks]
-    cached = load_vectors(cache_path, model, refs)
+    # Keyed on the corpus's CONTENT, not just its refs: a refresh at the same
+    # commit keeps every ref and rewrites the text, so refs alone would reuse
+    # embeddings of text that no longer exists (see corpus_fingerprint).
+    fingerprint = corpus_fingerprint(chunks)
+    cached = load_vectors(cache_path, model, refs, fingerprint)
     if cached is not None:
         semantic = SemanticRetriever(chunks, embedder, vectors=cached)
     else:
@@ -116,7 +120,7 @@ def _build_retriever(chunks, corpus_dir, fast=False):
             timeout=_embed_timeout(len(chunks)),
             on_progress=_log_embed_progress,
         )
-        save_vectors(cache_path, model, semantic.vectors)
+        save_vectors(cache_path, model, semantic.vectors, fingerprint)
     # semantic_weight=20 (lexical stays 1): measured live 2026-07-17 (T7,
     # docs/plans/2026-07-17-ast-chunking-all-languages.md) -- once AST
     # chunking fixed the embedder's 512-token truncation bug, plain 1:1 RRF
