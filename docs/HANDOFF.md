@@ -1,3 +1,149 @@
+# Icarus — Session Handoff (2026-07-28: the ORGANISATION BRAIN — a team shares one index, and the unknowns become a map)
+
+**READ THIS FIRST — supersedes every isolation/storage claim below, including
+the 2026-07-27 entry.** The unit of memory changed from **a person** to **a
+codebase**. This is the biggest architectural change since private repos.
+
+**Live: `icarus-brain--0000022`, image `alpha-20260728-org-brain`, healthy, 100%
+traffic. `main` @ `c5003ea`. demo 239 · evals 462 · IcarusKit 80 · secrets scan
+clean. DMG republished (sha `a64a282c…`).**
+
+## Why this happened
+
+Alankrit's call, and the reasoning is worth keeping: Icarus "felt like a dev
+tool" and he wanted an intelligence system a tech company would be foolish not
+to have. Three engineers at one company were each getting an isolated copy of
+the same private repo — three ingests, three costs, no shared history. Three
+personal tools wearing the same logo.
+
+Timing was deliberate: **with zero users this cost nothing; the moment one real
+team relies on the old promise it becomes a breaking, trust-damaging migration.**
+An earlier caution about moving a published trust boundary was calibrated for a
+product that had users. It doesn't.
+
+## The design, and the one idea that carries it
+
+**No orgs, teams, or membership lists are modelled. GitHub is asked instead.**
+
+- **Tenant = the repo.** Private corpora moved from `<storage>/<user_id>/private/`
+  to a shared `<storage>/private.cache/<repo>/`. Public ones were *already*
+  shared — a fact discovered by reading the code, which narrowed the work.
+- **Authorisation = `github_access.repo_info(repo, token)` on every READ**, not
+  just `/connect`. Cached per `(repo, token)` for **5 minutes**.
+- **Offboarding needs no code.** Access revoked at GitHub → refused here. A
+  membership list we maintained could go stale, and a stale access list is a
+  breach. This is also the strongest answer available to a security reviewer.
+- **The ask ledger** (`demo/ledger.py`) records every question, verdict and
+  citation per repo. `GET /ledger?unknowns=1` returns **the map of what the
+  organisation never wrote down** — the artifact no competitor can produce,
+  because producing it requires being willing to say "I don't know". It is also
+  the only loop that compounds with use *without* training on customer code.
+
+## Decisions (with reopen triggers) — see the plan doc for the full table
+
+| # | Decision | Reopen if |
+|---|---|---|
+| D1 | Tenant = repo; no org model | a customer needs cross-repo org memory |
+| D2 | 5-minute TTL. **Accepted: a revoked caller keeps access up to 5 min** | a security review demands zero-window revocation |
+| D3 | **Store question text** (Alankrit) | — |
+| D4 | `/disconnect` forgets your pointer; never deletes shared data | — |
+| D5 | No migration of per-user corpora (no users to migrate) | — |
+| — | **Do NOT store who asked** (Alankrit, after it was built with identity) | — |
+
+**D4's happy side effect, spotted by Alankrit:** because disconnect only forgets
+your own pointer, an engineer can point Icarus at any public repo to try
+something and disconnect again *without touching their company's index*.
+
+**On not storing the asker:** recording it would make "Alice asked about auth
+fourteen times" answerable — surveillance of a team rather than memory for it.
+Accepted cost, stated in code: gaps rank by how OFTEN they were hit, never by
+how many DISTINCT people hit them. Guarded by a test so it cannot regress.
+
+## Three things reading the code caught before they shipped
+
+1. **The original task order would have opened a hole.** The plan said move
+   storage, then add the check. But the storage layout *was* the isolation —
+   doing it in that order leaves a window where any signed-in caller could read
+   another company's private index. Reversed: **build the doorman before removing
+   the walls.** T2 → T3 → T1.
+2. **The ledger must live OUTSIDE the corpus directory.** Ingest publishes with
+   `os.replace()`, which swaps the whole directory — a ledger stored inside would
+   be silently destroyed by the next re-index, taking the team's entire history.
+3. **The Mac app's privacy screen had been FALSE since 2026-07-16.** It said
+   "Public repositories only — do not connect private code", eleven days after
+   private repos were re-enabled, in a file whose docstring reads *"Every line
+   must be literally true of this build."* Found by auditing, not by a user.
+
+## Live-verified on rev 0000022
+
+Ledger records both verdicts with citations and **no identity field**;
+`?unknowns=1` returns exactly the gap; an unreadable private repo → 403; no
+token → 401; garbage token → 401; citations still work
+(`issue:6856`+`issue:6752`). The built image was checked for all four changes
+*before* deploying — a stale layer would otherwise ship old behaviour silently.
+
+## ⚠️ NOT verified live — do not record as proven
+
+**Two entitled identities sharing one index**, and **revocation cutting a real
+user off.** Both need a second GitHub account with different repo access, which
+this machine does not have. Both are covered by tests
+(`SharedPrivateCorpusTests`, `RevokedAccessLosesTheSharedCorpusTests`), each
+proven to fail when the guard is disabled — but **a passing test is not a live
+second user.** The first design partner is the real proof, and it should be the
+first thing checked with them.
+
+## Business direction set this session (the actual priority)
+
+Ran the startup-strategy and decision-making playbooks. The honest finding:
+**the only proven belief was the one being worked on.** Five fatal beliefs —
+someone will pay, you can reach them, a company will let a third party read
+their code, the pain is real, and *the abstention is what they value* — remain
+untested, and all are cheap to test.
+
+- **Wedge sharpened.** Not "archaeology" (occasional) but **"do I need to read
+  this?"** (constant). Frequency is the strategic upgrade. The honest version is
+  **triage, not summarisation**: two lines of what it is, plus the flag when
+  nobody recorded why. Pure summarisation is commoditised and would walk away
+  from the moat.
+- **Surfaces:** PR reviewer (buildable today, ~80% there — the extension already
+  does line-select `/explain`) and new joiner, reframed as **"what decisions
+  shaped this and where are the landmines nobody documented"** — which needs
+  *zero* new capability, unlike the deferred structural-comprehension work.
+- **First design partner: Alankrit's brother-in-law's team at Morphic.** Prior
+  scoping from 2026-07-16 still stands (bounded slice, not the whole monorepo;
+  lead with the honesty caveat; early price, never a free horde). ⚠️ Family =
+  maximum politeness bias: define "closed" behaviourally — **≥5 real questions in
+  week two, unprompted** — not "he said yes". And don't call it a design partner
+  to YC if it's a favour.
+- **Explicitly NOT building:** the MCP/agent server (designed in detail, deferred
+  as a *second* wedge until the first is validated), notarization, lean-ingest,
+  more install paths.
+
+## Open / next
+
+- **Get Morphic actually using it.** Everything above is prerequisite, not goal.
+- **The two unverified isolation properties** — check them with the first real
+  second user.
+- **The site 403'd my IP** at the end of the session ("Vercel Security
+  Checkpoint"), self-inflicted by automated deploy-polling and repeated DMG
+  downloads. A browser solves it; plain `curl` worked for hours before. **But
+  `install.sh` and `brew` both fetch the DMG with curl** — a whole team
+  installing from one office IP could trip it, and curl cannot solve a JS
+  challenge. Worth watching during the pilot.
+- Heavy in-product design changes for the new surfaces — Alankrit flagged these
+  as "for later", not done.
+- Everything in the earlier open lists still stands.
+
+## Commits
+
+Main repo: `c13b95b` (plan), `c34d3b5` (reorder), `25c1272` (T2), `60added`
+(T3), `5d447c9` (T1), `9c1aa0f` (T4), `97c14ff` (strip identity), `6a1b673`
+(T5), `c5003ea` (status).
+Website repo: `6f86509` (privacy), `19ca588` (DMG republish).
+Tap: `06c6401`.
+
+---
+
 # Icarus — Session Handoff (2026-07-27: the beta is downloadable — site live, four install paths, browser login narrowed to identity-only)
 
 **READ THIS FIRST — supersedes every distribution and website claim below,
