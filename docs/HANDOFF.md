@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Twelve commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Fifteen commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
 **Live: `icarus-brain--0000030`, image `alpha-20260728-besteffort`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 542 · demo 258 · IcarusKit 96 ·
+traffic. `main` @ the handoff commit. evals 542 · demo 258 · IcarusKit 106 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -309,6 +309,38 @@ code), `/status` and `/ask` both report `indexing: true` during the window, and
 an abstention inside it carries the flag so it renders as "I haven't finished
 reading this repo" rather than the honest-unknown hero.
 
+## 8. `6211e38` — the unknowns map has a UI (published)
+
+The ask ledger had recorded every question, verdict and citation per repo since
+the org-brain session and had **no UI on any surface** — reachable only by curl.
+The Unknowns surface showed `AskHistory` instead: in-memory, per-session, YOUR
+questions only, reset on every launch.
+
+It now reads `GET /ledger?unknowns=1` and collapses abstentions into ranked
+gaps, so a gap three colleagues hit last week is still there, counted three
+times. Ranked by how OFTEN a gap was hit and never by how many DISTINCT people
+hit it — the server records no asker, deliberately — and that limitation is
+stated on screen rather than hidden.
+
+Matching is literal (trimmed, case-insensitive), never fuzzy: clustering
+near-identical phrasings would merge two genuinely different questions and
+invent a gap the team does not have. A failed fetch renders as an explicit
+"couldn't load", never an empty list — "no gaps" and "we couldn't look" look
+identical and mean opposite things, and one is a claim about their codebase.
+
+**Live-verified**: endpoint shape matches the decoder, no identity field, and a
+question asked twice ranks first as "asked 2x" on `simonw/sqlite-utils`.
+Published — DMG `7be89927`, install.sh / cask / Vercel all agree.
+
+⚠️ **A limitation found while verifying it, NOT fixed.** The map currently
+counts *"Why was the QuantumIndexShard abstraction chosen…"* as a gap — a symbol
+that does not exist, which I invented earlier to test gate guard (c). The ledger
+records the VERDICT but not WHY the gate abstained, so "we never wrote this
+down" and "you asked about something that isn't here" are indistinguishable in
+it, which inflates the documentation-debt reading. Fixing it means recording the
+abstention REASON (guard b / guard c / writer) alongside the verdict. That is
+also what would make the ledger able to answer the Linear question — see below.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -330,7 +362,7 @@ out. Worth fixing before a design partner's team uses it concurrently.
 ## DMG — REBUILT, verified, and PUBLISHED
 
 `Icarus.dmg`, **940 KB**, sha256
-`bd6ddc927984860d85c5467400560070a23aa00384c4327a2cd8e91a1f5897eb`, brain URL
+`7be8992752c2b1683306a220e34d6b2a532640535645cace56cb385d4a4c0f28`, brain URL
 stamped to Azure (not the 127.0.0.1 fallback). Rebuilt from `main` @ `062862d` (the indexing caveat); verified before each
 publish that nothing under `mac/` changed after the build.
 
@@ -339,9 +371,9 @@ FOUR places across TWO repos from the image itself. **Verified end to end after
 pushing**: Vercel serves a DMG whose SHA matches the pin in `install.sh` and in
 the Homebrew cask — all three install paths agree.
 
-- `alankritxghosh/Icarus-Website` @ `09f6a0b`
-- `alankritxghosh/homebrew-icarus` @ `80abb32`
-- this repo @ `736fde8` (the `site/index.html` mirror)
+- `alankritxghosh/Icarus-Website` @ `053db9a`
+- `alankritxghosh/homebrew-icarus` @ `3af1d79`
+- this repo @ `64c0d33` (the `site/index.html` mirror)
 
 **Found while publishing: `site/index.html` had already drifted.** It carried
 sha `a899cf2e` / "~926 KB" while the LIVE site served `a64a282c` / "~927 KB" —
@@ -396,7 +428,7 @@ token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
 (vector cache keyed on corpus content), `5347b30` (every PR and issue indexed),
 `8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4),
 `062862d` (indexing caveat), `5b8252f` (depth pass best-effort + real connect
-failure logs).
+failure logs), `6211e38` (unknowns map UI).
 
 ---
 
