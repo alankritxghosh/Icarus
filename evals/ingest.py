@@ -31,8 +31,17 @@ from .synth import _MAX_CODE_CHUNK_CHARS as _CHUNK_MAX_CHARS
 
 REPO = "simonw/llm"
 COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
-PR_LIMIT = 200  # recent PRs (any state); the 6 gold PRs are well within this range
-ISSUE_LIMIT = 500  # all open+closed issues; generous headroom over a typical repo's issue count
+# Raised 200/500 -> 5000/5000 (2026-07-28). The old caps were the single biggest
+# violation of "if it exists in the repo, it can be answered": psf/requests has
+# 3,087 PRs and 4,167 issues, so 700 of 7,254 were indexed and **90% of the
+# project's recorded discussion was invisible to search** -- reachable only by
+# naming a number, which requires already knowing the answer.
+#
+# These are a SAFETY VALVE against a pathological repo, not a product decision,
+# and hitting one is now DISCLOSED (see `stats["truncated"]` below) rather than
+# silently serving a partial index as if it were complete.
+PR_LIMIT = 5000
+ISSUE_LIMIT = 5000
 OUT = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
 META = Path(__file__).resolve().parent / "corpus" / "meta.json"
 
@@ -40,6 +49,13 @@ ISSUE_REF = re.compile(r"#(\d+)")
 
 # Resource bounds so a huge or hostile repo can't fill disk / hang / OOM.
 _SUBPROCESS_TIMEOUT = 120       # seconds, per git/gh call
+# The bulk PR/issue list calls need their own, much larger budget. Measured
+# 2026-07-28 against psf/requests with the full field set (title, body, files,
+# comments, reviews): 100 PRs in 8.1s, 200 in 13.3s, 500 in 38.1s -- roughly
+# 13 PRs/sec, so a 3,000-PR repo needs ~4 minutes and would hit the 120s
+# per-call timeout long before finishing. This is what made the old caps look
+# like a constant to bump when they were really a timeout to fix.
+_LIST_TIMEOUT = 900             # seconds, for `gh pr/issue list` bulk fetches
 _MAX_FILE_BYTES = 512 * 1024    # skip any single file bigger than this
 # Stop reading code past this total. Raised 25 MB -> 100 MB (2026-07-13) so a
 # large repo isn't artificially truncated. NOTE: on the hosted (Azure Container
@@ -403,12 +419,51 @@ def resolve_code_dir(repo: str, code_dir) -> str:
     return "."
 
 
-def _gh_json(args, token=None):
+def _gh_json(args, token=None, timeout=None):
     out = subprocess.run(
-        ["gh", *args], check=True, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+        ["gh", *args], check=True, capture_output=True, text=True,
+        timeout=timeout or _SUBPROCESS_TIMEOUT,
         env=_gh_env(token),
     ).stdout
     return json.loads(out) if out.strip() else None
+
+
+def _merge_discussion(base, enriched, stats, kind):
+    """Overlay the discussion-bearing items onto the cheap full-coverage list.
+
+    Order comes from `base` (gh's own most-recent-first), so the merge changes
+    what each item CONTAINS, never which items exist or where they sit. An
+    enriched item is a strict superset of its base counterpart, so overriding
+    wholesale is safe.
+
+    Records how deep the discussion actually goes in `stats`, because "indexed"
+    and "indexed WITH its thread" are different claims and a reader deserves to
+    know which one applies -- an older PR is searchable by its description while
+    its comments live only behind an explicit `#N` lookup.
+    """
+    by_number = {item.get("number"): item for item in enriched if item.get("number") is not None}
+    if stats is not None:
+        stats["discussion_depth"] = len(by_number)
+        if len(base) > len(by_number):
+            print(f"ingest: discussion attached to the {len(by_number)} most recent "
+                  f"{kind}s of {len(base)}; older ones are indexed by description "
+                  f"and fetch their thread on demand when named", file=sys.stderr)
+    return [by_number.get(item.get("number"), item) for item in base]
+
+
+def _note_truncation(stats, kind, got, limit):
+    """Record that a cap stopped a PR/issue fetch short, and say so on stderr.
+
+    A partial index that reads as complete is the failure mode this product
+    cannot afford: every honest "no one wrote this down" about something sitting
+    in PR #4000 would be a lie of omission. The flag reaches meta.json ->
+    /status -> the app's partial-index banner.
+    """
+    if stats is None or got < limit:
+        return
+    stats["truncated"] = True
+    print(f"ingest: {kind} cap reached ({limit}); older {kind} are NOT indexed "
+          f"and can only be reached by naming their number", file=sys.stderr)
 
 
 # A single PR/issue's title + body + discussion can be large; bound one ref's
@@ -426,9 +481,41 @@ _MAX_FILES_LISTED = 30
 # in the SAME single request that already fetched title+body (verified against
 # `gh pr list --json` on gh 2.x), so the discussion costs no extra round trips --
 # the N+1 that made ingest slow in the first place is not reintroduced.
-_PR_JSON_FIELDS = ("number,title,body,closingIssuesReferences,state,author,"
-                   "mergedAt,labels,files,comments,reviews")
-_ISSUE_JSON_FIELDS = "number,title,body,state,author,labels,comments"
+# TWO passes, because coverage and depth have completely different costs at
+# GitHub's end. Measured 2026-07-28 against psf/requests (3,087 PRs / 4,167
+# issues):
+#
+#   ALL 3,087 PRs, cheap fields ................ 32.2s   OK
+#   ALL 4,167 issues, cheap fields ............. 46.8s   OK
+#   1,000 PRs WITH comments/reviews/files ...... 45.3s   HTTP 504
+#   5,000 PRs WITH comments/reviews/files ...... 11.2s   HTTP 502
+#   400 issues WITH comments ................... 19.2s   OK
+#
+# The wall is GitHub's own GraphQL query-cost limit, NOT our subprocess timeout:
+# nesting comments/reviews/files across a large page makes the query
+# unaffordable server-side and it 502/504s outright. Date-windowing via
+# `--search` is WORSE, not better -- it routes through the search API and failed
+# on every window tried, even narrow ones.
+#
+# So: fetch EVERY PR and issue with the cheap fields (full repo coverage, which
+# is the bar), then re-fetch the most recent `DISCUSSION_DEPTH` with the
+# discussion attached and let those override. Two calls per kind -- still no N+1.
+_PR_FIELDS_BASE = ("number,title,body,closingIssuesReferences,state,author,"
+                   "mergedAt,labels")
+_PR_FIELDS_FULL = _PR_FIELDS_BASE + ",files,comments,reviews"
+_ISSUE_FIELDS_BASE = "number,title,body,state,author,labels"
+_ISSUE_FIELDS_FULL = _ISSUE_FIELDS_BASE + ",comments"
+
+# How many of the most recent PRs/issues carry their full discussion. 400 sits
+# below the measured 500-OK / 1000-fails boundary with headroom, since the cost
+# depends on how chatty the particular items are, not just how many.
+#
+# The honest limit this leaves: a PR older than the most recent 400 is indexed
+# and searchable by its DESCRIPTION, but its comment thread is not in the index.
+# Naming it ("PR 812") still live-fetches the full discussion on demand. Lifting
+# this properly needs hand-written GraphQL with bounded nested page sizes and
+# per-page retry -- see docs/HANDOFF.md.
+DISCUSSION_DEPTH = 400
 
 
 def _login(actor):
@@ -504,7 +591,7 @@ def _pr_or_issue_text(data, source):
     return out
 
 
-def fetch_prs(repo, token=None):
+def fetch_prs(repo, token=None, stats=None):
     """All PRs (open+closed+merged) up to PR_LIMIT, as chunks, plus the issue
     numbers they link.
 
@@ -519,12 +606,26 @@ def fetch_prs(repo, token=None):
     review thread far more often than in the description -- was absent from the
     index, producing an honest "no one wrote this down" about something the team
     HAD written down. The live path (`fetch_ref_detail`) had always fetched
-    comments, so old unindexed PRs answered richly while recent ones did not."""
+    comments, so old unindexed PRs answered richly while recent ones did not.
+
+    TWO passes (2026-07-28): every PR with cheap fields, then the most recent
+    `DISCUSSION_DEPTH` re-fetched WITH their discussion, overriding by number.
+    See the measurements above `_PR_FIELDS_BASE` -- asking for comments/reviews/
+    files across thousands of PRs makes GitHub's own GraphQL 502/504, so
+    coverage and depth cannot come from the same call."""
     prs = _gh_json(
         ["pr", "list", "-R", repo, "--state", "all", "--limit", str(PR_LIMIT),
-         "--json", _PR_JSON_FIELDS],
-        token=token,
+         "--json", _PR_FIELDS_BASE],
+        token=token, timeout=_LIST_TIMEOUT,
     ) or []
+    _note_truncation(stats, "PR", len(prs), PR_LIMIT)
+    prs = _merge_discussion(
+        prs,
+        _gh_json(["pr", "list", "-R", repo, "--state", "all",
+                  "--limit", str(min(DISCUSSION_DEPTH, PR_LIMIT)),
+                  "--json", _PR_FIELDS_FULL],
+                 token=token, timeout=_LIST_TIMEOUT) or [],
+        stats, "pr")
     chunks, issue_ids = [], set()
     for pr in prs:
         n = pr["number"]
@@ -537,7 +638,7 @@ def fetch_prs(repo, token=None):
     return chunks, issue_ids
 
 
-def fetch_all_issue_ids(repo, token=None):
+def fetch_all_issue_ids(repo, token=None, stats=None):
     """All issue numbers (open AND closed) up to ISSUE_LIMIT, unfiltered by
     whether anything links to them -- closes the coverage gap where a
     standalone, never-linked issue (e.g. an open bug report) was invisible to
@@ -553,17 +654,18 @@ def fetch_all_issue_ids(repo, token=None):
     try:
         items = _gh_json(
             ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT), "--json", "number"],
-            token=token,
+            token=token, timeout=_LIST_TIMEOUT,
         )
     except subprocess.CalledProcessError as e:
         if "has disabled issues" in (e.stderr or ""):
             print(f"issues disabled for {repo!r}; treating as zero issues", file=sys.stderr)
             return set()
         raise
+    _note_truncation(stats, "issue", len(items), ISSUE_LIMIT)
     return {it["number"] for it in items}
 
 
-def fetch_issues(repo, issue_ids, token=None):
+def fetch_issues(repo, issue_ids, token=None, stats=None):
     """Chunks for the issues named in `issue_ids`, fetched in ONE
     `gh issue list --json ...,body` call rather than a `gh issue view` per
     issue (same N+1 -> 1 speedup as fetch_prs). Returns issues sorted by number
@@ -580,9 +682,16 @@ def fetch_issues(repo, issue_ids, token=None):
     try:
         items = _gh_json(
             ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT),
-             "--json", _ISSUE_JSON_FIELDS],
-            token=token,
+             "--json", _ISSUE_FIELDS_BASE],
+            token=token, timeout=_LIST_TIMEOUT,
         ) or []
+        items = _merge_discussion(
+            items,
+            _gh_json(["issue", "list", "-R", repo, "--state", "all",
+                      "--limit", str(min(DISCUSSION_DEPTH, ISSUE_LIMIT)),
+                      "--json", _ISSUE_FIELDS_FULL],
+                     token=token, timeout=_LIST_TIMEOUT) or [],
+            stats, "issue")
     except subprocess.CalledProcessError as e:
         if "has disabled issues" in (e.stderr or ""):
             return []  # no issues to fetch even if a PR body mentioned a #N
@@ -609,7 +718,9 @@ def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
     token=None the caller's own gh identity is used, so a private repo the server
     can't read simply fails to None rather than exposing anything."""
     for source in ("pr", "issue"):
-        fields = _PR_JSON_FIELDS if source == "pr" else _ISSUE_JSON_FIELDS
+        # One item, so the expensive nested fields are always affordable here --
+        # this is exactly why naming a ref reaches depth the bulk pass cannot.
+        fields = _PR_FIELDS_FULL if source == "pr" else _ISSUE_FIELDS_FULL
         try:
             data = _gh_json(
                 [source, "view", str(number), "-R", repo, "--json", fields],
@@ -761,13 +872,16 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=
     optional caller token (never from the CLI -- programmatic callers only)
     authenticates git/gh as that caller for a private repo, via env only."""
     commit = resolve_commit(repo, commit, token=token)
-    prs, issue_ids = fetch_prs(repo, token=token)
+    # One shared stats dict: a cap hit ANYWHERE (PRs, issues, or the code walk)
+    # must reach meta.json, so a partial index is disclosed rather than served
+    # as if it were the whole repo.
+    code_stats = {}
+    prs, issue_ids = fetch_prs(repo, token=token, stats=code_stats)
     # Union with ALL issue numbers (open+closed), not just ones a merged PR
     # happens to link -- closes the standalone-issue coverage gap (Brick B1)
     # without touching fetch_prs' own linked-issue detection.
-    issue_ids = issue_ids | fetch_all_issue_ids(repo, token=token)
-    issues = fetch_issues(repo, issue_ids, token=token)
-    code_stats = {}
+    issue_ids = issue_ids | fetch_all_issue_ids(repo, token=token, stats=code_stats)
+    issues = fetch_issues(repo, issue_ids, token=token, stats=code_stats)
     code = fetch_code(repo, commit, code_dir, token=token, stats=code_stats)
     all_chunks = prs + issues + code
     out_dir = Path(out_dir)

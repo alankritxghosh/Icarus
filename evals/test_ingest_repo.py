@@ -376,7 +376,7 @@ class AllIssuesCoverageTests(unittest.TestCase):
 
         captured_issue_ids = {}
 
-        def fake_fetch_issues(repo, issue_ids, token=None):
+        def fake_fetch_issues(repo, issue_ids, token=None, stats=None):
             captured_issue_ids["value"] = set(issue_ids)
             return [{"ref": f"issue:{n}", "source": "issue", "text": "x"} for n in issue_ids]
 
@@ -399,7 +399,7 @@ class AllIssuesCoverageTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_code", return_value=[]):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".", token="tok")
 
-        mock_all_ids.assert_called_once_with("octo/repo", token="tok")
+        mock_all_ids.assert_called_once_with("octo/repo", token="tok", stats=mock.ANY)
         mock_fetch_issues.assert_called_once()
 
     def test_issue_list_call_requests_state_all_and_issue_limit(self):
@@ -477,7 +477,9 @@ class AllIssuesCoverageTests(unittest.TestCase):
         with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
             chunks = ingest.fetch_issues("octo/repo", {10, 30})
 
-        self.assertEqual(len(calls), 1)  # ONE call for the whole set
+        # TWO bounded calls since 2026-07-28 (coverage + discussion), never one
+        # per issue -- the invariant is that the count doesn't grow with the set.
+        self.assertLessEqual(len(calls), 2)
         self.assertEqual({c["ref"] for c in chunks}, {"issue:10", "issue:30"})  # #20 filtered out
 
     def test_fetch_issues_empty_id_set_makes_no_call(self):
@@ -543,19 +545,20 @@ class FetchPRsAllStatesTests(unittest.TestCase):
             ingest.fetch_prs("octo/repo")
 
         pr_list_calls = [c for c in calls if c[0] == "gh" and "list" in c]
-        self.assertEqual(len(pr_list_calls), 1)
-        call = pr_list_calls[0]
-        self.assertIn("--state", call)
-        self.assertEqual(call[call.index("--state") + 1], "all")
-        self.assertNotIn("merged", call)
-        # PR_LIMIT is still the only cap on this call.
-        self.assertIn("--limit", call)
-        self.assertEqual(call[call.index("--limit") + 1], str(ingest.PR_LIMIT))
+        self.assertTrue(pr_list_calls)
+        # EVERY list call must ask for all states -- the coverage pass and the
+        # discussion pass alike, or the two disagree about which PRs exist.
+        for call in pr_list_calls:
+            self.assertIn("--state", call)
+            self.assertEqual(call[call.index("--state") + 1], "all")
+            self.assertNotIn("merged", call)
+            self.assertIn("--limit", call)
+        # The coverage pass is the one capped at PR_LIMIT.
+        self.assertIn(str(ingest.PR_LIMIT),
+                      [c[c.index("--limit") + 1] for c in pr_list_calls])
 
-    def test_fetch_prs_uses_one_batched_call_not_one_per_pr(self):
-        """Speedup (2026-07-15): fetch_prs makes ONE `gh pr list --json ...,body`
-        call for the whole repo, never a `gh pr view` per PR. Fixture returns 3
-        PRs from the single list call and asserts no per-item view ever fires."""
+    def _batched_calls(self, n_prs):
+        """Run fetch_prs against `n_prs` fixture PRs, returning the gh argv list."""
         calls = []
 
         def fake_run(args, **kwargs):
@@ -563,23 +566,53 @@ class FetchPRsAllStatesTests(unittest.TestCase):
             if "view" in args:
                 raise AssertionError("fetch_prs must not call 'gh pr view' per PR anymore")
             return subprocess.CompletedProcess(args, 0, stdout=json.dumps([
-                {"number": 1, "title": "a", "body": "b1", "closingIssuesReferences": []},
-                {"number": 2, "title": "b", "body": "b2", "closingIssuesReferences": []},
-                {"number": 3, "title": "c", "body": "b3", "closingIssuesReferences": []},
+                {"number": i, "title": "t", "body": "b", "closingIssuesReferences": []}
+                for i in range(1, n_prs + 1)
             ]))
 
         with mock.patch("evals.ingest.subprocess.run", side_effect=fake_run):
             chunks, _ = ingest.fetch_prs("octo/repo")
+        return calls, chunks
 
-        self.assertEqual(len(calls), 1)   # ONE call for THREE PRs (was 1 + 3)
-        self.assertIn("--json", calls[0])
-        # Assert on the FIELDS rather than one frozen field string: the
-        # discussion fields were added to this same call (2026-07-28), and the
-        # guard being defended is "one batched call", not a literal spelling.
-        fields = calls[0][calls[0].index("--json") + 1].split(",")
-        for required in ("number", "title", "body", "closingIssuesReferences"):
-            self.assertIn(required, fields)
+    def test_fetch_prs_call_count_is_constant_not_per_pr(self):
+        """Speedup (2026-07-15): never a `gh pr view` per PR. As of 2026-07-28
+        it is TWO calls, not one -- a cheap full-coverage pass plus a
+        discussion pass over the most recent slice -- because asking GitHub for
+        comments/reviews/files across thousands of PRs makes its own GraphQL
+        502/504 (measured).
+
+        The invariant worth defending was never "exactly one call"; it is that
+        the count does not GROW with the repo. Asserting that directly is what
+        makes this test still catch a reintroduced N+1."""
+        few_calls, chunks = self._batched_calls(3)
+        many_calls, _ = self._batched_calls(300)
+        self.assertEqual(len(few_calls), len(many_calls),
+                         "call count must not grow with the number of PRs")
+        self.assertLessEqual(len(few_calls), 2)
         self.assertEqual({c["ref"] for c in chunks}, {"pr:1", "pr:2", "pr:3"})
+
+    def test_coverage_pass_asks_for_every_pr_and_the_depth_pass_does_not(self):
+        """The two calls have different jobs, and confusing them is the bug this
+        guards: coverage must span the whole repo, depth must stay small enough
+        that GitHub will actually answer."""
+        calls, _ = self._batched_calls(3)
+        limits = [c[c.index("--limit") + 1] for c in calls]
+        fields = [c[c.index("--json") + 1].split(",") for c in calls]
+
+        self.assertIn(str(ingest.PR_LIMIT), limits, "one call must cover every PR")
+        coverage = fields[limits.index(str(ingest.PR_LIMIT))]
+        for required in ("number", "title", "body", "closingIssuesReferences"):
+            self.assertIn(required, coverage)
+        # ...and the coverage pass must NOT carry the expensive nested fields,
+        # or it is the query GitHub refuses.
+        for expensive in ("comments", "reviews", "files"):
+            self.assertNotIn(expensive, coverage)
+
+        depth = [f for f in fields if "comments" in f]
+        self.assertTrue(depth, "one call must fetch the discussion")
+        depth_limit = int(limits[fields.index(depth[0])])
+        self.assertLessEqual(depth_limit, 500,
+                             "the depth pass must stay under the measured 504 boundary")
 
     def test_pr_chunk_text_embeds_the_pr_number(self):
         """Same reasoning as the issue-number embedding test above, for PRs:
@@ -607,7 +640,7 @@ class FetchPRsAllStatesTests(unittest.TestCase):
              "closingIssuesReferences": [{"number": 20}]},
         ]
 
-        def fake_gh_json(args, token=None):
+        def fake_gh_json(args, token=None, timeout=None):
             if "list" in args:
                 return pr_list_result
             raise AssertionError(f"unexpected _gh_json call (no per-PR view): {args}")
@@ -637,7 +670,7 @@ class FetchPRsAllStatesTests(unittest.TestCase):
             "closingIssuesReferences": [{"number": 99}],
         }]
 
-        def fake_gh_json(args, token=None):
+        def fake_gh_json(args, token=None, timeout=None):
             if "list" in args:
                 return pr_list_result
             raise AssertionError(f"unexpected _gh_json call (no per-PR view): {args}")
@@ -679,7 +712,7 @@ class FullCoverageEndToEndTests(unittest.TestCase):
              "body": "body for issue 253"},
         ]
 
-        def fake_gh_json(args, token=None):
+        def fake_gh_json(args, token=None, timeout=None):
             if "view" in args:
                 raise AssertionError(f"no per-item view calls anymore: {args}")
             if "pr" in args and "list" in args:

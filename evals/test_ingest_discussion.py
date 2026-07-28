@@ -227,3 +227,76 @@ class BoundsAndBackCompatTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CapsAndDisclosureTests(unittest.TestCase):
+    """The caps were the biggest violation of "if it exists in the repo, it can
+    be answered": psf/requests has 3,087 PRs and 4,167 issues, and 200/500 meant
+    90% of its recorded discussion was invisible to search.
+
+    Raising them is only half the job. A cap that IS hit must be DISCLOSED --
+    an "honest unknown" about something sitting in PR #4000 of an index that
+    stopped at #3000 is a lie of omission, and indistinguishable from a real one
+    unless the partial index is declared."""
+
+    def test_the_caps_cover_a_real_large_repo(self):
+        # psf/requests, measured 2026-07-28: 3,087 PRs / 4,167 issues.
+        self.assertGreaterEqual(ingest.PR_LIMIT, 3087)
+        self.assertGreaterEqual(ingest.ISSUE_LIMIT, 4167)
+
+    def test_bulk_list_calls_get_their_own_timeout(self):
+        # ~13 PRs/sec measured with the full field set, so a 3,000-PR repo needs
+        # ~4 minutes -- the 120s per-call timeout would kill it long before the
+        # cap ever mattered. The caps were never the only thing in the way.
+        self.assertGreater(ingest._LIST_TIMEOUT, ingest._SUBPROCESS_TIMEOUT)
+        self.assertGreaterEqual(ingest._LIST_TIMEOUT, ingest.PR_LIMIT / 13)
+
+    def test_fetch_prs_uses_the_long_timeout(self):
+        seen = {}
+
+        def fake(args, token=None, timeout=None):
+            seen["timeout"] = timeout
+            return []
+
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            ingest.fetch_prs("o/r")
+        self.assertEqual(seen["timeout"], ingest._LIST_TIMEOUT)
+
+    def test_hitting_the_pr_cap_is_disclosed(self):
+        stats = {}
+        full = [_pr(i, "T", "b") for i in range(ingest.PR_LIMIT)]
+        with mock.patch.object(ingest, "_gh_json", return_value=full):
+            ingest.fetch_prs("o/r", stats=stats)
+        self.assertTrue(stats.get("truncated"),
+                        "a partial PR index must never read as complete")
+
+    def test_not_hitting_the_cap_is_not_flagged(self):
+        stats = {}
+        with mock.patch.object(ingest, "_gh_json", return_value=[_pr(1, "T", "b")]):
+            ingest.fetch_prs("o/r", stats=stats)
+        self.assertFalse(stats.get("truncated"))
+
+    def test_hitting_the_issue_cap_is_disclosed(self):
+        stats = {}
+        full = [{"number": i} for i in range(ingest.ISSUE_LIMIT)]
+        with mock.patch.object(ingest, "_gh_json", return_value=full):
+            ingest.fetch_all_issue_ids("o/r", stats=stats)
+        self.assertTrue(stats.get("truncated"))
+
+    def test_a_pr_cap_hit_reaches_meta_json(self):
+        # End to end: the flag has to survive into the corpus provenance, which
+        # is what /status and the app's partial-index banner read.
+        import tempfile
+        from pathlib import Path
+        from evals.corpus_meta import load_meta
+        full = ([{"ref": f"pr:{i}", "source": "pr", "text": "t"} for i in range(3)],
+                set())
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(ingest, "fetch_prs",
+                                  side_effect=lambda r, token=None, stats=None: (
+                                      stats.__setitem__("truncated", True), full)[1]), \
+                mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_issues", return_value=[]), \
+                mock.patch.object(ingest, "fetch_code", return_value=[]):
+            ingest.ingest_repo("o/r", d, commit="abc", code_dir=".")
+            self.assertTrue(load_meta(Path(d) / "meta.json")["truncated"])
