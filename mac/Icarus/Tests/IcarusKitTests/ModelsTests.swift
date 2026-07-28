@@ -252,3 +252,28 @@ final class IncompleteIndexNoteTests: XCTestCase {
         XCTAssertNotNil(r.incompleteIndexNote)
     }
 }
+
+/// Every surface that renders an abstention must agree about WHAT it is.
+///
+/// Found live on facebook/react (2026-07-29): the overlay said "still indexing"
+/// while the shell's proof drawer said "No one wrote this down" about the same
+/// ask, because only one of two render paths had been fixed. Two surfaces
+/// stating different things about one answer is worse than either being wrong
+/// alone — and one of those statements is a claim about the user's repository.
+final class AbstentionSurfaceAgreementTests: XCTestCase {
+    private func response(indexing: Bool?) -> AskResponse {
+        AskResponse(verdict: .unknown, answer: "", citations: [],
+                    searched: ["commit:abc"], anchored: nil, indexing: indexing)
+    }
+
+    func testMidIndexAbstentionIsFlaggedForEverySurface() {
+        // Both the overlay and the shell drawer branch on this one value, so
+        // this is the single check that keeps them in step.
+        XCTAssertNotNil(response(indexing: true).incompleteIndexNote)
+    }
+
+    func testCompleteIndexAbstentionIsNotFlagged() {
+        XCTAssertNil(response(indexing: false).incompleteIndexNote)
+        XCTAssertNil(response(indexing: nil).incompleteIndexNote)
+    }
+}

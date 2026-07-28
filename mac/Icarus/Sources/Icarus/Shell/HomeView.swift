@@ -191,8 +191,23 @@ struct ProofDrawerView: View {
                         }
                     } else {
                         boxed(bg: Theme.unknownBg, border: Theme.unknown.opacity(0.5)) {
-                            MonoLabel("HONEST UNKNOWN", Theme.unknown)
-                            Text("No one wrote this down.").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink).padding(.top, 5)
+                            // The SAME caveat the overlay applies. Found live on
+                            // facebook/react 2026-07-29: the overlay correctly
+                            // said "still indexing" while this drawer said "No
+                            // one wrote this down" about the very same ask — the
+                            // false claim survived because only one of the two
+                            // render paths was fixed. Two surfaces stating
+                            // different things about one answer is worse than
+                            // either being wrong alone.
+                            if entry.response.incompleteIndexNote != nil {
+                                MonoLabel("STILL INDEXING", Theme.unknown)
+                                Text("I haven't finished reading this repo.")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Theme.ink).padding(.top, 5)
+                            } else {
+                                MonoLabel("HONEST UNKNOWN", Theme.unknown)
+                                Text("No one wrote this down.").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink).padding(.top, 5)
+                            }
                             Text(entry.response.compactTrail).font(Theme.mono(11)).foregroundStyle(Theme.unknown).padding(.top, 5)
                         }
                     }
