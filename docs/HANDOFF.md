@@ -272,31 +272,34 @@ pointer is not shared. NOT observed yet — it cannot be, at one replica — but
 follows from the architecture and will appear the first time real load scales it
 out. Worth fixing before a design partner's team uses it concurrently.
 
-## DMG — REBUILT, verified, NOT PUBLISHED
+## DMG — REBUILT, verified, and PUBLISHED
 
-`mac/Icarus/Icarus.dmg`, **940 KB**, sha256
+`Icarus.dmg`, **940 KB**, sha256
 `d44f5d4222e728b4cfd87494d81aba2caf64b88784d6b4f608f3f9992ea0350d`, brain URL
-correctly stamped to Azure (not the 127.0.0.1 fallback).
+stamped to Azure (not the 127.0.0.1 fallback). Built from `main` @ `7c666f1`;
+nothing under `mac/` changed after that, so it is current.
 
-Verified to contain this session's app changes: `PRIVATE REPOSITORY ` and
-`nothing else searched` present, old `public repositories only` /
-`PUBLIC REPOSITORY ALPHA` gone.
+Published via the website repo's `release-dmg.sh`, which restamps the SHA in all
+FOUR places across TWO repos from the image itself. **Verified end to end after
+pushing**: Vercel serves a DMG whose SHA matches the pin in `install.sh` and in
+the Homebrew cask — all three install paths agree.
 
-**Gotcha for whoever verifies a build next:** `strings` on a Swift binary will
-NOT find short literals — Swift inlines anything ≤15 UTF-8 bytes, so
-"COMPANY BRAIN", "REPO BRAIN" and "you named: " are genuinely absent from the
-string table while being present in the code. `strings` also breaks ASCII runs at
-multi-byte characters, so "PRIVATE REPOSITORY · ALPHA" only ever appears as
-"PRIVATE REPOSITORY ". Pick literals >15 bytes and ASCII-only, or you will
-"prove" a correct build is broken.
+- `alankritxghosh/Icarus-Website` @ `b87ef34`
+- `alankritxghosh/homebrew-icarus` @ `04bf43d`
+- this repo @ `927fc87` (the `site/index.html` mirror)
 
-**NOT published, and this needs a decision.** `release-dmg.sh` lives in the
-website repo, and **neither `Icarus-Website` nor `homebrew-icarus` is checked out
-on this machine** (searched to depth 5 under `~`). Publishing restamps the
-SHA-256 in FOUR places across TWO repos (`install.sh`, `index.html`, the cask's
-`sha256` and `version`) and changes what strangers download — clone both as
-siblings and run `./release-dmg.sh <dmg>`, which refuses to publish without the
-tap rather than leaving `brew install` on the previous build.
+**Found while publishing: `site/index.html` had already drifted.** It carried
+sha `a899cf2e` / "~926 KB" while the LIVE site served `a64a282c` / "~927 KB" —
+neither matching the other, so the in-repo copy documented a build that was
+never published. Re-mirrored verbatim. **Copy that file, never hand-edit it**;
+the drift is invisible until someone checks a hash.
+
+**Verifying a Swift build — the trap that nearly made me report a good DMG as
+broken.** `strings` will NOT find short literals: Swift inlines anything ≤15
+UTF-8 bytes, so "COMPANY BRAIN", "REPO BRAIN" and "you named: " are genuinely
+absent from the string table while present in the code. `strings` also breaks
+ASCII runs at multi-byte characters, so "PRIVATE REPOSITORY · ALPHA" only ever
+appears as "PRIVATE REPOSITORY ". Pick literals >15 bytes and ASCII-only.
 
 ## Still failing the coverage bar — the honest ledger
 
@@ -322,8 +325,9 @@ Ranked by how much history they silently drop:
 1. **Re-test "What did PR 6952 change?" once the semantic embed completes**, and
    decide what to do about the writer-dependent premise correction (section 5).
    Not a prompt rule.
-2. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
-   The DMG is built and verified; only publishing is left.
+2. **The published DMG predates nothing** — it is current, but any future `mac/`
+   change needs `package_dmg.sh` + `release-dmg.sh` + a push to BOTH public
+   repos, or `brew install` silently serves the old build.
 3. **Share the per-user connection pointer across replicas**, or pin sessions,
    before a team uses this concurrently (see the latent risk above).
 4. **Raise discussion depth past 400** (hand-written GraphQL with bounded
