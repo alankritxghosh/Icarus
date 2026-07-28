@@ -1,3 +1,99 @@
+# Icarus — Session Handoff (2026-07-28, later: premise-correction fix landed, NOT deployed — session paused on credits)
+
+**READ THIS FIRST.** Session paused because Alankrit is low on credits, not
+because the work is finished. **Next session's first job is fix #2 below, then
+deploying both fixes together** — don't start new work before that.
+
+## What happened, in one paragraph
+
+Alankrit used the freshly-deployed org brain live and found what he called "an
+embarrassing bug": asking "What did PR 6952 change?" on `psf/requests` returned
+"No one wrote this down" even though PRs in the 7000s were being cited fine
+elsewhere. Root-caused properly rather than patched on the surface — it was
+actually two bugs, and the first fix attempt was itself wrong and caught by the
+eval board before it shipped. See commit `a98df76` for the full story; summary
+below.
+
+## Fix #1 — LANDED IN CODE, NOT YET DEPLOYED
+
+**Not a retrieval bug.** `issue:6952` was anchored FIRST, correctly. The actual
+problem: #6952 is an **issue**, not a pull request, and Icarus abstained instead
+of saying so — an honest-but-misleading "nobody wrote this down" when the truth
+was "you asked about the wrong kind of thing, and the evidence says which."
+
+Root-causing it surfaced a SECOND, pre-existing bug: the anchor resolved
+`issue:N` vs `pr:N` with a fixed `("issue", "pr")` order, so on a repo where both
+exist for the same number, asking about "PR 1481" would silently anchor the
+ISSUE regardless of what was asked. Both fixed in `evals/pipeline.py`.
+
+**The cautionary part, worth reading before touching this area again:** the
+first fix attempt was a PROMPT rule telling the writer to correct false
+premises. It fixed the reported case. It also dropped board citation
+correctness from 100% to 83.3% — confirmed by reverting and re-running, not
+assumed. Any wording strong enough to correct the premise also biased the
+writer's issue/pr choice on unrelated questions. Two narrower rewordings were
+tried and rejected the same way. The fix that actually shipped derives the
+mismatch **in code** from which ref resolved and states it as a fact the writer
+can cite — zero prompt changes, zero notes generated on any of the 10 board
+questions (verified), so their prompts are byte-identical and nothing regresses.
+Board GREEN after: gates 100%/100%, citation correctness 100%, answer
+correctness 100%.
+
+**⚠️ CONFIRMED NOT LIVE.** Checked directly against the deployed brain
+(`icarus-brain--0000022`, image `alpha-20260728-org-brain`) after committing:
+the same question still returns `verdict: unknown`. The fix is real, tested,
+committed and pushed (`a98df76`) — it has not been built into an image or
+deployed. Do not tell Alankrit or a design partner this is fixed until it is.
+
+## Fix #2 — NOT STARTED, is the next session's priority
+
+Alankrit's second complaint, also real: the refusal panel dumps all 20 searched
+refs undifferentiated, so a correctly-anchored answer (the named ref ranked
+first) is visually indistinguishable from "ignored what I asked and searched
+blindly." The mechanism is fine; the display makes correct behaviour look
+broken. Not yet scoped in code — likely touches `demo/payload.py` (surface the
+anchor distinctly in the response shape) and the Mac app's proof-drawer/overlay
+rendering (`mac/Icarus/Sources/Icarus/OverlayView.swift` and/or
+`ShellComponents.swift` — check both before assuming which one renders
+`searched`). **This needs a Swift rebuild + `release-dmg.sh` republish
+afterward**, same cycle as the 2026-07-28 privacy-screen fix — budget for that,
+not just the code change.
+
+## State right now
+
+- `main` @ `a98df76`, pushed. Working tree has only the pre-existing untracked
+  paths (`.agents/`, `.claude/*`, `plugins/`, two `.mov` files in
+  `site/shots/`) — nothing new uncommitted.
+- evals **473** / demo **239**, both green. Paid board GREEN (gates 100%/100%,
+  citation correctness 100%, answer correctness 100%).
+- Live brain: still `icarus-brain--0000022` / `alpha-20260728-org-brain` —
+  **does not have fix #1**. Confirmed by live query, not assumed.
+- Installed Mac app: the org-brain-privacy-fix build from earlier in this
+  session (no false privacy claim) — does not have fix #1 or fix #2 either,
+  since neither touches the app's own code, only the server it talks to for #1
+  and (once built) the app's rendering for #2.
+
+## Next session, in order
+
+1. Scope + implement fix #2 (the display problem), red→green, same rigour as
+   fix #1 — including checking whether it needs a board/live proof the way #1
+   did, since it touches what a user SEES, not the honesty gate itself.
+2. Rebuild the brain image, verify it contains BOTH fixes before pushing (the
+   established discipline this session — a stale layer ships old behaviour
+   silently), deploy, live-verify fix #1 finally works on production.
+3. Rebuild the DMG via `release-dmg.sh` (needs the tap checked out beside the
+   website repo), verify the new binary contains fix #2, republish.
+4. Re-run the exact live test from this session (`psf/requests`, "What did PR
+   6952 change?") against the deployed brain and the rebuilt app, and confirm
+   the proof panel now reads clearly for an anchored answer.
+5. Only after that: back to the actual priority — Morphic.
+
+## Commits
+
+`a98df76` — fix(pipeline): correct a misnamed reference instead of abstaining.
+
+---
+
 # Icarus — Session Handoff (2026-07-28: the ORGANISATION BRAIN — a team shares one index, and the unknowns become a map)
 
 **READ THIS FIRST — supersedes every isolation/storage claim below, including
