@@ -20,7 +20,10 @@ from pathlib import Path
 #   2 -> 3 (2026-07-28): EVERY PR and issue is indexed, not the most recent
 #          200/500. On psf/requests that is 7,254 items instead of 700, so a
 #          version-2 corpus is not merely older-shaped, it is 90% absent.
-CORPUS_FORMAT_VERSION = 3
+#   3 -> 4 (2026-07-28): commit messages are indexed. Previously a commit could
+#          only be read by naming its SHA, so 6,488 commits' worth of recorded
+#          reasoning was absent from search on psf/requests alone.
+CORPUS_FORMAT_VERSION = 4
 
 # A corpus written before the field existed is necessarily the original shape.
 _PRE_VERSIONED_CORPUS = 1

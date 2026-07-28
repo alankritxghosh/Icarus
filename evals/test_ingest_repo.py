@@ -55,11 +55,12 @@ class IngestRepoTests(_EnvVarGuard):
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             counts = ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             chunks = [json.loads(l) for l in (Path(d) / "chunks.jsonl").read_text().splitlines() if l.strip()]
             self.assertEqual([c["ref"] for c in chunks], ["pr:1", "issue:7", "code:a.py"])
-            self.assertEqual(counts, {"pr": 1, "issue": 1, "code": 1})
+            self.assertEqual(counts, {"pr": 1, "issue": 1, "commit": 0, "code": 1})
             m = load_meta(Path(d) / "meta.json")
             self.assertEqual(m["repo"], "octo/repo")
             self.assertEqual(m["commit"], "abc123")
@@ -75,6 +76,7 @@ class IngestRepoTests(_EnvVarGuard):
                 mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", side_effect=truncating_fetch_code):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             self.assertTrue(load_meta(Path(d) / "meta.json")["truncated"])
@@ -85,6 +87,7 @@ class IngestRepoTests(_EnvVarGuard):
                 mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             self.assertFalse(load_meta(Path(d) / "meta.json")["truncated"])
@@ -96,6 +99,7 @@ class IngestRepoTests(_EnvVarGuard):
                 mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             m = load_meta(Path(d) / "meta.json")
@@ -108,6 +112,7 @@ class IngestRepoTests(_EnvVarGuard):
                 mock.patch.object(ingest, "fetch_prs", return_value=([], set())), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".")
             m = load_meta(Path(d) / "meta.json")
@@ -305,6 +310,7 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch("evals.ingest.subprocess.run",
                            side_effect=_fake_run_cloning_fixture(fixture)):
             _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
@@ -350,6 +356,7 @@ class FetchCodeWholeRepoWalkTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=issues), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch("evals.ingest.subprocess.run",
                            side_effect=_fake_run_cloning_fixture(fixture)):
             _write(fixture, "pkg/main.go", "package main\n\nfunc main() {}\n")
@@ -384,6 +391,8 @@ class AllIssuesCoverageTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", side_effect=fake_fetch_issues), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value={42, 253}), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             ingest.ingest_repo("benawad/vsinder", d, commit="abc123", code_dir=".")
 
@@ -396,6 +405,7 @@ class AllIssuesCoverageTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_prs", return_value=prs), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]) as mock_fetch_issues, \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()) as mock_all_ids, \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=[]):
             ingest.ingest_repo("octo/repo", d, commit="abc123", code_dir=".", token="tok")
 
@@ -727,6 +737,7 @@ class FullCoverageEndToEndTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as out, \
                 mock.patch.object(ingest, "_gh_json", side_effect=fake_gh_json), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=code):
             counts = ingest.ingest_repo("benawad/vsinder", out, commit="deadbeef", code_dir=".")
 

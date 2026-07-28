@@ -42,6 +42,13 @@ COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
 # silently serving a partial index as if it were complete.
 PR_LIMIT = 5000
 ISSUE_LIMIT = 5000
+# Commits are indexed as of 2026-07-28 (they were previously reachable only by
+# naming a SHA, which keeps the densest "why" in a codebase out of search).
+# psf/requests has 6,488; a monorepo can have a million, and every commit is a
+# chunk to embed, so this is the safety valve. Hitting it is disclosed like any
+# other cap. `git fetch --depth` takes this too, so the network cost is bounded
+# by the same number rather than by whatever history happens to exist.
+COMMIT_LIMIT = 20000
 OUT = Path(__file__).resolve().parent / "corpus" / "chunks.jsonl"
 META = Path(__file__).resolve().parent / "corpus" / "meta.json"
 
@@ -772,6 +779,74 @@ def fetch_commit_detail(repo, sha, token=None) -> Optional[Chunk]:
     return Chunk(ref=f"commit:{full}", source="commit", text=text)
 
 
+def fetch_commits(repo, commit, token=None, stats=None):
+    """Every commit's MESSAGE as a chunk, oldest-last, from a blobless clone.
+
+    Commits used to be deliberately unindexed -- resolvable only by naming a SHA
+    -- on the grounds that a real repo has too many of them. That reasoning
+    kept the densest "why" in any codebase out of search entirely: a commit
+    message is the one place a change explains itself at the moment it was made.
+    Indexing them (2026-07-28) is a direct application of "if it exists in the
+    repo, it can be answered".
+
+    Cheap, measured on psf/requests: `--filter=blob:none` with full depth pulls
+    all 6,488 commits in **2 seconds** into a **3.6 MB** .git, because commit
+    and tree objects are tiny and file contents are never transferred. The
+    depth-1 fetch `fetch_code` does cannot serve this -- it has no history at
+    all -- so this takes its own fetch rather than deepening that one and
+    dragging blobs along with it.
+
+    Deliberately message-only, NOT `--name-only`: computing per-commit file
+    lists costs a tree diff each and measured 27s against 2s, for information
+    the PR-level `Files changed` line already carries.
+
+    Nothing is filtered. 1,612 of psf/requests' 6,488 commits are merges whose
+    message largely restates a PR title, and bot commits can be verbose -- both
+    dilute BM25's idf, which is a real cost stated here rather than silently
+    paid by dropping them. Filtering is a product judgement, not a plumbing one.
+    """
+    chunks = []
+    with tempfile.TemporaryDirectory() as d:
+        env = _git_env(token)
+        subprocess.run(["git", "init", "--quiet", d],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
+        subprocess.run(["git", "-C", d, "remote", "add", "origin",
+                        f"https://github.com/{repo}.git"],
+                       check=True, timeout=_SUBPROCESS_TIMEOUT, env=env)
+        subprocess.run(["git", "-C", d, "fetch", "--filter=blob:none", "--quiet",
+                        "--depth", str(COMMIT_LIMIT), "origin", commit],
+                       check=True, timeout=_LIST_TIMEOUT, env=env)
+        # NUL between fields and RS between records: a commit message can
+        # contain newlines, tabs and almost anything else, so any printable
+        # delimiter would eventually appear inside a real message and corrupt
+        # the parse. These two cannot -- git rejects NUL in a commit object.
+        out = subprocess.run(
+            ["git", "-C", d, "log", "FETCH_HEAD",
+             f"--max-count={COMMIT_LIMIT}",
+             "--format=%H%x00%an%x00%aI%x00%s%x00%b%x1e"],
+            check=True, capture_output=True, text=True, timeout=_LIST_TIMEOUT, env=env,
+        ).stdout
+    for record in out.split("\x1e"):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        parts = record.split("\x00")
+        if len(parts) < 4:
+            continue  # malformed line, never a reason to fail the whole ingest
+        sha, author, when, subject = parts[0].strip(), parts[1], parts[2], parts[3]
+        body = parts[4] if len(parts) > 4 else ""
+        if not sha:
+            continue
+        head = f"COMMIT {sha[:7]}: {subject}".rstrip()
+        meta = f"[{author or 'unknown'} on {when[:10]}]" if when else f"[{author or 'unknown'}]"
+        text = "\n\n".join(p for p in (head, meta, body.strip()) if p)
+        if len(text) > _REF_DETAIL_MAX_CHARS:
+            text = text[:_REF_DETAIL_MAX_CHARS] + "\n…[truncated]"
+        chunks.append({"ref": f"commit:{sha}", "source": "commit", "text": text})
+    _note_truncation(stats, "commit", len(chunks), COMMIT_LIMIT)
+    return chunks
+
+
 def fetch_code(repo, commit, code_dir, token=None, stats=None):
     # Fetch ONLY the pinned commit, never full history. This used to be a full
     # `git clone`, whose stated reason was keeping an ARBITRARY pinned commit
@@ -882,8 +957,9 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=
     # without touching fetch_prs' own linked-issue detection.
     issue_ids = issue_ids | fetch_all_issue_ids(repo, token=token, stats=code_stats)
     issues = fetch_issues(repo, issue_ids, token=token, stats=code_stats)
+    commits = fetch_commits(repo, commit, token=token, stats=code_stats)
     code = fetch_code(repo, commit, code_dir, token=token, stats=code_stats)
-    all_chunks = prs + issues + code
+    all_chunks = prs + issues + commits + code
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "chunks.jsonl").open("w") as f:
@@ -892,7 +968,7 @@ def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=
     # code may now yield "code"/"doc"/"config" chunks (Task A3's whole-repo
     # walk), not just "code" -- bucket by whatever source tags actually
     # appeared, so every chunk's source is reflected in the counts.
-    counts = {"pr": len(prs), "issue": len(issues)}
+    counts = {"pr": len(prs), "issue": len(issues), "commit": len(commits)}
     for c in code:
         counts[c["source"]] = counts.get(c["source"], 0) + 1
     counts.setdefault("code", 0)

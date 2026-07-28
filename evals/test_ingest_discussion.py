@@ -296,6 +296,7 @@ class CapsAndDisclosureTests(unittest.TestCase):
                                   side_effect=lambda r, token=None, stats=None: (
                                       stats.__setitem__("truncated", True), full)[1]), \
                 mock.patch.object(ingest, "fetch_all_issue_ids", return_value=set()), \
+                mock.patch.object(ingest, "fetch_commits", return_value=[]), \
                 mock.patch.object(ingest, "fetch_issues", return_value=[]), \
                 mock.patch.object(ingest, "fetch_code", return_value=[]):
             ingest.ingest_repo("o/r", d, commit="abc", code_dir=".")
