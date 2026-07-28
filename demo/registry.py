@@ -98,7 +98,8 @@ class LibraryRegistry:
                 lock = self._ingest_locks[slug] = threading.Lock()
             return lock
 
-    def _ingest_once(self, repo, out_dir, code_dir=".", commit=None, token=None):
+    def _ingest_once(self, repo, out_dir, code_dir=".", commit=None, token=None,
+                     refresh=False):
         """Ingest a repo into `out_dir`, once, atomically — public or private.
 
         One function for both since T1 (2026-07-27). Which root `out_dir` sits
@@ -112,31 +113,68 @@ class LibraryRegistry:
         a cache hit shared across all users. Otherwise single-flight on a per-slug
         lock, ingest into a temp dir, and `os.replace` it into place so a crashed
         or concurrent ingest can never leave a partial corpus visible to anyone.
-        A cross-replica loser of the rename discards its (identical) copy."""
+        A cross-replica loser of the rename discards its (identical) copy.
+
+        `refresh=True` means the caller has already determined the corpus on
+        disk is OUT OF DATE, so both cache-hit fast paths must be skipped. They
+        cannot be left in place "because a corpus exists" -- that is exactly
+        the condition a refresh describes. Without this the caller's staleness
+        decision is computed and then silently discarded here, and the stale
+        corpus is served forever: found live 2026-07-28, when the
+        discussion-ingest fix deployed correctly and every ALREADY-connected
+        repo kept answering from title+body, because `Library` asked for a
+        re-ingest and this function returned without doing one."""
         out_dir = Path(out_dir)
         slug = out_dir.name
-        if (out_dir / "chunks.jsonl").exists():
+        if not refresh and (out_dir / "chunks.jsonl").exists():
             return  # already cached by someone -- no lock, no work
         with self._lock_for_slug(slug):
-            if (out_dir / "chunks.jsonl").exists():
+            if not refresh and (out_dir / "chunks.jsonl").exists():
                 return  # another caller finished while we waited on the lock
             out_dir.parent.mkdir(parents=True, exist_ok=True)
             tmp = Path(tempfile.mkdtemp(prefix=f".tmp-{slug}-", dir=out_dir.parent))
             try:
                 self._ingest_fn(repo, tmp, code_dir=code_dir, commit=commit, token=token)
-                try:
-                    os.replace(tmp, out_dir)  # atomic publish (temp and final share a parent)
-                except OSError:
-                    # Another process/replica published first onto the shared
-                    # volume. The corpus is deterministic, so theirs == ours;
-                    # keep theirs, drop ours. Re-raise only if nothing landed.
-                    if (out_dir / "chunks.jsonl").exists():
-                        shutil.rmtree(tmp, ignore_errors=True)
-                    else:
-                        raise
+                self._publish(tmp, out_dir, slug)
             except Exception:
                 shutil.rmtree(tmp, ignore_errors=True)
                 raise
+
+    @staticmethod
+    def _publish(tmp, out_dir, slug):
+        """Move a freshly-ingested temp dir into its final shared location.
+
+        `os.replace` publishes atomically onto a MISSING destination, which is
+        the cache-fill case. It cannot replace a non-empty directory (ENOTEMPTY
+        on POSIX), so a refresh swaps instead: move the current corpus aside,
+        publish, then delete the old one. The gap where the destination does not
+        exist is two renames wide, and a reader arriving inside it sees a cache
+        miss and waits on this same per-slug lock -- a redundant wait, never a
+        partial or mixed corpus."""
+        try:
+            os.replace(tmp, out_dir)  # atomic publish (temp and final share a parent)
+            return
+        except OSError:
+            if not out_dir.exists():
+                # Nothing landed and nothing was there -- a real failure.
+                raise
+        if not (out_dir / "chunks.jsonl").exists():
+            # A directory exists but holds no corpus (an interrupted publish).
+            # Clear it and retry rather than treating it as a live corpus.
+            shutil.rmtree(out_dir, ignore_errors=True)
+            os.replace(tmp, out_dir)
+            return
+        stale = Path(tempfile.mkdtemp(prefix=f".stale-{slug}-", dir=out_dir.parent))
+        try:
+            os.replace(out_dir, stale)   # empty dir as the destination: allowed
+        except OSError:
+            # Another process/replica published first onto the shared volume.
+            # The corpus is deterministic, so theirs == ours; keep theirs.
+            shutil.rmtree(stale, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
+            return
+        os.replace(tmp, out_dir)
+        shutil.rmtree(stale, ignore_errors=True)
 
     @staticmethod
     def _key(user_id):

@@ -287,9 +287,18 @@ class Library:
         # re-authenticate) -- in that case, serve the existing corpus as-is
         # rather than force a re-ingest attempt that would fail. A public
         # repo never needs a token, so its staleness always applies.
+        # A REFRESH (the corpus exists but its format is out of date) is not the
+        # same as a cache MISS, and the difference is load-bearing: the shared
+        # ingest_fn skips its work whenever a corpus is already on disk, so a
+        # refresh that doesn't say it is one gets silently swallowed and the
+        # stale corpus is served forever (found live 2026-07-28, after the
+        # discussion-ingest fix deployed and every already-connected repo kept
+        # answering from title+body).
+        refresh = False
         if (repo != self._default_repo and not needs_ingest
                 and not (private and token is None)):
-            needs_ingest = self._corpus_is_stale(corpus_dir)
+            refresh = self._corpus_is_stale(corpus_dir)
+            needs_ingest = refresh
         with self._lock:
             already_indexing = repo in self._inflight
             if not already_indexing:
@@ -306,9 +315,10 @@ class Library:
                 # PRIVATE repos take a distinct, per-user, token-authenticated
                 # ingest; PUBLIC repos take the shared, tokenless one.
                 if private:
-                    self._private_ingest_fn(repo, corpus_dir, code_dir=".", token=token)
+                    self._private_ingest_fn(repo, corpus_dir, code_dir=".", token=token,
+                                            refresh=refresh)
                 else:
-                    self._ingest_fn(repo, corpus_dir, code_dir=".")
+                    self._ingest_fn(repo, corpus_dir, code_dir=".", refresh=refresh)
             meta = load_meta(Path(corpus_dir) / "meta.json") or {}
             connected_repo = meta.get("repo", repo)
 

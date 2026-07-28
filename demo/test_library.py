@@ -37,7 +37,7 @@ class LibraryTests(unittest.TestCase):
 
         self.ingest_code_dirs = []
 
-        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             self.ingested.append(repo)
             self.ingest_code_dirs.append(code_dir)
             _seed_corpus(out_dir, repo)
@@ -76,7 +76,7 @@ class LibraryTests(unittest.TestCase):
         # The app's progress line should say WHAT is happening, not spin silently.
         seen, holder = {}, {}
 
-        def capturing_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def capturing_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             seen["phase"] = holder["lib"].status_snapshot()["phase"]
             _seed_corpus(out_dir, repo)
             return {"pr": 1, "issue": 0, "code": 0}
@@ -108,7 +108,7 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(self.lib.status_snapshot()["repo"], "simonw/llm")
 
     def test_ingest_failure_keeps_previous_repo(self):
-        def boom(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def boom(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             raise RuntimeError("gh exploded")
         self.lib._ingest_fn = boom
         self.lib.connect_sync("bad/repo")
@@ -119,7 +119,7 @@ class LibraryTests(unittest.TestCase):
 
     def test_ingest_failure_reports_generic_error(self):
         # The raw exception (command lines, URLs) must never reach /status.
-        def boom(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def boom(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             raise RuntimeError("git clone https://github.com/o/r.git failed: fatal ...")
         self.lib._ingest_fn = boom
         self.lib.connect_sync("o/r")
@@ -332,7 +332,7 @@ class LibraryTests(unittest.TestCase):
         gate = threading.Event()
         started = []
 
-        def slow_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def slow_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             started.append(repo)
             gate.wait(timeout=2)
             _seed_corpus(out_dir, repo)
@@ -494,7 +494,7 @@ class ConnectSyncStalenessTests(unittest.TestCase):
         self.private_root = root / "private"
         self.ingested = []
 
-        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None):
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
             self.ingested.append((repo, token))
             _seed_corpus(out_dir, repo, chunking="ast")  # simulates a fresh ingest under the new scheme
             return {"pr": 0, "issue": 0, "code": 0}

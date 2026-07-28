@@ -339,3 +339,85 @@ class RegistryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefreshBeatsTheCacheHitTests(unittest.TestCase):
+    """The bug that made a correct fix ship dead (2026-07-28).
+
+    `Library` decides a corpus is stale and asks for a re-ingest. `_ingest_once`
+    then saw chunks.jsonl on disk and returned without doing one, so the
+    staleness mechanism was decorative for every shared-cache repo: the
+    discussion-ingest fix deployed correctly and every ALREADY-connected repo
+    kept answering from the old corpus. Two layers, each with its own cache
+    logic, and the lower one silently overruled the upper one."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.out = self.root / "cache" / "octo__repo"
+        self.calls = []
+
+    def _registry(self):
+        def fake_ingest(repo, out_dir, code_dir=".", commit=None, token=None):
+            self.calls.append(repo)
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            (Path(out_dir) / "chunks.jsonl").write_text(
+                json.dumps({"ref": "pr:1", "source": "pr", "text": "NEW FORMAT"}) + "\n")
+            (Path(out_dir) / "meta.json").write_text(json.dumps({"repo": repo}))
+        _seed_corpus(self.root / "default", "simonw/llm")
+        return LibraryRegistry(self.root / "default", self.root / "storage",
+                               "simonw/llm", ingest_fn=fake_ingest)
+
+    def _seed_old_corpus(self):
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / "chunks.jsonl").write_text(
+            json.dumps({"ref": "pr:1", "source": "pr", "text": "OLD FORMAT"}) + "\n")
+        (self.out / "meta.json").write_text(json.dumps({"repo": "octo/repo"}))
+
+    def test_a_cache_hit_still_skips_the_work(self):
+        self._seed_old_corpus()
+        self._registry()._ingest_once("octo/repo", self.out)
+        self.assertEqual(self.calls, [], "a plain cache hit must not re-ingest")
+        self.assertIn("OLD FORMAT", (self.out / "chunks.jsonl").read_text())
+
+    def test_a_refresh_actually_re_ingests(self):
+        self._seed_old_corpus()
+        self._registry()._ingest_once("octo/repo", self.out, refresh=True)
+        self.assertEqual(self.calls, ["octo/repo"], "a refresh must re-ingest")
+        self.assertIn("NEW FORMAT", (self.out / "chunks.jsonl").read_text(),
+                      "the refreshed corpus must actually replace the old one")
+
+    def test_a_refresh_leaves_no_temp_directories_behind(self):
+        self._seed_old_corpus()
+        self._registry()._ingest_once("octo/repo", self.out, refresh=True)
+        leftovers = [p.name for p in self.out.parent.iterdir() if p.name.startswith(".")]
+        self.assertEqual(leftovers, [], f"temp dirs left behind: {leftovers}")
+
+    def test_a_first_ingest_still_works_when_nothing_is_cached(self):
+        self._registry()._ingest_once("octo/repo", self.out)
+        self.assertEqual(self.calls, ["octo/repo"])
+        self.assertIn("NEW FORMAT", (self.out / "chunks.jsonl").read_text())
+
+    def test_a_failed_refresh_leaves_the_existing_corpus_intact(self):
+        # Serving a stale corpus beats serving none: a refresh that dies
+        # mid-ingest must not take the working corpus down with it.
+        self._seed_old_corpus()
+
+        def boom(repo, out_dir, code_dir=".", commit=None, token=None):
+            raise RuntimeError("gh exploded")
+
+        _seed_corpus(self.root / "default", "simonw/llm")
+        reg = LibraryRegistry(self.root / "default", self.root / "storage",
+                              "simonw/llm", ingest_fn=boom)
+        with self.assertRaises(RuntimeError):
+            reg._ingest_once("octo/repo", self.out, refresh=True)
+        self.assertIn("OLD FORMAT", (self.out / "chunks.jsonl").read_text())
+
+    def test_an_interrupted_publish_leaves_a_usable_corpus(self):
+        # A directory with no chunks.jsonl is a half-published corpus, not a
+        # live one -- a refresh must replace it rather than swap it aside.
+        self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / "stray.txt").write_text("debris")
+        self._registry()._ingest_once("octo/repo", self.out, refresh=True)
+        self.assertIn("NEW FORMAT", (self.out / "chunks.jsonl").read_text())

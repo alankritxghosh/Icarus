@@ -744,8 +744,14 @@ def fetch_code(repo, commit, code_dir, token=None, stats=None):
     return chunks
 
 
-def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None):
+def ingest_repo(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
     """Fetch a repo and write chunks.jsonl + meta.json into out_dir.
+
+    `refresh` is accepted and deliberately IGNORED here: this function always
+    ingests, so "re-ingest rather than serve the cache" is meaningless to it.
+    It exists so this and the registry's caching wrapper (`_ingest_once`, which
+    genuinely needs to distinguish a refresh from a cache fill) share one
+    signature, and a caller can pass it without knowing which one it holds.
 
     Returns counts keyed by every source tag actually ingested -- always "pr"
     and "issue" (0 if none), "code" (0 if none, kept present for backward
