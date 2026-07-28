@@ -17,7 +17,10 @@ from pathlib import Path
 # and the fix would ship live and be invisible to every connected repo.
 #   1 -> 2 (2026-07-28): PR/issue chunks gained the discussion -- comments,
 #          reviews, changed files, state/author -- not just title + body.
-CORPUS_FORMAT_VERSION = 2
+#   2 -> 3 (2026-07-28): EVERY PR and issue is indexed, not the most recent
+#          200/500. On psf/requests that is 7,254 items instead of 700, so a
+#          version-2 corpus is not merely older-shaped, it is 90% absent.
+CORPUS_FORMAT_VERSION = 3
 
 # A corpus written before the field existed is necessarily the original shape.
 _PRE_VERSIONED_CORPUS = 1
