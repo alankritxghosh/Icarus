@@ -1,11 +1,11 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Three commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Four commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
-**Live: `icarus-brain--0000024`, image `alpha-20260728-refresh`, healthy, 100%
-traffic. `main` @ `f414d31`. evals 504 · demo 250 · IcarusKit 91 · extension 31 ·
-secrets scan clean.**
+**Live: `icarus-brain--0000025`, image `alpha-20260728-vcache`, healthy, 100%
+traffic. `main` @ the handoff commit. evals 511 · demo 250 · IcarusKit 91 ·
+extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
 
@@ -112,7 +112,7 @@ miss and waits on the same per-slug lock: a redundant wait, never a partial
 corpus. A refresh that dies mid-ingest leaves the old corpus serving (tested) —
 a stale corpus beats none.
 
-## Live-verified on rev 0000024 (not assumed — run against production)
+## Live-verified on rev 0000025 (not assumed — run against production)
 
 - **The handoff's own regression is finally fixed.** "What did PR 6952 change?"
   on `psf/requests` → `verdict: answer`, citing `issue:6952`: *"#6952 is an
@@ -123,23 +123,50 @@ a stale corpus beats none.
 - **`anchored` rides every response**: `['pr:1435']`, `['issue:6952']`.
 - Excerpts show the new chunk shape (`ISSUE #6952: …` / `[CLOSED by …]` /
   `Comment by …`).
-- Both images were checked to CONTAIN their changes before pushing (15 assertions
-  then 5), per the established discipline.
+- **Semantic retrieval is healthy after the forced re-embed** (the one real risk
+  of item 4): "Why does requests not support HTTP/2?" — no ref named, so purely
+  retrieval — answers citing `issue:6856`.
+- Every image was checked to CONTAIN its changes before pushing (15 assertions,
+  then 5, then 6), per the established discipline.
 
-## ⚠️ Two defects found and NOT fixed — do not record as done
+## 4. `c0c6fd1` — the vector cache is keyed on corpus CONTENT (FIXED, deployed)
 
-1. **`vector_cache.load_vectors` validates by REF SET only**
-   (`set(vectors.keys()) != set(refs)`). A refreshed corpus at the SAME commit
-   has identical refs with **different text**, so stale embeddings are silently
-   reused for the new discussion text. Groundedness is unaffected (the writer
-   sees the real new text; only the RANKING is stale), but semantic retrieval is
-   quietly degraded. It did not bite during verification only because the
-   re-ingest also picked up a newer commit, which changed the code refs. **Fix:
-   put a corpus content hash in the cache key.** This is the top follow-up.
-2. **Observed once, not root-caused:** immediately after the 0000024 deploy,
-   `/status` reported `psf/requests` while `/ask` retrieved `simonw/llm` refs —
-   inconsistent state during the corpus swap window. A `/disconnect` +
-   `/connect` cleared it and it has not recurred. Cause unknown.
+`load_vectors` validated a cache by model name plus ref COVERAGE. A re-ingested
+corpus at the SAME commit keeps every ref and rewrites the text — precisely what
+item 2 does to PR/issue chunks — so coverage matched, the cache reported a HIT,
+and semantic ranking was computed from embeddings of text that no longer
+existed. Groundedness was never at risk (the writer always sees the real current
+text); **RANKING** degraded silently while reporting success. It did not bite
+during verification only because that re-ingest also picked up a newer commit,
+which changed the code refs and forced a miss by luck rather than design.
+
+`corpus_fingerprint` is a sha256 over ref+text per chunk, NUL-separated so a
+ref/text boundary shift cannot collide, order-sensitive because ingest is
+deterministic. `fingerprint` is a REQUIRED parameter — a default would let a
+caller silently opt back into the ref-only check being removed. A pre-fingerprint
+cache misses and re-embeds once; that is the intended cost.
+
+**Verified in the image before pushing** that the baked warm cache carries a
+fingerprint — without that the container would re-embed the default corpus on
+every cold boot, silently undoing `warm_cache`'s entire purpose.
+
+## The post-deploy session reset — explained, and a latent risk it exposed
+
+Twice this session, immediately after a deploy, `/status` reported `psf/requests`
+while `/ask` retrieved `simonw/llm` refs; a reconnect fixed it. **This is the
+documented post-deploy session reset, not a corpus bug.** Which repo a user is
+connected to is **per-process in-memory state** (the registry's replay map), so a
+new container has no record and everyone falls back to the default. The corpus on
+Azure Files is untouched. Expect it after every deploy — reconnect before
+concluding anything is broken.
+
+⚠️ **The latent risk it exposed:** `maxReplicas: 3` (currently 1 replica). With
+more than one replica, `/connect` and `/ask` can land on **different replicas
+with different in-memory connection state**, so a user's connected repo would
+appear to flap without any deploy. The shared corpus is fine; the per-user
+pointer is not shared. NOT observed yet — it cannot be, at one replica — but it
+follows from the architecture and will appear the first time real load scales it
+out. Worth fixing before a design partner's team uses it concurrently.
 
 ## DMG — REBUILT, verified, NOT PUBLISHED
 
@@ -191,17 +218,18 @@ Ranked by how much history they silently drop:
 
 ## Next, in order
 
-1. **Fix the vector-cache invalidation** (defect 1 above) — it silently degrades
-   retrieval on every refresh from here on.
-2. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
-3. **Raise the PR/issue caps properly** (pagination + measurement). This is the
+1. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
+2. **Raise the PR/issue caps properly** (pagination + measurement). This is the
    biggest gap against Alankrit's bar.
+3. **Share the per-user connection pointer across replicas**, or pin sessions,
+   before a team uses this concurrently (see the latent risk above).
 4. **Morphic.** Everything else is prerequisite, not goal.
 
 ## Commits
 
 `7c666f1` (display + Repo/Company Brain), `da9a5ba` (discussion ingest + caller
-token + corpus_version), `f414d31` (refresh must actually re-ingest).
+token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
+(vector cache keyed on corpus content).
 
 ---
 
