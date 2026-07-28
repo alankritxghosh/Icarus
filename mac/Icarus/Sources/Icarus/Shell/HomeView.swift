@@ -193,7 +193,7 @@ struct ProofDrawerView: View {
                         boxed(bg: Theme.unknownBg, border: Theme.unknown.opacity(0.5)) {
                             MonoLabel("HONEST UNKNOWN", Theme.unknown)
                             Text("No one wrote this down.").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink).padding(.top, 5)
-                            Text("searched: " + searchedLine(entry)).font(Theme.mono(11)).foregroundStyle(Theme.unknown).padding(.top, 5)
+                            Text(entry.response.compactTrail).font(Theme.mono(11)).foregroundStyle(Theme.unknown).padding(.top, 5)
                         }
                     }
                 } else {
@@ -202,11 +202,6 @@ struct ProofDrawerView: View {
                 }
             }
         }
-    }
-
-    private func searchedLine(_ entry: AskHistory.Entry) -> String {
-        let s = entry.response.searched
-        return s.isEmpty ? "—" : s.prefix(4).joined(separator: " · ")
     }
 
     @ViewBuilder private func boxed<C: View>(bg: Color, border: Color, @ViewBuilder _ content: () -> C) -> some View {

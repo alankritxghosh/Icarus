@@ -33,7 +33,7 @@ function renderErrorHtml(message) {
   );
 }
 
-function renderAnswerHtml(payload) {
+function renderAnswerHtml(payload, opts) {
   const chips = (payload.citations || [])
     .map((c) => {
       const s = sourceOf(c.ref);
@@ -51,19 +51,36 @@ function renderAnswerHtml(payload) {
     '<p class="icarus-label icarus-muted">evidence — one glance away</p>' +
     `<div class="icarus-cites">${chips}</div>` +
     "</div>" +
-    '<div class="icarus-repo-label">public repository alpha</div>' +
+    `<div class="icarus-repo-label">${repoLabel(opts)}</div>` +
     "</div>"
   );
 }
 
+// The connected repo's real kind, from the brain's /status -- this used to be a
+// hardcoded "public repository alpha", which stopped being true when private
+// repos were re-enabled (2026-07-16). Defaults to public: never over-claim that
+// a repo is private code.
+function repoLabel(opts) {
+  return opts && opts.isPrivate ? "private repository alpha" : "public repository alpha";
+}
+
 function renderUnknownHtml(payload) {
-  const n = (payload.searched || []).length;
+  const named = payload.anchored || [];
+  const rest = (payload.searched || []).filter((r) => !named.includes(r));
+  // Say what the QUESTION named, separately from what search suggested: a bare
+  // count made a refusal that looked up the named ref first indistinguishable
+  // from one that ignored the question (reported live 2026-07-28).
+  const namedLine = named.length
+    ? `<div class="icarus-searched">you named: ${escapeHtml(named.join(" · "))}</div>`
+    : "";
+  const lead = named.length ? "then searched" : "searched";
   return (
     '<div class="icarus-unknown">' +
     '<p class="icarus-label">honest answer</p>' +
     "<h2>No one wrote this down.</h2>" +
     "<p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>" +
-    `<div class="icarus-searched">searched ${n} source${n === 1 ? "" : "s"}</div>` +
+    namedLine +
+    `<div class="icarus-searched">${lead} ${rest.length} source${rest.length === 1 ? "" : "s"}</div>` +
     "</div>"
   );
 }

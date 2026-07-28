@@ -291,3 +291,47 @@ class PremiseNoteTests(unittest.TestCase):
                          notes=["#6952 is an issue (issue:6952), not a pull request."])
         self.assertIn("ESTABLISHED FACTS", p)
         self.assertIn("#6952 is an issue", p)
+
+
+class AnchoredIsReportedTests(unittest.TestCase):
+    """`Result.anchored` exists so a reader can see that the thing they NAMED
+    was looked up, rather than reading a flat 20-ref list and concluding the
+    question was ignored (live complaint, 2026-07-28). Display only -- it is
+    carried alongside the honesty decision, never into it."""
+
+    def test_named_ref_is_reported_as_anchored(self):
+        chunks, gold = _corpus_with_unreachable_issue()
+        raw = json.dumps({"verdict": "answer", "answer": "Login fails intermittently.",
+                          "citations": [gold.ref]})
+        r = _pipe(chunks, StaticProvider(raw)).answer("how does issue #260 work")
+        self.assertEqual(r.anchored, [gold.ref])
+        self.assertEqual(r.retrieved[0], gold.ref, "anchored must stay a prefix of retrieved")
+
+    def test_anchored_survives_an_abstention(self):
+        # THE case from the live report: the anchor resolved correctly and the
+        # writer still had nothing to say. Losing it here is what made a correct
+        # refusal look like a blind one.
+        chunks, gold = _corpus_with_unreachable_issue()
+        r = _pipe(chunks, StaticProvider(json.dumps({"verdict": "unknown"}))).answer(
+            "what did issue #260 change")
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.anchored, [gold.ref])
+
+    def test_a_question_naming_nothing_anchors_nothing(self):
+        chunks, _ = _corpus_with_unreachable_issue()
+        r = _pipe(chunks, StaticProvider(json.dumps({"verdict": "unknown"}))).answer(
+            "how does the retry queue work")
+        self.assertEqual(r.anchored, [])
+
+    def test_an_unresolvable_number_anchors_nothing(self):
+        chunks, _ = _corpus_with_unreachable_issue()
+        r = _pipe(chunks, StaticProvider(json.dumps({"verdict": "unknown"}))).answer(
+            "how does issue #9999 work")
+        self.assertEqual(r.anchored, [])
+
+    def test_explain_reports_the_selected_lines_as_the_anchor(self):
+        chunks = [Chunk("code:llm/x.py#L1-L20", "code", "def go():\n    return 1")]
+        r = GatedPipeline(LexicalRetriever(chunks), chunks,
+                          StaticProvider(json.dumps({"verdict": "unknown"}))
+                          ).explain("llm/x.py", 3, 5)
+        self.assertEqual(r.anchored, ["code:llm/x.py#L1-L20"])

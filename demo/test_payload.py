@@ -37,6 +37,29 @@ class BuildPayloadTests(unittest.TestCase):
         self.assertEqual(build_payload(r, REPO, COMMIT)["citations"], [{"ref": "slack:9", "url": None, "excerpt": ""}])
 
 
+class AnchoredTests(unittest.TestCase):
+    """The named ref has to survive to the renderer. Without it a refusal that
+    looked up exactly what was asked is indistinguishable from one that ignored
+    the question -- the live complaint this field exists to fix (2026-07-28)."""
+
+    def test_unknown_still_reports_what_the_question_named(self):
+        r = Result(verdict="unknown", retrieved=["issue:6952", "code:a.py", "code:b.py"],
+                   anchored=["issue:6952"])
+        p = build_payload(r, REPO, COMMIT)
+        self.assertEqual(p["anchored"], ["issue:6952"])
+        # Still listed in `searched` too: "all of them shown" must stay true.
+        self.assertEqual(p["searched"], ["issue:6952", "code:a.py", "code:b.py"])
+
+    def test_answer_reports_the_anchor_as_well(self):
+        r = Result(verdict="answer", answer="a", citations=["pr:1435"],
+                   retrieved=["pr:1435", "code:a.py"], anchored=["pr:1435"])
+        self.assertEqual(build_payload(r, REPO, COMMIT)["anchored"], ["pr:1435"])
+
+    def test_a_question_naming_nothing_anchors_nothing(self):
+        r = Result(verdict="unknown", retrieved=["code:a.py"])
+        self.assertEqual(build_payload(r, REPO, COMMIT)["anchored"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

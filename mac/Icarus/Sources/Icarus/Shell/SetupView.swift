@@ -35,7 +35,7 @@ struct SetupView: View {
     @ViewBuilder private func signIn(message: String?) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             MonoLabel("STEP 1 — CONNECT GITHUB")
-            Text("Sign in with GitHub to load a public repository.")
+            Text("Sign in with GitHub to load a repository you can read.")
                 .font(.system(size: 14)).foregroundStyle(Theme.muted)
             if let message {
                 Text(message).font(.system(size: 13)).foregroundStyle(Theme.unknown)
@@ -83,7 +83,10 @@ struct SetupView: View {
 
             switch connect.state {
             case .idle:
-                Text("This alpha supports public repositories only. The first index of a new repo can take a minute.")
+                // Said "public repositories only" — false since private repos
+                // were re-enabled 2026-07-16, and the app has connected them
+                // since. A private repo becomes your team's Company Brain.
+                Text("Any repository your GitHub account can read — public or private. The first index of a new repo can take a minute.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
             case .connecting(let repo):
                 HStack(spacing: 8) {

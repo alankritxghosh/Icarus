@@ -204,8 +204,16 @@ struct OverlayView: View {
             Text("No one wrote this down.")
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(Theme.ink)
+            // The evidence trail, in two parts. A single flat list made a
+            // refusal that HAD looked up the named ref first read as one that
+            // ignored the question entirely — the mechanism was right and the
+            // display made it look broken (reported live 2026-07-28).
+            if let named = r.anchoredLine {
+                Text(named)
+                    .font(Theme.mono(11)).foregroundStyle(Theme.ink.opacity(0.75))
+            }
             if !r.searched.isEmpty {
-                Text("searched: " + r.searched.joined(separator: ", "))
+                Text(r.searchedLine)
                     .font(Theme.mono(11)).foregroundStyle(Theme.muted)
             }
         }

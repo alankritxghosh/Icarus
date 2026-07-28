@@ -24,7 +24,7 @@ public enum BrainError: Error, Equatable, Sendable {
         case .unauthorized:
             return "You're signed out. Sign in with GitHub again to continue."
         case .forbidden:
-            return "That repo doesn't exist, or your GitHub account can't read it. This alpha supports public repositories only."
+            return "That repo doesn't exist, or your GitHub account can't read it."
         case .rateLimited:
             return "Too many attempts in a row. Wait a minute, then try again."
         case .server(let code):

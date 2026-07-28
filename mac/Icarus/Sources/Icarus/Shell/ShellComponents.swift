@@ -75,10 +75,13 @@ struct HistoryRow: View {
     }
 
     private var evidenceLine: String {
-        let answered = entry.response.verdict == .answer
-        let refs = answered ? entry.response.citations.map(\.ref) : entry.response.searched
-        let shown = refs.isEmpty ? "—" : refs.prefix(4).joined(separator: " · ")
-        return (answered ? "evidence: " : "searched: ") + shown
+        guard entry.response.verdict == .answer else {
+            // An abstention leads with the ref the question NAMED, when there
+            // was one — that is what tells a reader it looked where they asked.
+            return entry.response.compactTrail
+        }
+        let refs = entry.response.citations.map(\.ref)
+        return "evidence: " + (refs.isEmpty ? "—" : refs.prefix(4).joined(separator: " · "))
     }
 }
 

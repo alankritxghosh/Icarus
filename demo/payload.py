@@ -5,6 +5,13 @@ Answers carry prose + citations (each with a source URL). The honest "unknown"
 carries no answer and no citations, but always exposes `searched` (the retrieved
 refs) so the abstention is transparent to the viewer -- you can see what it
 looked at before it honestly declined.
+
+`anchored` splits out the refs that were looked up because the QUESTION named
+them, from the ones search merely suggested. Both are in `searched` (anchors
+first), but a flat list made a correctly-anchored abstention -- "PR 6952" looked
+up first, exactly as asked -- read as "ignored the question and searched
+blindly". Additive: `searched` still lists everything, so "all of them shown"
+stays true.
 """
 
 from evals.pipeline import Result
@@ -62,4 +69,5 @@ def build_payload(result: Result, repo: str, commit: str) -> dict:
         "answer": result.answer if result.verdict == "answer" else "",
         "citations": citations,
         "searched": list(result.retrieved),
+        "anchored": list(result.anchored),
     }

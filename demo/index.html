@@ -104,7 +104,11 @@
     <div id="auth-area">
       <div id="signed-out">
         <button id="signin-btn" class="ghost" style="width:100%">Sign in with GitHub</button>
-        <div class="repo-status muted" style="margin-top:8px">Sign in to connect a repo — public, or your own private one.</div>
+        <!-- Public only, and that is now enforced: the WEB login asks for
+             read:user, not repo (demo/github_oauth.py, 2026-07-27), so this
+             surface cannot read a private repo even if you name one. The Mac
+             app and extension still ask for `repo` and connect private ones. -->
+        <div class="repo-status muted" style="margin-top:8px">Sign in to connect any public repo. Private repos need the Mac app.</div>
       </div>
       <div id="signed-in" style="display:none">
         <div class="navlabel">signed in</div>
@@ -168,13 +172,22 @@ function renderAnswer(p){
 }
 
 function renderUnknown(p){
-  const list=p.searched.length?esc(p.searched.join(" · ")):"—";
+  // Split what the QUESTION named from what search suggested. A flat list made a
+  // refusal that looked up the named ref FIRST read as one that ignored the
+  // question (reported live 2026-07-28). Everything is still listed.
+  const named=p.anchored||[];
+  const rest=p.searched.filter(r=>!named.includes(r));
+  const namedBox=named.length
+    ? `<div class="searched-box" style="margin-bottom:8px"><span class="k">you named</span><div class="v">${esc(named.join(" · "))}</div></div>`
+    : "";
+  const list=rest.length?esc(rest.join(" · ")):"—";
   result.innerHTML=
     `<div class="unknown">
        <p class="label">honest answer</p>
        <h2>No one wrote this down.</h2>
        <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>
-       <div class="searched-box"><span class="k">searched</span><div class="v">${list}</div></div>
+       ${namedBox}
+       <div class="searched-box"><span class="k">${named.length?"then searched":"searched"}</span><div class="v">${list}</div></div>
      </div>`;
 }
 

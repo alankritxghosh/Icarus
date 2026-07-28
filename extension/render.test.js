@@ -81,6 +81,14 @@ test("renderAnswerHtml: labels the public alpha", () => {
   assert.match(renderAnswerHtml({ answer: "x", citations: [] }), /public repository alpha/);
 });
 
+test("renderAnswerHtml: a private repo is not labelled public", () => {
+  // Hardcoded "public repository alpha" stopped being true when private repos
+  // were re-enabled (2026-07-16) — the panel must state the real kind.
+  const html = renderAnswerHtml({ answer: "x", citations: [] }, { isPrivate: true });
+  assert.match(html, /private repository alpha/);
+  assert.doesNotMatch(html, /public repository alpha/);
+});
+
 test("renderAnswerHtml: does not make paid-writer or training claims", () => {
   const html = renderAnswerHtml({ answer: "x", citations: [] });
   assert.doesNotMatch(html, /paid writer/i);
@@ -99,4 +107,16 @@ test("renderUnknownHtml: singular 'source' for exactly one", () => {
 
 test("renderUnknownHtml: zero searched still renders cleanly, no crash", () => {
   assert.match(renderUnknownHtml({ searched: [] }), /searched 0 sources/);
+});
+
+test("renderUnknownHtml: a named ref is called out, and not double-counted", () => {
+  const html = renderUnknownHtml({ searched: ["issue:6952", "code:a"], anchored: ["issue:6952"] });
+  assert.match(html, /you named: issue:6952/);
+  assert.match(html, /then searched 1 source(?!s)/);
+});
+
+test("renderUnknownHtml: an older brain with no anchored field reads as before", () => {
+  const html = renderUnknownHtml({ searched: ["code:a", "code:b"] });
+  assert.doesNotMatch(html, /you named/);
+  assert.match(html, /searched 2 sources/);
 });

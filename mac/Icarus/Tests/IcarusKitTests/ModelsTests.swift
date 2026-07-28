@@ -121,3 +121,94 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(r.citations.first?.excerpt, "const maxRetries = 3\n…")
     }
 }
+
+/// The evidence trail an abstention shows. A flat 20-ref list made a refusal
+/// that HAD looked up the named ref first read as one that ignored the question
+/// (reported live 2026-07-28) — these pin the distinction.
+final class EvidenceTrailTests: XCTestCase {
+    private func response(searched: [String], anchored: [String]?) -> AskResponse {
+        AskResponse(verdict: .unknown, answer: "", citations: [],
+                    searched: searched, anchored: anchored)
+    }
+
+    func testNamedRefIsCalledOutSeparately() {
+        let r = response(searched: ["issue:6952", "code:a.py", "code:b.py"],
+                         anchored: ["issue:6952"])
+        XCTAssertEqual(r.anchoredLine, "you named: issue:6952")
+        XCTAssertEqual(r.searchedLine, "then searched 2 more: code:a.py · code:b.py")
+    }
+
+    func testTheNamedRefIsNeverDoubleCounted() {
+        // It is in `searched` too (anchors are a prefix of it) — listing it in
+        // both halves would overstate how much was consulted.
+        let r = response(searched: ["pr:42", "code:a.py"], anchored: ["pr:42"])
+        XCTAssertFalse(r.searchedLine.contains("pr:42"))
+        XCTAssertTrue(r.searchedLine.hasPrefix("then searched 1 more"))
+    }
+
+    func testAQuestionNamingNothingReadsExactlyAsBefore() {
+        let r = response(searched: ["code:a.py", "code:b.py"], anchored: [])
+        XCTAssertNil(r.anchoredLine)
+        XCTAssertEqual(r.searchedLine, "searched 2 sources: code:a.py · code:b.py")
+    }
+
+    func testAnOlderBrainWithoutTheFieldStillRenders() {
+        // `anchored` absent from the JSON must degrade to the flat list, not
+        // fail to decode the whole answer.
+        let json = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":["code:a.py"]}"#.utf8)
+        let r = try! JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertNil(r.anchored)
+        XCTAssertNil(r.anchoredLine)
+        XCTAssertEqual(r.searchedLine, "searched 1 source: code:a.py")
+    }
+
+    func testAnchoredDecodesWhenPresent() throws {
+        let json = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":["issue:6952","code:a.py"],"anchored":["issue:6952"]}"#.utf8)
+        let r = try JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertEqual(r.anchored, ["issue:6952"])
+    }
+
+    func testCompactTrailLeadsWithTheNamedRef() {
+        let r = response(searched: ["issue:6952", "code:a.py", "code:b.py"],
+                         anchored: ["issue:6952"])
+        XCTAssertEqual(r.compactTrail, "you named: issue:6952 · +2 searched")
+    }
+
+    func testCompactTrailFallsBackToTheList() {
+        let r = response(searched: ["code:a.py"], anchored: nil)
+        XCTAssertEqual(r.compactTrail, "searched: code:a.py")
+    }
+
+    func testEmptySearchDoesNotCrashOrOverclaim() {
+        let r = response(searched: [], anchored: [])
+        XCTAssertEqual(r.searchedLine, "searched: —")
+        XCTAssertEqual(r.compactTrail, "searched: —")
+    }
+}
+
+/// A private index shared by a team is a "Company Brain"; a public repo's is a
+/// "Repo Brain". The label is read from the brain's /status, never guessed.
+final class BrainNameTests: XCTestCase {
+    private func status(_ json: String) throws -> RepoStatus {
+        try JSONDecoder().decode(RepoStatus.self, from: Data(json.utf8))
+    }
+
+    func testPrivateRepoIsTheCompanyBrain() throws {
+        let s = try status(#"{"state":"ready","repo":"acme/api","commit":"abc","counts":null,"error":null,"private":true}"#)
+        XCTAssertEqual(s.isPrivate, true)
+        XCTAssertEqual(s.brainName, "COMPANY BRAIN")
+    }
+
+    func testPublicRepoIsTheRepoBrain() throws {
+        let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null,"private":false}"#)
+        XCTAssertEqual(s.brainName, "REPO BRAIN")
+    }
+
+    func testAbsentFlagFallsBackToPublic() throws {
+        // Never over-claim privacy: an older brain omitting the field must not
+        // make a public repo look like a company's private code.
+        let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null}"#)
+        XCTAssertNil(s.isPrivate)
+        XCTAssertEqual(s.brainName, "REPO BRAIN")
+    }
+}

@@ -285,7 +285,12 @@ removing, or renaming files). For class/function-level detail see
   through the shared `_answer_from` writer→gate core, so `.explain()` opens no
   new honesty path). `.explain()`'s neighbor search uses the caller's
   `question` when given (proven live to reproduce `.answer()`'s exact top-k
-  for the same question), else the anchor chunk's own text.
+  for the same question), else the anchor chunk's own text. `Result.anchored`
+  (2026-07-28) carries the refs resolved by EXACT LOOKUP -- because the
+  question named them ("PR 6952") or, in `.explain()`, because the user
+  selected those lines -- split out from the ones search merely suggested.
+  Always a prefix of `retrieved`, set on the abstention path too. Display
+  only: it is carried alongside the honesty decision, never into it.
 - `evals/grader.py` — deterministic grading against the labelled set: the two
   honesty gates + quality dials; optional `judge` fills answer_correctness.
 - `evals/run.py` — CLI that runs the eval board and prints it (loads `.env`
@@ -480,6 +485,15 @@ removing, or renaming files). For class/function-level detail see
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
 - `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON.
+  Carries `anchored` beside `searched` (2026-07-28) so a renderer can say what
+  the QUESTION named versus what search suggested; `searched` still lists
+  everything, so "all of them shown" stays true.
+- `demo/ledger.py` — `Ledger`: the append-only per-repo ask record (question,
+  verdict, citations, timestamp — deliberately NOT the answer body and NOT who
+  asked). One JSONL file per repo, stored OUTSIDE the corpus dir because ingest
+  republishes with `os.replace()` and would destroy it. Read via `GET /ledger`
+  (`?unknowns=1` for the map of what the org never wrote down). **No UI on any
+  surface yet — HTTP only.**
 - `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
   `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
   `NormalizingRetriever` (Brick Q query normalization, wired into serving
@@ -591,6 +605,11 @@ removing, or renaming files). For class/function-level detail see
   eviction, and disconnect deleting only that user's storage.
 - `demo/test_ratelimit.py` — the limiter: allows up to the limit, blocks past
   it, a different key is unaffected, and the window sliding restores access.
+- `demo/test_ledger.py` — the ask ledger: record/read round-trip, per-repo
+  separation, the unknowns-only filter, most-recent-first + limit, surviving a
+  new process, an unknown repo reading empty rather than raising, concurrent
+  writes all landing and staying parseable, a hostile repo name unable to
+  escape the ledger root, and the guard that **who asked is never recorded**.
 - `demo/test_server.py` — routing against a stub registry, plus the Origin guard
   (403), body cap (413), bearer-auth gate (401), per-request identity, rate
   limiting (429), `/disconnect`, concurrency, and index.html smoke checks.

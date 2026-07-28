@@ -91,6 +91,10 @@ class Result:
                (e.g. "pr:1435"). Must be a subset of `retrieved`.
     retrieved: candidate evidence refs the retriever surfaced, same "source:ref"
                form, best-first. Used for retrieval recall@k.
+    anchored:  the subset of `retrieved` resolved by EXACT LOOKUP rather than by
+               search -- because the question named it ("PR 6952") or, in
+               .explain(), because the user selected those lines. Always a
+               prefix of `retrieved`, and usually empty.
     """
 
     verdict: str
@@ -101,6 +105,12 @@ class Result:
     # refs only. Lets a caller show the proof itself rather than a pointer to it.
     # Never an input to the honesty gate -- purely what was already used.
     evidence: Dict[str, str] = field(default_factory=dict)
+    # anchored: which refs were looked up because the caller NAMED them, split
+    # out from the ones search merely suggested. Both already sat in `retrieved`
+    # (anchor-first), but a flat list makes a correctly-anchored abstention look
+    # identical to one that ignored the question and searched blindly -- reported
+    # live 2026-07-28. Display only: nothing here feeds the writer or the gate.
+    anchored: List[str] = field(default_factory=list)
 
 
 class Pipeline:
@@ -206,7 +216,8 @@ class GatedPipeline(Pipeline):
         lookup = {**self._by_ref, **fetched} if fetched else self._by_ref
         top = [lookup[r] for r in retrieved[: self._writer_k] if r in lookup]
         return self._answer_from(question, top, retrieved,
-                                 notes=_premise_notes(question, anchor_refs))
+                                 notes=_premise_notes(question, anchor_refs),
+                                 anchored=anchor_refs)
 
     def explain(self, path: str, start: int, end: int, question: str = None) -> Result:
         """Brick D: explain a GitHub line selection, not a free-text question.
@@ -246,10 +257,11 @@ class GatedPipeline(Pipeline):
         return self._answer_from(
             question or self._DEFAULT_EXPLAIN_QUESTION, top[: self._writer_k], retrieved,
             guard_rationale=False,   # explain delivers the selected code's "what"
+            anchored=anchor_refs,    # the chunks covering the user's own selection
         )
 
     def _answer_from(self, question: str, top: List, retrieved: List[str],
-                     guard_rationale: bool = True, notes=None) -> Result:
+                     guard_rationale: bool = True, notes=None, anchored=None) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -260,17 +272,23 @@ class GatedPipeline(Pipeline):
         SELECTED specific code and a "what does this do" answer is the intended
         deliverable, not a dodged why -- so requiring rationale prose would wrongly
         abstain on plain code. Groundedness (the hard invariant) is enforced
-        identically either way; only the soft rationale heuristic is scoped."""
+        identically either way; only the soft rationale heuristic is scoped.
+
+        `anchored` is carried through untouched for display (see Result). It is
+        set on BOTH exits -- an abstention is exactly the case where a reader
+        needs to see that the thing they named was in fact looked up."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate
+        anchored = list(dict.fromkeys(anchored or ()))
         if not top:
-            return Result(verdict="unknown", retrieved=retrieved)
+            return Result(verdict="unknown", retrieved=retrieved, anchored=anchored)
         # Pass the question + the evidence text the writer actually saw so the
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}
         result = gate(self._provider.complete(build_prompt(question, top, notes=notes)), retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
+        result.anchored = anchored
         # Carry the text of the CITED evidence back out, so a caller can show the
         # proof instead of a pointer to it. Cited-only, and read from the same map
         # the writer and gate saw -- it cannot surface anything that wasn't already

@@ -27,7 +27,10 @@ struct SidebarView: View {
             Spacer(minLength: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                MonoLabel("COMPANY BRAIN")
+                // "Company Brain" is a claim about WHOSE code this is: a shared
+                // private index is a company's memory, a public repo's is not.
+                // Read from the brain's /status, never inferred from the name.
+                MonoLabel(connect.isPrivate ? "COMPANY BRAIN" : "REPO BRAIN")
                 // Show a repo ONLY once THIS user has actually connected one —
                 // the brain's /status always serves the public default, so keying
                 // off it made simonw/llm look like hardcoded UI chrome. The connect
@@ -37,7 +40,10 @@ struct SidebarView: View {
                     Text(repo)
                         .font(Theme.mono(13)).foregroundStyle(Theme.ink)
                         .padding(.top, 3)
-                    Text("PUBLIC REPOSITORY ALPHA")
+                    // Was hardcoded "PUBLIC REPOSITORY ALPHA" — false since
+                    // private repos were re-enabled 2026-07-16, and shown while
+                    // a private repo was connected. State the real one.
+                    Text(connect.isPrivate ? "PRIVATE REPOSITORY · ALPHA" : "PUBLIC REPOSITORY · ALPHA")
                         .font(Theme.mono(10))
                         .foregroundStyle(Theme.muted)
                         .padding(.top, 2)

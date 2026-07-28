@@ -96,7 +96,9 @@ async function fetchConnectedRepoStatus(token) {
     const response = await chrome.runtime.sendMessage({ action: "fetchStatus", token });
     if (!response || !response.ok) return null;
     const data = response.data;
-    return data.repo ? { repo: data.repo } : null;
+    // `private` comes from the brain's own /status, never guessed from the
+    // repo name -- it decides the panel's public/private label.
+    return data.repo ? { repo: data.repo, private: data.private === true } : null;
   } catch {
     return null; // messaging error -> stay dormant, never break the GitHub page
   }
@@ -194,7 +196,9 @@ async function askIcarus(selection, question) {
   // panel below is the real, user-facing rendering.
   window.__icarusLastExplain = payload;
   showPanel(
-    payload.verdict === "answer" ? renderAnswerHtml(payload) : renderUnknownHtml(payload)
+    payload.verdict === "answer"
+      ? renderAnswerHtml(payload, { isPrivate: connectedRepoStatus && connectedRepoStatus.private })
+      : renderUnknownHtml(payload)
   );
 }
 

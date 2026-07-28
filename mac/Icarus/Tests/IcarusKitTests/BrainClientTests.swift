@@ -191,7 +191,11 @@ final class BrainClientTests: XCTestCase {
     func testRefusalCopyIsSpecificToTheActualCause() {
         XCTAssertTrue(BrainError.unauthorized.userMessage.lowercased().contains("signed out"))
         XCTAssertTrue(BrainError.rateLimited.userMessage.lowercased().contains("too many"))
-        XCTAssertTrue(BrainError.forbidden.userMessage.lowercased().contains("public"))
+        XCTAssertTrue(BrainError.forbidden.userMessage.lowercased().contains("can't read it"))
+        // The old copy said "public repositories only", which stopped being true
+        // when private repos were re-enabled (2026-07-16) — a refusal that
+        // misdescribes the product sends the reader chasing the wrong cause.
+        XCTAssertFalse(BrainError.forbidden.userMessage.lowercased().contains("public repositories only"))
         XCTAssertTrue(BrainError.server(503).userMessage.contains("503"))
     }
 }

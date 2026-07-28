@@ -28,6 +28,11 @@ final class ConnectModel {
     /// repository…"), shown under the spinner so the wait isn't a silent
     /// spinner. Only meaningful during `.connecting`; nil otherwise.
     private(set) var indexingPhase: String?
+    /// Is the connected repo private? Read from the brain's own /status, never
+    /// guessed from the repo name — it decides whether this is a Company Brain
+    /// (a private index a team shares) or a Repo Brain (a public one). False
+    /// until a connect confirms otherwise, so it can never over-claim privacy.
+    private(set) var isPrivate = false
 
     private let client: BrainClient
     private let saved: SavedConnection
@@ -84,6 +89,7 @@ final class ConnectModel {
             do {
                 try await client.disconnect()
                 saved.clear()
+                isPrivate = false
                 state = .idle
                 repoInput = ""
             } catch {
@@ -141,6 +147,7 @@ final class ConnectModel {
                 }
                 if status.isReady, status.repo.lowercased() == repo.lowercased() {
                     indexingPhase = nil
+                    isPrivate = status.isPrivate == true
                     saved.save(repo: status.repo)
                     state = .ready(repo: status.repo)
                     return
