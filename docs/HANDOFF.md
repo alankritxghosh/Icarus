@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Eighteen commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Twenty commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
 **Live: `icarus-brain--0000032`, image `alpha-20260729-classify`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 556 · demo 263 · IcarusKit 113 ·
+traffic. `main` @ the handoff commit. evals 556 · demo 263 · IcarusKit 115 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -385,6 +385,57 @@ doesn't-exist-here. Run it on a design partner for a month and the answer to
 "is a second source worth reopening the authorization model" stops being
 opinion. Without it, that argument has no evidence.
 
+## 10. facebook/react DOES survive a real ingest — tested through the app
+
+The previous entry listed this as unverified. It is now tested, and the earlier
+worry was WRONG: the thing that timed out was a measurement script doing a full
+`git ls-tree`, never the ingest path.
+
+Driven through the installed Mac app (not curl), `facebook/react` connected in
+**234 seconds**, well inside the client's 900s deadline:
+
+| | |
+|---|---|
+| PRs | 5,000 of 19,932 (capped) |
+| issues | 5,000 of 14,585 (capped) |
+| commits | 20,000 of 21,606 (capped) |
+| code / doc / config | 19,091 / 2,198 / 48 |
+| **total** | **51,337 chunks** |
+
+`truncated: true`, and the app showed its own **"Large repo — partial index"**
+banner unprompted. The embed then ran for well over 20 minutes (ceiling
+`max(900, 51337 x 0.1)` ~= 85 min), during which lexical search served.
+
+### What driving the APP found that curl could not
+
+**Two surfaces disagreed about the same answer.** The overlay correctly said
+"STILL INDEXING — I haven't finished reading this repo" while the shell's proof
+drawer said **"No one wrote this down"** for the identical ask: section 7's fix
+had touched only one of two render paths. One of those statements is a claim
+about the USER's repository. Fixed in `c5f562e`; both now branch on the same
+`incompleteIndexNote`, pinned by a test, and re-verified live in the running app.
+
+### Two more findings
+
+**Commits dominate retrieval on react.** The searched list was almost entirely
+`commit:` refs — 20,000 commit chunks against 19,091 code chunks, and commits
+are short. Whether they crowd out code is NOT measured; worth a recall check
+before a partner connects a repo this size.
+
+**Replacing the installed app re-triggers a macOS SecurityAgent prompt.** The
+ad-hoc signature changes on every rebuild, so the Keychain re-authorises the
+stored GitHub token. Every update will prompt a user this way — a real
+distribution consequence of having no Developer ID.
+
+**A ~5-minute release window where the RECOMMENDED install path is broken.**
+After `release-dmg.sh` + push, Vercel serves the new DMG immediately while
+`raw.githubusercontent.com` serves a cached `install.sh` pinning the PREVIOUS
+hash — so the recommended path aborts on a mismatch until the CDN catches up.
+It fails SAFE (refuses rather than installing something unverified) but it is a
+broken experience right after every release. Verified by comparing the GitHub
+API's copy (correct) against the raw CDN (stale). Wait for the CDN before
+telling anyone to install.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -406,7 +457,7 @@ out. Worth fixing before a design partner's team uses it concurrently.
 ## DMG — REBUILT, verified, and PUBLISHED
 
 `Icarus.dmg`, **940 KB**, sha256
-`61e2951d2a505419d60b35ee75989d03ae20acad24713f614de429917b3146f6`, brain URL
+`c7d6a06f74193d52527f98b9dd7a24d90d4a54534ce73040902f66afd0cb0499`, brain URL
 stamped to Azure (not the 127.0.0.1 fallback). Rebuilt from `main` @ `062862d` (the indexing caveat); verified before each
 publish that nothing under `mac/` changed after the build.
 
@@ -415,8 +466,8 @@ FOUR places across TWO repos from the image itself. **Verified end to end after
 pushing**: Vercel serves a DMG whose SHA matches the pin in `install.sh` and in
 the Homebrew cask — all three install paths agree.
 
-- `alankritxghosh/Icarus-Website` @ `f44c7f1`
-- `alankritxghosh/homebrew-icarus` @ `ffc8b1d`
+- `alankritxghosh/Icarus-Website` @ `6341710`
+- `alankritxghosh/homebrew-icarus` @ `2f898af`
 
 **Found while publishing: `site/index.html` had already drifted.** It carried
 sha `a899cf2e` / "~926 KB" while the LIVE site served `a64a282c` / "~927 KB" —
