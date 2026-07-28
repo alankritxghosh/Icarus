@@ -190,18 +190,26 @@ embed runs for many minutes afterwards, and was STILL RUNNING when this entry
 was written. Budget for that on any large repo, and expect the first connect to
 be lexical-only for a while.
 
-⚠️ **A REGRESSION found by testing, not assumed — do not record fix #1 as
-robust.** "What did PR 6952 change?" answered correctly on rev 0000025 (the
-1,425-chunk corpus) and now returns **unknown, consistently across 3 runs**, on
-the 7,993-chunk corpus. The anchor still resolves (`anchored: ['issue:6952']`)
-and the chunk still carries its discussion (the CVE question answers fine), so
-retrieval and ingest are both correct — the WRITER declines to use the premise
-note when the surrounding evidence changes. **Fix #1's premise correction is
-writer-dependent and not deterministic.** Note the semantic index was still
-building at test time, so this was measured on lexical-only retrieval and may
-move again; re-test once the embed finishes before deciding what to do. Do NOT
-"fix" it with a prompt rule — the 2026-07-28 session already proved that drops
-board citation correctness 100% → 83.3%.
+✅ **RESOLVED — and the first diagnosis was wrong, so read this rather than the
+commit message.** "What did PR 6952 change?" returned `unknown` 3/3 while the
+semantic index was still building, and returns `answer` 3/3 once it finished:
+
+> `verdict: answer` · anchored `issue:6952` · *"Issue #6952 is not a pull
+> request, but an issue regarding a new release."*
+
+I recorded this as "fix #1's premise correction is writer-dependent and not
+deterministic". **That was measured during the lexical-only window and the
+conclusion does not hold.** The corpus, the anchor and the writer were identical
+in both cases; only the OTHER retrieved evidence differed. The real finding is
+narrower and more useful:
+
+**During the lexical-only window after a connect, answer quality is measurably
+worse — enough to turn a correct answer into an abstention.** That window is not
+cosmetic, and it is exactly when a new user asks their first question. It grew
+with the corpus: ~14,481 chunks now take a long time to embed. Worth surfacing
+in the UI as more than "Building smart search…", or worth delaying the first
+ask, but it is a RETRIEVAL-quality issue, not writer flakiness. Do not go
+hunting for non-determinism in the writer.
 
 **The honest depth limit that remains:** a PR/issue older than the most recent
 400 is indexed and searchable by its DESCRIPTION, but its comment thread is not
