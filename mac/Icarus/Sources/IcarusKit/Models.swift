@@ -166,3 +166,72 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     /// The brain's own name for this connection, shown in the sidebar.
     public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
 }
+
+/// One recorded ask from the repo's shared ledger (`demo/ledger.py`).
+///
+/// Deliberately carries NO identity. The server never records who asked, so a
+/// gap can be ranked by how OFTEN it was hit and never by how many DISTINCT
+/// people hit it — that is memory for a team rather than surveillance of one,
+/// and the absence is guarded by a test on the server.
+public struct LedgerEntry: Decodable, Sendable {
+    public let ts: Double
+    public let question: String
+    public let verdict: Verdict
+    public let citations: [String]
+
+    public init(ts: Double, question: String, verdict: Verdict, citations: [String]) {
+        self.ts = ts
+        self.question = question
+        self.verdict = verdict
+        self.citations = citations
+    }
+}
+
+/// The `GET /ledger` response: the repo's shared ask record.
+public struct LedgerResponse: Decodable, Sendable {
+    public let repo: String
+    public let entries: [LedgerEntry]
+
+    public init(repo: String, entries: [LedgerEntry]) {
+        self.repo = repo
+        self.entries = entries
+    }
+}
+
+/// One documentation gap: a question the record could not answer, and how many
+/// times the team hit it.
+public struct Gap: Identifiable, Sendable, Equatable {
+    public let question: String
+    public let count: Int
+    public let lastAsked: Double
+    public var id: String { question }
+}
+
+public extension LedgerResponse {
+    /// Unknowns collapsed into ranked gaps — the map of what this codebase
+    /// never wrote down.
+    ///
+    /// Ranked by FREQUENCY, because that is the honest signal available: the
+    /// ledger stores no asker, so "asked nine times" cannot be distinguished
+    /// between one frustrated person and nine different ones. Ties break on
+    /// most-recent, so an equally-common gap that is live outranks a stale one.
+    ///
+    /// Questions are matched case-insensitively on trimmed text — deliberately
+    /// literal, never fuzzy: clustering near-identical phrasings would merge
+    /// two genuinely different questions and silently overstate a gap.
+    var gaps: [Gap] {
+        var counts: [String: (display: String, n: Int, last: Double)] = [:]
+        for e in entries where e.verdict == .unknown {
+            let text = e.question.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            let key = text.lowercased()
+            let prior = counts[key]
+            counts[key] = (prior?.display ?? text,
+                           (prior?.n ?? 0) + 1,
+                           max(prior?.last ?? 0, e.ts))
+        }
+        return counts.values
+            .map { Gap(question: $0.display, count: $0.n, lastAsked: $0.last) }
+            .sorted { $0.count == $1.count ? $0.lastAsked > $1.lastAsked : $0.count > $1.count }
+    }
+}

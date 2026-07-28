@@ -9,6 +9,9 @@ struct ShellView: View {
     let connect: ConnectModel
     let history: AskHistory
     let status: StatusModel
+    /// The repo's SHARED ask ledger (server-side), distinct from `history`,
+    /// which is this session's in-memory record only.
+    let ledger: LedgerModel
     let onTryQuestion: () -> Void
 
     @State private var selected: ShellSurface = .home
@@ -36,7 +39,7 @@ struct ShellView: View {
         case .home: HomeView(auth: auth, connect: connect, history: history, status: status, onTryQuestion: onTryQuestion)
         case .askByVoice: AskByVoiceView(onOpenOverlay: onTryQuestion)
         case .decisionHistory: DecisionHistoryView(history: history)
-        case .unknowns: UnknownsView(history: history)
+        case .unknowns: UnknownsView(ledger: ledger)
         case .privacyBoundary: PrivacyBoundaryView()
         }
     }

@@ -27,12 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// and the shell window (which displays it).
     private let history = AskHistory()
     private lazy var status = StatusModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
+    /// The repo's SHARED ask ledger — what the whole TEAM asked, which is a
+    /// different (and far more useful) thing than `history`'s per-session list.
+    private lazy var ledger = LedgerModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
     private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: tokenReader, history: history)
     /// The primary window: the full app shell. Sign-in + connect are folded into
     /// Home's setup gate, so there's no separate onboarding window.
     private lazy var shell = MainWindowController {
         ShellView(auth: self.auth, connect: self.connect,
-                  history: self.history, status: self.status,
+                  history: self.history, status: self.status, ledger: self.ledger,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
     /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.

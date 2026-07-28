@@ -173,6 +173,19 @@ public struct BrainClient: Sendable {
     /// library by identity, so an unauthenticated /status returns the shared
     /// public default instead of the caller's connected (possibly private) repo
     /// — which would make the connect poll never see its repo go ready.
+    /// GET /ledger — the repo's shared ask record. `unknownsOnly` asks the
+    /// server for just the abstentions: the map of what the team never wrote
+    /// down, which is the whole point of keeping the record.
+    public func ledger(unknownsOnly: Bool = true) async throws -> LedgerResponse {
+        var request = URLRequest(url: base.appendingPathComponent("ledger")
+            .appending(queryItems: [URLQueryItem(name: "unknowns",
+                                                 value: unknownsOnly ? "1" : "0")]))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(LedgerResponse.self, from: data)
+    }
+
     public func status() async throws -> RepoStatus {
         var request = URLRequest(url: base.appending(path: "status"))
         authorize(&request)
