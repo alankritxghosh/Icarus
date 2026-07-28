@@ -435,6 +435,36 @@ def _gh_json(args, token=None, timeout=None):
     return json.loads(out) if out.strip() else None
 
 
+def _fetch_discussion(argv_head, limit, token, kind):
+    """The DEPTH pass, best-effort and self-shrinking.
+
+    Coverage is the bar; the discussion is an enhancement on top of it. So this
+    must never be able to fail an ingest -- and before it was made best-effort
+    it did exactly that: `simonw/sqlite-utils` died on the whole connect with
+    `stream error: stream ID 3; CANCEL; received from peer` at limit 400,
+    taking the successful coverage pass down with it (found live 2026-07-28).
+
+    `DISCUSSION_DEPTH` cannot be one safe number, because the cost is driven by
+    how CHATTY a repo's items are, not how many there are: 400 is fine on
+    psf/requests and unaffordable on sqlite-utils, whose PRs carry far more
+    comments and reviews each. So halve on failure and try again, and if even
+    the smallest attempt fails, return nothing and say so -- a corpus with full
+    coverage and no threads is far better than no corpus at all.
+    """
+    while limit >= _MIN_DISCUSSION_DEPTH:
+        try:
+            return _gh_json(argv_head + ["--limit", str(limit)],
+                            token=token, timeout=_LIST_TIMEOUT) or []
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as e:
+            print(f"ingest: {kind} discussion fetch failed at limit {limit} "
+                  f"({type(e).__name__}); retrying smaller", file=sys.stderr)
+            limit //= 2
+    print(f"ingest: no {kind} discussion could be fetched; every item is still "
+          f"indexed by its description, and naming one fetches its thread live",
+          file=sys.stderr)
+    return []
+
+
 def _merge_discussion(base, enriched, stats, kind):
     """Overlay the discussion-bearing items onto the cheap full-coverage list.
 
@@ -523,6 +553,11 @@ _ISSUE_FIELDS_FULL = _ISSUE_FIELDS_BASE + ",comments"
 # this properly needs hand-written GraphQL with bounded nested page sizes and
 # per-page retry -- see docs/HANDOFF.md.
 DISCUSSION_DEPTH = 400
+# The depth pass halves on failure rather than giving up, because the cost is
+# driven by how CHATTY a repo's items are, not how many exist -- 400 is fine on
+# psf/requests and fails outright on sqlite-utils. Below this it is not worth
+# another round trip; every item is still indexed by its description regardless.
+_MIN_DISCUSSION_DEPTH = 25
 
 
 def _login(actor):
@@ -628,10 +663,9 @@ def fetch_prs(repo, token=None, stats=None):
     _note_truncation(stats, "PR", len(prs), PR_LIMIT)
     prs = _merge_discussion(
         prs,
-        _gh_json(["pr", "list", "-R", repo, "--state", "all",
-                  "--limit", str(min(DISCUSSION_DEPTH, PR_LIMIT)),
-                  "--json", _PR_FIELDS_FULL],
-                 token=token, timeout=_LIST_TIMEOUT) or [],
+        _fetch_discussion(["pr", "list", "-R", repo, "--state", "all",
+                           "--json", _PR_FIELDS_FULL],
+                          min(DISCUSSION_DEPTH, PR_LIMIT), token, "pr"),
         stats, "pr")
     chunks, issue_ids = [], set()
     for pr in prs:
@@ -694,10 +728,9 @@ def fetch_issues(repo, issue_ids, token=None, stats=None):
         ) or []
         items = _merge_discussion(
             items,
-            _gh_json(["issue", "list", "-R", repo, "--state", "all",
-                      "--limit", str(min(DISCUSSION_DEPTH, ISSUE_LIMIT)),
-                      "--json", _ISSUE_FIELDS_FULL],
-                     token=token, timeout=_LIST_TIMEOUT) or [],
+            _fetch_discussion(["issue", "list", "-R", repo, "--state", "all",
+                               "--json", _ISSUE_FIELDS_FULL],
+                              min(DISCUSSION_DEPTH, ISSUE_LIMIT), token, "issue"),
             stats, "issue")
     except subprocess.CalledProcessError as e:
         if "has disabled issues" in (e.stderr or ""):

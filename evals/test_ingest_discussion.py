@@ -18,6 +18,7 @@ These tests are offline: `_gh_json` is monkeypatched with the real field shapes,
 verified against `gh pr list -R psf/requests --json …` before they were written.
 """
 
+import subprocess
 import unittest
 from unittest import mock
 
@@ -301,3 +302,81 @@ class CapsAndDisclosureTests(unittest.TestCase):
                 mock.patch.object(ingest, "fetch_code", return_value=[]):
             ingest.ingest_repo("o/r", d, commit="abc", code_dir=".")
             self.assertTrue(load_meta(Path(d) / "meta.json")["truncated"])
+
+
+class DepthPassIsBestEffortTests(unittest.TestCase):
+    """Coverage is the bar; the discussion is an enhancement on top of it — so
+    the depth pass must never be able to fail an ingest.
+
+    Before this it could, and did: `simonw/sqlite-utils` failed its ENTIRE
+    connect with `stream error: stream ID 3; CANCEL; received from peer` at
+    limit 400, taking the successful coverage pass down with it (found live
+    2026-07-28, after the two-pass design shipped). DISCUSSION_DEPTH cannot be
+    one safe number — cost tracks how CHATTY a repo's items are, not how many
+    exist, so 400 is fine on psf/requests and unaffordable on sqlite-utils."""
+
+    def _gh(self, depth_behaviour):
+        """Coverage always succeeds; the depth call does whatever is asked."""
+        seen = []
+
+        def fake(args, token=None, timeout=None):
+            limit = int(args[args.index("--limit") + 1])
+            fields = args[args.index("--json") + 1]
+            if "comments" not in fields:
+                return [_pr(1, "T", "b"), _pr(2, "T", "b")]      # coverage pass
+            seen.append(limit)
+            return depth_behaviour(limit)
+        return fake, seen
+
+    def test_a_failing_depth_pass_still_yields_full_coverage(self):
+        def always_fail(limit):
+            raise subprocess.CalledProcessError(1, "gh", stderr="stream error: CANCEL")
+
+        fake, seen = self._gh(always_fail)
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            chunks, _ = ingest.fetch_prs("simonw/sqlite-utils")
+        self.assertEqual({c["ref"] for c in chunks}, {"pr:1", "pr:2"},
+                         "every PR must still be indexed by its description")
+
+    def test_it_shrinks_and_retries_rather_than_giving_up_at_once(self):
+        def always_fail(limit):
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+
+        fake, seen = self._gh(always_fail)
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            ingest.fetch_prs("o/r")
+        self.assertGreater(len(seen), 1, "must retry smaller before giving up")
+        self.assertEqual(seen, sorted(seen, reverse=True), "each retry must be smaller")
+        self.assertGreaterEqual(seen[-1], ingest._MIN_DISCUSSION_DEPTH // 2)
+
+    def test_a_smaller_limit_that_succeeds_is_used(self):
+        def fail_above_100(limit):
+            if limit > 100:
+                raise subprocess.CalledProcessError(1, "gh", stderr="too chatty")
+            return [_pr(1, "T", "b", comments=[("dev", "the real reason")])]
+
+        fake, seen = self._gh(fail_above_100)
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            chunks, _ = ingest.fetch_prs("o/r")
+        self.assertIn("the real reason", _text_for(chunks, "pr:1"),
+                      "a depth pass that succeeded smaller must still be applied")
+
+    def test_a_timeout_is_handled_like_a_failure_not_a_crash(self):
+        def times_out(limit):
+            raise subprocess.TimeoutExpired("gh", 900)
+
+        fake, _ = self._gh(times_out)
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            chunks, _ = ingest.fetch_prs("o/r")
+        self.assertEqual(len(chunks), 2)
+
+    def test_the_recorded_depth_reflects_what_actually_landed(self):
+        def always_fail(limit):
+            raise subprocess.CalledProcessError(1, "gh", stderr="boom")
+
+        stats = {}
+        fake, _ = self._gh(always_fail)
+        with mock.patch.object(ingest, "_gh_json", side_effect=fake):
+            ingest.fetch_prs("o/r", stats=stats)
+        self.assertEqual(stats["discussion_depth"], 0,
+                         "claiming depth that was never fetched would be a false claim")
