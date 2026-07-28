@@ -56,7 +56,9 @@ struct PrivacyBoundaryView: View {
             ShellCard {
                 VStack(alignment: .leading, spacing: 14) {
                     claim("Voice: on-device when supported", "Speech is transcribed on-device via Apple Speech when your Mac has the local model — then audio never leaves the machine. When the model isn't installed, Icarus falls back to Apple's speech recognition service so voice works with no setup.")
-                    claim("Public repositories only", "This alpha sends retrieved evidence from public repositories to the answering model. Do not connect private code.")
+                    claim("Never trained on", "Retrieved evidence goes to the answering model to write one answer, then is discarded. Your code is never used to train anything.")
+                    claim("Shared with your team, nobody else", "A repository is indexed once and shared with the people who can already read it on GitHub. Icarus asks GitHub on every request rather than keeping its own list of who works where — when access is revoked there, it's gone here within five minutes.")
+                    claim("Questions are recorded, who asked is not", "Each question, its verdict and its citations are recorded against the repository — that's what builds the list of things nobody wrote down. The asker isn't recorded, and answers aren't stored.")
                     claim("Cite or say \"I don't know\"", "Every answer carries the receipts it's built from. When the record doesn't hold the answer, Icarus says so — it never bluffs.")
                 }
             }

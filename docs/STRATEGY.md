@@ -124,10 +124,15 @@ abstraction really did make this a one-line swap, not a rewrite.
 3. **Phase 3 — voice**. ✅ shipped — on-device STT when available, automatic
    cloud fallback otherwise, degraded-but-honest by design.
 4. **Phase 4 — multi-company + trust** (per-tenant isolation, permissions,
-   SOC 2). **Partial:** per-tenant isolation and per-user private-repo
-   permissions are shipped and live-tested. **SOC 2 is explicitly not pursued
-   yet** — it's the target for the first security-conscious paying customer,
-   not a current claim (see docs/VISION.md §5).
+   SOC 2). **Partial:** per-tenant isolation and private-repo permissions are
+   shipped and live-tested. Note the tenant changed on **2026-07-27**: it is now
+   the **repository**, not the individual. One index per repo, shared by whoever
+   GitHub says can read it, entitlement re-checked on every read — so a company
+   gets one brain rather than one copy per employee. Companies are still never
+   pooled. See docs/plans/2026-07-27-organisation-brain.md. **SOC 2 is
+   explicitly not pursued yet** — it's the target for the first
+   security-conscious paying customer, not a current claim (see
+   docs/VISION.md §5).
 
 ## 7. Risks I'm tracking (and the mitigation)
 
