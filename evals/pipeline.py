@@ -25,6 +25,55 @@ _ISSUE_OR_PR_REF = re.compile(
     r"(?:\b(?:issue|pr|pull\s*request)s?\s*#?|#)\s*(\d+)\b", re.IGNORECASE
 )
 
+# The KIND the question named, when it named one. GitHub shares a single number
+# sequence between issues and pull requests, so issue:N and pr:N can both exist
+# for the same N -- and the anchor used to resolve them with a fixed
+# ("issue", "pr") order, so the issue silently won every tie no matter what was
+# asked. "What did PR 1481 change?" anchored the ISSUE (found 2026-07-28 while
+# root-causing a live report). Capturing the word lets the named kind win, and a
+# bare "#N" that names no kind keeps the previous precedence unchanged.
+_NAMED_REF_KIND = re.compile(
+    r"\b(issues?|prs?|pull\s*requests?)\s*#?\s*(\d+)\b", re.IGNORECASE
+)
+
+
+_KIND_WORD = {"issue": "an issue", "pr": "a pull request"}
+
+
+def _premise_notes(question: str, anchor_refs):
+    """Facts derived from which ref ACTUALLY resolved, when the question named a
+    different kind for the same number.
+
+    GitHub shares one number sequence between issues and pull requests, so a
+    question can be wrong about its own subject: "What did PR 6952 change?" when
+    #6952 is an issue. Before this, that produced an honest-but-misleading "no
+    one wrote this down" -- the evidence was right there and simply disagreed
+    with the question (found live 2026-07-28). Stating the mismatch as a fact
+    lets the writer correct it and still cite, which is a GROUNDED answer, not a
+    guess: the kind comes from the ref that resolved, never from the model.
+
+    Returns [] when nothing was misnamed, so questions with no mismatch get a
+    byte-identical prompt and no behaviour changes anywhere else.
+    """
+    notes = []
+    for word, n in _NAMED_REF_KIND.findall(question or ""):
+        asked = "issue" if word.lower().startswith("issue") else "pr"
+        for ref in anchor_refs:
+            src, _, num = ref.partition(":")
+            if num == n and src in _KIND_WORD and src != asked:
+                notes.append(f"#{n} is {_KIND_WORD[src]} ({ref}), not "
+                             f"{_KIND_WORD[asked]}.")
+    return notes
+
+
+def _preferred_sources(question: str, number: str):
+    """Source order to try for `number`, honouring the kind the question named."""
+    for word, n in _NAMED_REF_KIND.findall(question or ""):
+        if n != number:
+            continue
+        return ("issue", "pr") if word.lower().startswith("issue") else ("pr", "issue")
+    return ("issue", "pr")  # no kind named -- unchanged precedence
+
 # Same exact-identifier problem for a commit SHA, which is never indexed at all
 # (see ingest.fetch_commit_detail). Hex-only English words are real ("defaced",
 # "decade"), so a bare SHA must contain a digit; an explicit "commit " prefix
@@ -133,7 +182,8 @@ class GatedPipeline(Pipeline):
         anchor_refs = []
         fetched = {}
         for n in _ISSUE_OR_PR_REF.findall(question):
-            hit = next((f"{s}:{n}" for s in ("issue", "pr") if f"{s}:{n}" in self._by_ref), None)
+            sources = _preferred_sources(question, n)
+            hit = next((f"{s}:{n}" for s in sources if f"{s}:{n}" in self._by_ref), None)
             if hit is not None:
                 anchor_refs.append(hit)                 # indexed -> use the cached chunk
             elif self._live_fetch is not None:
@@ -155,7 +205,8 @@ class GatedPipeline(Pipeline):
         retrieved = list(dict.fromkeys(anchor_refs + searched))
         lookup = {**self._by_ref, **fetched} if fetched else self._by_ref
         top = [lookup[r] for r in retrieved[: self._writer_k] if r in lookup]
-        return self._answer_from(question, top, retrieved)
+        return self._answer_from(question, top, retrieved,
+                                 notes=_premise_notes(question, anchor_refs))
 
     def explain(self, path: str, start: int, end: int, question: str = None) -> Result:
         """Brick D: explain a GitHub line selection, not a free-text question.
@@ -198,7 +249,7 @@ class GatedPipeline(Pipeline):
         )
 
     def _answer_from(self, question: str, top: List, retrieved: List[str],
-                     guard_rationale: bool = True) -> Result:
+                     guard_rationale: bool = True, notes=None) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -217,7 +268,7 @@ class GatedPipeline(Pipeline):
         # Pass the question + the evidence text the writer actually saw so the
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}
-        result = gate(self._provider.complete(build_prompt(question, top)), retrieved,
+        result = gate(self._provider.complete(build_prompt(question, top, notes=notes)), retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
         # Carry the text of the CITED evidence back out, so a caller can show the

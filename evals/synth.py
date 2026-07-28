@@ -42,7 +42,20 @@ _MAX_CHUNK_CHARS = 1500
 _MAX_CODE_CHUNK_CHARS = 10000
 
 
-def build_prompt(question: str, chunks: List[Chunk]) -> str:
+def build_prompt(question: str, chunks: List[Chunk], notes=None) -> str:
+    """`notes` are facts DERIVED IN CODE from the retrieved refs themselves, not
+    model output and not outside knowledge -- currently only "#N is an issue, not
+    a pull request", which the pipeline can state with certainty because it knows
+    which ref actually resolved (see pipeline._premise_notes).
+
+    They exist because a question can be wrong about its own subject: asking what
+    "PR 6952" changed when #6952 is an ISSUE used to produce "no one wrote this
+    down", which reads as "nobody documented it" when the truth is "you asked
+    about the wrong kind of thing, and the evidence says so". A prompt RULE was
+    tried first and rejected: any wording strong enough to work also biased the
+    writer's choice between issue:N and pr:N elsewhere, dropping citation
+    correctness on the board from 100% to 83.3%. A derived fact costs nothing on
+    questions where no mismatch exists, because none is generated."""
     blocks = []
     for c in chunks:
         text = c.text.strip()
@@ -55,4 +68,10 @@ def build_prompt(question: str, chunks: List[Chunk]) -> str:
         if len(text) > cap:
             text = text[:cap] + " …"
         blocks.append(f"[{c.ref}]\n{text}")
-    return f"{INSTRUCTION}\n\nQUESTION: {question}\n\nEVIDENCE:\n" + "\n\n".join(blocks)
+    prompt = f"{INSTRUCTION}\n\nQUESTION: {question}\n\n"
+    if notes:
+        prompt += ("ESTABLISHED FACTS about this question (already verified -- "
+                   "treat as true, and if one contradicts the question, answer "
+                   "with the correction and cite the ref):\n"
+                   + "\n".join(f"- {n}" for n in notes) + "\n\n")
+    return prompt + "EVIDENCE:\n" + "\n\n".join(blocks)

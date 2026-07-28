@@ -21,7 +21,8 @@ import unittest
 from .corpus import Chunk
 from .retriever import LexicalRetriever
 from .provider import StaticProvider
-from .pipeline import GatedPipeline
+from .pipeline import GatedPipeline, _premise_notes
+from .synth import build_prompt
 
 
 def _corpus_with_unreachable_issue():
@@ -201,3 +202,92 @@ class FetchRefDetailTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamedSourceTypeWinsTests(unittest.TestCase):
+    """When a question names the KIND of reference, honour it.
+
+    GitHub shares one number sequence between issues and pull requests, so
+    `issue:1481` and `pr:1481` can both exist. The anchor resolved them with
+    `next(... for s in ("issue", "pr"))`, so ISSUE always won the tie no matter
+    what the question said -- asking what "PR 1481" changed anchored to the
+    issue. Found 2026-07-28 while root-causing a live report.
+    """
+
+    def _chunks(self):
+        return [
+            Chunk(ref="issue:1481", source="issue", text="ISSUE #1481: a bug report about tool ids"),
+            Chunk(ref="pr:1481", source="pr", text="PR #1481: synthesize tool_call_id for providers"),
+        ]
+
+    def _anchor_for(self, question):
+        chunks = self._chunks()
+        p = GatedPipeline(LexicalRetriever(chunks), chunks,
+                          StaticProvider(['{"verdict": "unknown"}'] * 4))
+        return p.answer(question).retrieved
+
+    def test_pr_phrasing_anchors_the_pr_not_the_issue(self):
+        self.assertEqual(self._anchor_for("What did PR 1481 change?")[0], "pr:1481")
+
+    def test_issue_phrasing_anchors_the_issue(self):
+        self.assertEqual(self._anchor_for("What is issue 1481 about?")[0], "issue:1481")
+
+    def test_pull_request_spelling_also_anchors_the_pr(self):
+        self.assertEqual(self._anchor_for("What did pull request 1481 do?")[0], "pr:1481")
+
+    def test_bare_hash_keeps_the_existing_behaviour(self):
+        # "#1481" names no kind, so the previous precedence is preserved rather
+        # than silently changed.
+        self.assertEqual(self._anchor_for("Tell me about #1481")[0], "issue:1481")
+
+
+class PremiseNoteTests(unittest.TestCase):
+    """A question can be wrong about its own subject, and the pipeline can know.
+
+    "What did PR 6952 change?" when #6952 is an ISSUE used to answer "no one
+    wrote this down" -- which reads as "nobody documented it" when the truth is
+    "you asked about the wrong kind of thing, and the evidence says so". Found
+    live 2026-07-28; it sent the reader hunting a retrieval bug that did not
+    exist.
+
+    Derived in code from the ref that actually resolved, never from the model, so
+    correcting the premise stays a GROUNDED answer. A prompt RULE was tried first
+    and rejected: wording strong enough to work also biased the writer between
+    issue:N and pr:N elsewhere and dropped board citation correctness to 83.3%.
+    """
+
+    def test_note_when_a_pr_is_really_an_issue(self):
+        notes = _premise_notes("What did PR 6952 change?", ["issue:6952"])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("#6952 is an issue", notes[0])
+        self.assertIn("not a pull request", notes[0])
+
+    def test_note_when_an_issue_is_really_a_pr(self):
+        notes = _premise_notes("What is issue 1481 about?", ["pr:1481"])
+        self.assertIn("#1481 is a pull request", notes[0])
+
+    def test_no_note_when_the_question_is_right(self):
+        self.assertEqual(_premise_notes("What did PR 1481 change?", ["pr:1481"]), [])
+        self.assertEqual(_premise_notes("What is issue 42 about?", ["issue:42"]), [])
+
+    def test_no_note_for_a_bare_number_naming_no_kind(self):
+        # "#123" claims nothing about what it is, so there is nothing to correct.
+        self.assertEqual(_premise_notes("Tell me about #123", ["issue:123"]), [])
+
+    def test_no_note_for_a_different_number(self):
+        self.assertEqual(_premise_notes("What did PR 10 change?", ["issue:99"]), [])
+
+    def test_prompt_omits_the_facts_block_when_there_is_nothing_to_correct(self):
+        # The board's questions generate no notes, so their prompts must be
+        # byte-identical to before -- that is why this fix costs nothing there.
+        c = [Chunk(ref="pr:1", source="pr", text="body")]
+        self.assertEqual(build_prompt("plain question", c),
+                         build_prompt("plain question", c, notes=[]))
+        self.assertNotIn("ESTABLISHED FACTS", build_prompt("plain question", c))
+
+    def test_prompt_states_a_note_when_there_is_one(self):
+        c = [Chunk(ref="issue:6952", source="issue", text="body")]
+        p = build_prompt("What did PR 6952 change?", c,
+                         notes=["#6952 is an issue (issue:6952), not a pull request."])
+        self.assertIn("ESTABLISHED FACTS", p)
+        self.assertIn("#6952 is an issue", p)
