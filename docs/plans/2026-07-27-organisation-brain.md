@@ -1,5 +1,19 @@
 # The Organisation Brain (shared per-repo memory + live access checks) — Plan
 
+> **STATUS: T1–T6 LANDED 2026-07-27/28.** Live on `icarus-brain--0000022`
+> (image `alpha-20260728-org-brain`). demo 239 · evals 462 · IcarusKit 80.
+> Live-verified: the ledger records asks with verdicts and citations and NO
+> identity, `?unknowns=1` returns the gap, an unreadable private repo refuses
+> (403), and an absent/garbage token refuses (401).
+>
+> **What could NOT be verified live, stated rather than glossed:** two entitled
+> identities sharing one index, and revocation cutting a real user off. Both
+> need a second GitHub account with different repo access, which this machine
+> does not have. Both are proven in tests (`SharedPrivateCorpusTests`,
+> `RevokedAccessLosesTheSharedCorpusTests`) including by disabling the guard and
+> watching them fail — but tests are not the same as a live second user, and the
+> first design partner is the real proof.
+
 > **For Claude:** Red→green per task; never weaken a test or the honesty gates.
 > The honesty gate is NOT touched by this plan — if a change here requires
 > altering `evals/gate.py`, stop and re-scope. Every commit message ends with:
