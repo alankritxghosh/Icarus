@@ -453,6 +453,27 @@ class CorpusIsStaleTests(_AstChunkingEnvGuard):
         self._set("1")
         self.assertFalse(Library._corpus_is_stale(self.dir))
 
+    def test_an_older_corpus_format_is_stale_even_on_the_matching_chunker(self):
+        # THE deployment trap this guards. A repo connected before the
+        # discussion landed (2026-07-28) has an identical `chunking` value, so
+        # the chunker comparison alone says "fresh" and the corpus keeps
+        # serving title-only PR chunks forever. The fix would be live on the
+        # server and invisible to every user who already connected.
+        self._set("1")
+        _seed_corpus(self.dir, "o/r", chunking="ast")
+        meta = json.loads((self.dir / "meta.json").read_text())
+        meta["corpus_version"] = 1                      # pre-discussion corpus
+        (self.dir / "meta.json").write_text(json.dumps(meta))
+        self.assertEqual(meta["chunking"], "ast", "chunker must match, isolating the version")
+        self.assertTrue(Library._corpus_is_stale(self.dir))
+
+    def test_a_current_format_corpus_on_the_matching_chunker_is_not_stale(self):
+        # The other direction: version checking must not force a permanent
+        # re-ingest loop on a corpus that is already current.
+        self._set("1")
+        _seed_corpus(self.dir, "o/r", chunking="ast")
+        self.assertFalse(Library._corpus_is_stale(self.dir))
+
 
 class ConnectSyncStalenessTests(unittest.TestCase):
     """The actual T6 payoff: connect_sync refreshes a stale PUBLIC corpus

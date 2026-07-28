@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from .corpus_meta import write_meta, load_meta
+from .corpus_meta import CORPUS_FORMAT_VERSION, corpus_version, write_meta, load_meta
 
 
 class CorpusMetaTests(unittest.TestCase):
@@ -58,3 +58,33 @@ class CorpusMetaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CorpusFormatVersionTests(unittest.TestCase):
+    """A corpus is stale when the ingest OUTPUT SHAPE has changed, not only
+    when the code chunker has. `chunking` cannot carry that: the discussion
+    fix (2026-07-28) left it byte-identical, so without a version every
+    already-connected repo would have kept serving title+body PR chunks and
+    the fix would have been live and inert."""
+
+    def test_write_meta_stamps_the_current_version(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "meta.json"
+            write_meta(p, repo="o/r", commit="abc", code_dir=".", counts={})
+            self.assertEqual(load_meta(p)["corpus_version"], CORPUS_FORMAT_VERSION)
+
+    def test_a_pre_versioned_corpus_reads_as_version_one(self):
+        self.assertEqual(corpus_version({"repo": "o/r"}), 1)
+
+    def test_a_pre_versioned_corpus_is_older_than_current(self):
+        # The whole point: an existing on-disk corpus must compare as stale.
+        self.assertLess(corpus_version({"repo": "o/r"}), CORPUS_FORMAT_VERSION)
+
+    def test_a_hand_edited_non_integer_reads_as_stale_not_current(self):
+        # Fail toward re-ingesting, never toward serving an unknown shape.
+        for junk in ("2", None, True, [2], {}):
+            self.assertEqual(corpus_version({"corpus_version": junk}), 1, junk)
+
+    def test_a_current_corpus_is_not_stale(self):
+        self.assertEqual(corpus_version({"corpus_version": CORPUS_FORMAT_VERSION}),
+                         CORPUS_FORMAT_VERSION)

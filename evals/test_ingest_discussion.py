@@ -1,0 +1,229 @@
+# evals/test_ingest_discussion.py
+"""RED failing eval for a live-found gap (2026-07-28, raised by Alankrit): the
+reason a change was made is usually recorded in the PR's DISCUSSION, not its
+description -- and the indexed path stored only `title` + `body`.
+
+That produced the worst possible failure for this product: an honest "no one
+wrote this down" about something the team HAD written down, three comments
+further in. Not a bluff -- Icarus never fabricated anything -- but a customer
+cannot distinguish "nobody recorded this" from "you didn't read it", and the
+whole promise rests on that distinction being trustworthy.
+
+The asymmetry that hid it: `fetch_ref_detail` (the LIVE path, used only for a
+`#N` OUTSIDE the indexed slice) already fetched comments. So old, unindexed PRs
+answered richly while the most recent ones -- the ones anyone actually asks
+about -- answered from the description alone.
+
+These tests are offline: `_gh_json` is monkeypatched with the real field shapes,
+verified against `gh pr list -R psf/requests --json …` before they were written.
+"""
+
+import unittest
+from unittest import mock
+
+from . import ingest
+
+
+def _pr(number, title, body, *, comments=(), reviews=(), files=(),
+        state="MERGED", author="octocat", merged_at="2026-01-01T00:00:00Z",
+        labels=()):
+    """One `gh pr list --json …` item, in gh's real shape."""
+    return {
+        "number": number,
+        "title": title,
+        "body": body,
+        "closingIssuesReferences": [],
+        "state": state,
+        "author": {"login": author, "is_bot": False},
+        "mergedAt": merged_at,
+        "labels": [{"name": n} for n in labels],
+        "files": [{"path": p, "additions": a, "deletions": d} for p, a, d in files],
+        "comments": [{"body": b, "author": {"login": who}} for who, b in comments],
+        "reviews": [{"body": b, "author": {"login": who}, "state": st}
+                    for who, b, st in reviews],
+    }
+
+
+def _issue(number, title, body, *, comments=()):
+    return {
+        "number": number,
+        "title": title,
+        "body": body,
+        "state": "CLOSED",
+        "author": {"login": "octocat", "is_bot": False},
+        "labels": [],
+        "comments": [{"body": b, "author": {"login": who}} for who, b in comments],
+    }
+
+
+def _text_for(chunks, ref):
+    return next(c["text"] for c in chunks if c["ref"] == ref)
+
+
+class ReasonLivesInTheDiscussionTests(unittest.TestCase):
+    """The headline gap: the WHY is in a comment, and the description doesn't
+    say it. This is the exact shape of a real PR review thread."""
+
+    REASON = "we cap it at 30 because Firefox used 20 and we wanted headroom"
+
+    def _prs(self):
+        return [_pr(6952, "Add redirect limit", "Adds a constant for the redirect limit.",
+                    comments=[("kennethreitz", self.REASON)])]
+
+    def test_a_comment_only_reason_is_ingested(self):
+        with mock.patch.object(ingest, "_gh_json", return_value=self._prs()):
+            chunks, _ = ingest.fetch_prs("psf/requests")
+        self.assertIn(self.REASON, _text_for(chunks, "pr:6952"))
+
+    def test_the_commenter_is_attributed(self):
+        # Who said it is part of the evidence -- "a maintainer said X" and
+        # "a drive-by commenter said X" are not the same claim.
+        with mock.patch.object(ingest, "_gh_json", return_value=self._prs()):
+            chunks, _ = ingest.fetch_prs("psf/requests")
+        self.assertIn("kennethreitz", _text_for(chunks, "pr:6952"))
+
+    def test_the_ref_is_still_one_chunk_per_pr(self):
+        # Load-bearing: GatedPipeline.answer()'s anchor looks up `pr:6952` in
+        # _by_ref by exact key. Windowing this into `pr:6952#L1-L300` would
+        # silently break the named-ref anchor fixed in a98df76.
+        with mock.patch.object(ingest, "_gh_json", return_value=self._prs()):
+            chunks, _ = ingest.fetch_prs("psf/requests")
+        self.assertEqual([c["ref"] for c in chunks], ["pr:6952"])
+        self.assertEqual(chunks[0]["source"], "pr")
+
+
+class ReviewThreadsTests(unittest.TestCase):
+    def test_a_review_body_is_ingested(self):
+        objection = "this will break streaming responses"
+        prs = [_pr(10, "Refactor", "body",
+                   reviews=[("dev", objection, "CHANGES_REQUESTED")])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertIn(objection, _text_for(chunks, "pr:10"))
+
+    def test_the_review_verdict_is_ingested(self):
+        prs = [_pr(10, "Refactor", "body", reviews=[("dev", "no", "CHANGES_REQUESTED")])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertIn("CHANGES_REQUESTED", _text_for(chunks, "pr:10"))
+
+    def test_an_empty_review_body_is_dropped_not_rendered_blank(self):
+        # An APPROVED review with no body is the commonest review of all;
+        # emitting "Review by x (APPROVED):" with nothing after it is noise
+        # that dilutes BM25 across every PR in the corpus.
+        prs = [_pr(10, "Refactor", "body", reviews=[("dev", "", "APPROVED")])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertNotIn("Review by dev", _text_for(chunks, "pr:10"))
+
+
+class WhatChangedTests(unittest.TestCase):
+    """"What did PR N change?" was answerable only from the description. The
+    changed-file list makes it answerable from the change itself. Hunks are NOT
+    fetched -- that needs a per-PR `gh pr diff` (N+1) -- so this is file-level
+    truth, and the honest ceiling is stated in the module docstring."""
+
+    def test_changed_files_are_ingested(self):
+        prs = [_pr(11, "Fix", "body", files=[("requests/models.py", 12, 3)])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertIn("requests/models.py", _text_for(chunks, "pr:11"))
+
+    def test_line_counts_are_ingested(self):
+        prs = [_pr(11, "Fix", "body", files=[("requests/models.py", 12, 3)])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertIn("+12", _text_for(chunks, "pr:11"))
+
+    def test_the_file_list_is_bounded(self):
+        # A sweeping refactor can touch thousands of files; the list must not
+        # crowd the discussion out of the writer's 10k-char view of this chunk.
+        prs = [_pr(12, "Big", "body",
+                   files=[(f"src/f{i}.py", 1, 1) for i in range(500)])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:12")
+        self.assertIn("more file", text, "a truncated file list must say so")
+        self.assertLess(text.count("src/f"), 100)
+
+
+class MetadataTests(unittest.TestCase):
+    def test_merge_state_and_author_are_ingested(self):
+        prs = [_pr(13, "T", "b", state="MERGED", author="alice")]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:13")
+        self.assertIn("MERGED", text)
+        self.assertIn("alice", text)
+
+    def test_an_open_pr_is_not_described_as_merged(self):
+        prs = [_pr(14, "T", "b", state="OPEN", merged_at=None)]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:14")
+        self.assertIn("OPEN", text)
+        self.assertNotIn("MERGED", text)
+
+
+class IssueDiscussionTests(unittest.TestCase):
+    def test_an_issue_comment_is_ingested(self):
+        reason = "closing: superseded by the new adapter API"
+        with mock.patch.object(ingest, "_gh_json",
+                               return_value=[_issue(42, "Bug", "steps to reproduce",
+                                                    comments=[("maintainer", reason)])]):
+            chunks = ingest.fetch_issues("r/r", {42})
+        self.assertIn(reason, _text_for(chunks, "issue:42"))
+
+    def test_the_issue_ref_is_still_one_chunk(self):
+        with mock.patch.object(ingest, "_gh_json",
+                               return_value=[_issue(42, "Bug", "body")]):
+            chunks = ingest.fetch_issues("r/r", {42})
+        self.assertEqual([c["ref"] for c in chunks], ["issue:42"])
+
+
+class BoundsAndBackCompatTests(unittest.TestCase):
+    def test_a_huge_thread_is_truncated_and_marked(self):
+        # Same bound the LIVE path has always used, so both paths behave
+        # alike. An unmarked clip would misrepresent the evidence.
+        prs = [_pr(15, "T", "b",
+                   comments=[("u", "x" * 2000) for _ in range(50)])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:15")
+        self.assertLessEqual(len(text), ingest._REF_DETAIL_MAX_CHARS + 40)
+        self.assertIn("truncated", text)
+
+    def test_the_description_still_comes_first(self):
+        # Retrieval and the writer both see the head of a chunk first; the
+        # discussion must extend the description, never displace it.
+        prs = [_pr(16, "The title", "The description.",
+                   comments=[("u", "a comment")])]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:16")
+        self.assertLess(text.index("The description."), text.index("a comment"))
+        self.assertTrue(text.startswith("PR #16: The title"))
+
+    def test_a_pr_with_no_discussion_is_unchanged(self):
+        # The commonest PR in any repo. It must not gain empty section
+        # headers -- they would dilute BM25's idf corpus-wide.
+        prs = [_pr(17, "T", "Just a body.", state="OPEN", merged_at=None)]
+        with mock.patch.object(ingest, "_gh_json", return_value=prs):
+            chunks, _ = ingest.fetch_prs("r/r")
+        text = _text_for(chunks, "pr:17")
+        self.assertNotIn("Comment", text)
+        self.assertNotIn("Review by", text)
+        self.assertNotIn("Files changed", text)
+
+    def test_missing_fields_do_not_crash(self):
+        # An older gh, a GHES instance, or a permission that hides a field
+        # returns it absent or null. Ingest must degrade, never fail.
+        with mock.patch.object(ingest, "_gh_json",
+                               return_value=[{"number": 18, "title": "T", "body": None}]):
+            chunks, _ = ingest.fetch_prs("r/r")
+        self.assertEqual(chunks[0]["ref"], "pr:18")
+        self.assertIn("PR #18: T", chunks[0]["text"])
+
+
+if __name__ == "__main__":
+    unittest.main()

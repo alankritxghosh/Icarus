@@ -447,7 +447,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 repo, commit = lib.provenance()
                 try:
-                    result = lib.current_pipeline().answer(question)
+                    # The caller's own token, so an exact "#N" they named in a
+                    # PRIVATE repo can be live-fetched AS THEM. Never stored --
+                    # it is read from this request's header and passed straight
+                    # through (see GatedPipeline.answer). Without it a private
+                    # repo's live fetch fails safe to None, as it always did.
+                    result = lib.current_pipeline().answer(
+                        question, token=bearer_token(self.headers))
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
                     # outage, or exhausted retries. Return an honest JSON error

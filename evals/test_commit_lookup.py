@@ -32,7 +32,7 @@ _COMMIT = Chunk(
 
 
 def _pipeline(fetched, seen):
-    def live_commit(sha):
+    def live_commit(sha, token=None):
         seen.append(sha)
         return fetched
 

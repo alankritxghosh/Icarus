@@ -52,7 +52,7 @@ class _RevealingPipeline(Pipeline):
     def __init__(self, corpus_dir):
         self._corpus_dir = str(corpus_dir)
 
-    def answer(self, question: str) -> Result:
+    def answer(self, question: str, token: str = None) -> Result:
         return Result(
             verdict="answer",
             answer=f"info about {self._corpus_dir}",

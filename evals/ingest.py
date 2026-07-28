@@ -411,25 +411,125 @@ def _gh_json(args, token=None):
     return json.loads(out) if out.strip() else None
 
 
+# A single PR/issue's title + body + discussion can be large; bound one ref's
+# chunk so it can't dominate memory or the writer prompt. Matches the writer's
+# own per-chunk budget (synth._MAX_CODE_CHUNK_CHARS), so a chunk that fits here
+# is fully visible to the writer rather than silently re-clipped downstream.
+_REF_DETAIL_MAX_CHARS = 10000
+
+# A sweeping refactor can touch thousands of files. The list is context for the
+# discussion, not the point of the chunk -- an unbounded one would crowd the
+# actual reasoning out of the writer's 10k-char view of this ref.
+_MAX_FILES_LISTED = 30
+
+# The fields worth asking for on a PR. `gh pr list --json` returns ALL of these
+# in the SAME single request that already fetched title+body (verified against
+# `gh pr list --json` on gh 2.x), so the discussion costs no extra round trips --
+# the N+1 that made ingest slow in the first place is not reintroduced.
+_PR_JSON_FIELDS = ("number,title,body,closingIssuesReferences,state,author,"
+                   "mergedAt,labels,files,comments,reviews")
+_ISSUE_JSON_FIELDS = "number,title,body,state,author,labels,comments"
+
+
+def _login(actor):
+    """A gh actor object -> its login. Absent/null actor (a deleted account, a
+    field the caller's token can't see) reads as unattributed, never a crash."""
+    return (actor or {}).get("login") or "unknown"
+
+
+def _pr_or_issue_text(data, source):
+    """One PR/issue's full evidence text: description, what changed, and the
+    DISCUSSION -- the part that actually records why.
+
+    Ordering is deliberate. Title and description come FIRST because both
+    retrieval and the writer read a chunk from its head, and the embedder only
+    sees roughly its first 512 tokens: the discussion must EXTEND the
+    description, never displace it. Empty sections are omitted entirely rather
+    than rendered as bare headers -- a header repeated across every PR in the
+    corpus is a term with no discriminating power that dilutes BM25's idf.
+
+    Bounded by `_REF_DETAIL_MAX_CHARS` with a visible marker, the same cap the
+    live path has always used, so an indexed ref and a live-fetched one read
+    alike instead of one being mysteriously richer than the other.
+
+    Honest ceiling: `files` is the changed-file LIST with line counts, not diff
+    hunks. Hunks need a per-PR `gh pr diff` (one call each -- the N+1 this
+    deliberately avoids); a named commit SHA still resolves to a real diff via
+    fetch_commit_detail.
+    """
+    n = data.get("number")
+    parts = [f"{source.upper()} #{n}: {data.get('title') or ''}".rstrip()]
+
+    state = data.get("state")
+    if state:
+        who = _login(data.get("author"))
+        line = f"[{state} by {who}]"
+        labels = [l.get("name") for l in (data.get("labels") or []) if l.get("name")]
+        if labels:
+            line += " labels: " + ", ".join(labels)
+        parts.append(line)
+
+    body = (data.get("body") or "").strip()
+    if body:
+        parts.append(body)
+
+    files = data.get("files") or []
+    if files:
+        shown = files[:_MAX_FILES_LISTED]
+        listed = " · ".join(
+            f"{f.get('path')} (+{f.get('additions', 0)}/-{f.get('deletions', 0)})"
+            for f in shown if f.get("path")
+        )
+        extra = len(files) - len(shown)
+        if extra > 0:
+            listed += f" · … and {extra} more file{'s' if extra != 1 else ''}"
+        parts.append(f"Files changed ({len(files)}): {listed}")
+
+    for c in data.get("comments") or []:
+        text = (c.get("body") or "").strip()
+        if text:
+            parts.append(f"Comment by {_login(c.get('author'))}: {text}")
+
+    for r in data.get("reviews") or []:
+        text = (r.get("body") or "").strip()
+        if not text:
+            continue  # a bodyless APPROVED review is the commonest of all
+        verdict = r.get("state") or ""
+        head = f"Review by {_login(r.get('author'))}"
+        parts.append(f"{head} ({verdict}): {text}" if verdict else f"{head}: {text}")
+
+    out = "\n\n".join(parts).strip()
+    if len(out) > _REF_DETAIL_MAX_CHARS:
+        out = out[:_REF_DETAIL_MAX_CHARS] + "\n…[truncated]"
+    return out
+
+
 def fetch_prs(repo, token=None):
     """All PRs (open+closed+merged) up to PR_LIMIT, as chunks, plus the issue
     numbers they link.
 
-    ONE `gh pr list --json ...,body,closingIssuesReferences` call, not a
-    `gh pr view` per PR. The old per-PR loop made N+1 serial subprocess calls
-    (verified live 2026-07-15: meta-llama/codellama's 47 PRs + 213 issues took
-    ~2.5 min of serial `gh` calls); `list --json` returns every PR's title,
-    body, and closing refs in a single request."""
+    ONE `gh pr list --json ...` call, not a `gh pr view` per PR. The old per-PR
+    loop made N+1 serial subprocess calls (verified live 2026-07-15:
+    meta-llama/codellama's 47 PRs + 213 issues took ~2.5 min of serial `gh`
+    calls); `list --json` returns every PR's title, body, closing refs, changed
+    files, comments and reviews in a single request.
+
+    The DISCUSSION is ingested, not just the description (2026-07-28). Storing
+    title+body alone meant the reason a change was made -- which lives in the
+    review thread far more often than in the description -- was absent from the
+    index, producing an honest "no one wrote this down" about something the team
+    HAD written down. The live path (`fetch_ref_detail`) had always fetched
+    comments, so old unindexed PRs answered richly while recent ones did not."""
     prs = _gh_json(
         ["pr", "list", "-R", repo, "--state", "all", "--limit", str(PR_LIMIT),
-         "--json", "number,title,body,closingIssuesReferences"],
+         "--json", _PR_JSON_FIELDS],
         token=token,
     ) or []
     chunks, issue_ids = [], set()
     for pr in prs:
         n = pr["number"]
-        text = f"PR #{n}: {pr['title']}\n\n{pr.get('body') or ''}"
-        chunks.append({"ref": f"pr:{n}", "source": "pr", "text": text})
+        chunks.append({"ref": f"pr:{n}", "source": "pr",
+                       "text": _pr_or_issue_text(pr, "pr")})
         for ref in pr.get("closingIssuesReferences", []):
             issue_ids.add(ref["number"])
         for m in ISSUE_REF.findall(pr.get("body") or ""):
@@ -480,7 +580,7 @@ def fetch_issues(repo, issue_ids, token=None):
     try:
         items = _gh_json(
             ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT),
-             "--json", "number,title,body"],
+             "--json", _ISSUE_JSON_FIELDS],
             token=token,
         ) or []
     except subprocess.CalledProcessError as e:
@@ -493,13 +593,9 @@ def fetch_issues(repo, issue_ids, token=None):
         n = it["number"]
         if n not in wanted:
             continue
-        chunks.append({"ref": f"issue:{n}", "source": "issue", "text": f"Issue #{n}: {it['title']}\n\n{it.get('body') or ''}"})
+        chunks.append({"ref": f"issue:{n}", "source": "issue",
+                       "text": _pr_or_issue_text(it, "issue")})
     return chunks
-
-
-# A single PR/issue's title + body + discussion can be large; bound the live
-# chunk so one fetched ref can't dominate memory or the writer prompt.
-_REF_DETAIL_MAX_CHARS = 10000
 
 
 def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
@@ -513,26 +609,21 @@ def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
     token=None the caller's own gh identity is used, so a private repo the server
     can't read simply fails to None rather than exposing anything."""
     for source in ("pr", "issue"):
+        fields = _PR_JSON_FIELDS if source == "pr" else _ISSUE_JSON_FIELDS
         try:
             data = _gh_json(
-                [source, "view", str(number), "-R", repo,
-                 "--json", "number,title,body,comments"],
+                [source, "view", str(number), "-R", repo, "--json", fields],
                 token=token,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
             continue
         if not data:
             continue
-        n = data["number"]
-        parts = [f"{source.upper()} #{n}: {data.get('title') or ''}", data.get("body") or ""]
-        for c in data.get("comments") or []:
-            body = (c.get("body") or "").strip()
-            if body:
-                parts.append(f"Comment: {body}")
-        text = "\n\n".join(p for p in parts if p).strip()
-        if len(text) > _REF_DETAIL_MAX_CHARS:
-            text = text[:_REF_DETAIL_MAX_CHARS] + "\n…[truncated]"
-        return Chunk(ref=f"{source}:{n}", source=source, text=text)
+        # Same builder as the indexed path, so a live-fetched ref and an indexed
+        # one read identically -- the two diverging is what let the indexed path
+        # silently stay shallower than the live one for weeks.
+        return Chunk(ref=f"{source}:{data['number']}", source=source,
+                     text=_pr_or_issue_text(data, source))
     return None
 
 

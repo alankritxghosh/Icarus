@@ -19,7 +19,7 @@ COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
 class _StubPipeline(Pipeline):
     """Answers a known question, abstains on anything else -- no network."""
 
-    def answer(self, question):
+    def answer(self, question, token=None):
         if "responses api" in question.lower():
             return Result(verdict="answer", answer="Because other plugins import the old class.",
                           citations=["pr:1435"], retrieved=["pr:1435", "code:llm/x.py"])
@@ -558,7 +558,7 @@ class AskWriterFailureTests(unittest.TestCase):
         from http.server import ThreadingHTTPServer
 
         class _BoomPipeline:
-            def answer(self, q):
+            def answer(self, q, token=None):
                 raise RuntimeError("GEMINI_PAID_API_KEY not set")
 
         class _BoomLibrary(_StubLibrary):
@@ -1249,7 +1249,7 @@ class _CountingPipeline(Pipeline):
         self.answer_calls = 0
         self.explain_calls = 0
 
-    def answer(self, question):
+    def answer(self, question, token=None):
         self.answer_calls += 1
         return Result(verdict="unknown", retrieved=[])
 

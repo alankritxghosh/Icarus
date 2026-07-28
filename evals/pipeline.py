@@ -116,7 +116,7 @@ class Result:
 class Pipeline:
     """Interface: implementations answer one question at a time."""
 
-    def answer(self, question: str) -> Result:  # pragma: no cover - interface
+    def answer(self, question: str, token: str = None) -> Result:  # pragma: no cover - interface
         raise NotImplementedError
 
 
@@ -131,7 +131,7 @@ class StubPipeline(Pipeline):
     ever letting a gate drop. See docs/EVALUATION.md.
     """
 
-    def answer(self, question: str) -> Result:
+    def answer(self, question: str, token: str = None) -> Result:
         return Result(verdict="unknown")
 
 
@@ -147,7 +147,7 @@ class RetrievalPipeline(Pipeline):
         self._retriever = retriever
         self._top_n = top_n
 
-    def answer(self, question: str) -> Result:
+    def answer(self, question: str, token: str = None) -> Result:
         return Result(verdict="unknown", retrieved=self._retriever.search(question, self._top_n))
 
 
@@ -171,18 +171,27 @@ class GatedPipeline(Pipeline):
         self._provider = provider
         self._recall_n = recall_n
         self._writer_k = writer_k
-        # Optional `live_fetch(number:int) -> Optional[Chunk]`: resolves an explicit
-        # "PR/issue #N" the corpus never indexed (it caps at the most-recent
-        # PR_LIMIT/ISSUE_LIMIT) by fetching that one ref + its comments on demand.
+        # Optional `live_fetch(number:int, token:str|None) -> Optional[Chunk]`:
+        # resolves an explicit "PR/issue #N" the corpus never indexed (it caps at
+        # the most-recent PR_LIMIT/ISSUE_LIMIT) by fetching that one ref + its
+        # discussion on demand. `token` is the CALLER's, per call -- without it a
+        # private repo's fetch fails safe to None, which is why the Company Brain
+        # saw none of this until the token was threaded through (2026-07-28).
         # None (the eval board / tests) keeps the pipeline fully offline and
         # reproducible; serving binds the real gh-backed fetch (demo/library.py).
         self._live_fetch = live_fetch
-        # Optional `live_commit_fetch(sha:str) -> Optional[Chunk]`: resolves an
-        # explicit commit SHA, which is NEVER indexed (commits are excluded from
-        # ingest by design). Same fail-safe contract as live_fetch.
+        # Optional `live_commit_fetch(sha:str, token:str|None) -> Optional[Chunk]`:
+        # resolves an explicit commit SHA, which is NEVER indexed (commits are
+        # excluded from ingest by design). Same fail-safe contract as live_fetch.
         self._live_commit_fetch = live_commit_fetch
 
-    def answer(self, question: str) -> Result:
+    def answer(self, question: str, token: str = None) -> Result:
+        # `token`, when given, is the CALLER's own GitHub token, used only to
+        # live-fetch an exact ref they named. It is passed straight through to
+        # the fetcher for the duration of this call and never stored on the
+        # pipeline -- a private repo's live fetch is impossible without it (the
+        # server's own gh identity cannot read private code), and holding it
+        # would widen the credential surface for every later request.
         # An explicit "issue/PR #N" mention gets a guaranteed anchor lookup
         # against self._by_ref (bypassing .search()/query normalization
         # entirely, same as .explain()'s anchor resolution already does) --
@@ -199,7 +208,7 @@ class GatedPipeline(Pipeline):
             elif self._live_fetch is not None:
                 # Not in the indexed slice: fetch that exact PR/issue live. Fail-safe
                 # -- a None result just leaves it unanchored, as if unmentioned.
-                ch = self._live_fetch(int(n))
+                ch = self._live_fetch(int(n), token)
                 if ch is not None and ch.ref not in fetched:
                     fetched[ch.ref] = ch
                     anchor_refs.append(ch.ref)
@@ -207,7 +216,7 @@ class GatedPipeline(Pipeline):
             for prefix, sha in _COMMIT_SHA.findall(question):
                 if not prefix and not any(c.isdigit() for c in sha):
                     continue  # hex-shaped English word, not a SHA
-                ch = self._live_commit_fetch(sha)
+                ch = self._live_commit_fetch(sha, token)
                 if ch is not None and ch.ref not in fetched:
                     fetched[ch.ref] = ch
                     anchor_refs.append(ch.ref)

@@ -142,14 +142,18 @@ def _build_gated_pipeline(corpus_dir, fast=False):
     repo = meta.get("repo")
     # Live exact-ref fetch: an explicit "PR/issue #N" outside the pre-indexed
     # slice (fetch_prs/fetch_issues cap at the most-recent PR_LIMIT/ISSUE_LIMIT)
-    # is fetched on demand with its comments, instead of a useless abstention on
-    # an old ref. token=None (public gh): on a PRIVATE repo the server's gh
-    # identity can't read it, so it fails safe to None (no exposure, just an
-    # abstention) -- private exact-ref fetch would need the caller's request-time
-    # token, which isn't held here. Public repos (the common case) work.
-    # Same treatment for an explicit commit SHA, which is never indexed at all.
-    live = (lambda num: fetch_ref_detail(repo, num)) if repo else None
-    live_commit = (lambda sha: fetch_commit_detail(repo, sha)) if repo else None
+    # is fetched on demand with its discussion, instead of a useless abstention
+    # on an old ref. Same treatment for an explicit commit SHA, never indexed.
+    #
+    # The token arrives PER CALL (`answer(question, token=...)`), not at build
+    # time, and is never stored on the Library or the pipeline -- so it lives
+    # only for the duration of the request that supplied it, matching the
+    # ingest path's own rule. Until 2026-07-28 this was hardcoded token=None,
+    # which meant a PRIVATE repo's live fetch always failed safe to None: the
+    # Company Brain silently had no exact-ref depth at all. Absent a token it
+    # still fails safe to None -- an abstention, never an exposure.
+    live = (lambda num, tok=None: fetch_ref_detail(repo, num, token=tok)) if repo else None
+    live_commit = (lambda sha, tok=None: fetch_commit_detail(repo, sha, token=tok)) if repo else None
     return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider,
                          live_fetch=live, live_commit_fetch=live_commit)
 
@@ -221,24 +225,33 @@ class Library:
     @staticmethod
     def _corpus_is_stale(cache_dir):
         """T6 of docs/plans/2026-07-17-ast-chunking-all-languages.md: true
-        when a corpus already on disk was chunked by a scheme that's since
-        changed. Otherwise flipping ICARUS_AST_CHUNKING would silently do
+        when a corpus already on disk was produced by ingest logic that has
+        since changed. Otherwise flipping ICARUS_AST_CHUNKING would silently do
         nothing for any already-connected repo -- `chunks.jsonl` and its
         `vectors.json` cache stay mutually consistent with EACH OTHER
         regardless (vector_cache's own ref-coverage check already self-heals
         once chunks.jsonl is regenerated -- see vector_cache.load_vectors),
-        but neither one ever picks up a chunking-logic change on its own."""
+        but neither one ever picks up a chunking-logic change on its own.
+
+        Two independent triggers, because `chunking` records the CODE chunker
+        only: a corpus written before PR/issue chunks carried the discussion
+        (2026-07-28) has an IDENTICAL `chunking` value, so without the format
+        version that fix would have deployed live and been invisible to every
+        already-connected repo -- shipped and silently inert."""
         from evals.ingest import (
             CHUNKING_SCHEME_AST,
             CHUNKING_SCHEME_LINE_WINDOW,
             ast_chunking_enabled,
         )
+        from evals.corpus_meta import CORPUS_FORMAT_VERSION, corpus_version
         meta = load_meta(cache_dir / "meta.json")
         if meta is None:
             # chunks.jsonl with no meta.json is an unexpected, ambiguous
             # state (the two are always written together) -- serve what's
             # there rather than force a possibly-slow re-ingest on a hunch.
             return False
+        if corpus_version(meta) < CORPUS_FORMAT_VERSION:
+            return True
         current = CHUNKING_SCHEME_AST if ast_chunking_enabled() else CHUNKING_SCHEME_LINE_WINDOW
         # A corpus from before this field existed has no "chunking" key at
         # all -- it was necessarily chunk_text, since ast_chunk/ts_chunk

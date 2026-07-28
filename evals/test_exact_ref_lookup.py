@@ -133,18 +133,18 @@ class LiveRefFetchTests(unittest.TestCase):
                           "answer": "PR #400 added streaming ingest to bound memory.",
                           "citations": ["pr:400"]})
         pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
-                             live_fetch=lambda num: (calls.append(num) or (got if num == 400 else None)))
+                             live_fetch=lambda num, tok=None: (calls.append((num, tok)) or (got if num == 400 else None)))
         r = pipe.answer("talk to me about PR 400")
         self.assertEqual(r.verdict, "answer")
         self.assertIn("pr:400", r.citations)
-        self.assertEqual(calls, [400])          # the miss triggered exactly one live fetch
+        self.assertEqual(calls, [(400, None)])  # the miss triggered exactly one live fetch
 
     def test_indexed_ref_uses_cache_without_live_fetch(self):
         chunks = [Chunk("pr:400", "pr", "PR #400: Add streaming ingest.")]
         called = []
         raw = json.dumps({"verdict": "answer", "answer": "It adds streaming.", "citations": ["pr:400"]})
         pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
-                             live_fetch=lambda num: (called.append(num) or None))
+                             live_fetch=lambda num, tok=None: (called.append(num) or None))
         r = pipe.answer("talk about PR 400")
         self.assertEqual(r.verdict, "answer")
         self.assertEqual(called, [])            # already indexed -> never fetched
@@ -153,7 +153,7 @@ class LiveRefFetchTests(unittest.TestCase):
         chunks = self._chunks()
         raw = json.dumps({"verdict": "answer", "answer": "made up", "citations": ["pr:999"]})
         pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
-                             live_fetch=lambda num: None)   # ref genuinely not found
+                             live_fetch=lambda num, tok=None: None)   # ref genuinely not found
         self.assertEqual(pipe.answer("talk about PR 999").verdict, "unknown")
 
     def test_no_live_fetch_configured_is_backcompat(self):
@@ -161,6 +161,50 @@ class LiveRefFetchTests(unittest.TestCase):
         raw = json.dumps({"verdict": "answer", "answer": "y", "citations": ["pr:400"]})
         pipe = GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw))  # board default
         self.assertEqual(pipe.answer("talk about PR 400").verdict, "unknown")
+
+
+class CallerTokenReachesTheLiveFetchTests(unittest.TestCase):
+    """A PRIVATE repo's exact-ref fetch is impossible without the CALLER's own
+    token -- the server's gh identity cannot read private code, so it failed
+    safe to None and the Company Brain had no exact-ref depth at all
+    (2026-07-28). The token is passed per call and never stored."""
+
+    def _chunks(self):
+        return [Chunk("code:a.py#L1-L5", "code", "def f():\n    return 1")]
+
+    def _pipe(self, seen):
+        chunks = self._chunks()
+        raw = json.dumps({"verdict": "unknown"})
+        return GatedPipeline(LexicalRetriever(chunks), chunks, StaticProvider(raw),
+                             live_fetch=lambda num, tok=None: (seen.append(tok) or None),
+                             live_commit_fetch=lambda sha, tok=None: (seen.append(tok) or None))
+
+    def test_the_callers_token_reaches_the_ref_fetch(self):
+        seen = []
+        self._pipe(seen).answer("what did PR 400 change", token="gho_caller")
+        self.assertEqual(seen, ["gho_caller"])
+
+    def test_the_callers_token_reaches_the_commit_fetch(self):
+        seen = []
+        self._pipe(seen).answer("what did commit 1a2b3c4 change", token="gho_caller")
+        self.assertIn("gho_caller", seen)
+
+    def test_no_token_still_fetches_as_the_server(self):
+        # Public repos are the common case and must keep working unauthenticated.
+        seen = []
+        self._pipe(seen).answer("what did PR 400 change")
+        self.assertEqual(seen, [None])
+
+    def test_the_token_is_never_stored_on_the_pipeline(self):
+        # It must live only for the request that supplied it -- a pipeline is
+        # shared across a repo's users, so a retained token would be one
+        # caller's credential available to the next one's request.
+        seen = []
+        pipe = self._pipe(seen)
+        pipe.answer("what did PR 400 change", token="gho_caller")
+        self.assertNotIn("gho_caller", repr(pipe.__dict__))
+        pipe.answer("what did PR 400 change")
+        self.assertEqual(seen, ["gho_caller", None])
 
 
 class FetchRefDetailTests(unittest.TestCase):

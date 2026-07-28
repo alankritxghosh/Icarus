@@ -573,7 +573,12 @@ class FetchPRsAllStatesTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)   # ONE call for THREE PRs (was 1 + 3)
         self.assertIn("--json", calls[0])
-        self.assertIn("number,title,body,closingIssuesReferences", calls[0])
+        # Assert on the FIELDS rather than one frozen field string: the
+        # discussion fields were added to this same call (2026-07-28), and the
+        # guard being defended is "one batched call", not a literal spelling.
+        fields = calls[0][calls[0].index("--json") + 1].split(",")
+        for required in ("number", "title", "body", "closingIssuesReferences"):
+            self.assertIn(required, fields)
         self.assertEqual({c["ref"] for c in chunks}, {"pr:1", "pr:2", "pr:3"})
 
     def test_pr_chunk_text_embeds_the_pr_number(self):
