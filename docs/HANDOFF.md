@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Eight commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Twelve commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
-**Live: `icarus-brain--0000028`, image `alpha-20260728-commits`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 537 · demo 250 · IcarusKit 91 ·
+**Live: `icarus-brain--0000030`, image `alpha-20260728-besteffort`, healthy, 100%
+traffic. `main` @ the handoff commit. evals 542 · demo 258 · IcarusKit 96 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -262,6 +262,53 @@ message -- returns `verdict: answer` citing
 runs for a long time afterwards. That is the price of the coverage bar and it is
 paid on every large repo.
 
+## 7. `062862d` + `5b8252f` — the lexical-only window is no longer a false claim
+
+**This was an honesty bug, not UX polish.** "No one wrote this down" is a claim
+about the REPOSITORY and is the one claim this product exists to make
+trustworthy. "I have not finished reading" is a claim about ICARUS. Both
+rendered as the honest-unknown hero, so during the lexical-only window after a
+connect Icarus asserted something about a customer's codebase it did not yet
+know to be true — and that window grew from seconds to many minutes today as a
+direct consequence of indexing every PR, issue and commit.
+
+`Library._indexing` is true ONLY between stage 1 (lexical live) and stage 2
+(semantic installed). `phase` could NOT carry it: the semantic upgrade clears
+phase on FAILURE too, and lexical-only is then the steady state rather than a
+window about to close — so the flag clears there as well, because "still
+indexing" forever would be its own false claim. That permanent degradation is
+logged and needs an error surface; it is deliberately not folded in here.
+
+Surfaced as `indexing` on `/ask` and `/explain`, read AFTER answering so it
+describes the index that actually served the question. Overlay, web demo and
+extension swap the hero for "I haven't finished reading this repo" **on an
+abstention only** — an answer is grounded whenever it is emitted, so the caveat
+would only cast doubt on a citation already earned. Guarded by a test that
+verdict, answer and citations are byte-identical with the flag set and unset:
+it is a caveat on completeness, never an input to the honesty decision.
+
+**⚠️ It also exposed a bug I had shipped hours earlier.** The two-pass ingest
+made the DEPTH call FATAL: `simonw/sqlite-utils` failed its entire connect with
+`stream error: stream ID 3; CANCEL; received from peer` at limit 400, throwing
+away a completely successful coverage pass. `DISCUSSION_DEPTH` cannot be one
+safe number — cost tracks how CHATTY a repo's items are, not how many exist,
+and it is not even stable per repo: the same local ingest succeeded at 400 an
+hour before it failed at 400, because GitHub cancels the stream under its own
+load. The depth pass now halves and retries (400 to 200 to ... to 25) and
+returns nothing if all fail. **Coverage is the bar; the discussion is an
+enhancement on top of it.** `stats["discussion_depth"]` records what landed.
+
+**Connect failures used to log only the exception TYPE**, so a real failure read
+as "CalledProcessError" and nothing else — exactly what made the above cost a
+live debugging session. The server log now carries the failing command and its
+stderr; the user-facing message is unchanged and still generic.
+
+**Live-verified on rev 0000030:** `simonw/sqlite-utils` — the repo that could
+not connect at all — indexes in 64s (233 pr / 580 issue / 1,176 commit / 1,137
+code), `/status` and `/ask` both report `indexing: true` during the window, and
+an abstention inside it carries the flag so it renders as "I haven't finished
+reading this repo" rather than the honest-unknown hero.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -283,18 +330,18 @@ out. Worth fixing before a design partner's team uses it concurrently.
 ## DMG — REBUILT, verified, and PUBLISHED
 
 `Icarus.dmg`, **940 KB**, sha256
-`d44f5d4222e728b4cfd87494d81aba2caf64b88784d6b4f608f3f9992ea0350d`, brain URL
-stamped to Azure (not the 127.0.0.1 fallback). Built from `main` @ `7c666f1`;
-nothing under `mac/` changed after that, so it is current.
+`bd6ddc927984860d85c5467400560070a23aa00384c4327a2cd8e91a1f5897eb`, brain URL
+stamped to Azure (not the 127.0.0.1 fallback). Rebuilt from `main` @ `062862d` (the indexing caveat); verified before each
+publish that nothing under `mac/` changed after the build.
 
 Published via the website repo's `release-dmg.sh`, which restamps the SHA in all
 FOUR places across TWO repos from the image itself. **Verified end to end after
 pushing**: Vercel serves a DMG whose SHA matches the pin in `install.sh` and in
 the Homebrew cask — all three install paths agree.
 
-- `alankritxghosh/Icarus-Website` @ `b87ef34`
-- `alankritxghosh/homebrew-icarus` @ `04bf43d`
-- this repo @ `927fc87` (the `site/index.html` mirror)
+- `alankritxghosh/Icarus-Website` @ `09f6a0b`
+- `alankritxghosh/homebrew-icarus` @ `80abb32`
+- this repo @ `736fde8` (the `site/index.html` mirror)
 
 **Found while publishing: `site/index.html` had already drifted.** It carried
 sha `a899cf2e` / "~926 KB" while the LIVE site served `a64a282c` / "~927 KB" —
@@ -347,7 +394,9 @@ Ranked by how much history they silently drop:
 `7c666f1` (display + Repo/Company Brain), `da9a5ba` (discussion ingest + caller
 token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
 (vector cache keyed on corpus content), `5347b30` (every PR and issue indexed),
-`8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4).
+`8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4),
+`062862d` (indexing caveat), `5b8252f` (depth pass best-effort + real connect
+failure logs).
 
 ---
 
