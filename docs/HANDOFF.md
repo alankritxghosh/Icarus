@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Four commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Six commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
-**Live: `icarus-brain--0000025`, image `alpha-20260728-vcache`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 511 · demo 250 · IcarusKit 91 ·
+**Live: `icarus-brain--0000027`, image `alpha-20260728-cov3`, healthy, 100%
+traffic. `main` @ the handoff commit. evals 519 · demo 250 · IcarusKit 91 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -150,6 +150,66 @@ cache misses and re-embeds once; that is the intended cost.
 fingerprint — without that the container would re-embed the default corpus on
 every cold boot, silently undoing `warm_cache`'s entire purpose.
 
+## 5. `5347b30` + `8d58968` — EVERY PR and issue is indexed (live, rev 0000027)
+
+The biggest violation of the coverage bar. psf/requests has **3,087 PRs and
+4,167 issues**; we indexed 200 and 500, so **90% of the project's recorded
+discussion was invisible to search** — reachable only by naming a number, which
+requires already knowing the answer.
+
+**Measurement first, because the obvious fix does not work.** Asking
+`gh pr list` for comments/reviews/files across a large page makes GitHub's OWN
+GraphQL fail:
+
+| request | result |
+|---|---|
+| ALL 3,087 PRs, cheap fields | 32.2s OK |
+| ALL 4,167 issues, cheap fields | 46.8s OK |
+| 1,000 PRs **with** comments/reviews/files | 45.3s **HTTP 504** |
+| 5,000 PRs **with** comments/reviews/files | 11.2s **HTTP 502** |
+| 400 issues **with** comments | 19.2s OK |
+
+The wall is server-side query COST, not our subprocess timeout — so raising the
+cap alone turns a partial index into a *failed* one. **Date-windowing via
+`--search` is worse, not better**: it routes through the search API and 502/504'd
+on every window tried, including narrow ones. Don't re-try that.
+
+So coverage and depth come from different calls: every PR/issue with cheap
+fields, then the most recent `DISCUSSION_DEPTH = 400` re-fetched WITH their
+discussion, overriding by number. Two bounded calls per kind — still no N+1.
+`_LIST_TIMEOUT` (900s) covers them; the 120s default would kill even the cheap
+pass. `corpus_version` bumped 2 → 3 so already-cached repos actually refresh.
+
+**Live on rev 0000027:** re-ingest took 135s, `/status` reports
+`pr: 3087, issue: 4167` (was 200/500), and **issue 1481 — far outside the old
+window — is answered from the index**, citing `issue:1481`.
+
+⚠️ **The operational cost, which is real:** psf/requests is now **~7,993 chunks
+vs 1,425**, 5.6×. Lexical search is live immediately (stage 1) but the semantic
+embed runs for many minutes afterwards, and was STILL RUNNING when this entry
+was written. Budget for that on any large repo, and expect the first connect to
+be lexical-only for a while.
+
+⚠️ **A REGRESSION found by testing, not assumed — do not record fix #1 as
+robust.** "What did PR 6952 change?" answered correctly on rev 0000025 (the
+1,425-chunk corpus) and now returns **unknown, consistently across 3 runs**, on
+the 7,993-chunk corpus. The anchor still resolves (`anchored: ['issue:6952']`)
+and the chunk still carries its discussion (the CVE question answers fine), so
+retrieval and ingest are both correct — the WRITER declines to use the premise
+note when the surrounding evidence changes. **Fix #1's premise correction is
+writer-dependent and not deterministic.** Note the semantic index was still
+building at test time, so this was measured on lexical-only retrieval and may
+move again; re-test once the embed finishes before deciding what to do. Do NOT
+"fix" it with a prompt rule — the 2026-07-28 session already proved that drops
+board citation correctness 100% → 83.3%.
+
+**The honest depth limit that remains:** a PR/issue older than the most recent
+400 is indexed and searchable by its DESCRIPTION, but its comment thread is not
+in the index. Naming it still live-fetches the full thread on demand
+(`fetch_ref_detail` always uses the full field set — one item can afford what
+thousands cannot). Lifting this needs hand-written GraphQL with bounded nested
+page sizes and per-page retry.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -198,11 +258,8 @@ tap rather than leaving `brew install` on the previous build.
 
 Ranked by how much history they silently drop:
 
-1. **`PR_LIMIT = 200`, `ISSUE_LIMIT = 500`, most-recent only.** On a 3,000-PR
-   repo, **2,800 PRs are invisible to search** — reachable only by naming the
-   number. Biggest violation by a wide margin. NOT a one-line bump: the call now
-   returns comments/reviews/files per PR, a payload large enough to blow the
-   120s subprocess timeout. Needs pagination + measurement on a real large repo.
+1. ~~PR/issue caps~~ **FIXED** — see section 5. Every PR and issue is now
+   indexed; what remains is DISCUSSION depth (most recent 400), not coverage.
 2. **Commits are never indexed** — `fetch_commit_detail` resolves one only when
    you name the SHA. Commit messages are the densest "why" in any repo.
 3. **Diff hunks never ingested** (file list + line counts only).
@@ -218,18 +275,22 @@ Ranked by how much history they silently drop:
 
 ## Next, in order
 
-1. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
-2. **Raise the PR/issue caps properly** (pagination + measurement). This is the
-   biggest gap against Alankrit's bar.
+1. **Re-test "What did PR 6952 change?" once the semantic embed completes**, and
+   decide what to do about the writer-dependent premise correction (section 5).
+   Not a prompt rule.
+2. **Publish the DMG** — clone the two repos, run `release-dmg.sh`, verify.
+   The DMG is built and verified; only publishing is left.
 3. **Share the per-user connection pointer across replicas**, or pin sessions,
    before a team uses this concurrently (see the latent risk above).
-4. **Morphic.** Everything else is prerequisite, not goal.
+4. **Index commits**, and raise discussion depth past 400 (hand-written GraphQL).
+5. **Morphic.** Everything else is prerequisite, not goal.
 
 ## Commits
 
 `7c666f1` (display + Repo/Company Brain), `da9a5ba` (discussion ingest + caller
 token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
-(vector cache keyed on corpus content).
+(vector cache keyed on corpus content), `5347b30` (every PR and issue indexed),
+`8d58968` (corpus format 3 so cached repos refresh).
 
 ---
 
