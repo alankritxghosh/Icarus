@@ -15,12 +15,19 @@ publishes a corpus with `os.replace()`, which swaps the whole directory -- a
 ledger stored inside would be silently destroyed by the next re-index, taking
 the team's accumulated history with it.
 
-**What is stored, and what is not.** Question text, verdict, citation refs, the
-asking identity, and a timestamp. NOT the answer body: it is regenerable from
-the corpus, it is the largest field, and retaining it would widen the privacy
-surface for no gain the unknowns map needs. Storing question text at all is a
-deliberate decision (2026-07-27) and the privacy promise must say so before this
-ships.
+**What is stored, and what is not.** Question text, verdict, citation refs, and
+a timestamp. Storing question text at all is a deliberate decision (2026-07-27)
+and the privacy promise must say so before this ships.
+
+NOT the answer body: regenerable from the corpus, the largest field, and
+retaining it would widen the privacy surface for nothing the unknowns map needs.
+
+NOT who asked. This maps what an ORGANISATION has not written down; it does not
+track which employee asked what. Recording the asker would make "Alice asked
+about auth fourteen times" a question this system can answer, which is a
+different product -- surveillance of a team rather than memory for it. The cost
+is accepted and real: gaps can be ranked by how OFTEN they were hit, never by
+how many DISTINCT people hit them.
 
 Format is JSONL, append-only, one file per repo -- the same shape as the corpus
 itself, and readable with nothing but the standard library.
@@ -54,15 +61,16 @@ class Ledger:
     def _path(self, repo: str) -> Path:
         return self._root / f"{_slug(repo)}.jsonl"
 
-    def record(self, repo: str, *, user: str, question: str, verdict: str,
+    def record(self, repo: str, *, question: str, verdict: str,
                citations=()) -> None:
         """Append one ask. Never raises on a full disk or a racing writer taking
         the record down with it -- a failed ledger write must not fail the
-        answer the user actually asked for."""
+        answer the caller actually asked for.
+
+        Deliberately takes no identity: see the module docstring."""
         path = self._path(repo)          # validates BEFORE any filesystem work
         entry = {
             "ts": time.time(),
-            "user": user,
             "question": question,
             "verdict": verdict,
             "citations": list(citations or ()),

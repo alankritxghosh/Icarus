@@ -457,13 +457,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                     return
                 if ledger is not None:
-                    # Recorded against the REPO, not the person, so a team builds
-                    # one shared record. Never allowed to fail the answer the
-                    # caller actually asked for -- the ledger is an asset, not a
-                    # dependency (Ledger.record swallows its own I/O errors; this
-                    # catches anything else, including a broken ledger object).
+                    # Recorded against the REPO, and deliberately WITHOUT the
+                    # asking identity -- a map of what the organisation never
+                    # wrote down, not a record of who asked what. Never allowed
+                    # to fail the answer the caller actually asked for: the
+                    # ledger is an asset, not a dependency (Ledger.record
+                    # swallows its own I/O errors; this catches anything else,
+                    # including a broken ledger object).
                     try:
-                        ledger.record(repo, user=identity, question=question,
+                        ledger.record(repo, question=question,
                                       verdict=result.verdict, citations=result.citations)
                     except Exception as e:
                         print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)

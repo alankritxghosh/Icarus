@@ -1424,7 +1424,6 @@ class AskLedgerTests(unittest.TestCase):
         got = self.ledger.entries(self.PRIVATE)
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["question"], "Why the Responses API as a new class?")
-        self.assertEqual(got[0]["user"], "1001")
         self.assertEqual(got[0]["verdict"], "answer")
 
     def test_an_honest_unknown_is_recorded_as_a_gap(self):
