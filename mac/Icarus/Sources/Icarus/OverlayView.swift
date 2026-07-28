@@ -200,10 +200,23 @@ struct OverlayView: View {
     @ViewBuilder
     private func honestUnknown(_ r: AskResponse) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            MonoLabel("HONEST UNKNOWN", Theme.unknown)
-            Text("No one wrote this down.")
-                .font(.system(size: 21, weight: .bold))
-                .foregroundStyle(Theme.ink)
+            // While the index is still building, an abstention is "I haven't
+            // finished reading", NOT "no one wrote this down" — so it must not
+            // wear the honest-unknown hero, which is a claim about the repo.
+            if let note = r.incompleteIndexNote {
+                MonoLabel("STILL INDEXING", Theme.unknown)
+                Text("I haven't finished reading this repo.")
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.muted)
+            } else {
+                MonoLabel("HONEST UNKNOWN", Theme.unknown)
+                Text("No one wrote this down.")
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+            }
             // The evidence trail, in two parts. A single flat list made a
             // refusal that HAD looked up the named ref first read as one that
             // ignored the question entirely — the mechanism was right and the

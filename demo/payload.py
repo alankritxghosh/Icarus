@@ -57,7 +57,16 @@ def excerpt(text: str) -> str:
     return joined
 
 
-def build_payload(result: Result, repo: str, commit: str) -> dict:
+def build_payload(result: Result, repo: str, commit: str, indexing: bool = False) -> dict:
+    """`indexing` marks an answer produced while the search index is still being
+    built (lexical only, semantic pending).
+
+    It exists because an abstention in that window means "I have not finished
+    reading", which is a DIFFERENT claim from "no one wrote this down" -- and
+    this product's whole promise is that the second one is trustworthy. Proven
+    live 2026-07-28: the same question abstained mid-window and answered once
+    the embed finished, on an identical corpus. Defaults False so every existing
+    caller keeps its exact shape."""
     citations = []
     if result.verdict == "answer":
         citations = [{"ref": ref,
@@ -70,4 +79,5 @@ def build_payload(result: Result, repo: str, commit: str) -> dict:
         "citations": citations,
         "searched": list(result.retrieved),
         "anchored": list(result.anchored),
+        "indexing": bool(indexing),
     }

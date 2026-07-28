@@ -202,6 +202,20 @@ class Library:
         # True when a size cap truncated the code walk -> the corpus is PARTIAL,
         # so /status can tell the user some files aren't covered (never silent).
         self._truncated = bool(meta.get("truncated", False))
+        # True ONLY between stage 1 (lexical published) and stage 2 (semantic
+        # installed): the window where search is real but measurably worse.
+        #
+        # This is an HONESTY flag, not a progress spinner. During the window an
+        # abstention means "I have not finished reading", which is a different
+        # claim from "no one wrote this down" -- and conflating them is exactly
+        # what this product exists not to do. Proven live 2026-07-28: the same
+        # question abstained 3/3 mid-window and answered 3/3 once the embed
+        # finished, same corpus, same anchor, same writer.
+        #
+        # `phase` cannot carry this: the semantic upgrade clears phase on
+        # FAILURE too, and then lexical-only is the steady state rather than a
+        # window that will close.
+        self._indexing = False
         self._pipeline = self._build_pipeline(self._default_dir)
         self._status = "ready"
 
@@ -340,6 +354,7 @@ class Library:
                 # the background. The phase says so honestly -- the repo is
                 # usable, and getting smarter -- until _upgrade_to_semantic clears it.
                 self._phase = "Building smart search…"
+                self._indexing = True
                 self._generation += 1
                 my_gen = self._generation
                 # Ready means stage 1 is usable; do not block reconnect on stage 2.
@@ -374,6 +389,7 @@ class Library:
                 if self._generation == generation:  # still the latest connect
                     self._pipeline = full_pipeline
                     self._phase = None  # smart search ready; nothing pending
+                    self._indexing = False
         except Exception as e:
             print(
                 f"semantic upgrade failed for {connected_repo!r} "
@@ -383,6 +399,12 @@ class Library:
             with self._lock:
                 if self._generation == generation:
                     self._phase = None  # gave up on the upgrade; lexical stays, nothing pending
+                    # Cleared on failure too: lexical-only is now the STEADY
+                    # state, not a window about to close, and telling a user
+                    # "still indexing" forever would be its own false claim.
+                    # The degradation is real and logged above; surfacing a
+                    # permanent one needs an error path, not this flag.
+                    self._indexing = False
 
     def current_pipeline(self):
         with self._lock:
@@ -396,4 +418,5 @@ class Library:
         with self._lock:
             return {"state": self._status, "repo": self._repo, "commit": self._commit,
                     "counts": self._counts, "error": self._error, "phase": self._phase,
-                    "private": self._private, "truncated": self._truncated}
+                    "private": self._private, "truncated": self._truncated,
+                    "indexing": self._indexing}

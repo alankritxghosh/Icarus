@@ -454,6 +454,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # repo's live fetch fails safe to None, as it always did.
                     result = lib.current_pipeline().answer(
                         question, token=bearer_token(self.headers))
+                    # Read AFTER answering: the flag must describe the index
+                    # that actually served this question, not the one that
+                    # existed when the request arrived.
+                    still_indexing = bool(lib.status_snapshot().get("indexing"))
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
                     # outage, or exhausted retries. Return an honest JSON error
@@ -475,7 +479,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                                       verdict=result.verdict, citations=result.citations)
                     except Exception as e:
                         print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(200, build_payload(result, repo, commit))
+                self._send_json(200, build_payload(result, repo, commit,
+                                                   indexing=still_indexing))
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
             elif self.path == "/connect":
@@ -577,11 +582,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 return
             try:
                 result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
+                still_indexing = bool(lib.status_snapshot().get("indexing"))
             except Exception as e:
                 print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                 return
-            self._send_json(200, build_payload(result, active_repo, commit))
+            self._send_json(200, build_payload(result, active_repo, commit,
+                                               indexing=still_indexing))
 
     return Handler
 

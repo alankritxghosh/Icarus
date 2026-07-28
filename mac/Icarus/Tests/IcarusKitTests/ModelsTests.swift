@@ -212,3 +212,43 @@ final class BrainNameTests: XCTestCase {
         XCTAssertEqual(s.brainName, "REPO BRAIN")
     }
 }
+
+/// "No one wrote this down" and "I haven't finished reading" are different
+/// claims, and only the first is a statement about the repository. They must
+/// never render the same. Measured live 2026-07-28: identical corpus, anchor
+/// and writer — abstained 3/3 mid-build, answered 3/3 once the embed finished.
+final class IncompleteIndexNoteTests: XCTestCase {
+    private func response(_ verdict: Verdict, indexing: Bool?) -> AskResponse {
+        AskResponse(verdict: verdict, answer: verdict == .answer ? "because X" : "",
+                    citations: [], searched: ["code:a.py"], anchored: nil,
+                    indexing: indexing)
+    }
+
+    func testAbstentionMidIndexCarriesTheCaveat() {
+        XCTAssertNotNil(response(.unknown, indexing: true).incompleteIndexNote)
+    }
+
+    func testAbstentionOnACompleteIndexDoesNot() {
+        XCTAssertNil(response(.unknown, indexing: false).incompleteIndexNote)
+    }
+
+    func testAnAnswerNeverCarriesTheCaveat() {
+        // An answer is grounded whenever it is emitted; the caveat would only
+        // cast doubt on a citation that is already earned.
+        XCTAssertNil(response(.answer, indexing: true).incompleteIndexNote)
+    }
+
+    func testAnOlderBrainWithoutTheFieldReadsAsComplete() {
+        let json = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)
+        let r = try! JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertNil(r.indexing)
+        XCTAssertNil(r.incompleteIndexNote)
+    }
+
+    func testTheFlagDecodesWhenPresent() throws {
+        let json = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[],"indexing":true}"#.utf8)
+        let r = try JSONDecoder().decode(AskResponse.self, from: json)
+        XCTAssertEqual(r.indexing, true)
+        XCTAssertNotNil(r.incompleteIndexNote)
+    }
+}

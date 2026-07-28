@@ -105,3 +105,35 @@ class ExcerptTests(unittest.TestCase):
         self.assertEqual(out["citations"], [])
         self.assertNotIn("should not leak", str(out))
 
+
+
+class IndexingCaveatTests(unittest.TestCase):
+    """An abstention while the index is still building means "I have not
+    finished reading", NOT "no one wrote this down". Only the second is a claim
+    about the repository, and it is the product's whole promise -- so the two
+    must never render the same. Measured live 2026-07-28: the same question
+    abstained 3/3 mid-build and answered 3/3 once the embed finished, on an
+    identical corpus with an identical anchor and writer."""
+
+    def test_an_abstention_mid_index_is_marked(self):
+        r = Result(verdict="unknown", retrieved=["code:a.py"])
+        self.assertTrue(build_payload(r, REPO, COMMIT, indexing=True)["indexing"])
+
+    def test_a_complete_index_is_not_marked(self):
+        r = Result(verdict="unknown", retrieved=["code:a.py"])
+        self.assertFalse(build_payload(r, REPO, COMMIT, indexing=False)["indexing"])
+
+    def test_the_field_defaults_to_false_for_existing_callers(self):
+        r = Result(verdict="unknown", retrieved=[])
+        self.assertFalse(build_payload(r, REPO, COMMIT)["indexing"])
+
+    def test_marking_never_alters_the_verdict_or_citations(self):
+        # The flag is a caveat on the ANSWER's completeness, never an input to
+        # the honesty decision -- it must not touch what was emitted.
+        r = Result(verdict="answer", answer="Because Y.", citations=["pr:1435"],
+                   retrieved=["pr:1435"])
+        plain = build_payload(r, REPO, COMMIT, indexing=False)
+        mid = build_payload(r, REPO, COMMIT, indexing=True)
+        self.assertEqual(plain["verdict"], mid["verdict"])
+        self.assertEqual(plain["citations"], mid["citations"])
+        self.assertEqual(plain["answer"], mid["answer"])

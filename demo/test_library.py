@@ -567,3 +567,69 @@ class EmbedTimeoutScalingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IndexingFlagTests(unittest.TestCase):
+    """`indexing` is True ONLY in the window between lexical search going live
+    and semantic search replacing it -- the window where an abstention is
+    "unfinished", not "unrecorded"."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.default_dir = root / "default"
+        _seed_corpus(self.default_dir, "simonw/llm")
+        self.cache_root = root / "cache"
+
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        self.ingest = fake_ingest
+
+    def _lib(self, build):
+        return Library(self.default_dir, self.cache_root, "simonw/llm",
+                       build_pipeline=build, ingest_fn=self.ingest)
+
+    def test_a_fully_ready_default_repo_is_not_indexing(self):
+        lib = self._lib(lambda d, fast=False: f"p::{d}")
+        self.assertFalse(lib.status_snapshot()["indexing"])
+
+    def test_true_while_only_lexical_search_is_live(self):
+        # The Library CONSTRUCTOR builds a pipeline for the default corpus, so
+        # this only observes the flag during stage 2 of the real connect.
+        seen, holder = {}, {}
+
+        def build(corpus_dir, fast=False):
+            if not fast and holder.get("lib") is not None:
+                seen["during"] = holder["lib"].status_snapshot()["indexing"]
+            return f"{'fast' if fast else 'full'}::{corpus_dir}"
+
+        lib = self._lib(build)
+        holder["lib"] = lib
+        lib.connect_sync("octo/new")
+        self.assertTrue(seen.get("during"), "lexical-only window must report indexing")
+
+    def test_false_again_once_semantic_search_installs(self):
+        lib = self._lib(lambda d, fast=False: f"p::{d}")
+        lib.connect_sync("octo/new")
+        self.assertFalse(lib.status_snapshot()["indexing"])
+
+    def test_false_when_the_semantic_upgrade_FAILS(self):
+        # Lexical-only is then the STEADY state, not a window about to close.
+        # Reporting "still indexing" forever would be its own false claim.
+        holder = {}
+
+        def build(corpus_dir, fast=False):
+            # Let the constructor's own build succeed; fail only the real
+            # connect's stage 2, which is the path under test.
+            if not fast and holder.get("lib") is not None:
+                raise RuntimeError("embedder exploded")
+            return f"{'fast' if fast else 'full'}::{corpus_dir}"
+
+        lib = self._lib(build)
+        holder["lib"] = lib
+        lib.connect_sync("octo/new")
+        self.assertFalse(lib.status_snapshot()["indexing"])
+        self.assertEqual(lib.status_snapshot()["state"], "ready")

@@ -181,11 +181,19 @@ function renderUnknown(p){
     ? `<div class="searched-box" style="margin-bottom:8px"><span class="k">you named</span><div class="v">${esc(named.join(" · "))}</div></div>`
     : "";
   const list=rest.length?esc(rest.join(" · ")):"—";
+  // While the index is still building, an abstention means "I haven't finished
+  // reading" — a different claim from "no one wrote this down", and only the
+  // second one is a statement about the repo. Never show the hero for the first.
+  const head = p.indexing
+    ? `<p class="label">still indexing</p>
+       <h2>I haven’t finished reading this repo.</h2>
+       <p>Search is running on keywords only until indexing finishes — ask again shortly.</p>`
+    : `<p class="label">honest answer</p>
+       <h2>No one wrote this down.</h2>
+       <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>`;
   result.innerHTML=
     `<div class="unknown">
-       <p class="label">honest answer</p>
-       <h2>No one wrote this down.</h2>
-       <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>
+       ${head}
        ${namedBox}
        <div class="searched-box"><span class="k">${named.length?"then searched":"searched"}</span><div class="v">${list}</div></div>
      </div>`;

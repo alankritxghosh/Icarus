@@ -43,14 +43,40 @@ public struct AskResponse: Decodable, Sendable {
     /// Optional so a brain deployed before this field existed still decodes —
     /// the UI then falls back to the flat list, exactly as it read before.
     public let anchored: [String]?
+    /// True when this answer was produced while the search index was still
+    /// being built (lexical only, semantic pending). Optional so a brain
+    /// without the field still decodes; absent reads as "index complete",
+    /// which is the pre-existing behaviour.
+    public let indexing: Bool?
 
     public init(verdict: Verdict, answer: String, citations: [Citation],
-                searched: [String], anchored: [String]? = nil) {
+                searched: [String], anchored: [String]? = nil,
+                indexing: Bool? = nil) {
         self.verdict = verdict
         self.answer = answer
         self.citations = citations
         self.searched = searched
         self.anchored = anchored
+        self.indexing = indexing
+    }
+}
+
+public extension AskResponse {
+    /// The caveat an abstention MUST carry while the index is still building.
+    ///
+    /// "No one wrote this down" and "I have not finished reading" are different
+    /// claims, and only the first one is this product's promise. Measured live
+    /// 2026-07-28: the same question abstained 3/3 mid-build and answered 3/3
+    /// once the embed finished — identical corpus, anchor and writer. Showing
+    /// the honest-unknown hero in that window states something the brain does
+    /// not yet know to be true.
+    ///
+    /// nil for answers (an answer is grounded whenever it is emitted, so the
+    /// caveat would only add doubt to a citation that is already earned) and
+    /// nil once the index is complete.
+    var incompleteIndexNote: String? {
+        guard indexing == true, verdict == .unknown else { return nil }
+        return "Still reading this repository — ask again once indexing finishes."
     }
 }
 

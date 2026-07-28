@@ -74,11 +74,19 @@ function renderUnknownHtml(payload) {
     ? `<div class="icarus-searched">you named: ${escapeHtml(named.join(" · "))}</div>`
     : "";
   const lead = named.length ? "then searched" : "searched";
+  // An abstention while the index is still building is "I haven't finished
+  // reading", not "no one wrote this down" -- only the latter is a claim about
+  // the repository, and conflating them is what this product must never do.
+  const head = payload.indexing
+    ? '<p class="icarus-label">still indexing</p>' +
+      "<h2>I haven’t finished reading this repo.</h2>" +
+      "<p>Search is keyword-only until indexing finishes — ask again shortly.</p>"
+    : '<p class="icarus-label">honest answer</p>' +
+      "<h2>No one wrote this down.</h2>" +
+      "<p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>";
   return (
     '<div class="icarus-unknown">' +
-    '<p class="icarus-label">honest answer</p>' +
-    "<h2>No one wrote this down.</h2>" +
-    "<p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>" +
+    head +
     namedLine +
     `<div class="icarus-searched">${lead} ${rest.length} source${rest.length === 1 ? "" : "s"}</div>` +
     "</div>"
