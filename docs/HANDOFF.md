@@ -1,10 +1,10 @@
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
-**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Fifteen commits
+**READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Eighteen commits
 landed and are DEPLOYED and LIVE-VERIFIED. The DMG is REBUILT but NOT PUBLISHED.
 
-**Live: `icarus-brain--0000030`, image `alpha-20260728-besteffort`, healthy, 100%
-traffic. `main` @ the handoff commit. evals 542 · demo 258 · IcarusKit 106 ·
+**Live: `icarus-brain--0000032`, image `alpha-20260729-classify`, healthy, 100%
+traffic. `main` @ the handoff commit. evals 556 · demo 263 · IcarusKit 113 ·
 extension 31 · secrets scan clean.**
 
 ## The standing bar Alankrit set this session (write it down, it governs)
@@ -341,6 +341,50 @@ it, which inflates the documentation-debt reading. Fixing it means recording the
 abstention REASON (guard b / guard c / writer) alongside the verdict. That is
 also what would make the ledger able to answer the Linear question — see below.
 
+## 9. `1502ba9` + `2ac0a4f` — the ledger records WHY it abstained
+
+The limitation section 8 flagged, fixed. "Unknown" is one word covering several
+very different situations, and the unknowns map could not tell them apart — it
+listed a symbol I had invented to test guard (c) as though it were the team's
+documentation debt.
+
+The gate now names its reason at every abstention exit: `writer_abstained`,
+`unparseable_reply`, `no_answer_text`, `malformed_citations`,
+`ungrounded_citations`, `entity_absent`, `no_recorded_reason`,
+`self_disclaimed`, plus `no_evidence` from the pipeline. **Plain stable strings,
+not an enum** — they go into an append-only JSONL ledger that outlives any
+process, and a renamed member would silently reinterpret months of history.
+
+Surfaced on `/ask` as `reason`, stored on every ledger entry, and rendered: the
+Unknowns surface separates a REAL gap (the thing exists, nobody wrote down why)
+from **"not in this repo"**. Only the first is debt a team can act on. An entry
+written before reasons existed reads "reason not recorded" and is **never
+silently promoted to debt**.
+
+⚠️ **The first version of this was wrong, and live testing caught it.** A writer
+that honestly declines a question about a non-existent symbol never reaches
+guard (c), so the reason came back `writer_abstained` and the map counted it as
+real debt anyway — the exact conflation the reasons existed to remove, surviving
+one layer up. Guard (c)'s test is now factored out and does two jobs: forcing an
+abstention, and CLASSIFYING one. Only the reason changes; no verdict moves, and
+a test pins that.
+
+**Live-verified on rev 0000032**, `simonw/sqlite-utils`:
+
+```
+3 GAPS IN SIMONW/SQLITE-UTILS                    ranked by how often asked
+
+  How does the QuantumIndexShard class avoid…    not in this repo     asked 2x
+  Why was the plugin hook API designed with…     reason not recorded  asked 2x
+  Why was the QuantumIndexShard abstraction…     reason not recorded
+```
+
+**This is the instrument for the Linear/Jira decision.** It splits abstentions
+into unrecorded-anywhere versus unrecorded-in-what-we-read versus
+doesn't-exist-here. Run it on a design partner for a month and the answer to
+"is a second source worth reopening the authorization model" stops being
+opinion. Without it, that argument has no evidence.
+
 ## The post-deploy session reset — explained, and a latent risk it exposed
 
 Twice this session, immediately after a deploy, `/status` reported `psf/requests`
@@ -362,7 +406,7 @@ out. Worth fixing before a design partner's team uses it concurrently.
 ## DMG — REBUILT, verified, and PUBLISHED
 
 `Icarus.dmg`, **940 KB**, sha256
-`7be8992752c2b1683306a220e34d6b2a532640535645cace56cb385d4a4c0f28`, brain URL
+`61e2951d2a505419d60b35ee75989d03ae20acad24713f614de429917b3146f6`, brain URL
 stamped to Azure (not the 127.0.0.1 fallback). Rebuilt from `main` @ `062862d` (the indexing caveat); verified before each
 publish that nothing under `mac/` changed after the build.
 
@@ -371,9 +415,8 @@ FOUR places across TWO repos from the image itself. **Verified end to end after
 pushing**: Vercel serves a DMG whose SHA matches the pin in `install.sh` and in
 the Homebrew cask — all three install paths agree.
 
-- `alankritxghosh/Icarus-Website` @ `053db9a`
-- `alankritxghosh/homebrew-icarus` @ `3af1d79`
-- this repo @ `64c0d33` (the `site/index.html` mirror)
+- `alankritxghosh/Icarus-Website` @ `f44c7f1`
+- `alankritxghosh/homebrew-icarus` @ `ffc8b1d`
 
 **Found while publishing: `site/index.html` had already drifted.** It carried
 sha `a899cf2e` / "~926 KB" while the LIVE site served `a64a282c` / "~927 KB" —
@@ -428,7 +471,8 @@ token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
 (vector cache keyed on corpus content), `5347b30` (every PR and issue indexed),
 `8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4),
 `062862d` (indexing caveat), `5b8252f` (depth pass best-effort + real connect
-failure logs), `6211e38` (unknowns map UI).
+failure logs), `6211e38` (unknowns map UI), `1502ba9` (abstention reasons),
+`2ac0a4f` (classify a writer abstention about a missing symbol).
 
 ---
 
