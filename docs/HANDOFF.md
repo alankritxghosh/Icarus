@@ -341,7 +341,7 @@ it, which inflates the documentation-debt reading. Fixing it means recording the
 abstention REASON (guard b / guard c / writer) alongside the verdict. That is
 also what would make the ledger able to answer the Linear question — see below.
 
-## 9. `1502ba9` + `2ac0a4f` — the ledger records WHY it abstained
+## 9. `1502ba9` + `52cf5a2` — the ledger records WHY it abstained
 
 The limitation section 8 flagged, fixed. "Unknown" is one word covering several
 very different situations, and the unknowns map could not tell them apart — it
@@ -472,7 +472,7 @@ token + corpus_version), `f414d31` (refresh must actually re-ingest), `c0c6fd1`
 `8d58968` (corpus format 3), `91a9b7c` (commit messages indexed, format 4),
 `062862d` (indexing caveat), `5b8252f` (depth pass best-effort + real connect
 failure logs), `6211e38` (unknowns map UI), `1502ba9` (abstention reasons),
-`2ac0a4f` (classify a writer abstention about a missing symbol).
+`52cf5a2` (classify a writer abstention about a missing symbol).
 
 ---
 
