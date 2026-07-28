@@ -80,4 +80,8 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
         "searched": list(result.retrieved),
         "anchored": list(result.anchored),
         "indexing": bool(indexing),
+        # WHY it abstained (evals/gate.py's ABSTAIN_* constants), so the
+        # unknowns map can separate "nobody recorded this" from "the thing you
+        # asked about isn't in this repo". None on an answer.
+        "reason": result.abstention_reason if result.verdict == "unknown" else None,
     }

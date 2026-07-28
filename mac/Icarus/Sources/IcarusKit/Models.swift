@@ -178,12 +178,48 @@ public struct LedgerEntry: Decodable, Sendable {
     public let question: String
     public let verdict: Verdict
     public let citations: [String]
+    /// WHY the gate abstained (evals/gate.py's ABSTAIN_* constants). Optional:
+    /// entries written before this field existed carry no reason, and an
+    /// answer never has one.
+    public let reason: String?
 
-    public init(ts: Double, question: String, verdict: Verdict, citations: [String]) {
+    public init(ts: Double, question: String, verdict: Verdict,
+                citations: [String], reason: String? = nil) {
         self.ts = ts
         self.question = question
         self.verdict = verdict
         self.citations = citations
+        self.reason = reason
+    }
+}
+
+/// What an abstention actually MEANT, for the unknowns map.
+///
+/// Only `undocumented` is a documentation gap the team can act on. Rendering
+/// the others as one would overstate their debt — a fabricated symbol is not a
+/// missing decision record, it is a question about something that isn't there.
+public enum GapKind: String, Sendable {
+    case undocumented       // the thing exists; nobody wrote down why
+    case notInThisRepo      // the named thing isn't in what we indexed
+    case unclear            // recorded before reasons existed, or a defect
+
+    public init(reason: String?) {
+        switch reason {
+        case "no_recorded_reason", "writer_abstained", "self_disclaimed", "no_evidence":
+            self = .undocumented
+        case "entity_absent":
+            self = .notInThisRepo
+        default:
+            self = .unclear
+        }
+    }
+
+    public var label: String? {
+        switch self {
+        case .undocumented: return nil          // the default case needs no badge
+        case .notInThisRepo: return "not in this repo"
+        case .unclear: return "reason not recorded"
+        }
     }
 }
 
@@ -204,6 +240,9 @@ public struct Gap: Identifiable, Sendable, Equatable {
     public let question: String
     public let count: Int
     public let lastAsked: Double
+    /// What this gap actually is. A `.notInThisRepo` gap is NOT documentation
+    /// debt and must not be presented as if it were.
+    public let kind: GapKind
     public var id: String { question }
 }
 
@@ -220,18 +259,24 @@ public extension LedgerResponse {
     /// literal, never fuzzy: clustering near-identical phrasings would merge
     /// two genuinely different questions and silently overstate a gap.
     var gaps: [Gap] {
-        var counts: [String: (display: String, n: Int, last: Double)] = [:]
+        var counts: [String: (display: String, n: Int, last: Double, kind: GapKind)] = [:]
         for e in entries where e.verdict == .unknown {
             let text = e.question.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
             let key = text.lowercased()
+            let kind = GapKind(reason: e.reason)
             let prior = counts[key]
+            // The most RECENT classification wins for a repeated question: an
+            // older entry may predate reasons entirely, and treating that as
+            // authoritative would permanently mark a real gap "unclear".
+            let resolved = (prior == nil || e.ts >= prior!.last) ? kind : prior!.kind
             counts[key] = (prior?.display ?? text,
                            (prior?.n ?? 0) + 1,
-                           max(prior?.last ?? 0, e.ts))
+                           max(prior?.last ?? 0, e.ts),
+                           resolved)
         }
         return counts.values
-            .map { Gap(question: $0.display, count: $0.n, lastAsked: $0.last) }
+            .map { Gap(question: $0.display, count: $0.n, lastAsked: $0.last, kind: $0.kind) }
             .sorted { $0.count == $1.count ? $0.lastAsked > $1.lastAsked : $0.count > $1.count }
     }
 }

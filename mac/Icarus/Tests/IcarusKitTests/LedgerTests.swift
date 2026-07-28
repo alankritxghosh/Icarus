@@ -86,3 +86,68 @@ final class LedgerGapsTests: XCTestCase {
         XCTAssertEqual(l.gaps.map(\.question), ["why 30?"])
     }
 }
+
+/// A gap is only documentation debt if the thing actually EXISTS and nobody
+/// wrote down why. Presenting "you asked about something that isn't here" as
+/// debt overstates a team's problem — and this surface makes a claim about
+/// their codebase, so it has to get that right.
+final class GapKindTests: XCTestCase {
+    private func entry(_ q: String, reason: String?, ts: Double = 0) -> LedgerEntry {
+        LedgerEntry(ts: ts, question: q, verdict: .unknown, citations: [], reason: reason)
+    }
+
+    func testAnUndocumentedWhyIsRealDebt() {
+        XCTAssertEqual(GapKind(reason: "no_recorded_reason"), .undocumented)
+        XCTAssertNil(GapKind.undocumented.label, "the normal case needs no badge")
+    }
+
+    func testAFabricatedSymbolIsNotDebt() {
+        XCTAssertEqual(GapKind(reason: "entity_absent"), .notInThisRepo)
+        XCTAssertEqual(GapKind.notInThisRepo.label, "not in this repo")
+    }
+
+    func testAnEntryFromBeforeReasonsExistedIsMarkedUnclear() {
+        // Never silently promoted to "documentation debt" — we don't know.
+        XCTAssertEqual(GapKind(reason: nil), .unclear)
+        XCTAssertNotNil(GapKind.unclear.label)
+    }
+
+    func testTheKindReachesTheRankedGap() {
+        let l = LedgerResponse(repo: "acme/api", entries: [
+            entry("why 30?", reason: "no_recorded_reason"),
+            entry("how does Xyzzy work?", reason: "entity_absent"),
+        ])
+        let byQuestion = Dictionary(uniqueKeysWithValues: l.gaps.map { ($0.question, $0.kind) })
+        XCTAssertEqual(byQuestion["why 30?"], .undocumented)
+        XCTAssertEqual(byQuestion["how does Xyzzy work?"], .notInThisRepo)
+    }
+
+    func testTheMostRecentClassificationWins() {
+        // An old entry may predate reasons entirely; letting it win would
+        // permanently mark a real gap "unclear".
+        let l = LedgerResponse(repo: "acme/api", entries: [
+            entry("why 30?", reason: nil, ts: 100),
+            entry("why 30?", reason: "no_recorded_reason", ts: 900),
+        ])
+        XCTAssertEqual(l.gaps.first?.kind, .undocumented)
+        XCTAssertEqual(l.gaps.first?.count, 2, "both asks still count")
+    }
+
+    func testAnOlderBrainOmittingReasonStillDecodes() {
+        let json = Data("""
+        {"repo":"a/b","entries":[{"ts":1.0,"question":"q","verdict":"unknown","citations":[]}]}
+        """.utf8)
+        let l = try! JSONDecoder().decode(LedgerResponse.self, from: json)
+        XCTAssertNil(l.entries.first?.reason)
+        XCTAssertEqual(l.gaps.first?.kind, .unclear)
+    }
+
+    func testDecodesTheReasonWhenPresent() throws {
+        let json = Data("""
+        {"repo":"a/b","entries":[{"ts":1.0,"question":"q","verdict":"unknown",
+          "citations":[],"reason":"entity_absent"}]}
+        """.utf8)
+        let l = try JSONDecoder().decode(LedgerResponse.self, from: json)
+        XCTAssertEqual(l.gaps.first?.kind, .notInThisRepo)
+    }
+}

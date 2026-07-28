@@ -6,6 +6,7 @@ bluff."""
 import json
 import unittest
 
+from . import gate as gate_mod
 from .gate import gate
 
 RETRIEVED = ["pr:1435", "issue:506", "code:llm/models.py"]
@@ -263,3 +264,73 @@ class SelfDisclaimingAnswerGuardTests(unittest.TestCase):
         raw = json.dumps({"verdict": "unknown", "answer": "", "citations": []})
         self.assertEqual(gate(raw, [self.REF]).verdict, "unknown")
 
+
+
+class AbstentionReasonTests(unittest.TestCase):
+    """"Unknown" is one word covering several very different situations, and
+    conflating them costs real information.
+
+    On the unknowns map, "nobody wrote this down" and "you asked about something
+    that isn't in this repo" render identically — so a fabricated symbol inflates
+    a team's apparent documentation debt and a genuine gap is indistinguishable
+    from a typo. It also decides whether a gap is unrecorded ANYWHERE or merely
+    unrecorded in the sources Icarus reads, which is the evidence for or against
+    adding a second source."""
+
+    def test_an_answer_carries_no_reason(self):
+        r = gate(json.dumps({"verdict": "answer", "answer": "Because Y.",
+                             "citations": ["pr:1"]}), ["pr:1"])
+        self.assertEqual(r.verdict, "answer")
+        self.assertIsNone(r.abstention_reason)
+
+    def test_the_writer_abstaining_is_distinct_from_a_broken_reply(self):
+        # One is the product working as designed; the other is a defect. They
+        # must never be counted as the same thing.
+        self.assertEqual(gate(json.dumps({"verdict": "unknown"}), []).abstention_reason,
+                         gate_mod.ABSTAIN_WRITER)
+        self.assertEqual(gate("not json at all", []).abstention_reason,
+                         gate_mod.ABSTAIN_UNPARSEABLE)
+
+    def test_an_ungrounded_citation_is_recorded_as_such(self):
+        r = gate(json.dumps({"verdict": "answer", "answer": "x",
+                             "citations": ["pr:99999"]}), ["pr:1"])
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_UNGROUNDED)
+
+    def test_a_fabricated_symbol_is_recorded_as_entity_absent(self):
+        # THE case this exists for: not a documentation gap at all.
+        r = gate(json.dumps({"verdict": "answer", "answer": "It shards.",
+                             "citations": ["code:db.py"]}),
+                 ["code:db.py"],
+                 question="How does QuantumIndexShard work?",
+                 evidence={"code:db.py": "class BTree: pass"})
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_ENTITY_ABSENT)
+
+    def test_an_undocumented_why_is_recorded_as_no_recorded_reason(self):
+        # A REAL documentation gap — the thing exists, the reason was never
+        # written down. This is the bucket a team should act on.
+        r = gate(json.dumps({"verdict": "answer", "answer": "It is 30.",
+                             "citations": ["code:c.py"]}),
+                 ["code:c.py"],
+                 question="Why is the redirect limit 30?",
+                 evidence={"code:c.py": "REDIRECT_LIMIT = 30"})
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_NO_RECORDED_REASON)
+
+    def test_the_two_buckets_are_actually_different_values(self):
+        # If these ever collapse, the map silently goes back to being useless.
+        self.assertNotEqual(gate_mod.ABSTAIN_ENTITY_ABSENT,
+                            gate_mod.ABSTAIN_NO_RECORDED_REASON)
+
+    def test_a_self_disclaiming_answer_is_recorded_as_such(self):
+        r = gate(json.dumps({"verdict": "answer",
+                             "answer": "The evidence does not state a reason for the limit.",
+                             "citations": ["pr:1"]}), ["pr:1"])
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_SELF_DISCLAIMED)
+
+    def test_every_reason_is_a_plain_stable_string(self):
+        # They are written to an append-only JSONL ledger that outlives any one
+        # process; a renamed value would silently reinterpret months of history.
+        for name in dir(gate_mod):
+            if name.startswith("ABSTAIN_"):
+                self.assertIsInstance(getattr(gate_mod, name), str)

@@ -111,6 +111,12 @@ class Result:
     # identical to one that ignored the question and searched blindly -- reported
     # live 2026-07-28. Display only: nothing here feeds the writer or the gate.
     anchored: List[str] = field(default_factory=list)
+    # WHY the gate abstained, when it did (evals/gate.py's ABSTAIN_* constants);
+    # None on an answer. "Unknown" alone collapses several very different
+    # situations -- nobody recorded it, versus the thing asked about not
+    # existing here -- and the unknowns map cannot tell a team's real
+    # documentation debt from a typo without this.
+    abstention_reason: str = None
 
 
 class Pipeline:
@@ -290,7 +296,9 @@ class GatedPipeline(Pipeline):
         from .gate import gate
         anchored = list(dict.fromkeys(anchored or ()))
         if not top:
-            return Result(verdict="unknown", retrieved=retrieved, anchored=anchored)
+            from .gate import ABSTAIN_NO_EVIDENCE
+            return Result(verdict="unknown", retrieved=retrieved, anchored=anchored,
+                          abstention_reason=ABSTAIN_NO_EVIDENCE)
         # Pass the question + the evidence text the writer actually saw so the
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}

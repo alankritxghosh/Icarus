@@ -285,26 +285,56 @@ def _named_identifiers(question) -> list:
     return out
 
 
+
+# --- why the gate abstained -------------------------------------------------
+# A verdict of "unknown" is a single word covering several very different
+# situations, and conflating them costs real information. On the unknowns map,
+# "nobody wrote this down" and "you asked about something that isn't in this
+# repo" render identically -- so a fabricated symbol inflates a team's apparent
+# documentation debt, and a genuine gap is indistinguishable from a typo.
+#
+# It also decides a product question: whether a gap is unrecorded ANYWHERE, or
+# merely unrecorded in the sources Icarus reads. That is the evidence for or
+# against adding a second source (Linear/Jira), and without it the argument is
+# just opinion.
+#
+# Stable strings, not an enum: they are written to an append-only JSONL ledger
+# that outlives any one process, and a renamed enum member would silently
+# reinterpret months of history.
+ABSTAIN_NO_EVIDENCE = "no_evidence"            # retrieval returned nothing at all
+ABSTAIN_WRITER = "writer_abstained"            # the writer itself said unknown
+ABSTAIN_UNPARSEABLE = "unparseable_reply"      # not JSON / no verdict field
+ABSTAIN_NO_PROSE = "no_answer_text"            # claimed answer, wrote nothing
+ABSTAIN_MALFORMED_CITATIONS = "malformed_citations"
+ABSTAIN_UNGROUNDED = "ungrounded_citations"    # cited nothing we actually retrieved
+ABSTAIN_ENTITY_ABSENT = "entity_absent"        # guard (c): the named thing isn't here
+ABSTAIN_NO_RECORDED_REASON = "no_recorded_reason"  # guard (b): evidence records no why
+ABSTAIN_SELF_DISCLAIMED = "self_disclaimed"    # guard (d): the prose disclaims knowing
+
 def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
     data = _extract_json(raw)
     verdict = data.get("verdict") if isinstance(data, dict) else None
     if not isinstance(data, dict) or not isinstance(verdict, str) or verdict.lower() != "answer":
-        return Result(verdict="unknown")
+        # Distinguish "the writer honestly said unknown" from "the reply was
+        # unusable" -- one is the product working, the other is a defect.
+        reason = (ABSTAIN_WRITER if isinstance(verdict, str) and verdict.lower() == "unknown"
+                  else ABSTAIN_UNPARSEABLE)
+        return Result(verdict="unknown", abstention_reason=reason)
     answer = data.get("answer")
     citations = data.get("citations")
     if not isinstance(answer, str) or not answer.strip():
-        return Result(verdict="unknown")
+        return Result(verdict="unknown", abstention_reason=ABSTAIN_NO_PROSE)
     if isinstance(citations, str):
         citations = [citations]
     if not isinstance(citations, list):
-        return Result(verdict="unknown")
+        return Result(verdict="unknown", abstention_reason=ABSTAIN_MALFORMED_CITATIONS)
     grounded = []
     for c in citations:
         r = _resolve(c, retrieved)
         if r is not None and r not in grounded:
             grounded.append(r)
     if not grounded:
-        return Result(verdict="unknown")
+        return Result(verdict="unknown", abstention_reason=ABSTAIN_UNGROUNDED)
     # (c) The question's distinctive named identifiers must actually appear in the
     # evidence the writer saw. A fabricated symbol grounded to adjacent real code
     # (Redis's non-existent "HYPERVECTOR" over the real vector-set code) is a
@@ -316,7 +346,8 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
         if idents:
             haystack = "\n".join(evidence.values()).lower()
             if not all(sym.lower() in haystack for sym in idents):
-                return Result(verdict="unknown", retrieved=list(retrieved))
+                return Result(verdict="unknown", retrieved=list(retrieved),
+                              abstention_reason=ABSTAIN_ENTITY_ABSENT)
     # (b) A rationale-seeking ("why") question needs grounded evidence that
     # actually RECORDS a reason -- otherwise the writer answered an easier
     # question than the one asked (the "why 32?" -> "it's 32" dodge). A recorded
@@ -331,11 +362,13 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
             # issue body -- an author explaining a change in prose.
             return _source(r) in ("pr", "issue", "doc", "commit") or _states_reason(evidence.get(r, ""))
         if not any(_records_reason(r) for r in grounded):
-            return Result(verdict="unknown", retrieved=list(retrieved))
+            return Result(verdict="unknown", retrieved=list(retrieved),
+                          abstention_reason=ABSTAIN_NO_RECORDED_REASON)
     # (d) The writer's verdict field is a CLAIM, not a fact. If the prose itself
     # says the reason isn't recorded, that is an abstention regardless of the label
     # -- believe the sentence, not the field. Unconditional: it reads only the
     # answer, so it protects .explain() and 2-arg callers too.
     if _disclaims_answer(answer):
-        return Result(verdict="unknown", retrieved=list(retrieved))
+        return Result(verdict="unknown", retrieved=list(retrieved),
+                      abstention_reason=ABSTAIN_SELF_DISCLAIMED)
     return Result(verdict="answer", answer=answer.strip(), citations=grounded, retrieved=list(retrieved))

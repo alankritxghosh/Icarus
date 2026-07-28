@@ -476,6 +476,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # including a broken ledger object).
                     try:
                         ledger.record(repo, question=question,
+                                      reason=result.abstention_reason,
                                       verdict=result.verdict, citations=result.citations)
                     except Exception as e:
                         print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)

@@ -113,3 +113,48 @@ class LedgerTests(unittest.TestCase):
         self.assertTrue(written)
         for p in written:
             self.assertIn(self.root, p.parents)
+
+
+class AbstentionReasonTests(unittest.TestCase):
+    """The ledger records WHY the gate abstained, so the unknowns map is a real
+    map of documentation debt rather than a pile of everything that failed.
+
+    Without it, "nobody wrote this down" and "you asked about something that
+    does not exist here" are indistinguishable, and a typo inflates a team's
+    apparent debt."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ledger = Ledger(Path(self.tmp.name))
+
+    def test_the_reason_round_trips(self):
+        self.ledger.record("o/r", question="why 30?", verdict="unknown",
+                           reason="no_recorded_reason")
+        self.assertEqual(self.ledger.entries("o/r")[0]["reason"], "no_recorded_reason")
+
+    def test_the_two_buckets_stay_distinguishable_on_disk(self):
+        self.ledger.record("o/r", question="why 30?", verdict="unknown",
+                           reason="no_recorded_reason")
+        self.ledger.record("o/r", question="how does Xyzzy work?", verdict="unknown",
+                           reason="entity_absent")
+        reasons = {e["question"]: e["reason"] for e in self.ledger.entries("o/r")}
+        self.assertEqual(reasons["why 30?"], "no_recorded_reason")
+        self.assertEqual(reasons["how does Xyzzy work?"], "entity_absent")
+
+    def test_an_answer_records_no_reason(self):
+        self.ledger.record("o/r", question="why?", verdict="answer",
+                           citations=["pr:1"])
+        self.assertIsNone(self.ledger.entries("o/r")[0]["reason"])
+
+    def test_the_field_is_optional_for_existing_callers(self):
+        self.ledger.record("o/r", question="q", verdict="unknown")
+        self.assertIsNone(self.ledger.entries("o/r")[0]["reason"])
+
+    def test_recording_a_reason_still_stores_no_identity(self):
+        # The privacy property must survive the new field.
+        self.ledger.record("o/r", question="q", verdict="unknown",
+                           reason="entity_absent")
+        entry = self.ledger.entries("o/r")[0]
+        for forbidden in ("user", "user_id", "asker", "identity", "who"):
+            self.assertNotIn(forbidden, entry)

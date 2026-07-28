@@ -96,6 +96,12 @@ private struct GapRow: View {
                 .font(.system(size: 14)).foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 12)
+            // A gap that is really "you asked about something that isn't here"
+            // is not documentation debt, and must not be shown as if it were.
+            if let label = gap.kind.label {
+                Text(label)
+                    .font(Theme.mono(10)).foregroundStyle(Theme.muted)
+            }
             if gap.count > 1 {
                 Text("asked \(gap.count)x")
                     .font(Theme.mono(11)).foregroundStyle(Theme.unknown)

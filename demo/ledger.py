@@ -62,7 +62,7 @@ class Ledger:
         return self._root / f"{_slug(repo)}.jsonl"
 
     def record(self, repo: str, *, question: str, verdict: str,
-               citations=()) -> None:
+               citations=(), reason=None) -> None:
         """Append one ask. Never raises on a full disk or a racing writer taking
         the record down with it -- a failed ledger write must not fail the
         answer the caller actually asked for.
@@ -74,6 +74,14 @@ class Ledger:
             "question": question,
             "verdict": verdict,
             "citations": list(citations or ()),
+            # WHY the gate abstained (evals/gate.py's ABSTAIN_* constants), so
+            # the unknowns map is a real map of documentation debt rather than a
+            # pile of every question that failed for any reason. Without it,
+            # "nobody wrote this down" and "you asked about something that does
+            # not exist here" are indistinguishable, and a typo inflates a
+            # team's apparent debt. None on an answer, and on any entry written
+            # before this field existed.
+            "reason": reason,
         }
         line = json.dumps(entry, ensure_ascii=False) + "\n"
         try:
