@@ -57,6 +57,11 @@ def _with_readme():
                           Chunk(ref="code:llm/cli.py", source="code", text="x = 1\n")])
 
 
+def _with_contributing():
+    return _FakePipeline([Chunk(ref="doc:README.md", source="doc", text="# llm\n"),
+                          Chunk(ref="doc:CONTRIBUTING.md", source="doc", text="Run the tests.\n")])
+
+
 def _without_readme():
     return _FakePipeline([Chunk(ref="code:llm/cli.py", source="code", text="x = 1\n")])
 
@@ -116,8 +121,36 @@ class PurposeIsAddressedNotSearchedTests(unittest.TestCase):
         self.assertEqual(pipe.explain_calls, [])
         self.assertEqual(len(pipe.answer_calls), 1)
 
+    def test_conventions_addresses_the_contributing_guide(self):
+        # Measured 2026-07-29: `conventions` answered 9/10 but only 4/9 said
+        # anything -- every hollow one cited a COMMIT that merely mentioned a
+        # contributing guide, while 7 of 10 repos had the guide indexed. Same
+        # failure `purpose` had before the README was addressed by path.
+        pipe = _with_contributing()
+        answer_step(pipe, STATUS, "conventions")
+        self.assertEqual([c[0] for c in pipe.explain_calls], ["CONTRIBUTING.md"])
+        self.assertEqual(pipe.answer_calls, [])
+
+    def test_conventions_falls_back_to_an_ordinary_ask_with_no_guide(self):
+        # Three of the ten measured repos have no contributing doc indexed at
+        # all. The step must still run -- and, on that evidence, is expected to
+        # abstain honestly rather than paraphrase a commit.
+        pipe = _with_readme()
+        answer_step(pipe, STATUS, "conventions")
+        self.assertEqual(pipe.explain_calls, [])
+        self.assertEqual(len(pipe.answer_calls), 1)
+
+    def test_each_anchored_step_addresses_its_OWN_document(self):
+        # purpose -> README, conventions -> CONTRIBUTING. Crossing them would
+        # be worse than not anchoring at all.
+        pipe = _with_contributing()
+        answer_step(pipe, STATUS, "purpose")
+        answer_step(pipe, STATUS, "conventions")
+        self.assertEqual([c[0] for c in pipe.explain_calls],
+                         ["README.md", "CONTRIBUTING.md"])
+
     def test_every_other_step_is_an_ordinary_ask(self):
-        for step_id in ("stack", "decisions", "conventions", "recent"):
+        for step_id in ("stack", "decisions", "recent"):
             pipe = _with_readme()
             answer_step(pipe, STATUS, step_id, token="tok")
             self.assertEqual(pipe.explain_calls, [], step_id)
@@ -159,9 +192,15 @@ class MeasurementDriftTests(unittest.TestCase):
         self.assertIn("architecture", ids)
         self.assertIn("debt", ids)
 
-    def test_purpose_is_anchored_in_both(self):
-        from evals.onboarding_probe import ANCHORED_STEPS
-        self.assertEqual(ANCHORED_STEPS, {"purpose"})
+    def test_the_probe_anchors_exactly_what_the_product_anchors(self):
+        # Asserted against the product rather than a hardcoded set: the point
+        # is that the measurement exercises the shipped behaviour, so this must
+        # keep holding as steps are anchored or un-anchored.
+        from evals.onboarding_probe import ANCHORED_STEPS as probe_anchored
+        from .onboarding import ANCHOR_DOCUMENT
+        self.assertEqual(probe_anchored, set(ANCHOR_DOCUMENT))
+        self.assertIn("purpose", probe_anchored)
+        self.assertIn("conventions", probe_anchored)
 
 
 if __name__ == "__main__":

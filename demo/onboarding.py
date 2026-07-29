@@ -61,13 +61,32 @@ STEPS = [
      "What has changed most recently in this project?"),
 ]
 
-# Steps answered from the README ADDRESSED BY PATH instead of searched for.
-# The README is indexed; retrieval simply never surfaces it, because a generic
-# onboarding question has no distinctive terms for BM25 and the README's
-# embedded window is dominated by badges, logo markup and sponsor blocks
-# (measured on sindresorhus/execa: the answer is 30 characters at offset 300 of
-# a ~2,000-character window the embedder actually reads).
-ANCHORED_STEPS = {"purpose"}
+# Steps answered from a specific DOCUMENT ADDRESSED BY PATH instead of searched
+# for, mapping step id -> the key in the repository map's
+# `indexed_documentation` that names the file.
+#
+# Both entries were earned by measurement over ten real repos, and both fixed
+# the SAME failure: the document that answers the question is indexed the whole
+# time, and retrieval reaches history that merely MENTIONS it instead.
+#
+#   purpose      2/10 -> 10/10 answered. Searching found commit messages; the
+#                README's own embedded window is dominated by badges, logo
+#                markup and sponsor blocks (measured on sindresorhus/execa: the
+#                answer is 30 characters at offset 300 of the ~2,000-character
+#                window the embedder actually reads).
+#   conventions  answered 9/10 but only 4/9 SUBSTANTIVELY -- every hollow one
+#                cited a commit that mentioned a contributing guide ("added in
+#                commit a6ed0f2") rather than the guide, which 7 of the 10
+#                repos had indexed all along.
+#
+# A step with no such document falls back to an ordinary ask, and on that
+# evidence is expected to abstain rather than paraphrase a commit. That is the
+# correct outcome, not a gap.
+ANCHOR_DOCUMENT = {"purpose": "readme", "conventions": "contributing"}
+
+# Kept as the set of step ids for callers (and the probe) that only need to ask
+# "is this step anchored?".
+ANCHORED_STEPS = set(ANCHOR_DOCUMENT)
 
 _BY_ID = {step_id: (title, question) for step_id, title, question in STEPS}
 
@@ -110,10 +129,12 @@ def answer_step(pipeline, status, step_id, token=None):
     passed straight through, never softened into something that reads like an
     answer.
 
-    `purpose` addresses the repository's own README (path resolved from the
-    repository map, so a `readme.md` or `docs/README.md` works without
-    guessing) via `.explain()`, which resolves evidence by location through the
-    identical writer and gate. Everything else is an ordinary `.answer()`.
+    An ANCHORED step addresses one specific document -- `purpose` the README,
+    `conventions` the contributing guide -- with the path resolved from the
+    repository map, so `readme.md`, `docs/contributing.rst` or
+    `.github/CONTRIBUTING.md` all work without guessing. It goes through
+    `.explain()`, which resolves evidence by location using the identical
+    writer and gate. Everything else is an ordinary `.answer()`.
 
     The honest cost of that, stated rather than buried: `.explain()` runs with
     the gate's (b) why->what guard OFF, because someone selecting code wants
@@ -129,10 +150,12 @@ def answer_step(pipeline, status, step_id, token=None):
         raise ValueError(f"unknown onboarding step: {step_id!r}")
     _title, question = entry
 
-    if step_id in ANCHORED_STEPS:
-        readme = build_map(pipeline.indexed_chunks(), status)["indexed_documentation"]["readme"]
-        if readme:
-            return pipeline.explain(readme, 1, _WHOLE_FILE_END, question=question)
+    doc_key = ANCHOR_DOCUMENT.get(step_id)
+    if doc_key:
+        docs = build_map(pipeline.indexed_chunks(), status)["indexed_documentation"]
+        path = docs.get(doc_key)
+        if path:
+            return pipeline.explain(path, 1, _WHOLE_FILE_END, question=question)
     return pipeline.answer(question, token=token)
 
 

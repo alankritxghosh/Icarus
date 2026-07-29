@@ -88,6 +88,22 @@ def _readme(doc_paths):
     return sorted(candidates, key=lambda p: (p.count("/"), p))[0]
 
 
+def _named_doc(doc_paths, stem_test):
+    """The shallowest indexed doc whose FILENAME STEM satisfies `stem_test`.
+
+    Shallowest-then-alphabetical, so the choice is deterministic and a vendored
+    sub-package's copy can never outrank the repository's own (lazygit really
+    does carry both `CONTRIBUTING.md` and `pkg/gocui/CONTRIBUTING.md`).
+
+    Matched on the filename stem, never the whole path: a directory called
+    `contributing/` full of unrelated notes is not the contributing guide.
+    """
+    hits = [p for p in doc_paths if stem_test(p.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower())]
+    if not hits:
+        return None
+    return sorted(hits, key=lambda p: (p.count("/"), p))[0]
+
+
 def _exclusion_rules():
     """The rules ingest applied, derived from ingest's own constants so they
     cannot drift out of sync with what the walk really does. These describe
@@ -170,7 +186,18 @@ def build_map(chunks, status):
         "indexed_file_count": len(paths),
         "indexed_languages": dict(sorted(languages.items(), key=lambda kv: (-kv[1], kv[0]))),
         "indexed_directories": dict(sorted(directories.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "indexed_documentation": {"files": docs, "readme": _readme(docs)},
+        "indexed_documentation": {
+            "files": docs,
+            "readme": _readme(docs),
+            # Resolved for the same reason the README is: the tour's
+            # `conventions` step answered 9/10 but only 4/9 substantively,
+            # and every hollow one cited a COMMIT that merely mentioned a
+            # contributing guide rather than the guide itself -- which 7 of
+            # 10 repos had indexed the whole time. CODE_OF_CONDUCT is
+            # deliberately excluded: adjacent, and not an answer to "what
+            # conventions do you expect?".
+            "contributing": _named_doc(docs, lambda stem: stem == "contributing"),
+        },
         "indexed_entry_points": entry_points,
         "indexed_auxiliary": {
             "file_count": auxiliary,

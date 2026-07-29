@@ -124,15 +124,8 @@ look, not the app code.
 - **Builds are arm64-only** and the appcast now says so
   (`hardwareRequirements: arm64`). An Intel Mac cannot install or update. This
   was always true; it is now visible. Check before sending links.
-- **The hollow-answer problem is unfixed and unmeasured.** Live on
-  alankritxghosh/Icarus, the `conventions` step answered *"The project asks the
-  question … as part of its guided onboarding tour"*, citing
-  `code:demo/onboarding.py` -- retrieval matched the literal question string in
-  our own source. Grounded, so the gate passed; useless, so the probe counted a
-  success it should not have. **Next step is measurement, not a mechanism:**
-  wire `evals/judge.py` into `evals/onboarding_probe.py` and re-run the ten
-  repos (~20 min, corpora cached) to learn whether this is a real rate or a
-  self-indexing artefact. Only then consider a gate guard.
+- ~~The hollow-answer problem is unfixed and unmeasured.~~ **MEASURED AND
+  LARGELY FIXED** -- see the substantiveness section below.
 - **Streaming ingest** remains the largest unsolved engineering problem
   (`rust-lang/rust`, `huggingface/transformers` OOM at 4 GiB). It is the right
   next systems project and it is not a three-day job.
@@ -143,10 +136,59 @@ look, not the app code.
 - `architecture` (2/10) still needs structural comprehension; `debt` (5/10)
   unexplained. Both cut from the tour, both still measured by the probe.
 
+## SUBSTANTIVENESS — the measurement, and what it caught
+
+`evals/substance.py` grades whether an answer ANSWERS the question or merely
+says something true. A quality dial, never a gate: it cannot change a verdict,
+force an abstention, or affect what may be cited. Run on **Groq** while the
+writer is `gemini-paid` -- grading your own homework with the same model is not
+a measurement -- and it **fails safe to HOLLOW**, so an unparseable or failed
+reply can never inflate the score.
+
+**Calibrated before it was trusted.** It correctly rejected the live
+*"the project asks the question…"* answer, a vague "contains source code and
+tests", and a meta "decisions are discussed in the PRs", while accepting brief
+and partial-but-concrete answers. Had it passed the first, the run was noise.
+
+**First run: 54/70 answered, 49/54 substantive (91%) -- and every single hollow
+answer was `conventions`, 4/9.** Not diffuse weakness: four of five shipped
+steps were clean and one was broken. Every hollow answer cited a COMMIT MESSAGE
+that merely mentioned a contributing guide ("added in commit a6ed0f2"), while
+**7 of the 10 repos had the guide indexed the whole time**. The same failure
+`purpose` had before the README was addressed by path.
+
+⚠️ **A correction worth keeping:** the hollow answer first seen on
+alankritxghosh/Icarus was assumed to be a self-indexing artefact (retrieval
+matching our own question string in `demo/onboarding.py`). **That was wrong.**
+It reproduced on sqlite-utils, requests, glow, mdBook and shellcheck, none of
+which contain our source. The cause was structural.
+
+**The fix generalised rather than special-cased.** `ANCHOR_DOCUMENT` maps a
+step to the document that answers it -- `purpose` -> readme, `conventions` ->
+contributing -- and the repository map resolves the real indexed path, so
+`docs/contributing.rst` and `.github/CONTRIBUTING.md` both work. Resolution is
+shallowest-first (lazygit carries a vendored `pkg/gocui/CONTRIBUTING.md` that
+must not outrank its own), matched on filename STEM not path substring, and
+`CODE_OF_CONDUCT.md` is deliberately excluded.
+
+**Re-run: conventions 4/9 -> 7/9 substantive; overall 49/54 -> 52/54 (96%).**
+The split is exact and instructive: **all 3 repos that had a contributing doc
+flipped to substantive** (now citing `doc:` refs with concrete content -- Black
+and flake8, the AI Policy, `E-Help-wanted` labels), and **both repos with NO
+such doc are still hollow**, still paraphrasing a commit.
+
+**The residual problem is therefore different and is NOT fixable by anchoring:**
+with no document to address, the writer paraphrases a commit that mentions one
+instead of abstaining. That is "grounded but says nothing" in its pure form.
+Two cases out of seventy; do not build a gate guard on that without more
+evidence, and note that a guard here would have to distinguish "answered from
+weak evidence" from "answered from good evidence", which the gate cannot see.
+
 ## Commits
 
 `d542b47` (days 1+2), `49de216` (Sparkle + stable signing), `24b50fe` (feed
-baked into the plist). Website: `effa604`. Tap: `5192c4d`.
+baked into the plist), `<this>` (substantiveness judge + conventions anchor).
+Website: `effa604`. Tap: `5192c4d`.
 
 ---
 

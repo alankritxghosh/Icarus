@@ -46,6 +46,7 @@ from pathlib import Path
 #
 # Steps in ANCHORED_STEPS address the repo's README by path instead of
 # searching for it; see demo/onboarding.py for the measurement behind that.
+from .substance import is_substantive  # noqa: E402
 from demo.onboarding import (  # noqa: E402
     ANCHORED_STEPS, STEPS as _SHIPPED_STEPS, answer_step,
 )
@@ -83,7 +84,7 @@ DEFAULT_REPOS = [
 ]
 
 
-def probe_repo(lib, repo, anchor=True):
+def probe_repo(lib, repo, anchor=True, judge=None):
     """Connect `repo` and ask every onboarding step. Returns a result dict."""
     started = time.monotonic()
     status = lib.connect_sync(repo, background_upgrade=False)
@@ -116,10 +117,17 @@ def probe_repo(lib, repo, anchor=True):
             steps.append({"step": step_id, "verdict": "error",
                           "reason": type(e).__name__, "citations": [], "anchored": anchored})
             continue
+        # Substantiveness is a QUALITY DIAL and is judged by a DIFFERENT
+        # provider than the writer -- grading your own homework with the same
+        # model is not a measurement. None when no judge was wired.
+        substantive = None
+        if judge is not None and result.verdict == "answer":
+            substantive = is_substantive(judge, question, result.answer)
         steps.append({"step": step_id, "verdict": result.verdict,
                       "reason": result.abstention_reason,
                       "citations": result.citations,
                       "anchored": anchored,
+                      "substantive": substantive,
                       "answer": result.answer[:400]})
     return {"repo": repo, "commit": status.get("commit"),
             "counts": status.get("counts"), "truncated": status.get("truncated"),
@@ -131,10 +139,16 @@ def summarize(results):
     because "nobody wrote this down" and "that isn't in this repo" are
     different findings and only one of them is about the tour."""
     by_step, reasons = {}, {}
-    answered = abstained = errored = 0
+    answered = abstained = errored = substantive = judged = 0
     for r in results:
         for s in r["steps"]:
-            bucket = by_step.setdefault(s["step"], {"answer": 0, "unknown": 0, "error": 0})
+            if s.get("substantive") is not None:
+                judged += 1
+                substantive += 1 if s["substantive"] else 0
+            bucket = by_step.setdefault(s["step"], {"answer": 0, "unknown": 0,
+                                                    "error": 0, "substantive": 0})
+            if s.get("substantive"):
+                bucket["substantive"] += 1
             bucket[s["verdict"]] = bucket.get(s["verdict"], 0) + 1
             if s["verdict"] == "answer":
                 answered += 1
@@ -144,6 +158,7 @@ def summarize(results):
             else:
                 errored += 1
     return {"answered": answered, "abstained": abstained, "errored": errored,
+            "substantive": substantive, "judged": judged,
             "by_step": by_step, "reasons": reasons}
 
 
@@ -175,8 +190,16 @@ def _print_report(results, summary):
     for step, _q in ONBOARDING_STEPS:
         b = summary["by_step"].get(step)
         if b:
-            print(f"  {step:<14} answered {b.get('answer', 0):>2}  "
-                  f"abstained {b.get('unknown', 0):>2}  errors {b.get('error', 0):>2}")
+            line = (f"  {step:<14} answered {b.get('answer', 0):>2}  "
+                    f"abstained {b.get('unknown', 0):>2}  errors {b.get('error', 0):>2}")
+            if summary.get("judged"):
+                line += f"   substantive {b.get('substantive', 0):>2}"
+            print(line)
+    if summary.get("judged"):
+        sub, jud = summary["substantive"], summary["judged"]
+        print(f"\nSUBSTANTIVE {sub}/{jud} of the answers "
+              f"({100 * sub / jud:.0f}%) -- the rest answered a question, but not"
+              f" the one asked")
     print("\nabstention reasons:")
     for reason, n in sorted(summary["reasons"].items(), key=lambda kv: -kv[1]):
         print(f"  {str(reason):<22} {n}")
@@ -189,6 +212,10 @@ def main(argv=None):
     p.add_argument("--storage", default="/tmp/icarus-onboarding-probe",
                    help="corpus cache root (reused across runs)")
     p.add_argument("--out", default=None, help="write the full results as JSON here")
+    p.add_argument("--judge", default=None,
+                   help="provider that grades whether answers are SUBSTANTIVE "
+                        "(e.g. groq). Must differ from the writer: grading your "
+                        "own homework with the same model is not a measurement.")
     p.add_argument("--no-anchor", action="store_true",
                    help="reproduce the pre-fix baseline: search for every step "
                         "instead of addressing the README for ANCHORED_STEPS")
@@ -203,12 +230,19 @@ def main(argv=None):
     storage.mkdir(parents=True, exist_ok=True)
     default_dir = Path(__file__).resolve().parent / "corpus"
 
+    judge = None
+    if args.judge:
+        from .provider import make_provider
+        judge = make_provider(args.judge)
+        print(f"substantiveness judge: {args.judge} "
+              f"(writer is gemini-paid -- cross-provider)", file=sys.stderr)
+
     lib = Library(default_dir, storage, "simonw/llm")
     results = []
     for i, repo in enumerate(repos, 1):
         print(f"[{i}/{len(repos)}] {repo} …", file=sys.stderr, flush=True)
         try:
-            results.append(probe_repo(lib, repo, anchor=not args.no_anchor))
+            results.append(probe_repo(lib, repo, anchor=not args.no_anchor, judge=judge))
         except Exception as e:
             print(f"  {repo} failed: {type(e).__name__}: {e}", file=sys.stderr)
             results.append({"repo": repo, "error": f"{type(e).__name__}", "steps": []})

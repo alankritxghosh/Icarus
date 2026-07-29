@@ -132,6 +132,52 @@ class HonestAbsenceTests(unittest.TestCase):
         self.assertEqual(m["indexed_documentation"]["files"], ["docs/plugins.md"])
 
 
+class ContributingDocTests(unittest.TestCase):
+    """The map resolves the repo's contributing guide, for the same reason it
+    resolves the README.
+
+    Measured 2026-07-29: the tour's `conventions` step answered 9/10 but only
+    4/9 of those said anything -- every hollow one cited a COMMIT MESSAGE that
+    merely mentioned a contributing guide ("added in commit a6ed0f2") rather
+    than the guide itself. Seven of the ten repos had the document indexed the
+    whole time; retrieval just never reached it. Same failure `purpose` had
+    before the README was addressed by path.
+    """
+
+    def test_a_root_contributing_file_is_found(self):
+        m = build_map_from_refs(["doc:CONTRIBUTING.md", "code:a.py"], STATUS)
+        self.assertEqual(m["indexed_documentation"]["contributing"], "CONTRIBUTING.md")
+
+    def test_a_nested_or_dotted_location_is_found(self):
+        for path in ("docs/contributing.rst", ".github/CONTRIBUTING.md",
+                     "docs/dev/contributing.rst"):
+            with self.subTest(path=path):
+                m = build_map_from_refs([f"doc:{path}"], STATUS)
+                self.assertEqual(m["indexed_documentation"]["contributing"], path)
+
+    def test_the_shallowest_wins_so_a_vendored_copy_cannot_outrank_the_real_one(self):
+        # lazygit really does carry pkg/gocui/CONTRIBUTING.md alongside its own.
+        m = build_map_from_refs(["doc:pkg/gocui/CONTRIBUTING.md",
+                                 "doc:CONTRIBUTING.md"], STATUS)
+        self.assertEqual(m["indexed_documentation"]["contributing"], "CONTRIBUTING.md")
+
+    def test_a_code_of_conduct_is_not_a_contributing_guide(self):
+        # Adjacent, and not an answer to "what conventions do you expect?".
+        m = build_map_from_refs(["doc:CODE_OF_CONDUCT.md"], STATUS)
+        self.assertIsNone(m["indexed_documentation"]["contributing"])
+
+    def test_absence_is_reported_not_omitted(self):
+        m = build_map_from_refs(["doc:README.md"], STATUS)
+        self.assertIn("contributing", m["indexed_documentation"])
+        self.assertIsNone(m["indexed_documentation"]["contributing"])
+
+    def test_it_is_always_an_indexed_path(self):
+        m = build_map_from_refs(REFS, STATUS)
+        c = m["indexed_documentation"]["contributing"]
+        if c is not None:
+            self.assertIn(c, m["indexed_documentation"]["files"])
+
+
 class TruncationTests(unittest.TestCase):
     """Requirements 4 and 5: truncation is surfaced, and its ABSENCE is not
     quietly upgraded into a completeness claim."""
