@@ -1,3 +1,155 @@
+# Icarus — Session Handoff (2026-07-29 late: the first five minutes — a connect you can watch, a tour that waits, and an app that updates itself)
+
+**READ THIS FIRST.** Three days of first-experience work, all DEPLOYED and
+PUBLISHED. Icarus can now update itself; nobody has to reinstall by hand again.
+
+**Live: `icarus-brain--0000035`, image `alpha-20260729-progress`, Healthy, 100%
+traffic. `main` @ `24b50fe`. Published DMG `a88ebe42` (build 2). evals 556 ·
+demo 360 · IcarusKit 158 · secrets scan clean · paid board GREEN.**
+
+## The framing that produced this work
+
+A first-time user's experience was: sign in, type a repo, **wait 3-16 minutes
+at a spinner**, then take a tour that is measurably worse than it will be in
+ten minutes because indexing has not finished. Everything else -- citations,
+honest unknowns, entry points -- was already good. **The product was not
+unfriendly; the first five minutes were.**
+
+## DAY 1 — a connect you can watch (`d542b47`)
+
+`/status` now carries `{done, total, eta_seconds}` while the embed runs,
+rendered in the app's connect screen, the tour banner, and the web UI. Live
+trace, fresh connect to `sindresorhus/execa`:
+
+    read     13 of 2,784   eta 217s
+    read    611 of 2,784   eta  89s
+    read  2,729 of 2,784   eta   2s
+    DONE - progress cleared
+
+The ETA is measured from **that run's own rate**, not a constant: embed speed
+varies with chunk length and host load. Four honesty properties, each
+test-pinned: no fabricated 0% before there is a rate; the wording always hedges
+("about 6 min left"); it clears when the embed finishes; a superseded connect
+cannot rewind it.
+
+⚠️ **The pre-flight repo-size check in the plan was DROPPED, on evidence.**
+Calibrating first killed it: **facebook/react is 1,038 MB and succeeds;
+rust-lang/rust is 955 MB and OOMs.** Size does not predict failure, so any
+threshold would have blocked a repo that demonstrably works. A real predictor
+is most likely chunk count observed mid-ingest. Do not re-attempt this on size.
+
+## DAY 2 — a tour that never opens degraded (`d542b47`)
+
+`stack` answers 10/10 across ten repos once the semantic index is built, and
+abstained live on a real repo purely because the embed was still running. A
+first-time user takes the tour in exactly that window.
+
+The writer-backed steps are now **held until the index is ready** -- not asked
+at all, so they never reach the billed writer only to come back visibly worse
+-- while the map step stays fully explorable (it needs no retrieval). "Next"
+carries the countdown, and the held step answers itself when indexing finishes.
+
+Readiness is driven by the app's `/status` poll, deliberately **not** by a
+field in the tour plan: the plan is fetched once and indexing finishes later,
+so a flag baked into it would be a stale snapshot of a live condition.
+
+Found while wiring it: **`RepoStatus` never decoded `indexing` at all.** The
+server had always sent it; the app had no way to know the index was still
+building except by asking a question and getting a worse answer.
+
+## DAY 3 — in-app updates + a stable signing identity (`49de216`, `24b50fe`)
+
+**PROVEN END TO END, watched live:** an installed build 1 polled the feed,
+verified build 2's EdDSA signature against the public key baked into it,
+downloaded, replaced itself and relaunched. Verified from the shell afterwards:
+the running binary is byte-identical to the published build 2, `CFBundleVersion
+2`, and the signature still verifies deep+strict.
+
+**Stable signing.** Measured, not assumed:
+
+    before:  designated => cdhash H"877f0a45…"
+    after:   designated => identifier "com.alankrit.icarus" and certificate root = H"697e2841…"
+
+Ad-hoc signatures have no certificate, so macOS derives the designated
+requirement from the binary's own hash -- which changes every build.
+
+**Sparkle** signs its own feed with an EdDSA key, so this needs no Apple
+Developer ID. It does NOT make the app notarized: a first install still takes
+the one-time Gatekeeper step. It removes every step AFTER the first.
+
+Traps hit and recorded in the scripts: OpenSSL 3 writes PKCS#12 files Apple's
+`security` rejects without legacy MAC parameters; the imported key needs
+`security set-key-partition-list` or `codesign` dies with
+errSecInternalComponent; SwiftPM has no "Embed Frameworks" phase so
+`bundle.sh` copies Sparkle.framework in and adds the rpath itself, **before**
+the icon step (which runs the binary); nested XPC helpers are signed before the
+app that seals them.
+
+Also fixed: `package_dmg.sh` re-signed **ad-hoc** after editing Info.plist,
+which would have silently undone the certificate on every packaged build.
+
+## THE KEYCHAIN PROMPT — root-caused and cleared
+
+Alankrit kept being asked for his keychain password on every update. The cause,
+found by dumping the ACL rather than guessing: the item held **16 access-control
+entries, all `/Applications/Icarus.app`, 13 of which no longer resolved.**
+
+Each ad-hoc build was a DIFFERENT code identity to macOS, so every "Always
+Allow" appended a new entry keyed to that build's cdhash, and the next build
+invalidated it. The item had been accumulating since 2026-07-15.
+
+The certificate stops new ones accruing. The stale item was deleted so the app
+recreates it with a single certificate-based entry -- **Alankrit signs in once
+more, and that should be the last time.** If it recurs, the ACL is the place to
+look, not the app code.
+
+## STANDING RULES THIS CREATES
+
+1. **Every release MUST bump `CFBundleVersion`** in `Icarus-Info.plist`. Sparkle
+   compares that number; ship two builds at the same value and nobody is
+   offered the second.
+2. **Back up the Sparkle private key** (`generate_keys -x -`). Sparkle does not
+   lean on notarization, so that key is the entire security of the update path.
+   Lose it: no installed copy can ever be updated again. Leak it: whoever holds
+   it can push code to every installed copy.
+3. **Never re-run `make_signing_cert.sh`** once users exist -- a new certificate
+   changes the designated requirement and costs every user another prompt.
+4. `release-dmg.sh` regenerates and signs `appcast.xml`, and REFUSES to publish
+   if it cannot. It does **not** carry old entries forward: every release
+   publishes to the same `/Icarus.dmg` URL, so a stale entry would describe a
+   download nobody could actually get.
+
+## OPEN
+
+- **Builds are arm64-only** and the appcast now says so
+  (`hardwareRequirements: arm64`). An Intel Mac cannot install or update. This
+  was always true; it is now visible. Check before sending links.
+- **The hollow-answer problem is unfixed and unmeasured.** Live on
+  alankritxghosh/Icarus, the `conventions` step answered *"The project asks the
+  question … as part of its guided onboarding tour"*, citing
+  `code:demo/onboarding.py` -- retrieval matched the literal question string in
+  our own source. Grounded, so the gate passed; useless, so the probe counted a
+  success it should not have. **Next step is measurement, not a mechanism:**
+  wire `evals/judge.py` into `evals/onboarding_probe.py` and re-run the ten
+  repos (~20 min, corpora cached) to learn whether this is a real rate or a
+  self-indexing artefact. Only then consider a gate guard.
+- **Streaming ingest** remains the largest unsolved engineering problem
+  (`rust-lang/rust`, `huggingface/transformers` OOM at 4 GiB). It is the right
+  next systems project and it is not a three-day job.
+- **Kubernetes: parked, deliberately.** Every current pain has a cheaper fix
+  that is not an infrastructure migration. The one real argument is enterprise
+  self-hosting, and the deliverable there is a Helm chart around the container
+  that already ships -- write it when a design partner asks, not before.
+- `architecture` (2/10) still needs structural comprehension; `debt` (5/10)
+  unexplained. Both cut from the tour, both still measured by the probe.
+
+## Commits
+
+`d542b47` (days 1+2), `49de216` (Sparkle + stable signing), `24b50fe` (feed
+baked into the plist). Website: `effa604`. Tap: `5192c4d`.
+
+---
+
 # Icarus — Session Handoff (2026-07-29: Icarus speaks first — the repo map, entry points, and a guided tour whose steps were CHOSEN BY MEASUREMENT)
 
 **READ THIS FIRST.** Four commits, DEPLOYED and LIVE-VERIFIED against production.
