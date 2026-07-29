@@ -7,7 +7,7 @@ GET  /status  -> the active repo + switch status (JSON)
 GET  /map     -> what Icarus INDEXED for the active repo (demo/repo_map.py)
 GET  /onboarding -> the guided tour plan; POST {"step": ...} -> one cited step
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
-POST /connect -> {"repo": "owner/name"} -> start indexing/switching to that repo
+POST /connect -> {"repo": "owner/name"[, "refresh": true]} -> index/switch to it
 POST /disconnect -> forget the caller's library and delete their on-disk storage
 
 The active pipeline lives in a Library (demo/library.py); the handler is a thin
@@ -537,8 +537,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not connect_limiter.allow(identity):
                     self._send_json(429, {"error": "slow down -- try again later"})
                     return
+                # Read the body ONCE: it comes off the socket and a second
+                # read blocks forever waiting for bytes that will never arrive.
                 try:
-                    repo = self._body()["repo"]
+                    body = self._body()
+                    repo = body["repo"]
                 except (ValueError, KeyError, TypeError):
                     self._send_json(400, {"error": "missing repo"})
                     return
@@ -546,6 +549,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(400, {"error": "repo must look like owner/name"})
                     return
                 repo = repo.strip()
+                # An explicit re-ingest of an already-cached repo. Rejected
+                # unless it is a real boolean: "true"/1/"yes" must not quietly
+                # become a refresh, because one spends minutes of CPU and
+                # republishes a corpus other entitled readers are using.
+                refresh = body.get("refresh", False)
+                if not isinstance(refresh, bool):
+                    self._send_json(400, {"error": "refresh must be true or false"})
+                    return
                 token = bearer_token(self.headers)
                 private = False
                 if require_auth:
@@ -561,17 +572,19 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     private = bool(info["private"])
                 # Access logging is suppressed below; record arrival, never the token.
                 print(f"connect received: repo={repo!r} private={private} "
+                      f"refresh={refresh} "
                       f"({'sync' if sync_connect else 'background'})", file=sys.stderr)
                 if sync_connect:
                     # Background upgrade is safe only while Azure keeps a replica warm.
                     result = lib.connect_sync(
                         repo, token=(token if private else None), private=private,
-                        background_upgrade=background_upgrade)
+                        background_upgrade=background_upgrade, refresh=refresh)
                     self._send_json(200, result)
                 else:
                     threading.Thread(
                         target=lib.connect_sync, args=(repo,),
-                        kwargs={"token": token if private else None, "private": private},
+                        kwargs={"token": token if private else None, "private": private,
+                                "refresh": refresh},
                         daemon=True).start()
                     self._send_json(202, {"state": "indexing", "repo": repo})
             else:

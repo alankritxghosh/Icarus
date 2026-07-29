@@ -47,6 +47,7 @@ class _StubLibrary:
         self.background_upgrades = []  # records the background_upgrade flag per connect
         self.private_calls = []  # records the `private` flag per connect
         self.token_seen = []  # records the token per connect (to assert leak-safe routing)
+        self.refresh_calls = []  # records the `refresh` flag per connect
 
     def current_pipeline(self):
         return self._pipe
@@ -58,12 +59,14 @@ class _StubLibrary:
         return {"state": "ready", "repo": REPO, "commit": COMMIT,
                 "counts": None, "error": None, "phase": None, "private": False}
 
-    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False,
+                     refresh=False):
         self.connected.append(repo)
         self.connect_calls.append(repo)
         self.background_upgrades.append(background_upgrade)
         self.private_calls.append(private)
         self.token_seen.append(token)
+        self.refresh_calls.append(refresh)
         return self.status_snapshot()  # mirrors the real Library.connect_sync's return
 
 
@@ -1165,10 +1168,12 @@ class SyncConnectTests(unittest.TestCase):
         release = threading.Event()
 
         class _SlowLibrary(_StubLibrary):
-            def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
+            def connect_sync(self, repo, token=None, private=False,
+                             background_upgrade=False, refresh=False):
                 release.wait(timeout=5)
                 return super().connect_sync(repo, token=token, private=private,
-                                            background_upgrade=background_upgrade)
+                                            background_upgrade=background_upgrade,
+                                            refresh=refresh)
 
         lib = _SlowLibrary()
         fx = _ServerFixture(lib, sync_connect=True)
@@ -1692,3 +1697,42 @@ class OnboardingEndpointTests(unittest.TestCase):
         self._post({"step": "stack"}, "tok-a")
         self._post({"step": "purpose"}, "tok-a")
         self.assertEqual(self.ledger.entries(self.PRIVATE), [])
+
+
+class ConnectRefreshTests(unittest.TestCase):
+    """POST /connect {"refresh": true} forces a re-ingest of a cached repo.
+
+    Without it a connected index is frozen at the commit it was first ingested
+    -- a design partner's repo changes daily and Icarus would keep answering
+    from day one's snapshot. Found live: this repo's own index sat nine commits
+    behind HEAD with no way to update it.
+    """
+
+    def setUp(self):
+        self.lib = _StubLibrary()
+        self.fx = _ServerFixture(self.lib, sync_connect=True)
+        self.base = self.fx.base
+
+    def tearDown(self):
+        self.fx.close()
+
+    def test_refresh_is_passed_through(self):
+        status, _ = _post(self.base + "/connect", {"repo": "a/b", "refresh": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.lib.refresh_calls, [True])
+
+    def test_absent_refresh_defaults_to_false(self):
+        # The common path must be unchanged: a plain connect is still a cache
+        # hit, not a surprise re-ingest of a shared corpus.
+        _post(self.base + "/connect", {"repo": "a/b"})
+        self.assertEqual(self.lib.refresh_calls, [False])
+
+    def test_a_non_boolean_refresh_is_rejected(self):
+        # "true", 1 and "yes" must not quietly become a re-ingest: this spends
+        # minutes of CPU and republishes a corpus other users are reading.
+        for bad in ("true", 1, "yes", {}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(urllib.error.HTTPError) as e:
+                    _post(self.base + "/connect", {"repo": "a/b", "refresh": bad})
+                self.assertEqual(e.exception.code, 400)
+        self.assertEqual(self.lib.refresh_calls, [])

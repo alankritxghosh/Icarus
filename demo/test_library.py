@@ -717,3 +717,63 @@ class IndexingProgressTests(unittest.TestCase):
         for key in ("state", "repo", "commit", "counts", "error", "phase",
                     "private", "truncated", "indexing"):
             self.assertIn(key, self.lib.status_snapshot())
+
+
+class ExplicitRefreshTests(unittest.TestCase):
+    """A connected repo's index was frozen at the commit it was first ingested.
+
+    `_resolve` only asks "does a corpus exist on disk", and the staleness check
+    fires only when the corpus FORMAT or chunking scheme changes -- never when
+    the repository itself does. So a design partner's index would answer from
+    day-one's snapshot forever, with no way to refresh it. Found live: this
+    repo's index sat nine commits behind HEAD and could not be updated.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.default_dir = Path(self.tmp.name) / "default"
+        self.cache_root = Path(self.tmp.name) / "cache"
+        _seed_corpus(self.default_dir, "simonw/llm")
+        self.ingests = []
+
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
+            self.ingests.append((repo, refresh))
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                           build_pipeline=lambda d, fast=False, **_: f"p::{d}",
+                           ingest_fn=fake_ingest)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_cached_repo_normally_does_not_re_ingest(self):
+        self.lib.connect_sync("acme/widgets")
+        self.lib.connect_sync("acme/widgets")
+        self.assertEqual(len(self.ingests), 1)   # second connect is a cache hit
+
+    def test_refresh_re_ingests_a_cached_repo(self):
+        self.lib.connect_sync("acme/widgets")
+        self.lib.connect_sync("acme/widgets", refresh=True)
+        self.assertEqual(len(self.ingests), 2)
+
+    def test_refresh_is_passed_DOWN_so_the_cache_layer_skips_its_fast_path(self):
+        # The registry's _ingest_once returns early whenever a corpus exists on
+        # disk. Without the flag reaching it, the caller's refresh decision is
+        # computed and then silently discarded -- exactly the bug that made the
+        # discussion-ingest fix inert for every already-connected repo.
+        self.lib.connect_sync("acme/widgets")
+        self.lib.connect_sync("acme/widgets", refresh=True)
+        self.assertEqual(self.ingests[-1], ("acme/widgets", True))
+
+    def test_refresh_never_touches_the_committed_default_corpus(self):
+        # That corpus is the frozen, reproducible eval board. Re-ingesting it
+        # over the network would silently change what every test measures.
+        self.lib.connect_sync("simonw/llm", refresh=True)
+        self.assertEqual(self.ingests, [])
+
+    def test_a_first_connect_with_refresh_still_works(self):
+        self.lib.connect_sync("acme/widgets", refresh=True)
+        self.assertEqual(len(self.ingests), 1)
+        self.assertEqual(self.lib.status_snapshot()["repo"], "acme/widgets")

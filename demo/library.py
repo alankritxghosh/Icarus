@@ -301,8 +301,19 @@ class Library:
         stored = meta.get("chunking", CHUNKING_SCHEME_LINE_WINDOW)
         return stored != current
 
-    def connect_sync(self, repo, token=None, private=False, background_upgrade=False):
+    def connect_sync(self, repo, token=None, private=False, background_upgrade=False,
+                     refresh=False):
         """Ingest/cache a repo, publish lexical search, then upgrade to semantic.
+
+        `refresh=True` forces a re-ingest of a repo that is already cached.
+        Without it, a connected repo's index is frozen at the commit it was
+        FIRST ingested: `_resolve` only asks whether a corpus exists, and the
+        staleness check below fires only when the corpus FORMAT or chunking
+        scheme changes -- never when the repository itself does. Found live,
+        this repo's own index sat nine commits behind HEAD with no way to
+        update it. The committed default corpus is exempt: it is the frozen,
+        reproducible eval board, and re-ingesting it over the network would
+        silently change what every test measures.
 
         `private=True` routes the corpus to this user's own private storage and
         ingests with `token` (the caller's GitHub token) so a private clone can
@@ -336,11 +347,14 @@ class Library:
         # stale corpus is served forever (found live 2026-07-28, after the
         # discussion-ingest fix deployed and every already-connected repo kept
         # answering from title+body).
-        refresh = False
-        if (repo != self._default_repo and not needs_ingest
+        # An explicit caller refresh and an automatic staleness refresh are the
+        # same mechanism downstream -- both must skip the cache fast paths --
+        # so they collapse into one flag here.
+        refresh = bool(refresh) and repo != self._default_repo
+        if (repo != self._default_repo and not needs_ingest and not refresh
                 and not (private and token is None)):
             refresh = self._corpus_is_stale(corpus_dir)
-            needs_ingest = refresh
+        needs_ingest = needs_ingest or refresh
         with self._lock:
             already_indexing = repo in self._inflight
             if not already_indexing:
