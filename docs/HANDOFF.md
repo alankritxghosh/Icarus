@@ -3,9 +3,10 @@
 **READ THIS FIRST.** Three days of first-experience work, all DEPLOYED and
 PUBLISHED. Icarus can now update itself; nobody has to reinstall by hand again.
 
-**Live: `icarus-brain--0000035`, image `alpha-20260729-progress`, Healthy, 100%
-traffic. `main` @ `24b50fe`. Published DMG `a88ebe42` (build 2). evals 556 ·
-demo 360 · IcarusKit 158 · secrets scan clean · paid board GREEN.**
+**Live: `icarus-brain--0000036`, image `alpha-20260729-conventions`, Healthy,
+100% traffic. `main` @ `92532de`. Published DMG `a88ebe42` (build 2 —
+deliberately NOT bumped, see below). evals 566 · demo 366 · IcarusKit 158 ·
+secrets scan clean · paid board GREEN.**
 
 ## The framing that produced this work
 
@@ -184,10 +185,60 @@ Two cases out of seventy; do not build a gate guard on that without more
 evidence, and note that a guard here would have to distinguish "answered from
 weak evidence" from "answered from good evidence", which the gate cannot see.
 
+## DEPLOYED AND LIVE-VERIFIED (rev 0000036)
+
+The conventions anchor is on production and confirmed against a real repo, not
+assumed. `simonw/sqlite-utils`:
+
+    map -> readme: README.md · contributing: docs/contributing.rst
+
+    "How the team works" -> answer, citing doc:docs/contributing.rst
+    "Contributors are expected to start all improvements with an issue, follow
+     the recommended process for building features, use Black for code
+     formatting, and use flake8 for linting."
+
+The same step, same repo, same writer and same gate, said this before:
+
+    "The project includes contributing documentation, as indicated by the
+     commit titled 'Contributing documentation'."
+
+Also confirmed live: on the DEFAULT corpus (the `llm/` subtree, which has
+neither a README nor a contributing guide indexed) the map reports both as
+`null` and `conventions` **abstains** rather than paraphrasing a commit. That
+is the correct outcome, not a gap.
+
+10 assertions were run INSIDE the image before pushing, per the standing
+discipline — including the vendored-copy and CODE_OF_CONDUCT edge cases.
+
+## ⚠️ THE DMG WAS DELIBERATELY NOT BUMPED — and this is the pattern to keep
+
+`git diff 24b50fe..HEAD -- mac/` is EMPTY. The whole improvement is
+server-side, so an installed build 2 gets it the moment it reconnects, with no
+update at all. Bumping would have shipped a byte-identical app under a new
+version number: churn for every tester, one more Sparkle prompt, zero
+behaviour change — and it would spend the one thing that makes a version
+number useful, that a bump means something arrived.
+
+**This is the renderer discipline paying out.** The tour's content, ordering,
+wording and now its evidence-resolution all live in the brain, so improving
+them costs a deploy rather than a release cycle. Keep pushing logic across that
+line: every capability that stays server-side is one that never needs a DMG.
+
+## Two things the reconnect incidentally showed
+
+- **The Azure Files corpus survived the deploy** — `simonw/sqlite-utils`
+  reconnected in **1 second** as a cache hit (`corpus_version` matched), rather
+  than re-ingesting.
+- **Because of that, Day 1's progress reporting is STILL UNEXERCISED on
+  production.** There was no embed to watch. It is proven locally end to end
+  (execa, 13 -> 2,784 chunks with a tightening ETA) but the first real
+  confirmation on Azure needs a repo the brain has never seen. Worth doing
+  deliberately before a design partner is the one who discovers it.
+
 ## Commits
 
 `d542b47` (days 1+2), `49de216` (Sparkle + stable signing), `24b50fe` (feed
-baked into the plist), `<this>` (substantiveness judge + conventions anchor).
+baked into the plist), `92532de` (substantiveness judge + conventions anchor).
 Website: `effa604`. Tap: `5192c4d`.
 
 ---
