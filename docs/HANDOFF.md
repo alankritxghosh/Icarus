@@ -1,4 +1,300 @@
-# Icarus — Session Handoff (2026-07-29 late: the first five minutes — a connect you can watch, a tour that waits, and an app that updates itself)
+# Icarus — Session Handoff (2026-07-30: onboarding shipped end to end, then a live bug in production caught the anchor's blind spot — read the QUOTA section before you do anything)
+
+**READ THIS FIRST.** This session picked up immediately after the "first five
+minutes" work below (Day 1/2/3) and took the onboarding tour from built to
+DEPLOYED, PUBLISHED, and LIVE-VERIFIED ON PRODUCTION — then found and half-fixed
+a real correctness bug the measurement had missed. **There is uncommitted code
+right now, deliberately held back**, and **the paid Gemini key is hitting a
+free-tier quota wall**. Both are explained below; do not skip to "what's next"
+without reading them.
+
+**Live: `icarus-brain--0000037`, image `alpha-20260730-refresh`, Healthy, 100%
+traffic. `main` @ `0d52147`. Published DMG `a88ebe42` (build 2, self-updating).
+evals 571 · demo 377 · secrets scan clean — but see QUOTA below, the board has
+NOT been re-run since the last code change.**
+
+## What this session actually did, in order
+
+1. Built `GET /map` (repository map) and rules-only entry-point detection —
+   deterministic, no writer, cited to real indexed refs.
+2. Built the guided onboarding tour (`demo/onboarding.py`, `GET`/`POST
+   /onboarding`) — a fixed five-step sequence, every step an ordinary gated
+   ask, no new honesty path.
+3. **Measured which steps should ship**, over ten real repos
+   (`evals/onboarding_probe.py`): baseline 46/70 answered. Found `purpose`
+   scored 2/10 because retrieval never surfaced the indexed README (buried in
+   commit history; the README's own embedded window is dominated by badges and
+   sponsor logos). Fixed by **addressing** the README by path instead of
+   searching for it → 10/10.
+4. Built and shipped the "first five minutes" work — Day 1 (connect progress +
+   ETA), Day 2 (tour holds its writer-backed steps until the index is ready),
+   Day 3 (Sparkle in-app updates + a stable code-signing certificate, replacing
+   ad-hoc signing that was silently accumulating dead Keychain ACL entries and
+   causing the repeated password prompt Alankrit was hitting).
+5. Built a **substantiveness judge** (`evals/substance.py`) — a quality dial,
+   never a gate, run on Groq while the writer is `gemini-paid` — because the
+   answered/abstained count alone can't tell a real answer from a grounded but
+   useless one. Calibrated against a live hollow answer before being trusted.
+6. Re-ran the ten-repo probe WITH the judge: 49/54 substantive, and **every
+   single hollow answer was `conventions`** (4/9) — each one citing a commit
+   that merely *mentioned* a contributing guide instead of the guide itself,
+   which 7/10 repos had indexed the whole time. Anchored `conventions` to the
+   contributing doc the same way `purpose` was anchored to the README →
+   7/9 substantive, deployed, live-verified on `simonw/sqlite-utils`.
+7. Wrote [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the repo itself — and that
+   is what surfaced the next bug.
+8. **Reconnected `alankritxghosh/Icarus` to see `conventions` flip on the new
+   file and it didn't** — the corpus was frozen at a 9-commits-stale snapshot.
+   Discovered there was **no way to refresh a connected repo's index at all**
+   (`_resolve` only checks "does a corpus exist"; the staleness check fires
+   only on format/chunking-scheme changes, never on the repo changing). Built
+   `POST /connect {"refresh": true}` — plumbed through `_resolve`/`_ingest_once`
+   which already had the machinery for the format-version case. **Deployed,
+   live-verified: refresh took 283s, picked up 9 commits, `CONTRIBUTING.md`
+   became indexed.**
+9. **Re-ran `conventions` on the refreshed repo and got a materially FALSE
+   answer**: *"Contributors are expected to follow conventions such as using
+   Black and flake8, adhering to an AI Policy, and utilizing E-Help-wanted
+   labels"* — none of that is true of Icarus. Those are `sqlite-utils`'s,
+   `requests`'s and `mdBook`'s conventions, **quoted inside our own commit
+   message describing the ten-repo measurement** (step 6 above). The gate
+   passed it — the citation genuinely resolved to retrieved evidence — but the
+   evidence was the wrong document. Root cause: `.explain()`'s neighbour search
+   pulled in that commit alongside the correctly-anchored `CONTRIBUTING.md`,
+   and the writer picked the lexically hotter neighbour over the addressed
+   file. **Anchoring guarantees the document is present, not that it is used.**
+10. Built the fix: `explain(..., neighbors=False)` — an anchored tour step
+    (`purpose`, `conventions`) now answers from ONLY its addressed document,
+    no neighbour search at all. Narrowing evidence is fail-safe (can only
+    produce more abstention, never more fabrication), so this cannot weaken the
+    gate. Fully unit-tested, **evals 571 / demo 377 green** — see QUOTA below
+    for why it stopped there.
+
+## ⚠️ QUOTA — read this before running anything against the paid writer
+
+Mid-re-run, the paid writer started returning **HTTP 429**. Google's own error
+body names the metric:
+
+    Quota exceeded for metric:
+    generativelanguage.googleapis.com/generate_content_free_tier_requests,
+    limit: 500
+
+**`GEMINI_PAID_API_KEY` is being metered against a FREE-TIER quota bucket.**
+Verified this is not the free key mislabelled — `GEMINI_PAID_API_KEY` and
+`GEMINI_API_KEY` hash to different values, different lengths (53 vs 39 chars),
+so they are genuinely distinct credentials. The volume explanation is
+sufficient on its own: this session ran four full ten-repo probes (~70 writer
+calls each) plus board runs plus live tour testing on production in one day,
+against a 500/day cap — that alone accounts for the exhaustion, independent of
+which tier the key is actually on.
+
+**What is NOT resolved:** whether the *tier itself* is correct. `PaidGeminiProvider`
+declares `private_safe = True` on the premise that it is billing-enabled and
+therefore not trained on — `evals/trust.py`'s interlock refuses every provider
+that isn't. If Google is genuinely metering this key as free-tier (as opposed
+to a Flash-Lite model reporting against a free-tier-shaped bucket regardless of
+project billing — both are possible readings of one error metric name), that
+premise needs rechecking before any more private-repo traffic goes through it.
+**This needs Alankrit to check the Google Cloud / AI Studio billing console for
+the project behind that key** — confirm billing is active and attached to the
+right project. Do not conclude either way from this doc; only the console
+settles it. Quota resets on Google's daily rolling window (Pacific time).
+
+**Practical effect right now:** production `/ask` was returning 503
+("the answering model is unavailable") as of this session's end. The brain
+itself (`rev 0000037`) is healthy; only the writer is blocked.
+
+## What is UNCOMMITTED right now, and why
+
+```
+ M demo/onboarding.py          — anchored steps now call explain(neighbors=False)
+ M demo/test_onboarding.py     — pins neighbors=False for purpose/conventions
+ M demo/test_server.py         — test double updated for the new explain() param
+ M evals/pipeline.py           — GatedPipeline.explain() gained `neighbors: bool = True`
+ M evals/test_gated_explain.py — the new ExplainWithoutNeighborsTests suite
+ M mac/Icarus/Icarus-Info.plist — CFBundleVersion bumped 1 -> 2 (see below)
+```
+
+**Held back deliberately.** The standing rule (confirmed the hard way earlier
+this session, when a prompt-rule fix silently dropped board citation
+correctness 100% -> 83%) is: no change near the writer/gate/retrieval path
+ships without the eval board confirming it. The board needs the paid writer,
+the paid writer is quota-blocked. Unit tests are green; the board is not yet
+re-verified. **Next session: re-run `.venv/bin/python3 -m evals.run --pipeline
+gated --writer gemini-paid` the moment quota allows, THEN commit and deploy.**
+
+**The `Icarus-Info.plist` line is a loose end that needs a decision, not just a
+commit.** `CFBundleVersion` was bumped 1→2 locally to build and test the
+Sparkle self-update path (see the entry below) and that build 2 IS the one
+published and live right now. But the bump was never committed to `main` — so
+the tracked source currently says version 1 while the published artifact is
+version 2. This needs to be committed (ideally in the SAME commit as whatever
+ships next from `mac/`, so a version bump always has real content behind it,
+per this repo's own rule in `CONTRIBUTING.md`) or the next person to build from
+`main` will produce a version-1 DMG that Sparkle's own installed base would
+consider older than what they're already running.
+
+## Deployed and live-verified this session (independent of the above)
+
+- `81e383b`…`0d52147` — see full history below. Repo map, entry points, the
+  tour, the onboarding probe + substantiveness judge, the README/CONTRIBUTING
+  anchors, Sparkle + stable signing, and the refresh path are ALL live on
+  `icarus-brain--0000037` and confirmed against real repos, not assumed.
+- `simonw/sqlite-utils` `conventions` step, live: cites `doc:docs/contributing.rst`,
+  answers *"start all improvements with an issue... use Black... use flake8"* —
+  correct, concrete, real.
+- Cold connect proven on production: `pallets/jinja`, 6,628 chunks, ~8 minutes,
+  full progress/ETA curve captured (see the entry below).
+- Sparkle self-update proven end to end: an installed build 1 polled the feed,
+  verified build 2's EdDSA signature, installed itself, relaunched — confirmed
+  by binary hash comparison against the published DMG afterward.
+
+## The false-answer bug, stated plainly for whoever reads this next
+
+**This is the most important finding of the session and it should change how
+future measurement work here is read.** The substantiveness judge — a real,
+calibrated, useful tool — still scored the false "Black and flake8" answer as
+a pass, because it grades whether an answer says something *specific and
+concrete*, not whether it is *true of this repository*. A confidently wrong
+answer full of specifics beats a vague true one on that metric. So:
+
+- **"X/Y substantive" from this session's measurements means "sounded like a
+  real answer," not "was verified correct."** Treat every prior "substantive"
+  count in this doc with that caveat.
+- The honesty *gate* held throughout — the citation genuinely resolved to
+  genuinely retrieved evidence. This was a correctness failure, not a bluff.
+  But a user told their project requires Black when it doesn't is harmed
+  either way, and "the citation was real" is not a defense worth offering them.
+- **A real fix for this class of bug would need a judge that checks whether the
+  cited evidence actually SUPPORTS the specific claims in the answer** — a
+  different and harder question than either the existing reference-based
+  `evals/judge.py` (needs a reference answer; these repos don't have one) or
+  the new `evals/substance.py` (checks for content, not correctness) currently
+  answers. Not built. Worth a design pass before leaning further on
+  "substantive" as a quality signal.
+
+---
+
+# THE FOUR BRICKS FOR NEXT SESSION
+
+Alankrit has assigned these four, in this order, for the next session. Read
+the rest of this document (and `CLAUDE.md`) before starting any of them —
+three of the four touch standing architectural decisions.
+
+## 1. Explain how the code is structured
+
+**This is explicitly on the "do not build yet" list in `CLAUDE.md`** ("Deep
+structural code understanding / dependency tracing... raised 2026-07-16, still
+genuinely deferred"). Alankrit assigning it now is the kind of explicit
+authorization that list's own caveat anticipates ("unless a task... says so") —
+but say so out loud to him before deep-diving, since it's a deliberate
+reopening of a standing deferral, not a small brick.
+
+**What's already known about this specific problem, from measurement, not
+guesswork:** the `architecture` onboarding step scored **2/10** in the
+ten-repo probe (`evals/onboarding_probe.py`, `CANDIDATE_STEPS`), the worst of
+any candidate. Anchoring it to the README the same way `purpose`/`conventions`
+were anchored **did not help** — still 2/10, and it cost `spf13/cobra` a real
+answer it had gotten from search. The reasoning recorded in
+`demo/onboarding.py`: *"a README says what a project is FOR, not how its code
+is arranged."* This is not a retrieval-tuning problem like the two anchors
+that worked; it needs something that actually understands module boundaries,
+call graphs, or dependency structure — a different kind of capability than
+anything currently in the brain. Read `docs/VISION.md`'s "later" column and
+`docs/plans/2026-07-06-tester-feedback-deeper-comprehension.md`'s "Brick S"
+before designing anything; there's prior thinking on this already.
+
+`evals/onboarding_probe.py`'s `CANDIDATE_STEPS` already asks this question
+across ten real repos every time the probe runs — use it as the measurement
+harness for whatever gets built, the same way `purpose` and `conventions` were
+proven before shipping.
+
+## 2. Notice your repo changed
+
+**Partially built this session, deliberately incomplete.** `POST /connect
+{"refresh": true}` (commit `0d52147`, live on rev 0000037) lets a caller force
+a re-ingest of an already-cached repo — proven end to end on
+`alankritxghosh/Icarus` (283s, +9 commits, new file indexed). What does NOT
+exist:
+
+- **Nothing triggers a refresh automatically.** No polling, no webhook, no
+  staleness-by-time check. A connected repo stays frozen until someone
+  explicitly calls `/connect` with `refresh: true` again.
+- **No client surfaces staleness.** `/status` reports `commit`, but nothing in
+  the app or web UI tells a user "this index is N commits / N days behind."
+- **No debounce/rate-limit on refresh specifically.** `connect_limiter`
+  bounds ordinary connects; check whether a refresh should have its own,
+  tighter limit before this is exposed to real users — a refresh is a full
+  re-ingest, not a cache lookup, and costs real CPU/time (283s observed) and
+  republishes a corpus other entitled readers may be using concurrently.
+- **GitHub webhooks were explicitly out of scope for this session** and remain
+  unbuilt. A push-triggered refresh (webhook -> `/connect refresh=true`) is the
+  obvious next step once polling/manual refresh is proven safe, but needs its
+  own auth story (verifying the webhook came from GitHub) that doesn't exist
+  yet anywhere in this codebase.
+
+Read `demo/library.py`'s `connect_sync` docstring (updated this session) and
+`demo/registry.py`'s `_ingest_once`/`_publish` before touching this further —
+the atomic-publish mechanics (`os.replace`, the stale-corpus swap-aside) are
+already correct and shouldn't need to change.
+
+## 3. Remember you (returning-user briefings)
+
+**Not started this session.** Earlier in this engagement, Alankrit gave
+explicit, scoped approval for the minimal state this needs:
+
+> User identity, repository identity, last-seen repository commit, last-visit
+> timestamp. **Do not store the user's questions or construct
+> employee-activity histories.** Tenant-isolated, visible in the product,
+> deletable, and documented as a deliberate privacy decision before
+> implementation.
+
+That approval is standing but the implementation is zero-started. Before
+writing code: the per-user connection state this would build on
+(`LibraryRegistry._last_repo`/`_last_private` in `demo/registry.py`) is
+currently **in-process memory only** — it does not survive a deploy, which the
+2026-07-28 handoff entries below document as "the post-deploy session reset."
+Returning-user state needs to survive a deploy to be useful at all, so this
+needs a real storage decision (a small durable store, not more in-memory
+dicts) before the feature logic. Write the privacy decision doc FIRST, per
+Alankrit's own condition above, then build.
+
+Note the product framing from earlier in this engagement, worth preserving:
+onboarding is the acquisition wedge, returning-user briefings are "the
+frequency and retention layer" that comes after. This is core to why
+Alankrit is asking for it now, not a nice-to-have.
+
+## 4. More than one repo at a time
+
+**Not started, and this is a real architectural decision, not a small
+feature.** Every layer of the current design assumes ONE active repo per
+identity:
+
+- `demo/library.py`'s `Library` holds exactly one `_pipeline`, one `_repo`, one
+  set of connection state.
+- `demo/registry.py`'s `LibraryRegistry` maps one user identity to one
+  `Library`.
+- The Mac app's `ConnectModel`/`StatusModel` poll and render one repo's status.
+- The onboarding tour, `/map`, `/ask`, `/explain` all implicitly operate on
+  "the caller's currently connected repo" — see `_handle_explain`'s explicit
+  409 refusal when a caller names a repo other than the one they're connected
+  to (`demo/server.py`).
+
+Multi-repo is not "allow N Libraries per user" as a small change — it touches
+the identity model, the storage layout (`public.cache`/`private.cache`
+key by repo slug already, which helps), every endpoint's implicit
+single-repo assumption, and the UI's entire mental model of "the connected
+repo." Scope this carefully before starting: does a user pick ONE active repo
+from a list they've connected (smaller change, extends the existing model), or
+can Icarus answer across MULTIPLE repos in one question (much bigger — touches
+retrieval, the gate's citation model, and the entire "repo brain" framing in
+`docs/decisions/2026-06-30-organizational-memory-positioning.md`)? Get
+Alankrit's answer to that question before writing any code — it changes the
+size of this brick by an order of magnitude.
+
+---
+
+
 
 **READ THIS FIRST.** Three days of first-experience work, all DEPLOYED and
 PUBLISHED. Icarus can now update itself; nobody has to reinstall by hand again.
