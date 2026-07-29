@@ -7,4 +7,18 @@ import IcarusKit
 /// `swift run` and a plain `bundle.sh` build keep talking to 127.0.0.1:8000.
 enum AppConfig {
     static let brainBaseURL: URL = BrainEndpoint.resolve(from: Bundle.main.infoDictionary)
+
+    /// One Keychain-backed store, so every caller reads the SAME token and a
+    /// fresh sign-in takes effect everywhere at once.
+    private static let tokenStore: TokenStore = KeychainTokenStore()
+
+    /// A thread-safe reader for the current GitHub token, for the Authorization
+    /// header. Read lazily at request time, never cached, so signing out takes
+    /// effect on the very next request.
+    static let tokenReader: @Sendable () -> String? = { (try? tokenStore.load()) ?? nil }
+
+    /// An authorized client for the connected brain.
+    static func client() -> BrainClient {
+        BrainClient(base: brainBaseURL, token: tokenReader)
+    }
 }

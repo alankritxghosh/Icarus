@@ -193,4 +193,37 @@ public struct BrainClient: Sendable {
         try check(response)
         return try JSONDecoder().decode(RepoStatus.self, from: data)
     }
+
+    /// GET /onboarding -> the guided tour's PLAN. Costs no writer call, so it
+    /// is safe to fetch the moment a repo connects.
+    public func onboardingPlan() async throws -> OnboardingPlan {
+        var request = URLRequest(url: base.appending(path: "onboarding"))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(OnboardingPlan.self, from: data)
+    }
+
+    /// POST /onboarding {step} -> one cited tour step. Reaches the same billed
+    /// writer as `ask`, and shares its rate limit on the brain's side.
+    public func onboardingStep(_ step: String) async throws -> TourStepAnswer {
+        var request = URLRequest(url: base.appending(path: "onboarding"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["step": step])
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(TourStepAnswer.self, from: data)
+    }
+
+    /// GET /map -> what Icarus has INDEXED for the connected repo. Deterministic
+    /// and writer-free, which is why the tour opens with it.
+    public func repoMap() async throws -> RepoMap {
+        var request = URLRequest(url: base.appending(path: "map"))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(RepoMap.self, from: data)
+    }
 }

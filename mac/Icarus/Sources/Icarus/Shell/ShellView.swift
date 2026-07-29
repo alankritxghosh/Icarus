@@ -1,8 +1,8 @@
 import SwiftUI
 import IcarusKit
 
-/// The full app shell: sidebar + a content area that routes between the five
-/// surfaces. Data comes from the shared AskHistory + StatusModel (real values),
+/// The full app shell: sidebar + a content area that routes between the
+/// sidebar's surfaces. Data comes from the shared AskHistory + StatusModel (real values),
 /// and asking is delegated to the existing overlay via `onTryQuestion`.
 struct ShellView: View {
     let auth: AuthModel
@@ -37,6 +37,7 @@ struct ShellView: View {
     @ViewBuilder private var content: some View {
         switch selected {
         case .home: HomeView(auth: auth, connect: connect, history: history, status: status, onTryQuestion: onTryQuestion)
+        case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
         case .askByVoice: AskByVoiceView(onOpenOverlay: onTryQuestion)
         case .decisionHistory: DecisionHistoryView(history: history)
         case .unknowns: UnknownsView(ledger: ledger)
