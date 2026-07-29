@@ -28,7 +28,7 @@ class RegistryTests(unittest.TestCase):
         self.storage = root / "storage"
         self.builds = []
 
-        def fake_build(corpus_dir, fast=False):
+        def fake_build(corpus_dir, fast=False, **_):
             self.builds.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
@@ -191,7 +191,7 @@ class RegistryTests(unittest.TestCase):
 
     def test_lru_evicts_idle_libraries(self):
         reg = LibraryRegistry(self.default_dir, self.storage, "simonw/llm",
-                              build_pipeline=lambda d, fast=False: f"p::{d}",
+                              build_pipeline=lambda d, fast=False, **_: f"p::{d}",
                               ingest_fn=lambda *a, **k: None, max_live=2)
         first = reg.library_for("1")
         reg.library_for("2")

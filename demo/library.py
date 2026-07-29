@@ -11,6 +11,7 @@ ingest the previous repo stays answerable (status just reads "indexing").
 import logging
 import sys
 import threading
+import time
 from pathlib import Path
 
 from evals.corpus import load_chunks
@@ -46,6 +47,21 @@ def _embed_timeout(n_chunks):
     return max(_EMBED_TIMEOUT_FLOOR_SECONDS, int(n_chunks * _EMBED_SECONDS_PER_CHUNK))
 
 
+def _progress_reporter(on_progress):
+    """Log progress as before, AND report it to the caller when one asked.
+
+    Composed rather than replaced: the server log line is what diagnoses a
+    stuck embed after the fact, and the status field is what a waiting user
+    sees. Losing either to gain the other would be a bad trade."""
+    if on_progress is None:
+        return _log_embed_progress
+
+    def report(done, total):
+        _log_embed_progress(done, total)
+        on_progress(done, total)
+    return report
+
+
 def _log_embed_progress(done, total):
     # ~10 log lines regardless of corpus size, so a slow embed shows real
     # forward progress in the server's logs instead of total silence.
@@ -79,7 +95,7 @@ def _shared_embedder():
         return _embedder_state["provider"]
 
 
-def _build_retriever(chunks, corpus_dir, fast=False):
+def _build_retriever(chunks, corpus_dir, fast=False, on_progress=None):
     """Hybrid (BM25 + local semantic) retrieval when the embedder is available,
     else lexical-only. Chunk embeddings are read from / written to an on-disk
     cache under `corpus_dir` so a server restart or repo reconnect doesn't
@@ -118,7 +134,7 @@ def _build_retriever(chunks, corpus_dir, fast=False):
         semantic = SemanticRetriever(  # embeds every chunk now
             chunks, embedder,
             timeout=_embed_timeout(len(chunks)),
-            on_progress=_log_embed_progress,
+            on_progress=_progress_reporter(on_progress),
         )
         save_vectors(cache_path, model, semantic.vectors, fingerprint)
     # semantic_weight=20 (lexical stays 1): measured live 2026-07-17 (T7,
@@ -135,7 +151,7 @@ def _build_retriever(chunks, corpus_dir, fast=False):
     return NormalizingRetriever(hybrid, vocab)
 
 
-def _build_gated_pipeline(corpus_dir, fast=False):
+def _build_gated_pipeline(corpus_dir, fast=False, on_progress=None):
     """Build the one trust-checked writer pipeline; `fast` changes retrieval only."""
     from evals.trust import assert_safe_for_private
     from evals.ingest import fetch_ref_detail, fetch_commit_detail
@@ -158,7 +174,8 @@ def _build_gated_pipeline(corpus_dir, fast=False):
     # still fails safe to None -- an abstention, never an exposure.
     live = (lambda num, tok=None: fetch_ref_detail(repo, num, token=tok)) if repo else None
     live_commit = (lambda sha, tok=None: fetch_commit_detail(repo, sha, token=tok)) if repo else None
-    return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast), chunks, provider,
+    return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast, on_progress=on_progress),
+                         chunks, provider,
                          live_fetch=live, live_commit_fetch=live_commit)
 
 
@@ -169,7 +186,8 @@ def _slug(repo):
 class Library:
     def __init__(self, default_corpus_dir, cache_root, default_repo,
                  build_pipeline=_build_gated_pipeline, ingest_fn=ingest_repo,
-                 private_root=None, private_ingest_fn=None):
+                 private_root=None, private_ingest_fn=None,
+                 clock=time.monotonic):
         self._default_dir = Path(default_corpus_dir)
         self._cache_root = Path(cache_root)  # SHARED public-repo cache (deduped across users)
         # PER-USER private-repo storage -- never shared, never pooled. A private
@@ -216,6 +234,12 @@ class Library:
         # FAILURE too, and then lexical-only is the steady state rather than a
         # window that will close.
         self._indexing = False
+        # How far the semantic embed has got, and roughly how much longer --
+        # None until there is something real to report. A connect takes
+        # minutes (measured 185s-987s on real repos) and "Building smart
+        # search…" alone cannot be told apart from a hang.
+        self._progress = None
+        self._clock = clock
         self._pipeline = self._build_pipeline(self._default_dir)
         self._status = "ready"
 
@@ -395,15 +419,40 @@ class Library:
                 self._inflight.discard(repo)
         return self.status_snapshot()
 
+    def _embed_progress(self, generation, started):
+        """Record embed progress for `/status`, ignoring a SUPERSEDED connect.
+
+        Same generation guard the pipeline swap uses: a stale embed finishing
+        its loop must not rewind the progress a newer connect is reporting.
+
+        The ETA is measured from THIS run's own rate rather than a constant --
+        embedding speed varies with chunk length and with how busy the host
+        is, so a hardcoded seconds-per-chunk would be confidently wrong. It
+        stays None until at least one chunk has been embedded: there is no
+        honest estimate before there is a rate."""
+        def report(done, total):
+            with self._lock:
+                if self._generation != generation:
+                    return
+                if done >= total:
+                    self._progress = None   # finished; nothing left to wait for
+                    return
+                elapsed = self._clock() - started
+                eta = int((elapsed / done) * (total - done)) if done > 0 and elapsed > 0 else None
+                self._progress = {"done": done, "total": total, "eta_seconds": eta}
+        return report
+
     def _upgrade_to_semantic(self, corpus_dir, connected_repo, generation):
         """Install semantic search if this is still the newest connection."""
         try:
-            full_pipeline = self._build_pipeline(corpus_dir)
+            full_pipeline = self._build_pipeline(
+                corpus_dir, on_progress=self._embed_progress(generation, self._clock()))
             with self._lock:
                 if self._generation == generation:  # still the latest connect
                     self._pipeline = full_pipeline
                     self._phase = None  # smart search ready; nothing pending
                     self._indexing = False
+                    self._progress = None
         except Exception as e:
             print(
                 f"semantic upgrade failed for {connected_repo!r} "
@@ -413,6 +462,7 @@ class Library:
             with self._lock:
                 if self._generation == generation:
                     self._phase = None  # gave up on the upgrade; lexical stays, nothing pending
+                    self._progress = None
                     # Cleared on failure too: lexical-only is now the STEADY
                     # state, not a window about to close, and telling a user
                     # "still indexing" forever would be its own false claim.
@@ -433,4 +483,5 @@ class Library:
             return {"state": self._status, "repo": self._repo, "commit": self._commit,
                     "counts": self._counts, "error": self._error, "phase": self._phase,
                     "private": self._private, "truncated": self._truncated,
-                    "indexing": self._indexing}
+                    "indexing": self._indexing,
+                    "indexing_progress": self._progress}

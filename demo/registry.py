@@ -86,10 +86,10 @@ class LibraryRegistry:
         self._ingest_locks: dict[str, threading.Lock] = {}  # repo slug -> single-flight lock
         self._lock = threading.Lock()
 
-    def _build(self, corpus_dir, fast=False):
+    def _build(self, corpus_dir, fast=False, on_progress=None):
         if Path(corpus_dir).resolve() == self._default_dir.resolve():
             return self._default_pipeline
-        return self._base_build(corpus_dir, fast=fast)
+        return self._base_build(corpus_dir, fast=fast, on_progress=on_progress)
 
     def _lock_for_slug(self, slug):
         with self._lock:

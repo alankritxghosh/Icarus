@@ -89,12 +89,19 @@ struct SetupView: View {
                 Text("Any repository your GitHub account can read — public or private. The first index of a new repo can take a minute.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
             case .connecting(let repo):
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    // Show the brain's own progress line when it has one, so the
-                    // wait says WHAT is happening instead of just spinning.
-                    Text(connect.indexingPhase ?? "Indexing \(repo)…")
-                        .font(.system(size: 14)).foregroundStyle(Theme.muted)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        // WHAT is happening…
+                        Text(connect.indexingPhase ?? "Indexing \(repo)…")
+                            .font(.system(size: 14)).foregroundStyle(Theme.muted)
+                    }
+                    // …and HOW FAR. A connect runs for minutes (measured 185s
+                    // to 987s on real repos), and a spinner alone cannot be
+                    // told apart from a hang.
+                    if let progress = connect.indexingProgressLine {
+                        Text(progress).font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                    }
                 }
             case .ready(let repo):
                 Text("✓ Loaded \(repo).")

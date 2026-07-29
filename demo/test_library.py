@@ -31,7 +31,7 @@ class LibraryTests(unittest.TestCase):
         self.built = []  # dirs build_pipeline was called with
         self.ingested = []  # repos ingest_fn was called with
 
-        def fake_build(corpus_dir, fast=False):
+        def fake_build(corpus_dir, fast=False, **_):
             self.built.append(str(corpus_dir))
             return f"pipeline::{corpus_dir}"
 
@@ -82,7 +82,7 @@ class LibraryTests(unittest.TestCase):
             return {"pr": 1, "issue": 0, "code": 0}
 
         lib = Library(self.default_dir, self.cache_root, "simonw/llm",
-                      build_pipeline=lambda d, fast=False: f"p::{d}", ingest_fn=capturing_ingest)
+                      build_pipeline=lambda d, fast=False, **_: f"p::{d}", ingest_fn=capturing_ingest)
         holder["lib"] = lib
         lib.connect_sync("octo/x")
         self.assertEqual(seen["phase"], "Reading the repository…")
@@ -134,7 +134,7 @@ class LibraryTests(unittest.TestCase):
         # for a real (non-slow, non-failing) connect.
         calls = []
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             calls.append(fast)
             return f"fast::{corpus_dir}" if fast else f"full::{corpus_dir}"
 
@@ -156,7 +156,7 @@ class LibraryTests(unittest.TestCase):
         import time
         gate = threading.Event()
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             if fast:
                 return f"fast::{corpus_dir}"
             gate.wait(timeout=2)          # hold STAGE 2 open
@@ -188,7 +188,7 @@ class LibraryTests(unittest.TestCase):
         full_calls = []
         clock = threading.Lock()
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             if fast:
                 return f"fast::{corpus_dir}"
             with clock:
@@ -225,7 +225,7 @@ class LibraryTests(unittest.TestCase):
         # 216-chunk connect never finished embedding inside a 15-minute bound)
         # must NOT undo STAGE 1's already-working connection. The repo stays
         # "ready" via lexical-only search, not "error".
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             if fast:
                 return f"fast::{corpus_dir}"
             raise TimeoutError("embedding timed out after 900s (10/216 chunks done)")
@@ -248,7 +248,7 @@ class LibraryTests(unittest.TestCase):
 
         gate = threading.Event()
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             if not fast and "first" in str(corpus_dir):
                 gate.wait(timeout=2)  # hold octo/first's stage 2 open
             return f"{'fast' if fast else 'full'}::{corpus_dir}"
@@ -285,7 +285,7 @@ class LibraryTests(unittest.TestCase):
 
         gate = threading.Event()
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             # Hold octo/first's STAGE 2 open; every other build is instant.
             if not fast and "first" in str(corpus_dir):
                 gate.wait(timeout=5)
@@ -393,7 +393,7 @@ class ResolveStaysAvailabilityOnlyTests(_AstChunkingEnvGuard):
         self.private_root = root / "private"
         self.addCleanup(self.tmp.cleanup)
         self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
-                           build_pipeline=lambda d, fast=False: f"p::{d}",
+                           build_pipeline=lambda d, fast=False, **_: f"p::{d}",
                            ingest_fn=lambda *a, **k: {"pr": 0, "issue": 0, "code": 0},
                            private_root=self.private_root)
 
@@ -500,7 +500,7 @@ class ConnectSyncStalenessTests(unittest.TestCase):
             return {"pr": 0, "issue": 0, "code": 0}
 
         self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
-                           build_pipeline=lambda d, fast=False: f"p::{d}",
+                           build_pipeline=lambda d, fast=False, **_: f"p::{d}",
                            ingest_fn=fake_ingest,
                            private_root=self.private_root,
                            private_ingest_fn=fake_ingest)
@@ -593,7 +593,7 @@ class IndexingFlagTests(unittest.TestCase):
                        build_pipeline=build, ingest_fn=self.ingest)
 
     def test_a_fully_ready_default_repo_is_not_indexing(self):
-        lib = self._lib(lambda d, fast=False: f"p::{d}")
+        lib = self._lib(lambda d, fast=False, **_: f"p::{d}")
         self.assertFalse(lib.status_snapshot()["indexing"])
 
     def test_true_while_only_lexical_search_is_live(self):
@@ -601,7 +601,7 @@ class IndexingFlagTests(unittest.TestCase):
         # this only observes the flag during stage 2 of the real connect.
         seen, holder = {}, {}
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             if not fast and holder.get("lib") is not None:
                 seen["during"] = holder["lib"].status_snapshot()["indexing"]
             return f"{'fast' if fast else 'full'}::{corpus_dir}"
@@ -612,7 +612,7 @@ class IndexingFlagTests(unittest.TestCase):
         self.assertTrue(seen.get("during"), "lexical-only window must report indexing")
 
     def test_false_again_once_semantic_search_installs(self):
-        lib = self._lib(lambda d, fast=False: f"p::{d}")
+        lib = self._lib(lambda d, fast=False, **_: f"p::{d}")
         lib.connect_sync("octo/new")
         self.assertFalse(lib.status_snapshot()["indexing"])
 
@@ -621,7 +621,7 @@ class IndexingFlagTests(unittest.TestCase):
         # Reporting "still indexing" forever would be its own false claim.
         holder = {}
 
-        def build(corpus_dir, fast=False):
+        def build(corpus_dir, fast=False, **_):
             # Let the constructor's own build succeed; fail only the real
             # connect's stage 2, which is the path under test.
             if not fast and holder.get("lib") is not None:
@@ -633,3 +633,87 @@ class IndexingFlagTests(unittest.TestCase):
         lib.connect_sync("octo/new")
         self.assertFalse(lib.status_snapshot()["indexing"])
         self.assertEqual(lib.status_snapshot()["state"], "ready")
+
+
+# --- Day 1: honest, bounded waiting ----------------------------------------
+
+class IndexingProgressTests(unittest.TestCase):
+    """A connect takes minutes -- measured 185s to 987s on real repos -- and
+    until now the only signal was the words "Building smart search…".
+
+    A user cannot tell "working" from "hung" from that, and the moment they
+    can't is the moment they message the founder asking if it's broken. So the
+    embed reports how far it has got and roughly how long is left.
+
+    The ETA is an ESTIMATE and is treated like one everywhere: it is derived
+    from the rate actually observed in THIS run (not a hardcoded constant), it
+    is absent rather than invented before there is anything to measure, and it
+    disappears the moment the work is done.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.default_dir = Path(self.tmp.name) / "default"
+        self.cache_root = Path(self.tmp.name) / "cache"
+        _seed_corpus(self.default_dir, "simonw/llm")
+        self.clock = [1000.0]
+        self.progress_cb = None
+
+        def fake_build(corpus_dir, fast=False, on_progress=None):
+            # Stage 2 (fast=False) is the one that embeds; capture its callback
+            # so the test can drive progress exactly as the embedder would.
+            if not fast and on_progress is not None:
+                self.progress_cb = on_progress
+            return f"pipeline::{corpus_dir}"
+
+        def fake_ingest(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
+            _seed_corpus(out_dir, repo)
+            return {"pr": 1, "issue": 0, "code": 0}
+
+        self.lib = Library(self.default_dir, self.cache_root, "simonw/llm",
+                           build_pipeline=fake_build, ingest_fn=fake_ingest,
+                           clock=lambda: self.clock[0])
+        # A connect is what starts an embed, and the embed is what reports.
+        self.lib.connect_sync("acme/widgets")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_no_progress_before_anything_is_embedded(self):
+        # Never a fabricated 0% or a guessed ETA: absent means unknown.
+        self.assertIsNone(self.lib.status_snapshot()["indexing_progress"])
+
+    def test_progress_reports_done_and_total(self):
+        self.progress_cb(30, 100)
+        p = self.lib.status_snapshot()["indexing_progress"]
+        self.assertEqual((p["done"], p["total"]), (30, 100))
+
+    def test_eta_is_derived_from_the_rate_actually_observed(self):
+        # 30 chunks in 60s => 2s/chunk => 70 remaining => ~140s.
+        self.clock[0] += 60.0
+        self.progress_cb(30, 100)
+        self.assertEqual(self.lib.status_snapshot()["indexing_progress"]["eta_seconds"], 140)
+
+    def test_eta_is_absent_until_there_is_a_rate_to_measure(self):
+        self.progress_cb(0, 100)
+        self.assertIsNone(self.lib.status_snapshot()["indexing_progress"]["eta_seconds"])
+
+    def test_progress_clears_when_the_embed_finishes(self):
+        self.clock[0] += 10.0
+        self.progress_cb(100, 100)
+        self.assertIsNone(self.lib.status_snapshot()["indexing_progress"])
+
+    def test_progress_never_goes_backwards_for_a_stale_embed(self):
+        # A superseded connect's callback must not overwrite the live one --
+        # the same generation guard that stops a stale pipeline being installed.
+        self.progress_cb(50, 100)
+        stale = self.progress_cb
+        self.lib.connect_sync("other/repo")
+        stale(1, 100)
+        p = self.lib.status_snapshot()["indexing_progress"]
+        self.assertTrue(p is None or p["done"] != 1)
+
+    def test_the_snapshot_still_carries_everything_it_did_before(self):
+        for key in ("state", "repo", "commit", "counts", "error", "phase",
+                    "private", "truncated", "indexing"):
+            self.assertIn(key, self.lib.status_snapshot())

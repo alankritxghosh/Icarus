@@ -43,6 +43,13 @@ struct OnboardingView: View {
         }
         .task { await tour.start() }
         .task { await loadMap() }
+        // The poll is the live signal; the plan is a one-time snapshot, so
+        // readiness has to come from here or it would be stale the moment
+        // indexing finished.
+        .onChange(of: status.status?.isIndexing) { _, indexing in
+            Task { await tour.setQuestionsReady(indexing != true) }
+        }
+        .task { await tour.setQuestionsReady(status.status?.isIndexing != true) }
     }
 
     // MARK: header
@@ -62,8 +69,15 @@ struct OnboardingView: View {
     private func indexingBanner(_ note: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("⏳").font(.system(size: 13))
-            Text(note).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(note).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                // How far in, so "still building" has a shape. Absent when the
+                // brain has nothing real to report -- never a fake 0%.
+                if let line = status.status?.indexingLine {
+                    Text(line).font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                }
+            }
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.unknownBg)
@@ -220,7 +234,25 @@ struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let error = tour.error {
+                if !tour.questionsReady {
+                    // Held, not asked. Answering now would reach the writer
+                    // with a keyword-only index and come back measurably
+                    // worse -- and an onboarding tour only gets one first
+                    // impression.
+                    VStack(alignment: .leading, spacing: 6) {
+                        MonoLabel("WAITING FOR THE INDEX", Theme.unknown)
+                        Text("Icarus hasn't finished reading this repository. It will answer this step on its own as soon as it has \u{2014} the overview above is ready now.")
+                            .font(.system(size: 13)).foregroundStyle(Theme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let line = status.status?.indexingLine {
+                            Text(line).font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.unknownBg)
+                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.unknown.opacity(0.5), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                } else if let error = tour.error {
                     VStack(alignment: .leading, spacing: 8) {
                         MonoLabel("COULDN'T ANSWER THIS STEP", Theme.unknown)
                         Text(error).font(.system(size: 13)).foregroundStyle(Theme.ink)
@@ -289,6 +321,10 @@ struct OnboardingView: View {
                 .foregroundStyle(tour.currentIndex == 0 ? Theme.muted : Theme.ink)
             if tour.isOnLastStep {
                 Button("Done — ask anything", action: onTryQuestion).buttonStyle(PrimaryButton())
+            } else if !tour.questionsReady, tour.currentStep?.kind == .map {
+                // Say when, not just "not yet". The estimate comes from the
+                // rate the embed is actually running at.
+                Button(waitingLabel) {}.buttonStyle(PrimaryButton()).disabled(true)
             } else {
                 Button("Next") { Task { await tour.next() } }.buttonStyle(PrimaryButton())
             }
@@ -316,6 +352,13 @@ struct OnboardingView: View {
             .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
+    }
+
+    private var waitingLabel: String {
+        if let estimate = status.status?.indexingProgress?.estimate {
+            return "Next — ready in \(estimate.replacingOccurrences(of: "about ", with: "~").replacingOccurrences(of: " left", with: ""))"
+        }
+        return "Next — still reading the repository"
     }
 
     private func tourReset() {

@@ -130,6 +130,43 @@ public struct IndexCounts: Decodable, Equatable, Sendable {
     public let code: Int
 }
 
+/// How far the semantic embed has got, and roughly how much longer.
+///
+/// A connect takes minutes -- measured 185s on a small repo and 987s on a
+/// large one -- and "Building smart search…" alone cannot be told apart from a
+/// hang. `etaSeconds` is an ESTIMATE derived from the rate observed in that
+/// run, and is nil until there is a rate to measure: there is no honest
+/// estimate before the first chunk is embedded.
+public struct IndexingProgress: Decodable, Equatable, Sendable {
+    public let done: Int
+    public let total: Int
+    public let etaSeconds: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case done, total
+        case etaSeconds = "eta_seconds"
+    }
+
+    public init(done: Int, total: Int, etaSeconds: Int?) {
+        self.done = done
+        self.total = total
+        self.etaSeconds = etaSeconds
+    }
+
+    public var fraction: Double {
+        total > 0 ? min(1, Double(done) / Double(total)) : 0
+    }
+
+    /// The estimate in words, or nil when there isn't one. Always hedged --
+    /// "about 6 min" rather than "6 min" -- because it is a projection from a
+    /// rate that varies with chunk length and how busy the host is.
+    public var estimate: String? {
+        guard let eta = etaSeconds, eta > 0 else { return nil }
+        if eta < 60 { return "about \(eta) sec left" }
+        return "about \(Int((Double(eta) / 60).rounded())) min left"
+    }
+}
+
 /// The `/status` response (demo/library.py): the active repo + switch state.
 /// `state` is one of "idle" | "indexing" | "ready" | "error". `counts` is an
 /// object in the real payload (null while indexing), decoded for the metrics card.
@@ -154,17 +191,45 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     /// an older brain still decodes; absent reads as public, the safer default
     /// (it never labels a public repo as company-private code).
     public let isPrivate: Bool?
+    /// Embed progress while a connect is in flight. Optional so a brain
+    /// deployed before this field existed still decodes -- absent means
+    /// "no progress to report", never zero.
+    public let indexingProgress: IndexingProgress?
+    /// True ONLY between lexical search going live and the semantic index
+    /// being installed -- the window where search is real but measurably
+    /// worse. The server has always sent this on /status; the app simply
+    /// never decoded it. Optional so an older brain still decodes; absent
+    /// reads as "not indexing", which is the pre-existing behaviour.
+    public let indexing: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case state, repo, commit, counts, error, phase, truncated
+        case state, repo, commit, counts, error, phase, truncated, indexing
         case isPrivate = "private"
+        case indexingProgress = "indexing_progress"
     }
 
     public var isReady: Bool { state == "ready" }
     public var isError: Bool { state == "error" }
     public var isTruncated: Bool { truncated == true }
+    /// Is the semantic index still building? Absent reads as no.
+    public var isIndexing: Bool { indexing == true }
     /// The brain's own name for this connection, shown in the sidebar.
     public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
+
+    /// One line a waiting user can act on: how far in, and roughly how long.
+    /// nil when there is nothing real to report -- never a fabricated 0%.
+    public var indexingLine: String? {
+        guard let p = indexingProgress, p.total > 0 else { return nil }
+        let done = Self.grouped(p.done), total = Self.grouped(p.total)
+        guard let estimate = p.estimate else { return "read \(done) of \(total)" }
+        return "read \(done) of \(total) · \(estimate)"
+    }
+
+    private static func grouped(_ n: Int) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: n)) ?? String(n)
+    }
 }
 
 /// One recorded ask from the repo's shared ledger (`demo/ledger.py`).

@@ -28,6 +28,10 @@ final class ConnectModel {
     /// repository…"), shown under the spinner so the wait isn't a silent
     /// spinner. Only meaningful during `.connecting`; nil otherwise.
     private(set) var indexingPhase: String?
+    /// How far the embed has got and roughly how long is left, when the brain
+    /// knows. Separate from `indexingPhase` because one says WHAT is happening
+    /// and the other says HOW FAR -- a user waiting minutes needs both.
+    private(set) var indexingProgressLine: String?
     /// Is the connected repo private? Read from the brain's own /status, never
     /// guessed from the repo name — it decides whether this is a Company Brain
     /// (a private index a team shares) or a Repo Brain (a public one). False
@@ -67,6 +71,7 @@ final class ConnectModel {
         }
         task?.cancel()
         indexingPhase = nil
+        indexingProgressLine = nil
         state = .connecting(repo)
         task = Task { await run(repo: repo) }
     }
@@ -155,6 +160,7 @@ final class ConnectModel {
                 // Still indexing — surface the brain's own progress line (e.g.
                 // "Reading the repository…") so the wait isn't a silent spinner.
                 indexingPhase = status.phase
+                indexingProgressLine = status.indexingLine
             }
             state = .failed("Timed out indexing \(repo).")
         } catch is CancellationError {

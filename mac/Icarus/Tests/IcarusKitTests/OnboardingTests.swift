@@ -205,3 +205,84 @@ extension TourStepAnswer {
                                              searched: ["doc:README.md"]))
     }
 }
+
+/// Day 2: the tour must never OPEN degraded.
+///
+/// Measured: `stack` answers 10/10 across ten repos once the semantic index is
+/// built, and abstained live on alankritxghosh/Icarus purely because the embed
+/// was still running. A first-time user takes the tour in exactly that window,
+/// so without a gate their first impression is three "still indexing" boxes in
+/// a row -- a worse experience than a two-minute wait with a countdown.
+///
+/// The map step needs no retrieval, so it stays available throughout: there is
+/// something real to look at while the rest becomes true.
+@MainActor
+final class TourReadinessTests: XCTestCase {
+
+    private func model(_ fetches: Fetches = Fetches()) -> (TourModel, Fetches) {
+        let m = TourModel(
+            loadPlan: { OnboardingPlan(
+                repo: "a/b", commit: "c", semanticIndexingInProgress: true, note: "building",
+                steps: [OnboardingStep(id: "overview", kind: .map, title: "Read", question: nil, detail: "d"),
+                        OnboardingStep(id: "purpose", kind: .question, title: "What", question: "q", detail: nil)]) },
+            loadStep: { id in
+                await fetches.record(id)
+                return TourStepAnswer(step: id, title: "T",
+                                      response: AskResponse(verdict: .answer, answer: "a",
+                                                            citations: [], searched: []))
+            })
+        return (m, fetches)
+    }
+
+    actor Fetches {
+        private(set) var ids: [String] = []
+        func record(_ id: String) { ids.append(id) }
+    }
+
+    func testAQuestionStepIsNotFetchedWhileTheIndexIsStillBuilding() async {
+        let (m, fetches) = model()
+        await m.setQuestionsReady(false)
+        await m.start()
+        await m.next()                       // onto the question step
+        let ids = await fetches.ids
+        XCTAssertEqual(ids, [], "a not-ready step must not reach the billed writer")
+        XCTAssertNil(m.answer(for: "purpose"))
+    }
+
+    func testTheMapStepIsAvailableThroughout() async {
+        let (m, _) = model()
+        await m.setQuestionsReady(false)
+        await m.start()
+        // The overview needs no retrieval, so there is always something real
+        // to look at while the rest becomes true.
+        XCTAssertEqual(m.currentStep?.kind, .map)
+        XCTAssertNil(m.error)
+    }
+
+    func testTheCurrentStepFetchesTheMomentTheIndexBecomesReady() async {
+        let (m, fetches) = model()
+        await m.setQuestionsReady(false)
+        await m.start()
+        await m.next()
+        await m.setQuestionsReady(true)      // the poll notices indexing finished
+        let ids = await fetches.ids
+        XCTAssertEqual(ids, ["purpose"])
+        XCTAssertNotNil(m.answer(for: "purpose"))
+    }
+
+    func testBecomingReadyTwiceDoesNotRefetch() async {
+        let (m, fetches) = model()
+        await m.setQuestionsReady(false)
+        await m.start()
+        await m.next()
+        await m.setQuestionsReady(true)
+        await m.setQuestionsReady(true)
+        let ids = await fetches.ids
+        XCTAssertEqual(ids, ["purpose"], "a step is billed once, not once per poll")
+    }
+
+    func testReadyByDefaultSoAnAlreadyIndexedRepoIsUnaffected(){
+        let (m, _) = model()
+        XCTAssertTrue(m.questionsReady)
+    }
+}

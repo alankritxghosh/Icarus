@@ -115,6 +115,21 @@ public final class TourModel {
     /// from an abstention: "we couldn't reach the brain" and "nobody wrote this
     /// down" are opposite claims, and only one of them is about their code.
     public private(set) var error: String?
+    /// Whether the writer-backed steps can be asked yet.
+    ///
+    /// False while the semantic index is still building. Measured: `stack`
+    /// answers 10/10 across ten repos once the index is built, and abstained
+    /// live purely because the embed was still running -- and a first-time
+    /// user takes the tour in exactly that window. Holding those steps costs
+    /// a short wait; not holding them costs the first impression.
+    ///
+    /// Driven by the app's `/status` poll rather than by a field in the plan:
+    /// the plan is fetched ONCE and indexing finishes later, so a readiness
+    /// flag baked into it would be a stale snapshot of a live condition.
+    ///
+    /// Defaults to true, so a repo that is already indexed -- and any caller
+    /// that never sets it -- behaves exactly as before.
+    public private(set) var questionsReady: Bool = true
 
     private var answers: [String: TourStepAnswer] = [:]
     private let loadPlan: @Sendable () async throws -> OnboardingPlan
@@ -162,6 +177,15 @@ public final class TourModel {
         await loadCurrentIfNeeded()
     }
 
+    /// Tell the tour whether the index is ready. Becoming ready fetches the
+    /// step the user is already sitting on, so the wait ends by itself rather
+    /// than needing them to click something.
+    public func setQuestionsReady(_ ready: Bool) async {
+        let wasReady = questionsReady
+        questionsReady = ready
+        if ready && !wasReady { await loadCurrentIfNeeded() }
+    }
+
     public func retry() async {
         error = nil
         await loadCurrentIfNeeded()
@@ -170,8 +194,10 @@ public final class TourModel {
     /// Fetch the current step's answer unless it is already known or needs no
     /// writer at all. A map step never reaches the brain's writer.
     private func loadCurrentIfNeeded() async {
+        // A not-ready question step is not fetched at all: it must never
+        // reach the billed writer only to come back visibly worse.
         guard let step = currentStep, step.kind == .question,
-              answers[step.id] == nil else { return }
+              questionsReady, answers[step.id] == nil else { return }
         isLoading = true
         defer { isLoading = false }
         do {

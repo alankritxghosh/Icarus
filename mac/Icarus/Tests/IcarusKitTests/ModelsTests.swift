@@ -277,3 +277,83 @@ final class AbstentionSurfaceAgreementTests: XCTestCase {
         XCTAssertNil(response(indexing: nil).incompleteIndexNote)
     }
 }
+
+/// Day 1: a connect takes minutes, and until now the only signal was
+/// "Building smart search…". These pin how that becomes legible without
+/// becoming a promise -- an ETA is an estimate and has to read like one.
+final class IndexingProgressTests: XCTestCase {
+
+    private func status(_ progress: String) throws -> RepoStatus {
+        let json = Data("""
+        {"state":"ready","repo":"a/b","commit":"c","counts":null,"error":null,
+         "phase":"Building smart search…","private":false,"truncated":false,
+         "indexing":true,"indexing_progress":\(progress)}
+        """.utf8)
+        return try JSONDecoder().decode(RepoStatus.self, from: json)
+    }
+
+    func testProgressDecodes() throws {
+        let s = try status(#"{"done":4200,"total":14000,"eta_seconds":372}"#)
+        XCTAssertEqual(s.indexingProgress?.done, 4200)
+        XCTAssertEqual(s.indexingProgress?.total, 14000)
+        XCTAssertEqual(s.indexingProgress?.etaSeconds, 372)
+    }
+
+    func testAnOlderBrainWithoutTheFieldStillDecodes() throws {
+        // The deployed brain predates this, and the installed app must keep
+        // reading /status or the whole shell goes blank.
+        let json = Data("""
+        {"state":"ready","repo":"a/b","commit":"c","counts":null,"error":null,
+         "phase":null,"private":false,"truncated":false,"indexing":false}
+        """.utf8)
+        let s = try JSONDecoder().decode(RepoStatus.self, from: json)
+        XCTAssertNil(s.indexingProgress)
+        XCTAssertNil(s.indexingLine)
+    }
+
+    func testTheLineNamesBothTheCountAndTheEstimate() throws {
+        let s = try status(#"{"done":4200,"total":14000,"eta_seconds":372}"#)
+        let line = try XCTUnwrap(s.indexingLine)
+        XCTAssertTrue(line.contains("4,200"), line)
+        XCTAssertTrue(line.contains("14,000"), line)
+        XCTAssertTrue(line.contains("6 min"), line)
+        // An estimate must READ like one -- never "6 minutes left" flat.
+        XCTAssertTrue(line.lowercased().contains("about"), line)
+    }
+
+    func testAnUnknownEtaSaysSoRatherThanGuessing() throws {
+        let s = try status(#"{"done":0,"total":14000,"eta_seconds":null}"#)
+        let line = try XCTUnwrap(s.indexingLine)
+        XCTAssertTrue(line.contains("14,000"), line)
+        XCTAssertFalse(line.lowercased().contains("about"), line)
+        XCTAssertFalse(line.contains("0 min"), line)
+    }
+
+    func testASubMinuteEstimateReadsInSeconds(){
+        let p = IndexingProgress(done: 13900, total: 14000, etaSeconds: 20)
+        XCTAssertTrue(p.estimate!.contains("20 sec"), p.estimate!)
+    }
+
+    func testTheIndexingFlagIsDecodedFromStatus() throws {
+        // The server has always sent this; the app never read it, so it had no
+        // way to know the index was still building except by asking a question
+        // and seeing a worse answer.
+        let s = try status(#"{"done":1,"total":2,"eta_seconds":1}"#)
+        XCTAssertTrue(s.isIndexing)
+    }
+
+    func testAbsentIndexingFlagReadsAsNotIndexing() throws {
+        let json = Data("""
+        {"state":"ready","repo":"a/b","commit":"c","counts":null,"error":null,
+         "phase":null,"private":false,"truncated":false}
+        """.utf8)
+        let s = try JSONDecoder().decode(RepoStatus.self, from: json)
+        XCTAssertFalse(s.isIndexing)
+    }
+
+    func testProgressFraction() {
+        let p = IndexingProgress(done: 7000, total: 14000, etaSeconds: nil)
+        XCTAssertEqual(p.fraction, 0.5, accuracy: 0.001)
+        XCTAssertEqual(IndexingProgress(done: 1, total: 0, etaSeconds: nil).fraction, 0)
+    }
+}
