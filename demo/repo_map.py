@@ -16,9 +16,9 @@ None and the walk moves on, recording nothing about what it skipped. Publishing
 an excluded-file count would be fabricated precision, which is the same class of
 failure as a bluffed citation.
 
-Pure: refs in, dict out. No model call, no network, no filesystem -- refs are
-already in memory (`GatedPipeline.indexed_refs`), so a 50k-chunk repo costs no
-re-read. A future ingestion-manifest brick can add genuinely OBSERVED discovered
+Pure: chunks in, dict out. No model call, no network, no filesystem -- the
+corpus is already in memory (`GatedPipeline.indexed_chunks`), so a 50k-chunk
+repo costs no re-read. A future ingestion-manifest brick can add genuinely OBSERVED discovered
 /eligible/excluded/failed counts; until then those numbers do not exist and are
 not published.
 """
@@ -30,7 +30,7 @@ from evals.ingest import (
     _MAX_FILE_BYTES,
 )
 
-from .entry_points import detect_entry_points
+from .entry_points import detect_entry_points, is_auxiliary_path
 
 # Sources whose ref carries a repo-relative PATH (`code:llm/cli.py#L1-L300`).
 # pr/issue/commit refs carry an identifier instead and have no file at all.
@@ -132,6 +132,14 @@ def build_map(chunks, status):
     docs = sorted(p for p, s in paths.items() if s == "doc")
     truncated = bool(status.get("truncated", False))
     entry_points = detect_entry_points(chunks)
+    # Committed test data is LABELLED beside the totals, never subtracted from
+    # them. Found by running the tour on this repo: 348 of 500 indexed files
+    # sat under `evals/fixtures/`, so the map read as an Objective-C++/Kotlin/
+    # Swift mobile codebase. Every number was true and the impression was
+    # false -- the same failure this product exists to avoid, moved out of
+    # answers and into a summary. Excluding them would "fix" it by breaking
+    # the map's one contract: that it describes what Icarus READ.
+    auxiliary = sum(1 for p in paths if is_auxiliary_path(p))
 
     limitations = [
         "This map describes what Icarus INDEXED, not what exists in the "
@@ -164,6 +172,15 @@ def build_map(chunks, status):
         "indexed_directories": dict(sorted(directories.items(), key=lambda kv: (-kv[1], kv[0]))),
         "indexed_documentation": {"files": docs, "readme": _readme(docs)},
         "indexed_entry_points": entry_points,
+        "indexed_auxiliary": {
+            "file_count": auxiliary,
+            "rule": "Counted within the totals above, and named here because a "
+                    "large committed test tree makes a repository look like "
+                    "something it is not: files under a test, tests, testing, "
+                    "spec, fixture, fixtures, testdata or __fixtures__ "
+                    "directory, or named test_*/*_test. The same rule keeps "
+                    "them out of the entry points.",
+        },
         "indexed_chunks_by_source": dict(sorted(chunks_by_source.items())),
         "lexical_search_ready": bool(chunks_by_source),
         "semantic_indexing_in_progress": bool(status.get("indexing", False)),

@@ -94,6 +94,26 @@ class RuleFiringTests(unittest.TestCase):
         chunks = [_c("code:evals/run.py", 'if __name__ == "__main__":\n    main()\n')]
         self.assertEqual([e["path"] for e in detect_entry_points(chunks)], ["evals/run.py"])
 
+    def test_committed_fixtures_are_not_entry_points(self):
+        # Found by running the tour on this repo, 2026-07-29: two of the five
+        # entry points offered were `evals/fixtures/ast_chunking_eval/llm/
+        # __main__.py` and `.../cli.py` -- committed COPIES of someone else's
+        # project, kept as test data. Nobody starts reading there, and "where
+        # do I start?" is the one claim a newcomer acts on immediately.
+        for path in ("evals/fixtures/ast_chunking_eval/llm/__main__.py",
+                     "evals/fixtures/ast_chunking_eval/llm/cli.py",
+                     "pkg/fixture/main.py", "internal/testdata/run.py",
+                     "src/__fixtures__/app.py"):
+            with self.subTest(path=path):
+                chunks = [_c(f"code:{path}", 'if __name__ == "__main__":\n    main()\n')]
+                self.assertEqual(detect_entry_points(chunks), [])
+
+    def test_a_real_module_named_like_a_fixture_word_is_still_an_entry_point(self):
+        # The rule is a PATH SEGMENT, not a substring: a real module whose name
+        # merely contains "fixture" is the project's code, not test data.
+        chunks = [_c("code:app/fixtures.py", 'if __name__ == "__main__":\n    main()\n')]
+        self.assertEqual([e["path"] for e in detect_entry_points(chunks)], ["app/fixtures.py"])
+
     def test_a_test_file_is_still_excluded_when_named_conventionally(self):
         # tests/main.py is a test helper, not the application's entry point.
         chunks = [_c("code:tests/main.py", "x = 1\n")]

@@ -19,6 +19,10 @@ public struct RepoMap: Decodable, Sendable {
     public let indexedDirectories: [String: Int]
     public let indexedDocumentation: IndexedDocumentation
     public let indexedEntryPoints: [EntryPoint]
+    /// Committed test data, counted WITHIN the totals above and named
+    /// separately. Optional so a brain deployed before this field existed
+    /// still decodes — absent simply means the share is unknown, never zero.
+    public let indexedAuxiliary: IndexedAuxiliary?
     public let indexedChunksBySource: [String: Int]
     public let lexicalSearchReady: Bool
     public let semanticIndexingInProgress: Bool
@@ -33,6 +37,7 @@ public struct RepoMap: Decodable, Sendable {
         case indexedDirectories = "indexed_directories"
         case indexedDocumentation = "indexed_documentation"
         case indexedEntryPoints = "indexed_entry_points"
+        case indexedAuxiliary = "indexed_auxiliary"
         case indexedChunksBySource = "indexed_chunks_by_source"
         case lexicalSearchReady = "lexical_search_ready"
         case semanticIndexingInProgress = "semantic_indexing_in_progress"
@@ -43,7 +48,8 @@ public struct RepoMap: Decodable, Sendable {
     public init(repo: String?, commit: String?, indexedFileCount: Int,
                 indexedLanguages: [String: Int], indexedDirectories: [String: Int],
                 indexedDocumentation: IndexedDocumentation,
-                indexedEntryPoints: [EntryPoint], indexedChunksBySource: [String: Int],
+                indexedEntryPoints: [EntryPoint], indexedAuxiliary: IndexedAuxiliary? = nil,
+                indexedChunksBySource: [String: Int],
                 lexicalSearchReady: Bool, semanticIndexingInProgress: Bool,
                 corpusTruncated: Bool, exclusionRules: [String], limitations: [String]) {
         self.repo = repo
@@ -53,12 +59,36 @@ public struct RepoMap: Decodable, Sendable {
         self.indexedDirectories = indexedDirectories
         self.indexedDocumentation = indexedDocumentation
         self.indexedEntryPoints = indexedEntryPoints
+        self.indexedAuxiliary = indexedAuxiliary
         self.indexedChunksBySource = indexedChunksBySource
         self.lexicalSearchReady = lexicalSearchReady
         self.semanticIndexingInProgress = semanticIndexingInProgress
         self.corpusTruncated = corpusTruncated
         self.exclusionRules = exclusionRules
         self.limitations = limitations
+    }
+}
+
+/// How much of what Icarus read is supporting material rather than the project.
+///
+/// A large committed fixture tree makes a repository look like something it is
+/// not — measured on this repo, 348 of 500 indexed files sat under
+/// `evals/fixtures/`, so the language mix read as a mobile codebase. The count
+/// sits BESIDE the totals rather than being subtracted from them, because the
+/// map's one contract is that it describes what Icarus READ.
+public struct IndexedAuxiliary: Decodable, Sendable {
+    public let fileCount: Int
+    /// The rule that produced the count, in words — never an opaque number.
+    public let rule: String
+
+    enum CodingKeys: String, CodingKey {
+        case rule
+        case fileCount = "file_count"
+    }
+
+    public init(fileCount: Int, rule: String) {
+        self.fileCount = fileCount
+        self.rule = rule
     }
 }
 

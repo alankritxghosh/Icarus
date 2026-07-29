@@ -135,6 +135,16 @@ struct OnboardingView: View {
             Text("\(map.indexedFileCount) files indexed")
                 .font(.system(size: 20, weight: .semibold)).foregroundStyle(Theme.ink)
 
+            // Named, not subtracted. A big committed fixture tree makes a repo
+            // look like something it is not (348 of 500 files here), and the
+            // totals above stay whole because the map's contract is that it
+            // describes what Icarus READ.
+            if let aux = map.indexedAuxiliary, aux.fileCount > 0 {
+                Text("\(aux.fileCount) of those are tests or committed fixtures, counted above.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if !map.languagesByFileCount.isEmpty {
                 labelled("LANGUAGES") {
                     FlowLayout(spacing: 6) {

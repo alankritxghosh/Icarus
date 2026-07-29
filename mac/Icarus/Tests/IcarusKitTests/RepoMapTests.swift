@@ -66,4 +66,40 @@ final class RepoMapTests: XCTestCase {
                           corpusTruncated: false, exclusionRules: [], limitations: [])
         XCTAssertEqual(map.languagesByFileCount.map(\.name), ["Ada", "Zig"])
     }
+
+    // MARK: auxiliary trees
+
+    func testAuxiliaryShareDecodesWhenPresent() throws {
+        let json = Data("""
+        {"repo":"a/b","commit":"c","indexed_file_count":500,
+         "indexed_languages":{"Python":115},"indexed_directories":{"evals":348},
+         "indexed_documentation":{"files":["README.md"],"readme":"README.md"},
+         "indexed_entry_points":[],
+         "indexed_auxiliary":{"file_count":348,"rule":"files under fixtures/"},
+         "indexed_chunks_by_source":{"code":500},
+         "lexical_search_ready":true,"semantic_indexing_in_progress":false,
+         "corpus_truncated":false,"exclusion_rules":["r"],"limitations":["l"]}
+        """.utf8)
+        let map = try JSONDecoder().decode(RepoMap.self, from: json)
+        XCTAssertEqual(map.indexedAuxiliary?.fileCount, 348)
+        XCTAssertFalse(map.indexedAuxiliary?.rule.isEmpty ?? true)
+        // Counted WITHIN the totals, never subtracted from them.
+        XCTAssertEqual(map.indexedFileCount, 500)
+    }
+
+    func testAnOlderBrainWithoutTheFieldStillDecodes() throws {
+        // The deployed brain predates this field, and the installed app must
+        // keep working against it -- a required field here would surface to a
+        // user as "couldn't reach the brain".
+        let json = Data("""
+        {"repo":"a/b","commit":"c","indexed_file_count":2,
+         "indexed_languages":{"Python":2},"indexed_directories":{".":2},
+         "indexed_documentation":{"files":[],"readme":null},
+         "indexed_entry_points":[],"indexed_chunks_by_source":{"code":2},
+         "lexical_search_ready":true,"semantic_indexing_in_progress":false,
+         "corpus_truncated":false,"exclusion_rules":[],"limitations":[]}
+        """.utf8)
+        let map = try JSONDecoder().decode(RepoMap.self, from: json)
+        XCTAssertNil(map.indexedAuxiliary)
+    }
 }

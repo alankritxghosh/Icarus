@@ -56,18 +56,37 @@ _CONVENTIONAL_FILENAMES = {
 # code that describes it.
 _MAIN_GUARD = re.compile(r"^[ \t]*if\s+__name__\s*==\s*['\"]__main__['\"]", re.MULTILINE)
 
-# Test files are excluded from EVERY rule. Not a taste call: measured against
-# this repo, `if __name__ == "__main__": unittest.main()` is boilerplate in all
-# 60+ test files, so the main-guard rule returned 70 "entry points" and buried
-# the four that a new engineer actually wants. The rule was not wrong -- each
-# file really does run directly -- it was answering a different question. A
-# test's entry point runs the test, not the product.
-_TEST_DIR_SEGMENTS = {"test", "tests", "testing", "__tests__", "spec"}
+# Auxiliary trees: files that exist to SUPPORT the project rather than being
+# the project. Excluded from every entry-point rule here, and labelled (never
+# removed) in the repository map -- demo/repo_map.py imports this so the two
+# can never disagree about what counts as the project's own code.
+#
+# Both halves were forced by running this on real repositories, not by unit
+# tests:
+# - test files: `if __name__ == "__main__": unittest.main()` is boilerplate in
+#   all 60+ test files here, so the main-guard rule returned 70 "entry points"
+#   and buried the four that matter. The rule was not wrong -- each file really
+#   does run directly -- it was answering a different question. A test's entry
+#   point runs the test, not the product.
+# - fixtures: running the tour on this repo offered
+#   `evals/fixtures/ast_chunking_eval/llm/__main__.py` as a place to start
+#   reading. That is a committed COPY of someone else's project, kept as test
+#   data, and "where do I start?" is the one claim a newcomer acts on at once.
+_AUXILIARY_DIR_SEGMENTS = {
+    "test", "tests", "testing", "__tests__", "spec",
+    "fixture", "fixtures", "__fixtures__", "testdata", "test_data",
+}
 
 
-def _is_test_file(path):
+def is_auxiliary_path(path):
+    """Is `path` supporting material (tests, fixtures) rather than the
+    project's own code?
+
+    Matched on whole PATH SEGMENTS, never as a substring: a real module named
+    `app/fixtures.py` is the project's code, and treating it as test data
+    because its name contains the word would hide a genuine entry point."""
     parts = path.split("/")
-    if set(parts) & _TEST_DIR_SEGMENTS:
+    if set(parts[:-1]) & _AUXILIARY_DIR_SEGMENTS:
         return True
     name = parts[-1]
     stem = name.rsplit(".", 1)[0]
@@ -125,7 +144,7 @@ def detect_entry_points(chunks):
     def _hit(path, rule, evidence_ref, detail):
         # The groundedness guard: a rule may only ever name a file that is in
         # the indexed corpus, so anything Icarus points at, it can also show.
-        if path not in indexed_paths or _is_test_file(path):
+        if path not in indexed_paths or is_auxiliary_path(path):
             return
         for existing in hits.setdefault(path, []):
             if existing["rule"] == rule:

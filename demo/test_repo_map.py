@@ -232,6 +232,52 @@ class LanguageGroupingTests(unittest.TestCase):
         self.assertEqual(sum(m["indexed_languages"].values()), m["indexed_file_count"])
 
 
+class AuxiliaryTreeTests(unittest.TestCase):
+    """Committed test data is LABELLED, never quietly removed from the totals.
+
+    Found by running the tour on this repo: 348 of 500 indexed files sat under
+    `evals/fixtures/`, so the map read as an Objective-C++/Kotlin/Swift mobile
+    codebase. Every number was true and the impression was false, which is
+    worse than either -- the same failure this product exists to avoid, moved
+    from answers into a summary.
+
+    Excluding fixtures from the counts would "fix" it by breaking the map's one
+    contract: that it describes what Icarus READ. So the totals stay whole and
+    the auxiliary share is named beside them.
+    """
+
+    AUX = ["code:evals/fixtures/rn/App.tsx", "code:evals/fixtures/rn/Main.kt",
+           "code:tests/helpers.py", "code:demo/test_server.py"]
+    REAL = ["code:demo/server.py", "code:evals/ingest.py"]
+
+    def test_auxiliary_files_are_counted_and_named(self):
+        m = build_map_from_refs(self.AUX + self.REAL, STATUS)
+        self.assertEqual(m["indexed_auxiliary"]["file_count"], 4)
+        self.assertTrue(m["indexed_auxiliary"]["rule"].strip())
+
+    def test_the_totals_still_include_every_auxiliary_file(self):
+        # The honesty property: labelling must not reweight what was indexed.
+        m = build_map_from_refs(self.AUX + self.REAL, STATUS)
+        self.assertEqual(m["indexed_file_count"], 6)
+        self.assertEqual(sum(m["indexed_languages"].values()), 6)
+        self.assertEqual(sum(m["indexed_directories"].values()), 6)
+
+    def test_a_corpus_with_no_auxiliary_files_reports_zero_not_silence(self):
+        m = build_map_from_refs(self.REAL, STATUS)
+        self.assertEqual(m["indexed_auxiliary"]["file_count"], 0)
+        self.assertIn("rule", m["indexed_auxiliary"])
+
+    def test_the_auxiliary_rule_matches_the_entry_point_rule(self):
+        # One definition, used twice -- otherwise the map could call a file
+        # test data while the entry-point list still offers it as a place to
+        # start reading.
+        from demo.entry_points import is_auxiliary_path
+        for ref in self.AUX:
+            self.assertTrue(is_auxiliary_path(ref.split(":", 1)[1]), ref)
+        for ref in self.REAL:
+            self.assertFalse(is_auxiliary_path(ref.split(":", 1)[1]), ref)
+
+
 class PurityTests(unittest.TestCase):
     """Requirement 7: no model call is required to produce the map."""
 
