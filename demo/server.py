@@ -4,6 +4,8 @@
 GET  /        -> the static demo page (demo/index.html)
 GET  /health  -> {"ok": true, "repo": ..., "commit": ...} -- liveness + provenance
 GET  /status  -> the active repo + switch status (JSON)
+GET  /map     -> what Icarus INDEXED for the active repo (demo/repo_map.py)
+GET  /onboarding -> the guided tour plan; POST {"step": ...} -> one cited step
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
 POST /connect -> {"repo": "owner/name"} -> start indexing/switching to that repo
 POST /disconnect -> forget the caller's library and delete their on-disk storage
@@ -29,6 +31,8 @@ from evals.env_file import load_env_file
 
 from .ledger import Ledger
 from .payload import build_payload
+from .repo_map import build_map
+from . import onboarding
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier, RepoAccessVerifier
 from . import github_oauth
@@ -307,6 +311,46 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     "repo": repo,
                     "entries": ledger.entries(repo, unknowns_only=unknowns),
                 })
+            elif route == "/map":
+                # What Icarus INDEXED -- the first thing it says about a repo
+                # before anyone asks a question. Guarded exactly like /ledger:
+                # a private repo's file paths are at least as sensitive as the
+                # answers drawn from them, so the map never sits behind a
+                # weaker gate than /ask.
+                identity = self._identity()
+                if require_auth and identity is None:
+                    self._send_json(401, {"error": "sign in with GitHub to continue"})
+                    return
+                try:
+                    lib = registry.library_for(identity)
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
+                # Straight from memory -- no writer call, and no re-reading
+                # chunks.jsonl (~50k lines on a large repo).
+                self._send_json(200, build_map(lib.current_pipeline().indexed_chunks(),
+                                               lib.status_snapshot()))
+            elif route == "/onboarding":
+                # The tour PLAN: a constant, no writer and no retrieval, so a
+                # client can render the whole shape instantly and then fetch
+                # steps one at a time. Same entitlement gate as /map -- it
+                # names the repo and its steps describe the caller's code.
+                identity = self._identity()
+                if require_auth and identity is None:
+                    self._send_json(401, {"error": "sign in with GitHub to continue"})
+                    return
+                try:
+                    lib = registry.library_for(identity)
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
+                self._send_json(200, onboarding.plan(lib.status_snapshot()))
             elif route == "/auth/github/callback":
                 self._github_callback()
             else:
@@ -482,6 +526,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(200, build_payload(result, repo, commit,
                                                    indexing=still_indexing))
+            elif self.path == "/onboarding":
+                self._handle_onboarding(lib, identity)
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
             elif self.path == "/connect":
@@ -530,6 +576,55 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
+
+        def _handle_onboarding(self, lib, identity):
+            """POST /onboarding {"step": "purpose"} -> one cited tour step.
+
+            Reuses `ask_limiter` -- a tour step reaches the same billed writer
+            as /ask -- and the same read-entitlement check, since it reads the
+            same corpus. Returns the IDENTICAL `build_payload` shape as /ask
+            plus the step id and title, so every client renders the tour with
+            the renderer it already has.
+
+            Deliberately NOT recorded in the ask ledger. The ledger ranks gaps
+            by how OFTEN a question was asked, and machine-generated steps
+            fired once per connect per user would swamp the questions a team
+            actually asked -- inventing documentation debt nobody was looking
+            for. The tour reads the corpus; it does not speak for the team.
+            """
+            if not ask_limiter.allow(identity):
+                self._send_json(429, {"error": "slow down -- try again in a minute"})
+                return
+            if not self._entitled(lib):
+                self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                return
+            try:
+                step = self._body()["step"]
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "missing step"})
+                return
+            if not isinstance(step, str) or not step.strip():
+                self._send_json(400, {"error": "missing step"})
+                return
+            repo, commit = lib.provenance()
+            try:
+                result = onboarding.answer_step(
+                    lib.current_pipeline(), lib.status_snapshot(), step.strip(),
+                    token=bearer_token(self.headers))
+            except ValueError:
+                # An unknown step id -- including one measurement CUT from the
+                # tour -- is a caller error, never a silently-invented question.
+                self._send_json(400, {"error": "unknown onboarding step"})
+                return
+            except Exception as e:
+                print(f"/onboarding writer failed: {type(e).__name__}: {e}", file=sys.stderr)
+                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                return
+            payload = build_payload(result, repo, commit,
+                                    indexing=bool(lib.status_snapshot().get("indexing")))
+            payload["step"] = step.strip()
+            payload["title"] = onboarding.title_for(step.strip())
+            self._send_json(200, payload)
 
         def _handle_explain(self, lib, identity):
             """Brick D: POST /explain {repo, path, start, end[, question]} -> a

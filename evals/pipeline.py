@@ -125,6 +125,16 @@ class Pipeline:
     def answer(self, question: str, token: str = None) -> Result:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def indexed_chunks(self) -> List:
+        """The loaded corpus, for a caller that wants to DESCRIBE what was
+        indexed (demo/repo_map.py) rather than query it.
+
+        Read-only and outside the honesty path entirely -- it hands back what
+        is already in memory and can never widen what an answer may cite. The
+        base returns nothing, so a pipeline holding no corpus says so honestly
+        instead of raising."""
+        return []
+
 
 class StubPipeline(Pipeline):
     """The honest red baseline: a brain that knows nothing.
@@ -190,6 +200,9 @@ class GatedPipeline(Pipeline):
         # resolves an explicit commit SHA, which is NEVER indexed (commits are
         # excluded from ingest by design). Same fail-safe contract as live_fetch.
         self._live_commit_fetch = live_commit_fetch
+
+    def indexed_chunks(self) -> List:
+        return list(self._by_ref.values())
 
     def answer(self, question: str, token: str = None) -> Result:
         # `token`, when given, is the CALLER's own GitHub token, used only to

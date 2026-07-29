@@ -1474,3 +1474,221 @@ class AskLedgerTests(unittest.TestCase):
             self.assertIn("verdict", body)
         finally:
             fx.close()
+
+
+# --- The repository map -----------------------------------------------------
+
+class _MappedPipeline(_StubPipeline):
+    """A pipeline holding a small corpus that REFUSES to answer -- so a /map
+    test that accidentally reaches the writer fails loudly instead of passing."""
+
+    CHUNKS = [
+        ("code:llm/cli.py#L1-L300", "import click\n"),
+        ("code:llm/cli.py#L261-L560", 'if __name__ == "__main__":\n    cli()\n'),
+        ("doc:README.md", "# llm\n"),
+        ("config:pyproject.toml", '[project.scripts]\nllm = "llm.cli:cli"\n'),
+        ("pr:1435", "a pull request"),
+        ("issue:900", "an issue"),
+    ]
+
+    def indexed_chunks(self):
+        from evals.corpus import Chunk
+        return [Chunk(ref=r, source=r.split(":", 1)[0], text=t) for r, t in self.CHUNKS]
+
+    def answer(self, question, token=None):
+        raise AssertionError("/map must not call the writer")
+
+
+class RepoMapEndpointTests(unittest.TestCase):
+    """GET /map: what Icarus has indexed, before anyone asks a question.
+
+    Guarded exactly like /ledger -- a private repo's file paths are at least as
+    sensitive as the corpus itself, so the map is entitlement-checked, never
+    served on a weaker gate than the answers it describes.
+    """
+
+    PRIVATE = "acme/secrets"
+
+    def setUp(self):
+        from .auth import StaticTokenVerifier
+        self.fx = _ServerFixture(
+            _RepoLibrary(self.PRIVATE, pipeline=_MappedPipeline()), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            access_verifier=_StubAccess([(self.PRIVATE, "tok-a")]),
+            default_repo=REPO)
+        self.base = self.fx.base
+
+    def tearDown(self):
+        self.fx.close()
+
+    def _get(self, path, token):
+        req = urllib.request.Request(self.base + path,
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def test_map_reports_the_indexed_corpus(self):
+        status, body = self._get("/map", "tok-a")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["repo"], self.PRIVATE)
+        self.assertEqual(body["indexed_file_count"], 3)  # cli.py counted ONCE
+        self.assertEqual(body["indexed_documentation"]["readme"], "README.md")
+
+    def test_map_needs_no_model_call(self):
+        # _MappedPipeline.answer raises; reaching it would 503 or 500 here.
+        status, _ = self._get("/map", "tok-a")
+        self.assertEqual(status, 200)
+
+    def test_map_is_entitlement_checked(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._get("/map", "tok-b")
+        self.assertEqual(e.exception.code, 403)
+
+    def test_map_requires_a_signed_in_caller(self):
+        req = urllib.request.Request(self.base + "/map")
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 401)
+
+    def test_map_reports_entry_points_with_their_rules(self):
+        _, body = self._get("/map", "tok-a")
+        entries = body["indexed_entry_points"]
+        self.assertEqual([e["path"] for e in entries], ["llm/cli.py"])
+        rules = {r["rule"] for r in entries[0]["rules"]}
+        self.assertEqual(rules, {"conventional-filename", "pyproject-console-script",
+                                 "python-main-guard"})
+        for rule in entries[0]["rules"]:
+            self.assertIn(rule["evidence_ref"],
+                          [ref for ref, _ in _MappedPipeline.CHUNKS])
+
+    def test_map_never_claims_repository_completeness(self):
+        _, body = self._get("/map", "tok-a")
+        self.assertTrue(body["limitations"])
+        for forbidden in ("total_files", "excluded_files", "excluded_file_count"):
+            self.assertNotIn(forbidden, body)
+
+
+# --- The guided onboarding tour ---------------------------------------------
+
+class _TourPipeline(_StubPipeline):
+    """A pipeline with a README, recording which path each step took."""
+
+    CHUNKS = [("doc:README.md", "# llm\nA CLI for large language models.\n"),
+              ("code:llm/cli.py", "import click\n"), ("pr:1435", "a pull request")]
+
+    def __init__(self):
+        self.answered, self.explained = [], []
+
+    def indexed_chunks(self):
+        from evals.corpus import Chunk
+        return [Chunk(ref=r, source=r.split(":", 1)[0], text=t) for r, t in self.CHUNKS]
+
+    def answer(self, question, token=None):
+        self.answered.append(question)
+        return Result(verdict="answer", answer="Because of X.", citations=["pr:1435"],
+                      retrieved=["pr:1435"])
+
+    def explain(self, path, start, end, question=None):
+        self.explained.append((path, question))
+        return Result(verdict="answer", answer="A CLI for large language models.",
+                      citations=["doc:README.md"], retrieved=["doc:README.md"])
+
+
+class OnboardingEndpointTests(unittest.TestCase):
+    """GET /onboarding -> the plan; POST /onboarding {step} -> one cited step.
+
+    Stateless on purpose: the plan is a constant and each step is fetched on
+    its own, so "interrupt with a question and come back" needs no session and
+    nothing can be lost by resuming.
+    """
+
+    PRIVATE = "acme/secrets"
+
+    def setUp(self):
+        from .auth import StaticTokenVerifier
+        from .ledger import Ledger
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ledger = Ledger(Path(self.tmp.name) / "ledger")
+        self.pipe = _TourPipeline()
+        self.fx = _ServerFixture(
+            _RepoLibrary(self.PRIVATE, pipeline=self.pipe), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            access_verifier=_StubAccess([(self.PRIVATE, "tok-a")]),
+            default_repo=REPO, ledger=self.ledger)
+        self.base = self.fx.base
+
+    def tearDown(self):
+        self.fx.close()
+        self.tmp.cleanup()
+
+    def _get(self, path, token):
+        req = urllib.request.Request(self.base + path,
+                                     headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def _post(self, obj, token):
+        req = urllib.request.Request(
+            self.base + "/onboarding", data=json.dumps(obj).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def test_the_plan_lists_the_tour(self):
+        status, body = self._get("/onboarding", "tok-a")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["repo"], self.PRIVATE)
+        self.assertEqual([s["id"] for s in body["steps"]],
+                         ["overview", "purpose", "stack", "decisions", "conventions", "recent"])
+
+    def test_the_plan_costs_no_writer_call(self):
+        self._get("/onboarding", "tok-a")
+        self.assertEqual(self.pipe.answered, [])
+        self.assertEqual(self.pipe.explained, [])
+
+    def test_a_step_returns_the_same_shape_as_ask(self):
+        # Same payload as /ask, so every client renders the tour with the
+        # renderer it already has -- citations, excerpts and all.
+        status, body = self._post({"step": "stack"}, "tok-a")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["verdict"], "answer")
+        self.assertTrue(body["citations"])
+        self.assertEqual(body["step"], "stack")
+        self.assertTrue(body["title"])
+
+    def test_purpose_addresses_the_readme(self):
+        _, body = self._post({"step": "purpose"}, "tok-a")
+        self.assertEqual([p for p, _q in self.pipe.explained], ["README.md"])
+        self.assertEqual(body["citations"][0]["ref"], "doc:README.md")
+
+    def test_an_unknown_step_is_a_clean_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._post({"step": "architecture"}, "tok-a")   # measured out of the tour
+        self.assertEqual(e.exception.code, 400)
+
+    def test_a_missing_step_is_a_clean_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self._post({}, "tok-a")
+        self.assertEqual(e.exception.code, 400)
+
+    def test_the_tour_is_entitlement_checked(self):
+        for call in (lambda: self._get("/onboarding", "tok-b"),
+                     lambda: self._post({"step": "stack"}, "tok-b")):
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                call()
+            self.assertEqual(e.exception.code, 403)
+
+    def test_the_tour_requires_a_signed_in_caller(self):
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(self.base + "/onboarding")
+        self.assertEqual(e.exception.code, 401)
+
+    def test_the_tour_never_writes_to_the_ask_ledger(self):
+        # The ledger ranks gaps by how OFTEN a question was asked. Machine-
+        # generated tour steps, asked once per connect per user, would swamp
+        # the real questions a team asked and invent documentation debt that
+        # nobody was actually looking for.
+        self._post({"step": "stack"}, "tok-a")
+        self._post({"step": "purpose"}, "tok-a")
+        self.assertEqual(self.ledger.entries(self.PRIVATE), [])
