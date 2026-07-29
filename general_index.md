@@ -291,8 +291,27 @@ removing, or renaming files). For class/function-level detail see
   selected those lines -- split out from the ones search merely suggested.
   Always a prefix of `retrieved`, set on the abstention path too. Display
   only: it is carried alongside the honesty decision, never into it.
+  `Pipeline.indexed_chunks()` (base: `[]`, so a corpus-less pipeline says so
+  rather than raising; `GatedPipeline`: every chunk it holds) lets a caller
+  DESCRIBE the corpus instead of querying it -- read-only, outside the honesty
+  path, and what `demo/repo_map.py` is built on.
 - `evals/grader.py` — deterministic grading against the labelled set: the two
   honesty gates + quality dials; optional `judge` fills answer_correctness.
+- `evals/onboarding_probe.py` — measures how often a guided onboarding tour
+  would have to abstain, BEFORE any tour UI exists. Seven fixed writer-backed
+  steps (purpose, stack, architecture, decisions, conventions, debt, recent --
+  the deterministic map/entry-point steps are excluded on purpose, since they
+  cannot abstain and would flatter the result) asked over ten real public repos
+  through the REAL serving path (`demo.library.Library`), with
+  `background_upgrade=False` so every question is asked AFTER the semantic
+  index is installed -- asking inside the lexical-only window would measure the
+  wrong thing. Corpora cache under `--storage`, so a re-run is minutes not an
+  hour. Deliberately NOT a unittest: needs network, `gh`, a paid writer key and
+  ~1 hour. **First run (2026-07-29): 46/70 answered, 24/70 abstained, every
+  abstention `writer_abstained` (the gate never fired). `purpose` 2/10 and
+  `architecture` 2/10 were the worst steps; `stack` and `recent` 10/10. 93% of
+  all citations came from history (58 commit + 17 pr + 14 issue) against 2 doc
+  and 1 code** -- the evidence base for the history-versus-source ranking work.
 - `evals/run.py` — CLI that runs the eval board and prints it (loads `.env`
   first); exits non-zero only when a gate breaks. `--pipeline/--writer/--judge`.
 - `evals/test_corpus.py` — `load_chunks` parses JSONL into `Chunk`s (tolerates
@@ -488,6 +507,97 @@ removing, or renaming files). For class/function-level detail see
   Carries `anchored` beside `searched` (2026-07-28) so a renderer can say what
   the QUESTION named versus what search suggested; `searched` still lists
   everything, so "all of them shown" stays true.
+- `demo/repo_map.py` — `build_map(chunks, status)`: the repository map served
+  by `GET /map` — what Icarus INDEXED, said before anyone asks a question. Pure
+  (the in-memory corpus + a status snapshot in, dict out): no model call, no
+  network, no filesystem, and no re-read of `chunks.jsonl` (chunks come from
+  `GatedPipeline.indexed_chunks()`, already in memory, so a 50k-chunk repo
+  costs nothing per request). Takes CHUNKS rather than refs only because
+  entry-point detection must read a manifest's text; every other field needs
+  just the ref. Reports distinct indexed file count, files grouped by
+  language and by top-level directory, indexed documentation (+ an explicit
+  `readme: null` when none was indexed), chunk counts per source, lexical/
+  semantic readiness, truncation, and `indexed_entry_points`
+  (`demo/entry_points.py`). **Every field is named `indexed_*` on
+  purpose**: a corpus-derived map describes what Icarus READ, never what
+  EXISTS in the repository, so it publishes no total-file count and no
+  excluded-file count/list. The ingest deny-lists are reported as
+  `exclusion_rules` — rules that were APPLIED, derived from `evals/ingest.py`'s
+  own constants so they can't drift — never as observed excluded files, since
+  `classify_file` records nothing about what it skips. A future
+  ingestion-manifest brick can add genuinely observed discovered/eligible/
+  excluded/failed counts.
+- `demo/onboarding.py` — the guided onboarding tour: `STEPS` (the five steps
+  measurement proved reliable), `plan(status)` (the ordered tour -- pure and
+  instant, no writer, no retrieval) and `answer_step(pipeline, status, step_id,
+  token)` (one step, returning a `Result` untouched). Deliberately NOT a
+  workflow engine and holds NO per-user state: the plan is a constant and each
+  step is fetched on its own, so "interrupt with a question and come back" needs
+  no session and nothing can be lost by resuming. Every step is an ordinary
+  gated ask -- same retrieval, writer and honesty gate -- because a claim Icarus
+  VOLUNTEERS earns less scepticism from a reader than one they asked for, so it
+  needs more proof, not less. **Which steps ship is a measurement**
+  (`evals/onboarding_probe.py`, 2026-07-29 over ten real repos): purpose 10/10,
+  stack 10/10, recent 10/10, conventions 9/10, decisions 8/10 shipped; debt
+  5/10 and architecture 2/10 CUT. `purpose` addresses the README by path
+  (resolved via `demo/repo_map.py`) through `.explain()` instead of searching
+  for it -- 2/10 -> 10/10 -- falling back to an ordinary ask when no README was
+  indexed; its honest cost is that `.explain()` runs with the gate's (b)
+  why->what guard off. The tour is the single source of the step WORDING, which
+  the probe imports, so the measured numbers can never drift away from the
+  shipped questions.
+- `demo/test_onboarding.py` — the tour's contract, written before the
+  implementation: only the measured-reliable steps ship and the cut ones are
+  absent, the tour opens with the deterministic overview (solid during the
+  lexical-only window, when the writer-backed steps are measurably worst),
+  `purpose` addresses the indexed README and degrades to an ordinary ask
+  without one, every other step is a plain `.answer()` carrying the caller's
+  token, an abstention is passed through untouched, an unknown step raises
+  rather than being guessed, and the drift guards (probe and product share one
+  question definition; the probe still measures the cut steps so we learn if
+  they become viable).
+- `demo/entry_points.py` — `detect_entry_points(chunks)`: "where do I start
+  reading?", answered by explicit RULES only, never by a score. Five rules:
+  `pyproject-console-script` (a `[project.scripts]` entry in a whole-file
+  `pyproject.toml`, resolved to an indexed module incl. src-layout, via stdlib
+  `tomllib` — no new dependency), `python-main-guard`, `go-main-function`
+  (needs BOTH `package main` and `func main(`, tracked per path so the two can
+  sit in different windows), `rust-main-file`, `conventional-filename`. Every
+  result carries `{rule, evidence_ref, detail}` — the indexed chunk that proves
+  it, citable like any other Icarus claim — and a rule may only name a file
+  that is IN the corpus, so anything it points at can also be shown. Rules on
+  one file group into one entry, so a count of entry points is a count of
+  FILES. No rule fires → empty list, never a guess. Two rules earned by running
+  it over this repo, not by unit tests: **test files are excluded from every
+  rule** (`if __name__ == "__main__": unittest.main()` is boilerplate in all
+  60+ test files here, so the guard rule returned 70 "entry points" and buried
+  the four that matter), and the guard is matched **anchored to a line start**,
+  not as a substring — this module matched ITSELF, since it holds the guard as
+  a string literal (same class as `evals/pipeline.py`'s "a hex-shaped English
+  word is not a commit SHA"). Two disclosed gaps: `package.json` is never
+  indexed (`.json` is excluded corpus-wide), so JS/TS falls back to
+  conventional filenames; and `setup.py`'s `entry_points=` is executable
+  Python, not data, so it is deliberately not parsed.
+- `demo/test_entry_points.py` — entry-point detection's contract, written
+  before the implementation: each rule firing on a positive case with the right
+  evidence ref, a console script pointing at an UNINDEXED module yielding
+  nothing, a PR body quoting `func main()` never becoming a file, an ordinary
+  library repo yielding an empty list, no score/rank field on any output,
+  unparseable and windowed-partial manifests staying silent, several rules on
+  one file grouping into one entry, a windowed file named once, determinism
+  under reversed input, the test-file and quoted-guard exclusions (both
+  red→green from real-repo findings), and purity (signature takes only
+  `chunks`; `builtins.open`/`socket.socket` patched to raise).
+- `demo/test_repo_map.py` — the map's contract, written before the
+  implementation: every named file is an indexed ref (the map's version of
+  groundedness), counts are deterministic and order-independent, a distinct
+  FILE is counted once however many chunks it made, a missing README is
+  reported as `readme: null` rather than omitted or invented, truncation is
+  surfaced in both a flag and words, an UNtruncated corpus is never called
+  complete, the exclusion rules are strings derived from ingest's constants
+  with no excluded-file count or list published, language totals always equal
+  `indexed_file_count`, and `build_map` takes no provider and opens no file or
+  socket (proven by patching `builtins.open`/`socket.socket`).
 - `demo/ledger.py` — `Ledger`: the append-only per-repo ask record (question,
   verdict, citations, timestamp — deliberately NOT the answer body and NOT who
   asked). One JSONL file per repo, stored OUTSIDE the corpus dir because ingest
@@ -551,7 +661,12 @@ removing, or renaming files). For class/function-level detail see
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
   limits via `demo/ratelimit.py`, web-login endpoints), `resolve_provenance`,
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
-  `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/auth/github/callback`;
+  `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/map` (the repository
+  map — `demo/repo_map.py` over `indexed_refs()` + the status snapshot; guarded
+  by the SAME entitlement check as `/ledger`, since a private repo's file paths
+  are at least as sensitive as the answers drawn from them, and it never
+  reaches the writer),`/onboarding` (the tour PLAN -- constant, no writer, no
+  retrieval, same entitlement gate),`/auth/github/callback`;
   `POST /ask`,`/connect` (checks `evals.github_access.repo_info` with the
   caller's token and refuses private repos before ingest; `sync_connect`/`ICARUS_SYNC_CONNECT`
   makes it block on `connect_sync` and return its final status directly instead
@@ -562,7 +677,15 @@ removing, or renaming files). For class/function-level detail see
   (reads a `mode`: `web` → callback returns to `/?session=`, `app` →
   `icarus://`, Brick D's `extension` → the caller-supplied, validated
   `redirect_target`; a bad/missing `redirect_target` for `extension` mode is a
-  clean 400, not a crash),`/auth/github/redeem`. `POST /explain` (Brick D, `_handle_explain`)
+  clean 400, not a crash),`/auth/github/redeem`. `POST /onboarding` (`_handle_onboarding`) -- `{"step": ...}` -> one cited
+  tour step in the IDENTICAL `build_payload` shape as `/ask` plus `step`/`title`,
+  so every client renders the tour with the renderer it already has; shares
+  `/ask`'s billed-writer rate limit and entitlement check; an unknown step id
+  (including one measurement CUT from the tour) is a clean 400, never a silently
+  invented question; and it is deliberately NOT written to the ask ledger, since
+  machine-generated steps fired once per connect per user would swamp the
+  questions a team actually asked and invent documentation debt nobody was
+  looking for. `POST /explain` (Brick D, `_handle_explain`)
   — `{repo, path, start, end[, question]}` for a GitHub line selection; shares
   `/ask`'s billed-writer rate limit; refuses (409) unless `repo` matches the
   caller's currently connected repo, never silently answering about or
@@ -727,7 +850,22 @@ removing, or renaming files). For class/function-level detail see
   `partialTranscript`, silence → empty → not emitted.
 - `AskHistory.swift` — the real in-session ask record (most-recent-first,
   `unknowns` filter, `citedRate` nil until the first ask); powers the shell.
-- `ShellNav.swift` — `ShellSurface`, the five sidebar surfaces + their titles.
+- `ShellNav.swift` — `ShellSurface`, the sidebar surfaces + their titles;
+  `.startHere` (the guided tour) sits directly under Home, since it is the
+  first experience with a newly connected repo.
+- `Onboarding.swift` — the tour client-side: `OnboardingPlan`/`OnboardingStep`
+  (`GET /onboarding`), `TourStepAnswer` (`POST /onboarding` -- decodes the FLAT
+  `/ask` payload plus `step`/`title`, so one shape is decoded one way
+  everywhere), and `TourModel`, an `@Observable` that walks the plan, fetches a
+  step at most once, and keeps a transport FAILURE strictly separate from an
+  abstention. Holds no session: the brain's tour is stateless, so interrupting
+  and resuming costs nothing. An unknown step `kind` decodes to `.unsupported`
+  and is skipped, so a newer brain can add steps without breaking an older app.
+- `RepoMap.swift` — `GET /map` decoded: `indexed*` counts, documentation
+  (`readme: nil` when none was indexed), `EntryPoint`/`EntryPointRule` (every
+  entry point carries the RULE that produced it), truncation, exclusion RULES
+  and limitations. Field names mirror the brain's on purpose -- the map
+  describes what Icarus READ, never what exists in the repository.
 
 ### mac/Icarus/Sources/Icarus (the executable app)
 - `IcarusApp.swift` — `@main`; no window, delegates to `AppDelegate`.
@@ -779,6 +917,13 @@ removing, or renaming files). For class/function-level detail see
   the lost-connection banner (server restart/eviction → explicit Reconnect,
   never a silent fallback to the public default). Replaces the old separate
   onboarding window.
+- `OnboardingView.swift` — the "Start here" surface: the guided tour. Shows
+  the exact question Icarus asked on the user's behalf, renders an abstention
+  in full (never skipped or softened) and splits "still indexing" from "no one
+  wrote this down", renders a transport failure as a failure rather than an
+  abstention, and opens with the writer-free `/map` overview (files, languages,
+  folders, documentation, and where to start reading with each rule's reason).
+  Back/Next plus "Ask your own question", which needs no session to return from.
 - `ShellSurfaces.swift` — Decision history, Unknowns, Privacy boundary (true
   claims), and Ask-by-voice surfaces, with honest empty states.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
@@ -801,6 +946,21 @@ removing, or renaming files). For class/function-level detail see
 - `ShellNavTests.swift` — the five surfaces' order, titles, and stable ids.
 - `BrainEndpointTests.swift` — `BrainEndpoint.resolve` uses a valid hosted URL,
   falls back on missing/empty/invalid, and honors an explicit fallback.
+- `OnboardingTests.swift` — the tour's decoding + `TourModel`: plan/step
+  shapes, an unknown step kind surviving, an abstention decoded and shown
+  as-is, question steps fetched once then remembered, map steps never billing
+  the writer, the tour not running off either end, and a failed step surfacing
+  as an ERROR rather than an abstention.
+- `RepoMapTests.swift` — `RepoMap` decoding, a missing README as nil (not an
+  empty string), and deterministic biggest-first language/directory ordering.
+- `BrainContractTests.swift` — decodes the brain's REAL captured responses
+  (`Fixtures/*.json`, curled from a running `demo.server` on
+  `simonw/sqlite-utils`, 2026-07-29) rather than hand-written ones: every other
+  decoding test proves the decoder is self-consistent and nothing about the
+  server, and a renamed key would surface to a user as "couldn't reach the
+  brain". Also pins that the real map publishes no repository-total or
+  excluded-file count, that every real entry point carries its rule, and that
+  the real `purpose` step cites a `doc:` ref -- the measured README fix.
 - `SavedConnectionTests.swift` — the saved-connection store round-trip/clear and
   every branch of the `isLost` downgrade check (ready-elsewhere = lost;
   indexing/error/no-save = not lost; case-insensitive repo match).
