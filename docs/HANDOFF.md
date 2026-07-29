@@ -1,3 +1,133 @@
+# Icarus — Session Handoff (2026-07-29: Icarus speaks first — the repo map, entry points, and a guided tour whose steps were CHOSEN BY MEASUREMENT)
+
+**READ THIS FIRST.** Four commits, DEPLOYED and LIVE-VERIFIED against production.
+The DMG is **NOT** rebuilt — the Mac app changes are committed but not published.
+
+**Live: `icarus-brain--0000033`, image `alpha-20260729-onboarding`, Healthy, 100%
+traffic. `main` @ `64db605`. evals 556 · demo 347 · IcarusKit 143 · secrets scan
+clean. Paid board GREEN (gates 100%/100%, citation + answer correctness 100%).**
+
+## What changed, in one line
+
+Icarus used to wait to be asked. It now introduces a repository unprompted —
+and the biggest finding was that it had been saying "no one wrote this down"
+about things written down in the README.
+
+## 1. `81e383b` — `GET /map` and rules-only entry points
+
+`demo/repo_map.py` is pure over the corpus already in memory: no writer, no
+network, no re-read of `chunks.jsonl`. Every field is `indexed_*` on purpose —
+a corpus-derived map describes what Icarus READ, never what EXISTS. It
+publishes **no repository-total and no excluded-file count**, because
+`classify_file` records nothing about what it skips; the deny-lists are
+reported as RULES THAT WERE APPLIED, derived from ingest's own constants.
+
+`demo/entry_points.py` is five explicit rules, never a score. Every result
+names the rule and the indexed chunk that proves it, and may only name a file
+IN the corpus. **Two rules were earned by running it over this repo, not by
+unit tests** — both red→green:
+- test files are excluded from every rule (`unittest.main()` boilerplate in all
+  60+ test files returned **70 "entry points"**, burying the four that matter)
+- the `__main__` guard is matched anchored to a line start, not as a substring
+  — the module matched ITSELF, holding the guard as a string literal (same
+  class as `pipeline.py`'s "a hex-shaped English word is not a commit SHA")
+
+## 2. `75fdea2` — the tour, and the measurement that shaped it
+
+`evals/onboarding_probe.py` asked seven candidate steps over **ten real public
+repos**, through the real serving path, with `background_upgrade=False` so
+every question was asked AFTER the semantic index was installed (asking inside
+the lexical-only window would measure the wrong thing).
+
+**Baseline: 46/70 answered. Every one of the 24 abstentions was
+`writer_abstained` — the gate never fired once, across 210 measured steps.**
+
+| step | baseline | final |
+|---|---|---|
+| purpose | 2/10 | **10/10** |
+| stack | 10/10 | 10/10 |
+| recent | 10/10 | 10/10 |
+| conventions | 9/10 | 9/10 |
+| decisions | 8/10 | 8/10 |
+| debt | 5/10 | 5/10 (CUT) |
+| architecture | 2/10 | 2/10 (CUT) |
+
+**The finding that mattered: 93% of all citations came from history** (58
+commit + 17 pr + 14 issue) against **2 doc and 1 code**. The README was indexed
+the whole time. Retrieval never surfaced it — a generic onboarding question has
+no distinctive terms for BM25, and the README's embedded window is dominated by
+badges, logo markup and sponsor blocks. Measured on `sindresorhus/execa`: the
+answer is **30 characters at offset 300** of the ~2,000-char window the embedder
+reads, and the file ranks **980th of 2,783**. Excluding history entirely does
+NOT fix it — the top doc would be `docs/execution.md`, still not the README.
+
+So `purpose` stops searching for the file written to answer it and **ADDRESSES**
+it (`.explain()` + the map's own indexed README path): **2/10 → 10/10**, all ten
+citing `doc:`, doc citations across the board **2 → 18**, no other step changed.
+Honest cost: `.explain()` runs with the gate's (b) why→what guard off.
+
+`architecture` was anchored too and **removed again on measurement** — 2/10
+either way, and it cost `spf13/cobra` a real answer. A README says what a
+project is FOR, not how its code is arranged.
+
+⚠️ **Every number above is a CEILING, not what a user gets.** The probe asked
+after embedding finished; a real first-time user takes the tour during the
+lexical-only window. Expect worse. Three ways out are open (delay the tour,
+caveat every abstention, or lead with the deterministic steps — the tour
+already does the third).
+
+## 3. `acd3432` — the Mac app's "Start here" surface
+
+Mostly pre-existing uncommitted work, now committed and verified. Shows the
+exact question Icarus asked, renders an abstention in full, keeps "still
+indexing" separate from "no one wrote this down", and renders a transport
+failure as a failure.
+
+**`BrainContractTests` is the new part, and it closed a real gap:** every other
+Swift decoding test reads a HAND-WRITTEN fixture, so it proves the decoder is
+self-consistent and nothing about the server. A renamed key would pass all 133
+and reach a user as *"couldn't reach the brain"* — a network-looking symptom
+for a contract bug. It now decodes the brain's REAL captured payloads
+(`Fixtures/*.json`, curled from a running server on `simonw/sqlite-utils`).
+
+## Live-verified on rev 0000033 (production, not assumed)
+
+- `/map` and `/onboarding` both **401 without a token**; authed, both work.
+- The plan returns the six steps in order, `overview` first.
+- All five writer-backed steps ran live: purpose/stack/decisions/recent
+  **answered with citations**, `conventions` honestly abstained.
+- A CUT step (`architecture`) and a nonsense step both **400**.
+- `/ask` unchanged: "Why was the Responses API added as a new class?" →
+  `answer`, citing `issue:1435` + `pr:1435`.
+- **18 assertions run INSIDE the built image before it was pushed**, per the
+  established discipline (a stale layer ships old behaviour silently).
+
+⚠️ **The default demo repo does not exercise the README fix.** Its corpus is
+the `llm/` subtree only, so no README is indexed and `purpose` correctly falls
+back to an ordinary ask. To see the fix live, connect a real repo.
+
+## Still open
+
+1. **The DMG is NOT rebuilt.** `mac/` changed, so `brew install` and every
+   install path still serve the previous build. Needs `package_dmg.sh` +
+   `release-dmg.sh` across BOTH public repos.
+2. **The tour is a sidebar tab, not proactive.** Nothing auto-opens it when a
+   repo becomes ready. ~10 lines + a per-repo local "seen" flag; deliberately
+   left as a product decision.
+3. **How any of it RENDERS is unverified** — the data path is proven, the
+   SwiftUI layout has not been seen on screen.
+4. `architecture` (2/10) needs structural comprehension, still deferred. `debt`
+   (5/10) is unexplained.
+5. Everything in the earlier open lists still stands — replica connection-state
+   flap, discussion depth past 400, incremental ingest.
+
+## Commits
+
+`81e383b` (map + entry points), `75fdea2` (tour + probe), `acd3432` (app
+surface + real-payload contract tests), `64db605` (index).
+
+---
+
 # Icarus — Session Handoff (2026-07-28, later still: the discussion is ingested, and the refresh path that would have hidden it)
 
 **READ THIS FIRST — supersedes the two 2026-07-28 entries below.** Twenty commits
