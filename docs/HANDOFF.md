@@ -229,11 +229,42 @@ line: every capability that stays server-side is one that never needs a DMG.
 - **The Azure Files corpus survived the deploy** — `simonw/sqlite-utils`
   reconnected in **1 second** as a cache hit (`corpus_version` matched), rather
   than re-ingesting.
-- **Because of that, Day 1's progress reporting is STILL UNEXERCISED on
-  production.** There was no embed to watch. It is proven locally end to end
-  (execa, 13 -> 2,784 chunks with a tightening ETA) but the first real
-  confirmation on Azure needs a repo the brain has never seen. Worth doing
-  deliberately before a design partner is the one who discovers it.
+- ~~Day 1's progress reporting is still unexercised on production.~~
+  **NOW CONFIRMED LIVE — see the cold-connect trace below.**
+
+## COLD CONNECT ON PRODUCTION — the real numbers (`pallets/jinja`, 6,628 chunks)
+
+Day 1's progress reporting, measured on Azure against a repo the brain had
+never seen. This is the number a design partner actually waits through, so it
+is recorded rather than estimated:
+
+    t+ 10s   "Reading the repository…"      <- 80s of fetch/clone, NO eta offered
+    t+ 91s   read     35 of 6,628  ( 0.5%)  eta 786s
+    t+151s   read    684 of 6,628  (10.3%)  eta 565s
+    t+253s   read  1,910 of 6,628  (28.8%)  eta 411s
+    t+334s   read  5,105 of 6,628  (77.0%)  eta  73s
+    t+445s   read  6,433 of 6,628  (97.1%)  eta  10s
+    t+476s   INDEX COMPLETE
+
+**~8 minutes total for a mid-sized repo on production hardware.** Also
+confirmed on `pallets/click` (8,231 chunks, same behaviour). Three things the
+curve proves that a pass/fail check would not:
+
+- **The first ~80 seconds correctly offer NO estimate.** Nothing is being
+  embedded yet, so there is no rate to measure and none is invented -- the
+  phase line carries it instead. The "no fabricated 0%" property, on real
+  timing rather than in a unit test.
+- **The estimate behaves like an estimate.** It opens at 786s, drifts UP to
+  810s while early samples settle, then converges 411 -> 73 -> 10 -> 0 and
+  lands within seconds. Drifting early and tightening late is the correct
+  shape; a confident number that stayed wrong would be the failure.
+- **`/connect` returned inside the 240s Azure ingress limit** with
+  `indexing: true`, on a repo 4x the demo corpus. The blocking-connect +
+  background-embed split holds at that size.
+
+⚠️ **This is also the strongest argument for Day 2's readiness gate.** Without
+it, a first-time user spends those eight minutes collecting "still indexing"
+answers -- which is exactly what the tour used to do.
 
 ## Commits
 
