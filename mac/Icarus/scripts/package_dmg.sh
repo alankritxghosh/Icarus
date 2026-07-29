@@ -58,10 +58,20 @@ elif [ -n "${ICARUS_UPDATE_FEED_URL:-}" ] || [ -n "${ICARUS_UPDATE_PUBLIC_KEY:-}
     echo "       Half a configuration is how an unverified update gets installed." >&2
     exit 1
 else
-    echo "warning: no update feed configured — recipients of this build will have to" >&2
-    echo "         re-download by hand for every future change." >&2
-    echo "         Run scripts/make_update_keys.sh once, then set" >&2
-    echo "         ICARUS_UPDATE_FEED_URL and ICARUS_UPDATE_PUBLIC_KEY." >&2
+    # The feed and public key are normally BAKED INTO Icarus-Info.plist -- they
+    # are identical for every build, and an env var you forget would silently
+    # ship an app that can never update itself. The env vars above exist only
+    # to override that (e.g. pointing a test build at a staging feed).
+    FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "${PLIST}" 2>/dev/null || true)"
+    KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "${PLIST}" 2>/dev/null || true)"
+    if [ -n "${FEED}" ] && [ -n "${KEY}" ]; then
+        echo "==> update feed from Info.plist: ${FEED}"
+    else
+        echo "warning: no update feed — recipients of this build will have to" >&2
+        echo "         re-download by hand for every future change." >&2
+        echo "         Run scripts/make_update_keys.sh once, then add SUFeedURL" >&2
+        echo "         and SUPublicEDKey to Icarus-Info.plist." >&2
+    fi
 fi
 
 if [ -n "${NEEDS_RESIGN}" ]; then
