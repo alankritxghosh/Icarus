@@ -825,8 +825,30 @@ removing, or renaming files). For class/function-level detail see
 - `mac/Icarus/scripts/bundle.sh` — wraps the SwiftPM binary into an ad-hoc-signed
   `Icarus.app` (required for microphone access).
 - `mac/Icarus/scripts/package_dmg.sh` — builds a shareable `Icarus.dmg`: runs
-  `bundle.sh`, stamps `ICARUS_BRAIN_URL` into the bundle Info.plist (re-signs),
-  and lays out a drag-to-Applications DMG with a first-open `READ ME FIRST.txt`.
+  `bundle.sh`, stamps `ICARUS_BRAIN_URL` and (when configured) the Sparkle
+  update feed `SUFeedURL`/`SUPublicEDKey` into the bundle Info.plist, re-signs
+  with the SAME identity `bundle.sh` used (re-signing ad-hoc here would
+  silently undo a stable certificate), and lays out a drag-to-Applications DMG
+  with a first-open `READ ME FIRST.txt`. Refuses a HALF-configured update feed
+  (one of the two vars) -- that is how an unverified update gets installed.
+- `mac/Icarus/scripts/make_signing_cert.sh` — one-time, run interactively:
+  creates the self-signed "Icarus Self-Signed" code-signing certificate in the
+  login keychain. Ad-hoc signing makes the app's designated requirement its own
+  `cdhash`, which changes every build, so the login Keychain treats each update
+  as a different app and re-prompts the user for their saved GitHub token
+  (measured: `designated => cdhash H"877f0a45…"`). A certificate makes the
+  requirement `certificate leaf`, stable across builds -- one prompt ever.
+  Does NOT help Gatekeeper; the app is still unnotarized. `bundle.sh` detects
+  the identity BEHAVIOURALLY (a self-signed cert is not "valid" to
+  `security find-identity -p codesigning`, yet `codesign` signs with it fine)
+  and falls back to ad-hoc, so a fresh clone or CI still builds.
+- `mac/Icarus/scripts/make_update_keys.sh` — one-time, run interactively:
+  wraps Sparkle's `generate_keys` to create the EdDSA pair that signs the
+  update feed. The private half stays in the login keychain and is the entire
+  security of the update path (Sparkle does not rely on notarization); lose it
+  and you can never update an installed copy again, leak it and anyone can push
+  code to every installed copy. Prints the public key to stamp via
+  `ICARUS_UPDATE_PUBLIC_KEY`.
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
@@ -889,6 +911,15 @@ removing, or renaming files). For class/function-level detail see
   another GitHub account. Completion handler is non-isolated (fires off-main).
 - `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
   Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
+- `Updater.swift` — in-app updates via Sparkle, so shipping a change stops
+  meaning "email every tester and ask them to re-download". Sparkle signs its
+  own feed with an EdDSA key, so this needs no Apple Developer ID -- it does
+  not make the app notarized, it removes every step AFTER the first install.
+  Deliberately INERT unless the build carries both `SUFeedURL` and
+  `SUPublicEDKey`: a feed without a key would let Sparkle install an update it
+  cannot verify, which is worse than having no updater, so it refuses rather
+  than degrades. `isConfigured` lets the menu hide an item that would do
+  nothing.
 - `IconArt.swift` — the Signal Spine app icon + menu-bar glyph in Core Graphics.
 - `IconExport.swift` — headless `--render-iconset` renderer (invoked by `bundle.sh`)
   that bakes `IconArt.appIcon()` into a static `AppIcon.icns` so the Dock/Finder/DMG

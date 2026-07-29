@@ -23,18 +23,61 @@ VOLNAME="Icarus ${VERSION}"
 # 1) Build + assemble + ad-hoc sign the release .app.
 "${ROOT}/scripts/bundle.sh"
 
-# 2) Stamp the hosted brain URL into the bundle's Info.plist, then RE-SIGN
-#    (editing Info.plist invalidates the signature the bundler just applied).
+# 2) Stamp the hosted brain URL and the update feed into the bundle's
+#    Info.plist, then RE-SIGN (editing Info.plist invalidates the signature
+#    the bundler just applied).
+stamp() {   # stamp KEY VALUE
+    /usr/libexec/PlistBuddy -c "Delete :$1" "${PLIST}" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :$1 string $2" "${PLIST}"
+}
+
+NEEDS_RESIGN=""
+
 if [ -n "${ICARUS_BRAIN_URL:-}" ]; then
     echo "==> stamping ICARUS_BRAIN_URL=${ICARUS_BRAIN_URL}"
-    /usr/libexec/PlistBuddy -c "Delete :ICARUS_BRAIN_URL" "${PLIST}" 2>/dev/null || true
-    /usr/libexec/PlistBuddy -c "Add :ICARUS_BRAIN_URL string ${ICARUS_BRAIN_URL}" "${PLIST}"
-    echo "==> re-signing after Info.plist edit"
-    codesign --force --deep --sign - "${APP}"
-    codesign --verify --verbose "${APP}"
+    stamp ICARUS_BRAIN_URL "${ICARUS_BRAIN_URL}"
+    NEEDS_RESIGN=1
 else
     echo "warning: ICARUS_BRAIN_URL not set — the app will point at the LOCAL brain" >&2
     echo "         (127.0.0.1:8000). Do not share this build; it can't reach a cloud brain." >&2
+fi
+
+# In-app updates. BOTH the feed and the public key are required: a feed with no
+# key would let Sparkle fetch an update it cannot verify, and the app refuses
+# to start an updater in that state rather than degrading into one that trusts
+# whatever it downloads. See Sources/Icarus/Updater.swift.
+if [ -n "${ICARUS_UPDATE_FEED_URL:-}" ] && [ -n "${ICARUS_UPDATE_PUBLIC_KEY:-}" ]; then
+    echo "==> stamping update feed ${ICARUS_UPDATE_FEED_URL}"
+    stamp SUFeedURL "${ICARUS_UPDATE_FEED_URL}"
+    stamp SUPublicEDKey "${ICARUS_UPDATE_PUBLIC_KEY}"
+    /usr/libexec/PlistBuddy -c "Delete :SUEnableAutomaticChecks" "${PLIST}" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Add :SUEnableAutomaticChecks bool true" "${PLIST}"
+    NEEDS_RESIGN=1
+elif [ -n "${ICARUS_UPDATE_FEED_URL:-}" ] || [ -n "${ICARUS_UPDATE_PUBLIC_KEY:-}" ]; then
+    echo "error: set BOTH ICARUS_UPDATE_FEED_URL and ICARUS_UPDATE_PUBLIC_KEY, or neither." >&2
+    echo "       Half a configuration is how an unverified update gets installed." >&2
+    exit 1
+else
+    echo "warning: no update feed configured — recipients of this build will have to" >&2
+    echo "         re-download by hand for every future change." >&2
+    echo "         Run scripts/make_update_keys.sh once, then set" >&2
+    echo "         ICARUS_UPDATE_FEED_URL and ICARUS_UPDATE_PUBLIC_KEY." >&2
+fi
+
+if [ -n "${NEEDS_RESIGN}" ]; then
+    # Re-sign with the SAME identity bundle.sh used. Re-signing ad-hoc here
+    # would silently undo a stable certificate and hand every user another
+    # Keychain prompt -- the exact problem make_signing_cert.sh exists to fix.
+    IDENTITY="Icarus Self-Signed"
+    if security find-certificate -c "${IDENTITY}" >/dev/null 2>&1; then
+        echo "==> re-signing after Info.plist edit (${IDENTITY})"
+        codesign --force --sign "${IDENTITY}" "${APP}"
+    else
+        echo "==> re-signing after Info.plist edit (ad-hoc)"
+        codesign --force --deep --sign - "${APP}"
+    fi
+    codesign --verify --verbose "${APP}"
+    codesign -d -r- "${APP}" 2>&1 | tail -1
 fi
 
 # 3) Stage a drag-to-Applications layout + a first-open README, then build the DMG.

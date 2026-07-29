@@ -6,6 +6,11 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
+        // In-app updates. Sparkle signs its own update feed with an EdDSA key,
+        // so it does NOT need an Apple Developer ID -- which is the whole
+        // reason it fits here: shipping a fix currently means emailing every
+        // tester and asking them to re-download and re-clear Gatekeeper.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         // Voice-in uses Apple's on-device Speech framework (SFSpeechRecognizer) for
         // real-time streaming dictation — no third-party STT dependency.
     ],
@@ -18,6 +23,7 @@ let package = Package(
             dependencies: [
                 "IcarusKit",
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Icarus"
         ),

@@ -53,6 +53,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Icarus", action: #selector(openWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Ask… (⌘⇧I)", action: #selector(ask), keyEquivalent: ""))
+        // Only shown when the build was stamped with an update feed and key --
+        // an item that silently does nothing is worse than no item.
+        if Updater.shared.isConfigured {
+            menu.addItem(.separator())
+            menu.addItem(NSMenuItem(title: "Check for Updates…",
+                                    action: #selector(checkForUpdates), keyEquivalent: ""))
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Icarus",
                                 action: #selector(NSApplication.terminate(_:)),
@@ -89,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !flag { shell.show() }
         return true
     }
+
+    @objc private func checkForUpdates() { Updater.shared.checkForUpdates() }
 
     @objc private func openWindow() { shell.show() }
     @objc private func ask() { overlay.toggle() }
