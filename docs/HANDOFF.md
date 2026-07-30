@@ -1,3 +1,139 @@
+# Icarus — Session Handoff (2026-07-30, latest: the three bricks finally have pixels — web DEPLOYED, DMG BUILT but NOT PUBLISHED)
+
+**READ THIS FIRST.** Bricks 1–3 shipped working data paths over this session
+and none of them reached a user. Both clients now render all three. The web
+half is **deployed and verified on production**; the Mac half is **built,
+tested and packaged but NOT published, and its UI has not been seen on
+screen.**
+
+**Live: `icarus-brain--0000043`, image `alpha-20260730-clients`, Healthy, 100%
+traffic. `main` @ `1d8686a` (NOT pushed). evals 571 · demo 478 (1 PRE-EXISTING
+failure) · IcarusKit 180 (was 158) · secrets scan clean.**
+
+**DMG built at `mac/Icarus/Icarus.dmg`, CFBundleVersion 3, sha256
+`f056baf505ec624a9168cdac062f77a9cfb065e411797da1e626c09ab6846e27`.
+Published DMG is still `a88ebe42` (build 2) — see PUBLISHING below.**
+
+## The design decision worth carrying forward
+
+Both new wire fields are optional, and BOTH decode into a **closed enum**
+rather than the optional they arrive as:
+
+    up_to_date: Bool?    -> IndexFreshness  (matches/behind(Int?)/unknown/pinned)
+    commits_since: Int?  -> BriefingChange  (firstVisit/nothingChanged/changed/unknown)
+
+A `Bool?` invites `?? false`; an `Int?` invites `?? 0`. Either would render
+**"Icarus could not check" as "you are up to date"** or **"nothing has
+changed"** — confident claims the evidence does not support, and the same
+class of failure as a bluffed citation. An enum leaves no default to fall
+into: every view must name the unknown case.
+
+The same reasoning produced `IndexedStructure.emptyExplanation`: "Icarus found
+no structure" and "Icarus did not look" are different claims, and rendering
+them identically would tell a Rust user their project has no structure.
+
+Four consequences, each test-pinned in `FreshnessTests`/`BriefingTests`:
+- an older brain sending no freshness block reads as UNKNOWN, not fresh;
+- `behind(nil)` stays BEHIND when only the count failed — we know it differs;
+- `pinned` outranks `behind`, so the frozen demo corpus is never called
+  neglected;
+- `offersRefresh` is false for unknown (offering one implies knowing it is
+  stale) and false for pinned (the server forbids it, so the button would lie).
+
+## Web — deployed and verified in a real browser
+
+Every branch was exercised in-browser against a running server, not reasoned
+about:
+
+    freshness null      -> "couldn't check whether this index is current."
+    behind, count null  -> "Behind the repository — couldn't work out by how much"
+    briefing null       -> "couldn't work out what has changed since"
+    briefing 0          -> "Nothing has changed"   (a real answer, said plainly)
+    structure empty     -> names unanalysed languages + "not a claim there is none"
+
+10 assertions inside the image before pushing, including that no `||`
+coalesce that could fake good news exists in the shipped HTML.
+
+Confirmed on production signed-out: only the row whose data is public renders,
+because `/briefing` and `/map` require auth and their fetches are wrapped so
+neither can break the page it decorates. That is the intended degradation.
+
+## Mac — built and packaged, NOT published, UI NOT SEEN
+
+`IndexedStructure` on `RepoMap`, `Freshness` on `RepoStatus`, `Briefing.swift`,
+a `structure` tour step, freshness + briefing rows on Home, and
+`BriefingModel` (fetch once per repo, never polled; a transport failure kept
+strictly separate from a briefing that says "unknown"; acknowledge only AFTER
+render, since the server's GET is pure precisely so that can be deliberate).
+
+**The honest gap: 180 unit tests pass and it compiles, but nobody has looked
+at these three rows on screen.** Same gap the 2026-07-29 handoff flagged for
+the tour surface. Do not claim the layout is right.
+
+DMG verified as an artifact rather than assumed:
+
+    CFBundleVersion              3          (Sparkle will offer it to build 2)
+    ICARUS_BRAIN_URL             …azurecontainerapps.io
+    SUFeedURL                    …/appcast.xml
+    SUPublicEDKey                MATCHES BUILD 2 EXACTLY
+    codesign --verify --deep --strict   OK
+    designated => certificate root H"697e2841…"   (same as build 2)
+    new symbols present in the shipped binary: indexedStructure,
+      IndexFreshness, BriefingChange, unanalysedLanguages
+
+The key match and the certificate root are the two that matter most: a
+different EdDSA key would mean no installed copy could verify this update, and
+a different certificate root would cost every user another keychain prompt.
+
+## ⚠️ PUBLISHING — deliberately not done
+
+`package_dmg.sh` prints the reason itself: the image's SHA-256 is pinned in
+**four places across two repos** (`install.sh`, the website `index.html`, and
+the Homebrew cask's `sha256` + `version`). Copying the file across by hand
+leaves `brew install` on the previous build and the website advertising a
+hash nobody can download.
+
+Publishing means running the WEBSITE repo's script:
+
+    ./release-dmg.sh "…/mac/Icarus/Icarus.dmg"
+
+which restamps all four and regenerates + signs `appcast.xml`. It needs the
+tap checked out beside the website repo (or `$ICARUS_TAP_DIR`), and refuses
+rather than half-publishing. **Not run this session.**
+
+## ⚠️ OPEN
+
+1. **`main` is not pushed.** Local `1d8686a`; remote at `72d1f93`.
+2. **The Mac UI has not been seen.** Build it and look before publishing.
+3. **The DMG is not published**, so every install path still serves build 2 —
+   which means testers get the SERVER-side improvements (they are live) but
+   none of the three new app surfaces.
+4. **Nothing auto-triggers a refresh; webhooks unbuilt** (brick 2's deferred
+   half). The rate limit that gates it exists now.
+5. **`demo/test_warm_cache.py:70` is still broken and still PRE-EXISTING** —
+   `load_vectors` without the `fingerprint` argument required since `c0c6fd1`.
+   Fix the TEST, not `load_vectors`.
+6. `.claude/launch.json` gained a no-auth `icarus-demo-local` config for
+   in-browser verification. Left UNTRACKED deliberately (local dev config).
+
+## THE FOUR BRICKS
+
+1. ~~Explain how the code is structured~~ — DONE, rendered both clients.
+2. ~~Notice your repo changed~~ — DONE, rendered both clients (minus
+   auto-trigger and webhooks).
+3. ~~Remember you~~ — DONE, rendered both clients.
+4. **More than one repo at a time** — **DEFERRED TO LAST by Alankrit. Do not
+   start it.** Get his answer first: does a user pick ONE active repo from a
+   list they have connected, or can Icarus answer ACROSS repos in one
+   question? That changes the size by an order of magnitude.
+
+## Commits
+
+`4ed344c` (web rendering), `1d8686a` (Mac rendering + CFBundleVersion 3).
+Deploy: rev 0000042 → **0000043 (current)**.
+
+---
+
 # Icarus — Session Handoff (2026-07-30, latest: brick 3 done — Icarus remembers a returning user, and exactly four facts about them)
 
 **READ THIS FIRST.** Bricks 1, 2 and 3 of Alankrit's four are DONE, committed
