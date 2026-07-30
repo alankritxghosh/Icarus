@@ -9,6 +9,7 @@ struct HomeView: View {
     let connect: ConnectModel
     let history: AskHistory
     let status: StatusModel
+    let briefing: BriefingModel
     let onTryQuestion: () -> Void
 
     var body: some View {
@@ -25,6 +26,8 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             if status.status?.isTruncated == true { truncatedBanner }
+            briefingRow
+            freshnessRow
             HStack(alignment: .top, spacing: 16) {
                 heroCard.frame(maxWidth: .infinity)
                 metricsCard.frame(width: 200)
@@ -34,6 +37,89 @@ struct HomeView: View {
                 ProofDrawerView(entry: history.mostRecent, counts: status.counts).frame(width: 264)
             }
         }
+        // Keyed on the repo, so switching repos refetches and a briefing about
+        // one repo can never be shown against another.
+        .task(id: status.repo) {
+            await briefing.load(repo: status.repo)
+            // Acknowledged only once it has actually been rendered -- the
+            // server's GET is pure precisely so this can be a separate,
+            // deliberate step rather than a side effect of fetching.
+            await briefing.acknowledge()
+        }
+    }
+
+    /// What changed since this user was last here (`demo/visits.py`).
+    ///
+    /// `BriefingChange` is an enum for the same reason `IndexFreshness` is:
+    /// `commitsSince` is optional on the wire, and `?? 0` here would turn
+    /// "Icarus couldn't work out what changed" into "nothing changed" -- a
+    /// reassuring falsehood. Every case is named, including unknown.
+    ///
+    /// A transport failure shows NOTHING rather than a briefing-shaped
+    /// message: not being able to reach the brain is not the brain telling
+    /// you your repo is unchanged.
+    @ViewBuilder private var briefingRow: some View {
+        if let b = briefing.briefing {
+            switch b.change {
+            case .firstVisit:
+                staleRow(BriefingChange.firstVisit.summary,
+                         detail: "Icarus will tell you what changed the next time you come back.",
+                         colour: Theme.muted)
+            case .nothingChanged:
+                EmptyView()   // silence is the right amount of noise for "no news"
+            case .changed(let n):
+                staleRow(BriefingChange.changed(n).summary,
+                         detail: "Since your last visit to this repository.",
+                         colour: Theme.accent)
+            case .unknown:
+                staleRow(BriefingChange.unknown.summary,
+                         detail: "You have been here before, but the comparison did not complete.",
+                         colour: Theme.unknown)
+            }
+        }
+    }
+
+    /// Whether the index still matches the repository (`demo/freshness.py`).
+    ///
+    /// Driven by `RepoStatus.indexFreshness`, which is an ENUM rather than the
+    /// optional Bool it decodes from -- so there is no `?? false` here that
+    /// could quietly render "Icarus couldn't check" as "up to date". Each case
+    /// is named, including the one that says nothing was learned.
+    ///
+    /// `.matches` shows nothing at all: a banner confirming that everything is
+    /// normal is noise, and the absence of a warning already carries it.
+    @ViewBuilder private var freshnessRow: some View {
+        switch status.status?.indexFreshness ?? .unknown {
+        case .matches:
+            EmptyView()
+        case .behind(let n):
+            staleRow(IndexFreshness.behind(n).summary,
+                     detail: "Reconnect with refresh to re-read the repository.",
+                     colour: Theme.accent)
+        case .unknown:
+            // Amber, the honest-unknown palette -- deliberately neither the
+            // green of "fine" nor the red of "broken". It is a third state.
+            staleRow(IndexFreshness.unknown.summary,
+                     detail: "It may or may not be current.", colour: Theme.unknown)
+        case .pinned(let n):
+            staleRow(IndexFreshness.pinned(n).summary,
+                     detail: "This is the built-in demo corpus and is not refreshable.",
+                     colour: Theme.muted)
+        }
+    }
+
+    private func staleRow(_ title: String, detail: String, colour: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("◷").font(.system(size: 13)).foregroundStyle(colour)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(colour.opacity(0.5), lineWidth: 1))
     }
 
     /// Honest coverage notice (Brick 2a/2b): a big repo that hit the size cap is

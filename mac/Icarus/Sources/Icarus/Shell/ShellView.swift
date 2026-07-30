@@ -12,6 +12,7 @@ struct ShellView: View {
     /// The repo's SHARED ask ledger (server-side), distinct from `history`,
     /// which is this session's in-memory record only.
     let ledger: LedgerModel
+    let briefing: BriefingModel
     let onTryQuestion: () -> Void
 
     @State private var selected: ShellSurface = .home
@@ -36,7 +37,8 @@ struct ShellView: View {
 
     @ViewBuilder private var content: some View {
         switch selected {
-        case .home: HomeView(auth: auth, connect: connect, history: history, status: status, onTryQuestion: onTryQuestion)
+        case .home: HomeView(auth: auth, connect: connect, history: history, status: status,
+                             briefing: briefing, onTryQuestion: onTryQuestion)
         case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
         case .askByVoice: AskByVoiceView(onOpenOverlay: onTryQuestion)
         case .decisionHistory: DecisionHistoryView(history: history)

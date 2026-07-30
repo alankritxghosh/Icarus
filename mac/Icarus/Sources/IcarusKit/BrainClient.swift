@@ -217,6 +217,31 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(TourStepAnswer.self, from: data)
     }
 
+    /// GET /briefing -> what changed since this user was last here.
+    ///
+    /// PURE: reading a briefing does not consume it. Acknowledging is a
+    /// separate POST, so a client that crashes mid-render does not lose the
+    /// briefing permanently.
+    public func briefing() async throws -> Briefing {
+        var request = URLRequest(url: base.appending(path: "briefing"))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(Briefing.self, from: data)
+    }
+
+    /// POST /briefing -> acknowledge it, moving the anchor to the current
+    /// commit. Call this only once the user has actually SEEN the briefing.
+    public func acknowledgeBriefing() async throws {
+        var request = URLRequest(url: base.appending(path: "briefing"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        authorize(&request)
+        let (_, response) = try await dataWithRetry(for: request)
+        try check(response)
+    }
+
     /// GET /map -> what Icarus has INDEXED for the connected repo. Deterministic
     /// and writer-free, which is why the tour opens with it.
     public func repoMap() async throws -> RepoMap {

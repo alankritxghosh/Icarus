@@ -29,7 +29,7 @@
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <!-- App is Dock-visible (.regular); no LSUIElement. -->

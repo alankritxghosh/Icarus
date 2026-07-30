@@ -982,6 +982,19 @@ removing, or renaming files). For class/function-level detail see
   abstention. Holds no session: the brain's tour is stateless, so interrupting
   and resuming costs nothing. An unknown step `kind` decodes to `.unsupported`
   and is skipped, so a newer brain can add steps without breaking an older app.
+- `Freshness.swift` — `Freshness` + **`IndexFreshness`**, staleness as a
+  CLOSED SET of cases (`matches` / `behind(Int?)` / `unknown` / `pinned`)
+  rather than the optional Bool it decodes from. That is the whole point: a
+  `Bool?` invites `?? false` at a call site, which would render "I could not
+  check" as "up to date" — the one thing the server half was built never to
+  do. An enum has no default to fall into. `offersRefresh` is false for
+  `unknown` (offering a refresh implies knowing it is stale) and for `pinned`
+  (the server forbids refreshing the demo corpus, so the button would lie).
+- `Briefing.swift` — `Briefing` + **`BriefingChange`** (`firstVisit` /
+  `nothingChanged` / `changed(Int)` / `unknown`), same reasoning: `?? 0` on
+  `commits_since` would turn "couldn't work out what changed" into "nothing
+  changed". Carries `stored`, the WHOLE record held about the caller, so a
+  user can SEE it rather than be told about it.
 - `RepoMap.swift` — `GET /map` decoded: `indexed*` counts, documentation
   (`readme: nil` when none was indexed), `EntryPoint`/`EntryPointRule` (every
   entry point carries the RULE that produced it), truncation, exclusion RULES

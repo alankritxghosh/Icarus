@@ -120,8 +120,60 @@ struct OnboardingView: View {
         if let step = tour.currentStep {
             switch step.kind {
             case .map: overviewCard(step)
+            case .structure: structureCard(step)
             case .question: questionCard(step)
             case .unsupported: unsupportedCard(step)
+            }
+        }
+    }
+
+    /// How the code is arranged — served from the same `/map` payload the
+    /// overview step uses, so it costs no extra call and no writer.
+    ///
+    /// The empty case is the one that matters: "Icarus found no structure" and
+    /// "Icarus did not look" are different claims, and rendering them the same
+    /// way would tell a Rust user their project has no structure. That is why
+    /// `IndexedStructure.emptyExplanation` exists rather than an empty list.
+    private func structureCard(_ step: OnboardingStep) -> some View {
+        ShellCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(step.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text("Read from the code's own import statements — no model involved. Nobody wrote this arrangement down; it exists only in the code.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+
+                if let mapError {
+                    Text(mapError).font(.system(size: 13)).foregroundStyle(Theme.unknown)
+                } else if let structure = map?.indexedStructure {
+                    if structure.isEmpty {
+                        Text(structure.emptyExplanation)
+                            .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    } else {
+                        if !structure.components.isEmpty {
+                            labelled("COMPONENTS") {
+                                FlowLayout(spacing: 6) {
+                                    ForEach(structure.components.prefix(8), id: \.path) { c in
+                                        tag("\(c.path) ←\(c.dependedOnBy.count)")
+                                    }
+                                }
+                            }
+                        }
+                        if !structure.mostDependedOnFiles.isEmpty {
+                            labelled("MOST DEPENDED ON") {
+                                FlowLayout(spacing: 6) {
+                                    ForEach(structure.mostDependedOnFiles.prefix(6), id: \.path) { f in
+                                        tag("\(f.path) ←\(f.dependedOnByCount)")
+                                    }
+                                }
+                            }
+                        }
+                        if !structure.unanalysedLanguages.isEmpty {
+                            Text("Not analysed: \(structure.unanalysedLanguages.joined(separator: ", ")) — no claim is made about those.")
+                                .font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                } else {
+                    Text("Loading…").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                }
             }
         }
     }

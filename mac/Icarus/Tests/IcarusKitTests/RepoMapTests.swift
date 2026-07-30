@@ -103,3 +103,72 @@ final class RepoMapTests: XCTestCase {
         XCTAssertNil(map.indexedAuxiliary)
     }
 }
+
+/// The arrangement block (`demo/structure.py`) as the map carries it.
+///
+/// The tests that matter are about what an EMPTY arrangement means. "Icarus
+/// found no structure" and "Icarus did not look" are different claims, and a
+/// view that renders them identically tells a Rust user their project has no
+/// structure — which is false and is exactly the over-claim this whole feature
+/// was built to avoid.
+final class IndexedStructureTests: XCTestCase {
+
+    private func decode(_ json: String) throws -> IndexedStructure {
+        try JSONDecoder().decode(IndexedStructure.self, from: Data(json.utf8))
+    }
+
+    func testComponentsAndCoreFilesDecode() throws {
+        let s = try decode("""
+        {"components":[{"path":"llm","file_count":15,"depends_on":[],
+                        "depended_on_by":["llm/default_plugins"],
+                        "evidence_refs":["code:llm/cli.py#L1-L87"]}],
+         "most_depended_on_files":[{"path":"llm/__init__.py","depended_on_by_count":6,
+                                    "evidence_ref":"code:llm/cli.py#L1-L87"}],
+         "unresolved_import_count":4706,"unanalysed_languages":[],"limitations":["x"]}
+        """)
+        XCTAssertEqual(s.components.first?.path, "llm")
+        XCTAssertEqual(s.components.first?.dependedOnBy, ["llm/default_plugins"])
+        XCTAssertEqual(s.mostDependedOnFiles.first?.dependedOnByCount, 6)
+        XCTAssertFalse(s.isEmpty)
+    }
+
+    func testEveryComponentCarriesItsEvidence() throws {
+        let s = try decode("""
+        {"components":[{"path":"a","file_count":1,"depends_on":["b"],"depended_on_by":[],
+                        "evidence_refs":["code:a/x.py"]}],
+         "most_depended_on_files":[],"unresolved_import_count":0,
+         "unanalysed_languages":[],"limitations":[]}
+        """)
+        XCTAssertEqual(s.components.first?.evidenceRefs, ["code:a/x.py"])
+    }
+
+    func testAnEmptyArrangementNamesTheUnanalysedLanguages() throws {
+        let s = try decode("""
+        {"components":[],"most_depended_on_files":[],"unresolved_import_count":1,
+         "unanalysed_languages":["Rust","Shell"],"limitations":[]}
+        """)
+        XCTAssertTrue(s.isEmpty)
+        XCTAssertTrue(s.emptyExplanation.contains("Rust, Shell"))
+        XCTAssertTrue(s.emptyExplanation.contains("isn’t a claim"))
+    }
+
+    func testAnEmptyArrangementWithNothingUnanalysedExplainsItself() throws {
+        let s = try decode("""
+        {"components":[],"most_depended_on_files":[],"unresolved_import_count":0,
+         "unanalysed_languages":[],"limitations":[]}
+        """)
+        XCTAssertTrue(s.isEmpty)
+        XCTAssertTrue(s.emptyExplanation.contains("flat package"))
+    }
+
+    func testAnOlderBrainWithoutTheBlockStillDecodesTheMap() throws {
+        let map = try JSONDecoder().decode(RepoMap.self, from: Data("""
+        {"repo":"o/r","commit":"abc","indexed_file_count":1,"indexed_languages":{},
+         "indexed_directories":{},"indexed_documentation":{"files":[],"readme":null},
+         "indexed_entry_points":[],"indexed_chunks_by_source":{},
+         "lexical_search_ready":true,"semantic_indexing_in_progress":false,
+         "corpus_truncated":false,"exclusion_rules":[],"limitations":[]}
+        """.utf8))
+        XCTAssertNil(map.indexedStructure)
+    }
+}

@@ -29,9 +29,15 @@ public struct RepoMap: Decodable, Sendable {
     public let corpusTruncated: Bool
     public let exclusionRules: [String]
     public let limitations: [String]
+    /// How the code is ARRANGED, derived from its own imports
+    /// (`demo/structure.py`). Optional so a brain deployed before this field
+    /// existed still decodes -- absent means Icarus did not report an
+    /// arrangement, never that the repository has none.
+    public let indexedStructure: IndexedStructure?
 
     enum CodingKeys: String, CodingKey {
         case repo, commit, limitations
+        case indexedStructure = "indexed_structure"
         case indexedFileCount = "indexed_file_count"
         case indexedLanguages = "indexed_languages"
         case indexedDirectories = "indexed_directories"
@@ -51,7 +57,9 @@ public struct RepoMap: Decodable, Sendable {
                 indexedEntryPoints: [EntryPoint], indexedAuxiliary: IndexedAuxiliary? = nil,
                 indexedChunksBySource: [String: Int],
                 lexicalSearchReady: Bool, semanticIndexingInProgress: Bool,
-                corpusTruncated: Bool, exclusionRules: [String], limitations: [String]) {
+                corpusTruncated: Bool, exclusionRules: [String], limitations: [String],
+                indexedStructure: IndexedStructure? = nil) {
+        self.indexedStructure = indexedStructure
         self.repo = repo
         self.commit = commit
         self.indexedFileCount = indexedFileCount
@@ -148,5 +156,108 @@ public extension RepoMap {
     var directoriesByFileCount: [(name: String, files: Int)] {
         indexedDirectories.sorted { ($0.value, $1.key) > ($1.value, $0.key) }
             .map { (name: $0.key, files: $0.value) }
+    }
+}
+
+/// How the code is ARRANGED, read off its own import statements
+/// (`demo/structure.py`).
+///
+/// This answers the question measurement found hardest — the writer-backed
+/// `architecture` step scored 2 of 10 real repositories, and anchoring it to a
+/// README provably could not fix it, because a README says what a project is
+/// FOR, not how its code is laid out. So it is derived rather than asked, and
+/// it cannot bluff: every edge carries the indexed chunk that proves it.
+///
+/// **An empty arrangement is not a claim that there is none.** Only Python,
+/// JavaScript/TypeScript and Go imports are analysed; anything else is listed
+/// in `unanalysedLanguages`, and a view MUST say so rather than showing an
+/// empty panel that reads as "this project has no structure".
+public struct IndexedStructure: Decodable, Equatable, Sendable {
+    public let components: [Component]
+    public let mostDependedOnFiles: [CoreFile]
+    /// Imports seen and not resolved to another indexed file. Mostly
+    /// third-party and standard-library imports, which are external by
+    /// definition — a large number here is normal and does not mean anything
+    /// is missing.
+    public let unresolvedImportCount: Int
+    /// Indexed languages with no resolver at all. Naming them is what stops an
+    /// empty result reading as "no structure exists".
+    public let unanalysedLanguages: [String]
+    public let limitations: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case components, limitations
+        case mostDependedOnFiles = "most_depended_on_files"
+        case unresolvedImportCount = "unresolved_import_count"
+        case unanalysedLanguages = "unanalysed_languages"
+    }
+
+    public struct Component: Decodable, Equatable, Sendable {
+        public let path: String
+        public let fileCount: Int
+        public let dependsOn: [String]
+        public let dependedOnBy: [String]
+        /// The indexed chunks proving this component's edges — citable like
+        /// any other claim Icarus makes.
+        public let evidenceRefs: [String]
+
+        private enum CodingKeys: String, CodingKey {
+            case path
+            case fileCount = "file_count"
+            case dependsOn = "depends_on"
+            case dependedOnBy = "depended_on_by"
+            case evidenceRefs = "evidence_refs"
+        }
+
+        public init(path: String, fileCount: Int, dependsOn: [String],
+                    dependedOnBy: [String], evidenceRefs: [String]) {
+            self.path = path
+            self.fileCount = fileCount
+            self.dependsOn = dependsOn
+            self.dependedOnBy = dependedOnBy
+            self.evidenceRefs = evidenceRefs
+        }
+    }
+
+    public struct CoreFile: Decodable, Equatable, Sendable {
+        public let path: String
+        public let dependedOnByCount: Int
+        public let evidenceRef: String
+
+        private enum CodingKeys: String, CodingKey {
+            case path
+            case dependedOnByCount = "depended_on_by_count"
+            case evidenceRef = "evidence_ref"
+        }
+
+        public init(path: String, dependedOnByCount: Int, evidenceRef: String) {
+            self.path = path
+            self.dependedOnByCount = dependedOnByCount
+            self.evidenceRef = evidenceRef
+        }
+    }
+
+    public init(components: [Component], mostDependedOnFiles: [CoreFile],
+                unresolvedImportCount: Int, unanalysedLanguages: [String],
+                limitations: [String]) {
+        self.components = components
+        self.mostDependedOnFiles = mostDependedOnFiles
+        self.unresolvedImportCount = unresolvedImportCount
+        self.unanalysedLanguages = unanalysedLanguages
+        self.limitations = limitations
+    }
+
+    /// Did Icarus find an arrangement at all?
+    public var isEmpty: Bool { components.isEmpty && mostDependedOnFiles.isEmpty }
+
+    /// What to show when nothing was found — which is never "no structure".
+    public var emptyExplanation: String {
+        if !unanalysedLanguages.isEmpty {
+            return "Icarus doesn’t analyse \(unanalysedLanguages.joined(separator: ", ")) "
+                 + "imports, so it didn’t look for structure here. That isn’t a claim "
+                 + "that there is none."
+        }
+        return "No internal imports resolved, so there is nothing to show. That can be "
+             + "true of a project whose code lives in one flat package."
     }
 }

@@ -201,11 +201,16 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     /// never decoded it. Optional so an older brain still decodes; absent
     /// reads as "not indexing", which is the pre-existing behaviour.
     public let indexing: Bool?
+    /// Whether the index still matches the repository (`demo/freshness.py`).
+    /// Optional so an older brain still decodes; absent means UNKNOWN, which
+    /// `indexFreshness` renders as unknown rather than as up to date.
+    public let freshness: Freshness?
 
     private enum CodingKeys: String, CodingKey {
         case state, repo, commit, counts, error, phase, truncated, indexing
         case isPrivate = "private"
         case indexingProgress = "indexing_progress"
+        case freshness
     }
 
     public var isReady: Bool { state == "ready" }
@@ -215,6 +220,15 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public var isIndexing: Bool { indexing == true }
     /// The brain's own name for this connection, shown in the sidebar.
     public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
+
+    /// Staleness as a CLOSED SET of cases rather than an optional Bool.
+    ///
+    /// This is the whole reason the type exists. `Freshness.upToDate` is
+    /// three-valued on the wire, and a `Bool?` in Swift invites `?? false` --
+    /// which would silently render "I could not check" as "up to date", the
+    /// one thing the server side of this feature was built to never do. An
+    /// enum has no such default: every call site must name the unknown case.
+    public var indexFreshness: IndexFreshness { freshness?.state ?? .unknown }
 
     /// One line a waiting user can act on: how far in, and roughly how long.
     /// nil when there is nothing real to report -- never a fabricated 0%.

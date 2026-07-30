@@ -15,6 +15,13 @@ public enum OnboardingStepKind: String, Decodable, Sendable {
     /// Answered deterministically from `GET /map` — no writer, no retrieval, so
     /// it is solid even while the semantic index is still building.
     case map
+    /// How the code is ARRANGED, served deterministically from `GET /map`'s
+    /// `indexed_structure` (`demo/structure.py`). Like `.map` it asks no
+    /// writer, so it cannot abstain and cannot bluff -- which is the whole
+    /// reason the arrangement is derived from imports rather than asked of a
+    /// model. Older builds decode this to `.unsupported` and skip it, which is
+    /// exactly why the brain could ship it without a DMG.
+    case structure
     /// Answered by the brain's ordinary gated pipeline via `POST /onboarding`.
     case question
     /// A kind this build has never heard of. A newer brain must be able to add
