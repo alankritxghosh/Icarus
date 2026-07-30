@@ -1,3 +1,151 @@
+# Icarus — Session Handoff (2026-07-30, latest: brick 3 done — Icarus remembers a returning user, and exactly four facts about them)
+
+**READ THIS FIRST.** Bricks 1, 2 and 3 of Alankrit's four are DONE, committed
+and DEPLOYED. Brick 4 (multi-repo) is **explicitly deferred to last by
+Alankrit and must not be started**. This entry covers brick 3.
+
+**Live: `icarus-brain--0000042`, image `alpha-20260730-briefing`, Healthy, 100%
+traffic. `main` @ `7f973e7` (pushed through `a892b8d`; `7f973e7` is NOT pushed
+yet). evals 571 · demo 478 (1 PRE-EXISTING failure) · secrets scan clean.**
+DMG unchanged at `a88ebe42` — `mac/` still has not changed this session.
+
+**The BILLING section further down still stands and still needs reading.**
+
+## The decision doc came first, because that was the condition
+
+[`docs/decisions/2026-07-30-returning-user-state.md`](decisions/2026-07-30-returning-user-state.md)
+was written BEFORE any code, per Alankrit's own condition on this brick. Read
+it before changing `demo/visits.py` — the shape of that module is a privacy
+decision, not an engineering preference.
+
+## Why this needed care
+
+Icarus was strictly stateless about people until now, and that was deliberate.
+`demo/ledger.py` was built specifically so **who asked is never recorded**:
+"Alice asked about auth fourteen times" is a question that system cannot
+answer, because a system that CAN answer it will eventually be asked to.
+
+Brick 3 stores identity, so the safety property is a SEPARATION:
+
+    demo/ledger.py   questions against the REPO, with no identity
+    demo/visits.py   identity, with no questions
+
+**Neither store alone can produce a per-person question history, and they must
+never be joined.** That is why this is a new store rather than a user-id
+column added to the ledger. If a future brick wants to join them, that needs a
+new decision doc, not an extension of this one.
+
+## What is stored — four facts, permanently
+
+user identity · repository identity · last-seen commit · last-visit timestamp.
+
+Enforced rather than promised:
+
+- **`record()` takes no question, answer, verdict or citation parameter at
+  all.** A signature that cannot accept one is a stronger guarantee than a
+  policy saying we will not pass one, and a test pins the signature.
+- **A visit OVERWRITES, never appends.** A list of timestamps is an activity
+  log however innocuous each row looks. Accepted cost: Icarus cannot answer
+  "how often does this person return", deliberately and permanently.
+- **No visit counts, no streaks, no "last active".** Those are the raw
+  material of exactly the product we are refusing to build.
+
+## The four properties the decision doc commits to
+
+1. **Tenant-isolated** — under the caller's own storage root.
+2. **Deletable, and actually deleted** — that root is exactly what
+   `LibraryRegistry.disconnect` removes, so there is no second mechanism to
+   forget and no way for the two to drift apart. Test-pinned, including that
+   it never touches another user's state.
+3. **Visible in the product** — the briefing returns a `stored` block that is
+   the WHOLE record held about the caller. A privacy promise nobody can verify
+   is marketing.
+4. **Never on the answering path** — a corrupt file or failed write degrades
+   to "first visit" and never raises into a request.
+
+Durable because it had to be: `LibraryRegistry._last_repo` is an in-process
+dict that does not survive a deploy, so state built on it would reset every
+time we shipped, which is most of the time.
+
+## Two design calls worth keeping
+
+- **`GET /briefing` is PURE; `POST /briefing` acknowledges.** If reading
+  consumed the briefing, a client that crashed mid-render would lose it
+  permanently — and the one thing a returning-user feature must not do is
+  silently swallow the thing it exists to show.
+- **`commits_since: null` means UNKNOWN and must never render as "nothing
+  changed"** — brick 2's rule inherited exactly. A failed lookup reading as
+  "you're all caught up" is the same class of failure as a bluffed citation.
+  `0` is a real answer and is reported as `0`.
+- A deployment that passes no store gets a **404**, not an empty briefing that
+  implies a store exists.
+
+## Live-verified on production (rev 0000042), full cycle
+
+8 assertions run INSIDE the image before pushing, including the
+signature-rejects-a-question guarantee and the traversal refusals.
+
+    1. first visit        -> first_visit true, everything null, stored null
+    2. GET again          -> STILL first_visit true (GET is pure, not consumed)
+    3. POST /briefing     -> acknowledged
+    4. returning visit    -> first_visit false, commits_since 0, stored block
+    5. refresh the index  -> commit 0d52147 -> a892b8d (doc 140->146, code 3502->3562)
+    6. briefing           -> commits_since 9
+    7. POST /disconnect
+    8. reconnect the SAME repo -> first_visit TRUE, stored null
+
+**Step 6 was verified independently**: `git rev-list --count 0d52147..a892b8d`
+is exactly 9. **Step 8 is the real deletion proof** — an earlier check looked
+like proof but was not: disconnect also reverts the active repo to the public
+default, so `first_visit: true` for `simonw/llm` was trivially true and said
+nothing. Reconnecting to the repo that actually held a record is what shows
+the record is gone rather than merely out of view.
+
+⚠️ Incidental finding worth recording: **that refresh took 9 seconds, not the
+283 seconds recorded previously** for the same repo. Do not treat 283s as the
+expected cost of a refresh without re-measuring — the earlier figure may have
+included a cold clone or a full semantic embed that this run did not need.
+
+## ⚠️ OPEN
+
+1. **`main` is not fully pushed.** `7f973e7` (brick 3) is local only; the
+   remote is at `a892b8d`.
+2. **No client renders ANY of the three bricks' new data** — brick 1's
+   `indexed_structure`, brick 2's `freshness`, brick 3's `/briefing`. All
+   three data paths are live and verified; none has pixels. `RepoStatus` and
+   a new briefing model in `mac/.../IcarusKit`, plus `demo/index.html`.
+   **This is now clearly the next brick, it is small, and it is what turns
+   three deployed capabilities into things a user can actually see.**
+3. **Nothing auto-triggers a refresh; webhooks unbuilt** (brick 2's deferred
+   half). The rate limit that gates it now exists, so auto-refresh is
+   unblocked whenever wanted; a webhook still needs a GitHub-signature auth
+   story that does not exist anywhere in this codebase.
+4. **`demo/test_warm_cache.py:70` is still broken and still pre-existing** —
+   calls `load_vectors` without the `fingerprint` argument required since
+   `c0c6fd1`. Fix the TEST, not `load_vectors`.
+5. The briefing says HOW MUCH changed, not WHAT changed. Saying what changed
+   means summarising commits through the writer, which is a different and
+   billable feature — and would need the honesty gate, since it would be a
+   claim about the repository rather than a count. Not started, not scoped.
+
+## THE FOUR BRICKS
+
+1. ~~Explain how the code is structured~~ — **DONE** (rev 0000039).
+2. ~~Notice your repo changed~~ — **DONE** (rev 0000041), minus auto-trigger
+   and webhooks.
+3. ~~Remember you~~ — **DONE** (rev 0000042).
+4. **More than one repo at a time** — **DEFERRED TO LAST by Alankrit. Do not
+   start it.** Get his answer first: does a user pick ONE active repo from a
+   list they have connected, or can Icarus answer ACROSS repos in one
+   question? That changes the size by an order of magnitude.
+
+## Commits
+
+`7f973e7` (returning-user state + briefing). Deploy: rev 0000041 →
+**0000042 (current)**.
+
+---
+
 # Icarus — Session Handoff (2026-07-30, latest: brick 2 done — a connected repo now says when it has gone stale, and a refresh has its own budget)
 
 **READ THIS FIRST.** Bricks 1 and 2 of Alankrit's four are now DONE, committed
