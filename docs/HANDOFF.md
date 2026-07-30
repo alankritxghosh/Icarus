@@ -1,3 +1,219 @@
+# Icarus — Session Handoff (2026-07-30, later: the owed probe cleared the anchor fix, and structural comprehension was reopened, built, deployed — it caught itself fabricating three times)
+
+**READ THIS FIRST.** Two things happened. The owed measurement from the
+previous entry ran and **cleared `neighbors=False` — nothing regressed** — and
+the production check that had returned 503 now passes. Then Alankrit
+explicitly reopened **structural comprehension**, the first of his four
+bricks, and it was built, measured, committed and deployed.
+
+**Live: `icarus-brain--0000039`, image `alpha-20260730-structure`, Healthy,
+100% traffic. `main` @ `d96929f`. evals 571 · demo 422 (1 PRE-EXISTING
+failure, see below) · secrets scan clean · probe 54/70 with 0 errors.**
+Published DMG unchanged at `a88ebe42` (build 2) — **deliberately, `mac/` did
+not change.**
+
+**The BILLING section in the previous entry still stands unchanged and still
+needs reading.** The paid key's project has billing disabled and the sole
+billing account is closed; `PaidGeminiProvider.private_safe = True` is
+enforcing a guarantee whose stated premise does not hold. Alankrit's recorded
+decision is not to reopen it. Do not "fix" that in code.
+
+## ⏭️ FIRST ACTION NEXT SESSION
+
+Nothing is owed. The probe debt from the previous entry is paid. Pick up
+**brick 2 (notice your repo changed)** unless Alankrit says otherwise — bricks
+2, 3 and 4 below are unchanged from the previous entry except that **brick 1
+is now done**, and **brick 4 (multi-repo) is explicitly deferred to LAST on
+his instruction and must not be started**.
+
+## 1. The owed probe — `neighbors=False` cleared
+
+Run with the corpora cached under `/tmp/icarus-onboarding-probe` (they had
+survived, so it took ~20 minutes, not an hour).
+
+| step | baseline (neighbours ON) | after `neighbors=False` |
+|---|---|---|
+| **purpose** | 10/10 answered, 10/10 substantive | **10/10, 10/10** ← the one at risk, HELD |
+| stack | 10/10, 10/10 | 10/10, 10/10 |
+| recent | 10/10, 10/10 | 10/10, 10/10 |
+| decisions | 8/10, 8/8 | 8/10, 8/8 |
+| conventions | 9/10, 7/9 | 9/10, 7/9 |
+| architecture | 2/10 | 2/10 (still cut) |
+| debt | 5/10 | 5/10 (still cut) |
+
+54/70 answered, 52/54 substantive, **0 errors**, every abstention
+`writer_abstained` — the gate never fired.
+
+**The production check that had 503'd now passes**, on
+`alankritxghosh/Icarus` → `conventions`:
+
+    citations: doc:CONTRIBUTING.md      (not a commit:)
+    searched:  ["doc:CONTRIBUTING.md"]  <- exactly one ref, so neighbours really are off in prod
+
+    "Contributors must never make a test or eval pass by weakening it... keep
+     the eval board green before landing... every citation resolves to
+     genuinely retrieved evidence with a valid line window."
+
+Every clause was checked against real lines in `CONTRIBUTING.md` (`:11`,
+`:30`, `:20`) — **verified true, not merely "substantive"**, which is the
+distinction the previous entry warned the substance judge cannot make. The
+false "Black and flake8" answer is gone. `neighbors=False` is now proven in
+container AND observed in production.
+
+## 2. Structural comprehension — reopened, built, deployed (`d96929f`)
+
+Alankrit explicitly authorized reopening this, which `CLAUDE.md` still lists
+under "Do not build yet". **He also said multi-repo stays for last and must
+not be touched.**
+
+### Why it could not be fixed the way `purpose` and `conventions` were
+
+Those two anchored to a document that already existed. `architecture` has no
+such document: a README says what a project is FOR, not how its code is laid
+out, and in most repositories **the arrangement is written down nowhere but
+the code**. Anchoring it to the README was already measured at 2/10 either
+way, and it cost `spf13/cobra` a real answer.
+
+So `demo/structure.py` DERIVES it from imports, under `entry_points.py`'s
+rules-only discipline: pure, deterministic, no writer, every edge carrying the
+indexed chunk that proves it. Served as `/map`'s `indexed_structure`, and
+shown as a **second writer-free tour step** (`overview` then `structure`), so
+it holds during the lexical-only window and cannot bluff.
+
+### ⚠️ It caught itself fabricating three times — this is the important part
+
+None of these were caught by the unit tests. All three came from checking
+output against real source.
+
+1. **A generic resolver invented `pkg -> demo` across 566 files of lazygit.**
+   Go's `.../pkg/config` bare-name-matched `demo/config.yml`. It sat among the
+   true edges and nothing marked it as less trustworthy. This is why **every
+   resolver is language-specific and there is no generic fallback.**
+2. **18.1% of sampled edges were fabricated.** Resolving a Go package import
+   to one of its files meant taking the alphabetically-first and stating it as
+   fact — `active_help.go` in cobra (19/20 sampled), `config_cmd.go` in glow
+   (12/12). Fixed by splitting `package_edges` from `file_edges`: **a Go
+   import names a DIRECTORY, and saying which file would be a guess.** The
+   component-level claim had been true the whole time.
+3. **One guard test was VACUOUS.** It passed with the bug deliberately
+   reintroduced, because its decoy was a `.yml` file rejected by the language
+   filter before the rule under test was ever reached. Rewritten with a `.go`
+   decoy and proved red→green.
+
+**Take the lesson, not just the fixes: a structural claim is the easiest thing
+in this product to make confidently and wrongly, and unit tests you wrote
+yourself will not catch it. Sample the output against real source.**
+
+### Measured, not asserted
+
+- **8/10 probe repositories yield structure.** The 2 misses are honest —
+  `koalaman/shellcheck` is Haskell and ingest does not index it at all,
+  `rust-lang/mdBook` is Rust and says so via `unanalysed_languages`.
+- **199 sampled edges, 0 unverified** — each traced to a literal import
+  statement in the importing file's own indexed text.
+- **72 ms over a 14,675-chunk corpus**, so it stays per-request like the rest
+  of the map. No cache earned.
+
+Two shapes were forced by measurement rather than chosen:
+- **Components are directories, not top-level buckets** — top-level collapses
+  lazygit's 1,591 real edges to 2, because everything lives under `pkg/`.
+- **`most_depended_on_files` exists** because 77 of psf/requests' 105 edges
+  sit INSIDE one component, where the component graph shows nothing useful.
+
+### ⚠️ Do NOT read this as "architecture improved from 2/10"
+
+The ten-repo probe measures the **writer-backed** `architecture` step, which
+was deliberately left cut and is still 2/10. The new step is deterministic,
+and `evals/onboarding_probe.py` **excludes deterministic steps on purpose** —
+its own docstring says they cannot abstain and "would flatter the result".
+Re-running the probe against it would produce a meaningless 10/10. The probe
+run above is a **regression guard** (did adding structure to `build_map`, which
+the anchored steps call, disturb the writer path? it did not), not a score for
+this feature. The numbers that DO apply to it are the coverage and
+edge-verification figures above.
+
+## Deployed and live-verified (rev 0000039)
+
+**14 assertions run INSIDE the built image before it was pushed**, per the
+standing discipline — including both fabrication fixes specifically, the tour
+serving two writer-free steps, `structure` being unreachable through the
+writer path (`answer_step` raises), and the baked real corpus producing
+proof-carrying output.
+
+On production, `alankritxghosh/Icarus` reconnected (506 indexed files):
+
+    evals/corpus.py     <- 40   proof: code:demo/library.py#L1-L43
+    evals/pipeline.py   <- 27
+    evals/provider.py   <- 26
+    evals/retriever.py  <- 25
+    components: demo <-> evals · 286 file edges
+    unanalysed: ['Java', 'Kotlin', 'Objective-C++', 'Shell', 'Swift']
+
+Every line of that is verifiably true of this repo — `corpus.py` really is
+what everything imports, the `demo <-> evals` cycle is real in both directions
+(`evals/test_ingest_smoke.py` imports `demo.links`), and the unanalysed list
+correctly names the Swift app and the tree-sitter fixtures as things nothing
+looked at. The committed fixture trees show 0 edges in and out, which is
+correct — they are copies of other projects.
+
+## ⚠️ OPEN — what is NOT done
+
+1. **No client renders `indexed_structure`.** The data path is live and the
+   tour advertises the step, but `mac/.../RepoMap.swift` and
+   `demo/index.html` both need a field to display it. Nothing is broken: an
+   older Mac app decodes an unknown step `kind` to `.unsupported` and skips
+   it, which is exactly why this shipped without a DMG. **This is the obvious
+   next small brick.**
+2. **`demo/test_warm_cache.py:70` is broken and it is NOT from this session.**
+   It calls `load_vectors(cache, model, refs)` without the `fingerprint`
+   argument made required in `c0c6fd1` (2026-07-28). Confirmed pre-existing by
+   running it with this session's files moved aside. It only surfaces when
+   fastembed is installed, which is why earlier handoffs recorded a clean
+   suite. **Fix the test, do not add a default to `load_vectors`** — the
+   required argument is deliberate.
+3. **Rust, Java, Ruby, Swift and the rest have no resolver.** They are NAMED
+   in `unanalysed_languages` rather than silently returning nothing, so an
+   empty result reads as "nothing looked" and not "no structure exists". Rust
+   is the obvious next language (mdBook is the test case already in the probe).
+4. **This is not a call graph.** It shows which files depend on which, not
+   which functions call which. Stated in the module's own `limitations`.
+5. **`unresolved_import_count` is large and that is normal** (4,706 on the
+   default corpus) — it counts every import that did not resolve to another
+   INDEXED file, which is nearly all third-party and stdlib imports. A
+   limitation string says so, because a bare number that size reads as
+   failure.
+6. Everything in the previous entry's open list still stands — streaming
+   ingest (the largest unsolved systems problem), arm64-only builds,
+   Kubernetes parked, `debt` (5/10) unexplained.
+
+## THE REMAINING BRICKS (unchanged except brick 1, now done)
+
+1. ~~Explain how the code is structured~~ — **DONE and deployed this session.**
+   Next increment is client rendering (open item 1) and more languages (item 3).
+2. **Notice your repo changed** — `POST /connect {"refresh": true}` exists and
+   is proven; nothing triggers it automatically, no client surfaces staleness,
+   and refresh has no tighter rate limit than an ordinary connect despite
+   being a full re-ingest (283s observed). Webhooks unbuilt and need their own
+   auth story.
+3. **Remember you (returning-user briefings)** — zero-started. Alankrit's
+   scoped approval stands (user identity, repo identity, last-seen commit,
+   last-visit timestamp; **never questions, never employee-activity
+   histories**). `LibraryRegistry._last_repo` is in-process memory only and
+   does not survive a deploy, so this needs a real storage decision first.
+   **Write the privacy decision doc BEFORE the code**, per his own condition.
+4. **More than one repo at a time** — **explicitly deferred to LAST by
+   Alankrit this session. Do not start it.** When it does start, get his
+   answer to one question first: does a user pick ONE active repo from a list
+   they have connected, or can Icarus answer ACROSS repos in one question?
+   That changes the size of this brick by an order of magnitude.
+
+## Commits
+
+`d96929f` (structure derived from imports). Deploy: rev 0000038 →
+**0000039 (current)**.
+
+---
+
 # Icarus — Session Handoff (2026-07-30: onboarding shipped end to end, then a live bug in production caught the anchor's blind spot — read the QUOTA section before you do anything)
 
 **READ THIS FIRST.** This session picked up immediately after the "first five
