@@ -8,6 +8,9 @@ GET  /status  -> the active repo + switch status, and a `freshness` block
                  (demo/freshness.py; unknown is reported, never omitted)
 GET  /map     -> what Icarus INDEXED for the active repo (demo/repo_map.py)
 GET  /onboarding -> the guided tour plan; POST {"step": ...} -> one cited step
+GET  /briefing -> what changed since this caller was last here (pure);
+                 POST /briefing acknowledges it and moves the anchor forward
+                 (demo/visits.py; docs/decisions/2026-07-30-returning-user-state.md)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
 POST /connect -> {"repo": "owner/name"[, "refresh": true]} -> index/switch to it
 POST /disconnect -> forget the caller's library and delete their on-disk storage
@@ -35,6 +38,7 @@ from .freshness import FreshnessChecker
 from .ledger import Ledger
 from .payload import build_payload
 from .repo_map import build_map
+from .visits import VisitStore
 from . import onboarding
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier, RepoAccessVerifier
@@ -125,7 +129,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
                  sync_connect: bool = False, background_upgrade: bool = False,
                  access_verifier=None, default_repo=None, ledger=None,
-                 refresh_limiter=None, freshness=None):
+                 refresh_limiter=None, freshness=None, visits=None,
+                 commits_since=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -167,12 +172,21 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     to /status saying whether the index still matches the repository. None
     still reports the block, with everything unknown -- never omitted, because
     a missing field renders as "no banner", which reads as up to date.
+
+    `visits` (a `demo.visits.VisitStore`) enables `GET/POST /briefing` --
+    returning-user state, implementing
+    `docs/decisions/2026-07-30-returning-user-state.md`. None disables the
+    endpoint entirely (404), so a deployment that has not accepted that
+    decision stores nothing about anyone. `commits_since(repo, base, head,
+    token)` computes how much moved between two commits; it defaults to
+    `evals.github_access.commits_between` and is injectable for tests.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
     ask_limiter = ask_limiter or RateLimiter(30, 60)          # 30 asks/min
     connect_limiter = connect_limiter or RateLimiter(5, 600)  # 5 connects/10min
     refresh_limiter = refresh_limiter or RateLimiter(2, 3600)  # 2 re-ingests/hour
+    commits_since = commits_since or github_access.commits_between
 
     class Handler(BaseHTTPRequestHandler):
         _MAX_BODY = 64 * 1024
@@ -335,6 +349,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 snapshot = lib.status_snapshot()
                 snapshot["freshness"] = self._freshness_of(lib, snapshot)
                 self._send_json(200, snapshot)
+            elif route == "/briefing":
+                self._handle_briefing(mutate=False)
             elif route == "/ledger":
                 # The team's questions about their own code -- at least as
                 # sensitive as the corpus, so guarded by the same check rather
@@ -578,6 +594,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                                                    indexing=still_indexing))
             elif self.path == "/onboarding":
                 self._handle_onboarding(lib, identity)
+            elif self.path == "/briefing":
+                self._handle_briefing(mutate=True)
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
             elif self.path == "/connect":
@@ -649,6 +667,83 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(202, {"state": "indexing", "repo": repo})
             else:
                 self._send_json(404, {"error": "not found"})
+
+        def _handle_briefing(self, mutate):
+            """GET -> what changed since this caller was last here.
+            POST -> acknowledge it, moving the anchor to the current commit.
+
+            GET is deliberately PURE. If reading consumed the briefing, a
+            client that crashed mid-render would lose it permanently, and the
+            one thing a returning-user feature must not do is silently swallow
+            the thing it exists to show.
+
+            Guarded by the same entitlement check as /map and /ledger: this
+            names the caller's connected repo and its commits.
+            """
+            identity = self._identity()
+            if require_auth and identity is None:
+                self._send_json(401, {"error": "sign in with GitHub to continue"})
+                return
+            if visits is None:
+                # A deployment that has not accepted the returning-user
+                # decision stores nothing about anyone, and says so with a 404
+                # rather than an empty briefing that implies a store exists.
+                self._send_json(404, {"error": "not found"})
+                return
+            try:
+                lib = registry.library_for(identity)
+            except _RegistryWarming:
+                self._send_json(503, {"error": "starting up, try again shortly"})
+                return
+            if not self._entitled(lib):
+                self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                return
+            repo, commit = lib.provenance()
+            user = identity or "anon"
+
+            # Never on the answering path, and never on this one either: a
+            # broken store degrades to "first visit", it does not 500.
+            try:
+                last = visits.last_visit(user, repo)
+            except Exception:  # noqa: BLE001
+                last = None
+
+            if mutate:
+                try:
+                    visits.record(user, repo, commit)
+                except Exception:  # noqa: BLE001
+                    pass  # an asset, not a dependency
+                self._send_json(200, {"acknowledged": True, "repo": repo,
+                                      "commit": commit})
+                return
+
+            since = None
+            if last and last["commit"] and commit and last["commit"] != commit:
+                try:
+                    since = commits_since(repo, last["commit"], commit,
+                                          bearer_token(self.headers))
+                except Exception:  # noqa: BLE001
+                    since = None
+            elif last and last["commit"] == commit:
+                since = 0
+
+            self._send_json(200, {
+                "repo": repo,
+                "first_visit": last is None,
+                "last_visit_at": last["at"] if last else None,
+                "last_seen_commit": last["commit"] if last else None,
+                "current_commit": commit,
+                # None means UNKNOWN, exactly as in /status's freshness block.
+                # It must never be rendered as "nothing changed" -- a failed
+                # lookup reading as "you're all caught up" is the same class
+                # of failure as a bluffed citation.
+                "commits_since": since,
+                # Decision doc property 3, made literal: the caller can see
+                # the WHOLE record held about them, which is this and nothing
+                # else. A privacy promise nobody can verify is marketing.
+                "stored": ({"repo": repo, "commit": last["commit"], "at": last["at"]}
+                           if last else None),
+            })
 
         def _handle_onboarding(self, lib, identity):
             """POST /onboarding {"step": "purpose"} -> one cited tour step.
@@ -815,7 +910,13 @@ def serve(host: str = None, port: int = None):
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
                            sync_connect=sync_connect, background_upgrade=background_upgrade,
                            access_verifier=access_verifier, default_repo=default_repo,
-                           ledger=ledger, freshness=FreshnessChecker())
+                           ledger=ledger, freshness=FreshnessChecker(),
+                           # Returning-user state lives under each caller's own
+                           # storage dir -- the exact tree /disconnect deletes,
+                           # so "deletable, and actually deleted" needs no
+                           # second mechanism. See
+                           # docs/decisions/2026-07-30-returning-user-state.md.
+                           visits=VisitStore(storage_root))
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"

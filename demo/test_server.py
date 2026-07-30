@@ -1934,3 +1934,146 @@ class PinnedCorpusFreshnessTests(unittest.TestCase):
         finally:
             fx.close()
         self.assertIn("pinned", body["freshness"])
+
+
+class BriefingEndpointTests(unittest.TestCase):
+    """`GET /briefing` -- what changed since you were last here.
+
+    Implements docs/decisions/2026-07-30-returning-user-state.md. The tests
+    below are mostly about honesty and restraint: a first visit says so, an
+    uncomputable comparison says so rather than reading as "nothing changed",
+    and reading a briefing does not silently consume it.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        from .visits import VisitStore
+        self.visits = VisitStore(Path(self._tmp.name), now=lambda: 5000.0)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _fixture(self, since=None, repo="o/r", commit="abc"):
+        return _ServerFixture(_FreshLibrary(repo=repo, commit=commit),
+                              visits=self.visits,
+                              commits_since=lambda r, base, head, token: since)
+
+    def _get(self, fx):
+        with urllib.request.urlopen(f"{fx.base}/briefing") as resp:
+            return json.loads(resp.read())
+
+    def _post(self, fx):
+        req = urllib.request.Request(f"{fx.base}/briefing", data=b"{}",
+                                     headers={"Content-Type": "application/json"},
+                                     method="POST")
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def test_a_first_visit_says_so_rather_than_inventing_a_summary(self):
+        fx = self._fixture()
+        try:
+            body = self._get(fx)
+        finally:
+            fx.close()
+        self.assertIs(body["first_visit"], True)
+        self.assertIsNone(body["last_seen_commit"])
+        self.assertIsNone(body["commits_since"])
+
+    def test_a_returning_visit_reports_how_much_changed(self):
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=31)
+        try:
+            body = self._get(fx)
+        finally:
+            fx.close()
+        self.assertIs(body["first_visit"], False)
+        self.assertEqual(body["last_seen_commit"], "old")
+        self.assertEqual(body["commits_since"], 31)
+        self.assertEqual(body["last_visit_at"], 5000.0)
+
+    def test_an_uncomputable_comparison_is_unknown_not_nothing_changed(self):
+        # The brick-2 rule, inherited: a failed lookup must never render as a
+        # cheerful "you're all caught up".
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=None)
+        try:
+            body = self._get(fx)
+        finally:
+            fx.close()
+        self.assertIs(body["first_visit"], False)
+        self.assertIsNone(body["commits_since"])
+
+    def test_nothing_changed_is_reported_as_zero_not_unknown(self):
+        self.visits.record("local", "o/r", "abc")
+        fx = self._fixture(since=0)
+        try:
+            body = self._get(fx)
+        finally:
+            fx.close()
+        self.assertEqual(body["commits_since"], 0)
+
+    def test_reading_a_briefing_does_not_consume_it(self):
+        # A client that crashes mid-render must not lose the briefing forever,
+        # so GET is pure and POST is the acknowledgement.
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=3)
+        try:
+            self._get(fx)
+            self.assertEqual(self._get(fx)["commits_since"], 3)
+        finally:
+            fx.close()
+
+    def test_acknowledging_a_briefing_moves_the_anchor_forward(self):
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=3)
+        try:
+            status, _ = self._post(fx)
+            self.assertEqual(status, 200)
+            self.assertEqual(self.visits.last_visit("local", "o/r")["commit"], "abc")
+        finally:
+            fx.close()
+
+    def test_the_briefing_shows_the_user_exactly_what_is_stored(self):
+        # Decision doc property 3: a privacy promise nobody can verify is
+        # marketing. The stored block must be the WHOLE record.
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=1)
+        try:
+            stored = self._get(fx)["stored"]
+        finally:
+            fx.close()
+        self.assertEqual(set(stored), {"repo", "commit", "at"})
+
+    def test_the_briefing_never_carries_a_question_or_answer(self):
+        self.visits.record("local", "o/r", "old")
+        fx = self._fixture(since=1)
+        try:
+            blob = json.dumps(self._get(fx)).lower()
+        finally:
+            fx.close()
+        for forbidden in ("question", "answer", "citation", "verdict"):
+            self.assertNotIn(forbidden, blob)
+
+    def test_a_briefing_failure_never_takes_the_endpoint_down(self):
+        class _Boom:
+            def last_visit(self, *a):
+                raise RuntimeError("disk gone")
+
+            def record(self, *a):
+                raise RuntimeError("disk gone")
+        fx = _ServerFixture(_FreshLibrary(), visits=_Boom(),
+                            commits_since=lambda *a: None)
+        try:
+            body = self._get(fx)
+        finally:
+            fx.close()
+        self.assertIs(body["first_visit"], True)
+
+    def test_briefing_is_absent_when_no_store_is_configured(self):
+        fx = _ServerFixture(_FreshLibrary())
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                self._get(fx)
+        finally:
+            fx.close()
+        self.assertEqual(cm.exception.code, 404)

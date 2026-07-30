@@ -678,6 +678,27 @@ removing, or renaming files). For class/function-level detail see
   case, TTL hit/expiry, per-repo and per-commit cache separation, a failed
   check being retried, `checked_at` reporting the real check time on a cached
   read, and the token never reaching the cache.
+- `demo/visits.py` — `VisitStore`: what Icarus remembers about a RETURNING
+  user — exactly four facts and no fifth (user identity, repository identity,
+  last-seen commit, last-visit timestamp), per
+  `docs/decisions/2026-07-30-returning-user-state.md`. **`demo/ledger.py`
+  records questions against the REPO with no identity; this records identity
+  with no questions, and the two must never be joined** — that separation is
+  the entire safety property and is why this is a new store rather than a
+  user-id column on the ledger. `record()` takes no question/answer/verdict
+  parameter at all: a signature that cannot accept one is a stronger guarantee
+  than a policy saying we won't pass one. A visit OVERWRITES rather than
+  appends, because a list of timestamps is an activity log however innocuous
+  each row looks. Stored inside the caller's own storage dir — the exact tree
+  `LibraryRegistry.disconnect` deletes, so "deletable, and actually deleted"
+  needs no second mechanism (test-pinned in `demo/test_registry.py`). Atomic
+  write via `os.replace`; never raises into a request.
+- `demo/test_visits.py` — the store's contract, weighted toward what must NOT
+  be stored: exactly the four approved fields reach disk, `record`'s signature
+  rejects question/answer/verdict/citation/count, no visit count or streak is
+  derived, cross-user invisibility, hostile user id and repo name refused,
+  survives a new process, and a corrupt file reads as "first visit" rather
+  than raising.
 - `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
   `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
   `NormalizingRetriever` (Brick Q query normalization, wired into serving

@@ -421,3 +421,41 @@ class RefreshBeatsTheCacheHitTests(unittest.TestCase):
         (self.out / "stray.txt").write_text("debris")
         self._registry()._ingest_once("octo/repo", self.out, refresh=True)
         self.assertIn("NEW FORMAT", (self.out / "chunks.jsonl").read_text())
+
+
+class VisitStateDeletionTests(unittest.TestCase):
+    """"Deletable, and actually deleted" -- the decision doc's property 2.
+
+    Returning-user state is stored inside the caller's own storage directory
+    precisely so that the existing disconnect path removes it, with no second
+    mechanism to forget and no way for the two to drift apart. That is a claim
+    about behaviour, so it is tested rather than asserted in a docstring.
+    """
+
+    def _reg(self, root):
+        _seed_corpus(root / "default", "simonw/llm")
+        return LibraryRegistry(root / "default", root / "storage", "simonw/llm",
+                               ingest_fn=lambda *a, **k: None)
+
+    def test_disconnect_deletes_a_users_visit_state(self):
+        from .visits import VisitStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reg = self._reg(root)
+            store = VisitStore(root / "storage")
+            store.record("1001", "o/r", "abc")
+            self.assertIsNotNone(store.last_visit("1001", "o/r"))
+            reg.disconnect("1001")
+            self.assertIsNone(store.last_visit("1001", "o/r"))
+
+    def test_disconnect_never_deletes_another_users_visit_state(self):
+        from .visits import VisitStore
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reg = self._reg(root)
+            store = VisitStore(root / "storage")
+            store.record("1001", "o/r", "abc")
+            store.record("1002", "o/r", "def")
+            reg.disconnect("1001")
+            self.assertIsNone(store.last_visit("1001", "o/r"))
+            self.assertEqual(store.last_visit("1002", "o/r")["commit"], "def")
