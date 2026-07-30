@@ -2,16 +2,101 @@
 
 **READ THIS FIRST.** This session picked up immediately after the "first five
 minutes" work below (Day 1/2/3) and took the onboarding tour from built to
-DEPLOYED, PUBLISHED, and LIVE-VERIFIED ON PRODUCTION — then found and half-fixed
-a real correctness bug the measurement had missed. **There is uncommitted code
-right now, deliberately held back**, and **the paid Gemini key is hitting a
-free-tier quota wall**. Both are explained below; do not skip to "what's next"
-without reading them.
+DEPLOYED, PUBLISHED, and LIVE-VERIFIED ON PRODUCTION — then found and fixed a
+real correctness bug the measurement had missed. Everything is committed and
+deployed. **Two things need reading before any work starts: the BILLING
+DECISION and the FIRST ACTION below.**
 
-**Live: `icarus-brain--0000037`, image `alpha-20260730-refresh`, Healthy, 100%
-traffic. `main` @ `0d52147`. Published DMG `a88ebe42` (build 2, self-updating).
-evals 571 · demo 377 · secrets scan clean — but see QUOTA below, the board has
-NOT been re-run since the last code change.**
+**Live: `icarus-brain--0000038`, image `alpha-20260730-anchoronly`, Healthy,
+100% traffic. `main` @ `f7f7f6c`, working tree clean. Published DMG `a88ebe42`
+(build 2, self-updating; tracked `CFBundleVersion` now matches it — next real
+app change bumps to 3). evals 571 · demo 377 · secrets scan clean.**
+
+## ⏭️ FIRST ACTION NEXT SESSION — run the probe
+
+Alankrit's explicit instruction at the end of this session: **run the ten-repo
+onboarding probe once the free-tier daily quota resets.** It is the one owed
+measurement, and until it runs the `neighbors=False` fix below is "one false
+answer became structurally impossible", NOT "the anchored steps got better".
+
+```bash
+.venv/bin/python3 -m evals.run --pipeline gated --writer gemini-paid   # sanity: quota alive?
+.venv/bin/python3 -m evals.onboarding_probe --judge groq --out /tmp/probe_after.json
+```
+
+Corpora are cached under `/tmp/icarus-onboarding-probe`, so a re-run is ~20
+minutes, not an hour — **but `/tmp` may have been cleared since; if so the first
+run re-ingests all ten repos and takes ~1 hour.** Budget for that.
+
+**The specific thing to look for:** `purpose` scored **10/10 answered, 10/10
+substantive WITH neighbours**. Removing neighbours could plausibly cost it, and
+that is the risk this change carries. Compare against these baselines:
+
+| step | answered | substantive | (measured 2026-07-29, neighbours ON) |
+|---|---|---|---|
+| purpose | 10/10 | 10/10 | ← the one at risk |
+| stack | 10/10 | 10/10 | not anchored, should not move |
+| recent | 10/10 | 10/10 | not anchored, should not move |
+| decisions | 8/10 | 8/8 | not anchored, should not move |
+| conventions | 9/10 | 7/9 | anchored; the fix targets this |
+
+If `purpose` drops, the honest options are per-step neighbours (anchor the
+README *and* keep neighbours for `purpose` only) or reverting — **not** a prompt
+change, for the reason recorded in `CONTRIBUTING.md`.
+
+Also still unverified: **the live check on production.** The exact case that
+produced the false answer (`alankritxghosh/Icarus` → `conventions`) returned
+HTTP 503 on quota, so the fix is proven in the container and NOT observed on the
+live brain. Re-run that too:
+
+```bash
+curl -s -X POST "$URL/onboarding" -H "Authorization: Bearer $(gh auth token)" \
+     -H 'Content-Type: application/json' -d '{"step":"conventions"}'
+# want: cites doc:CONTRIBUTING.md, NOT a commit:. Repo is already connected+refreshed.
+```
+
+## ⚠️ BILLING — a decision was made this session; record-keeping matters here
+
+The paid writer's 429s were traced to source, not guessed. Confirmed by exact
+key-hash match: `GEMINI_PAID_API_KEY` is the API key named **"Icarus"** in
+project `gen-lang-client-0021166028`. Then, straight from `gcloud`:
+
+```
+gcloud billing projects describe gen-lang-client-0021166028
+  billingAccountName: billingAccounts/010D47-0B3A61-2399D1
+  billingEnabled:     false
+
+gcloud billing accounts describe 010D47-0B3A61-2399D1
+  displayName: My Billing Account
+  open:        false        # the only billing account on the whole GCP account
+```
+
+**Billing has never been enabled on that project, and the sole billing account
+is closed.** Every call this key has ever made has run on the Generative
+Language API free tier — which is exactly the quota Google's error names
+(`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, value **500/day**).
+
+**Alankrit's decision, recorded verbatim in intent: not reopening the billing
+account; he considers the current setup private-ready.** That is his call and
+this document does not re-argue it. What the next session needs to know factually:
+
+- `evals/provider.py`'s `PaidGeminiProvider` declares `private_safe = True`, and
+  `evals/trust.py`'s interlock allows private-repo traffic *because* of that flag.
+- The flag's stated justification in the code is that the provider is
+  billing-enabled. **That justification is currently false**, per the readouts
+  above. The interlock is enforcing a guarantee whose premise does not hold.
+- Per Google's Gemini API terms the free tier permits using submitted content to
+  improve their models; the paid tier is the one carrying that exclusion. Whether
+  Google *does* so for this traffic is not verifiable from here.
+- **Do not "fix" this in code by weakening the interlock or editing the
+  `private_safe` docstring to match reality.** If the premise is to change, the
+  billing state changes; if the risk is to be accepted, it gets accepted
+  explicitly in a decision doc (`docs/decisions/`), not by quietly softening a
+  comment. Raise it with Alankrit rather than resolving it unilaterally.
+- Practical: the 500/day cap is a *free-tier* cap. It will keep being hit by any
+  session that runs the probe more than about twice. Reopening billing would
+  lift it; while it is closed, treat writer calls as a scarce budget and run the
+  probe deliberately rather than iteratively.
 
 ## What this session actually did, in order
 
@@ -67,79 +152,60 @@ NOT been re-run since the last code change.**
     (`purpose`, `conventions`) now answers from ONLY its addressed document,
     no neighbour search at all. Narrowing evidence is fail-safe (can only
     produce more abstention, never more fabrication), so this cannot weaken the
-    gate. Fully unit-tested, **evals 571 / demo 377 green** — see QUOTA below
-    for why it stopped there.
+    gate. Fully unit-tested, **evals 571 / demo 377 green**, committed
+    (`c634d6d`) and **deployed as `rev 0000038`** — see the verification section
+    below for why the eval board was the wrong gate for it.
+11. Traced the writer's 429s to source: the "paid" key's project has **billing
+    disabled** and the sole billing account is **closed** (see BILLING above).
+    Alankrit's decision: not reopening it.
+12. Committed the `CFBundleVersion` 1→2 bump (`f7f7f6c`) that the published DMG
+    already carried. Not tidying — tracked source said 1 while every installed
+    copy is on build 2, so a build from `main` would have published version 1
+    and Sparkle's whole installed base would have correctly ignored it as
+    older. Updates would have silently stopped working with no error anywhere.
 
-## ⚠️ QUOTA — read this before running anything against the paid writer
+## HOW THE neighbors=False FIX WAS VERIFIED — and why not with the board
 
-Mid-re-run, the paid writer started returning **HTTP 429**. Google's own error
-body names the metric:
+The standing rule is: no change near the writer/gate/retrieval path ships
+without the eval board confirming it (learned the hard way — a prompt-rule fix
+earlier silently dropped board citation correctness 100% -> 83%).
 
-    Quota exceeded for metric:
-    generativelanguage.googleapis.com/generate_content_free_tier_requests,
-    limit: 500
+**That rule was applied here, not bent, and it pointed away from the board.**
+Checked before treating quota as a blocker:
 
-**`GEMINI_PAID_API_KEY` is being metered against a FREE-TIER quota bucket.**
-Verified this is not the free key mislabelled — `GEMINI_PAID_API_KEY` and
-`GEMINI_API_KEY` hash to different values, different lengths (53 vs 39 chars),
-so they are genuinely distinct credentials. The volume explanation is
-sufficient on its own: this session ran four full ten-repo probes (~70 writer
-calls each) plus board runs plus live tour testing on production in one day,
-against a 500/day cap — that alone accounts for the exhaustion, independent of
-which tier the key is actually on.
+- `evals/grader.py:47` grades **exclusively** through `pipeline.answer(...)`.
+  It never calls `.explain()`.
+- The diff touches **only** `.explain()` — its signature and the neighbour-search
+  branch. `.answer()` is untouched.
+- `demo/server.py`'s `/explain` endpoint passes no `neighbors` argument, so it
+  keeps the `True` default and is byte-for-byte unaffected.
 
-**What is NOT resolved:** whether the *tier itself* is correct. `PaidGeminiProvider`
-declares `private_safe = True` on the premise that it is billing-enabled and
-therefore not trained on — `evals/trust.py`'s interlock refuses every provider
-that isn't. If Google is genuinely metering this key as free-tier (as opposed
-to a Flash-Lite model reporting against a free-tier-shaped bucket regardless of
-project billing — both are possible readings of one error metric name), that
-premise needs rechecking before any more private-repo traffic goes through it.
-**This needs Alankrit to check the Google Cloud / AI Studio billing console for
-the project behind that key** — confirm billing is active and attached to the
-right project. Do not conclude either way from this doc; only the console
-settles it. Quota resets on Google's daily rolling window (Pacific time).
+So a green board would have proven nothing about this change, and a red one
+would have signalled an unrelated flake. What does cover it, all green:
 
-**Practical effect right now:** production `/ask` was returning 503
-("the answering model is unavailable") as of this session's end. The brain
-itself (`rev 0000037`) is healthy; only the writer is blocked.
+- the new `ExplainWithoutNeighborsTests` suite in `evals/test_gated_explain.py`
+  — including the decisive case, that a citation *outside* the addressed
+  document is forced to `unknown`;
+- the pre-existing `test_answer_still_emits_grounded_answers` and
+  `test_answer_still_forces_unknown_on_bluff` guards, which are what would catch
+  an accidental break of the `.answer()` path;
+- **7 assertions run inside the built container before it was pushed**, per the
+  standing image-verification discipline — including the behavioural proof, not
+  just a signature check: with neighbours off the retriever is never called,
+  only the addressed document is retrieved, and an outside citation abstains.
 
-## What is UNCOMMITTED right now, and why
+**What is still NOT proven:** the fix has not been observed on the live brain.
+The production check returned 503 on quota. Proven-in-container and
+observed-in-production are different claims; see FIRST ACTION above.
 
-```
- M demo/onboarding.py          — anchored steps now call explain(neighbors=False)
- M demo/test_onboarding.py     — pins neighbors=False for purpose/conventions
- M demo/test_server.py         — test double updated for the new explain() param
- M evals/pipeline.py           — GatedPipeline.explain() gained `neighbors: bool = True`
- M evals/test_gated_explain.py — the new ExplainWithoutNeighborsTests suite
- M mac/Icarus/Icarus-Info.plist — CFBundleVersion bumped 1 -> 2 (see below)
-```
+## Deployed and live-verified this session
 
-**Held back deliberately.** The standing rule (confirmed the hard way earlier
-this session, when a prompt-rule fix silently dropped board citation
-correctness 100% -> 83%) is: no change near the writer/gate/retrieval path
-ships without the eval board confirming it. The board needs the paid writer,
-the paid writer is quota-blocked. Unit tests are green; the board is not yet
-re-verified. **Next session: re-run `.venv/bin/python3 -m evals.run --pipeline
-gated --writer gemini-paid` the moment quota allows, THEN commit and deploy.**
-
-**The `Icarus-Info.plist` line is a loose end that needs a decision, not just a
-commit.** `CFBundleVersion` was bumped 1→2 locally to build and test the
-Sparkle self-update path (see the entry below) and that build 2 IS the one
-published and live right now. But the bump was never committed to `main` — so
-the tracked source currently says version 1 while the published artifact is
-version 2. This needs to be committed (ideally in the SAME commit as whatever
-ships next from `mac/`, so a version bump always has real content behind it,
-per this repo's own rule in `CONTRIBUTING.md`) or the next person to build from
-`main` will produce a version-1 DMG that Sparkle's own installed base would
-consider older than what they're already running.
-
-## Deployed and live-verified this session (independent of the above)
-
-- `81e383b`…`0d52147` — see full history below. Repo map, entry points, the
+- `81e383b`…`f7f7f6c` — see full history below. Repo map, entry points, the
   tour, the onboarding probe + substantiveness judge, the README/CONTRIBUTING
-  anchors, Sparkle + stable signing, and the refresh path are ALL live on
-  `icarus-brain--0000037` and confirmed against real repos, not assumed.
+  anchors, Sparkle + stable signing, the refresh path, and the
+  `neighbors=False` fix are ALL live on `icarus-brain--0000038`. Everything
+  except the last one was confirmed against real repos rather than assumed;
+  `neighbors=False` is proven in the container only (quota).
 - `simonw/sqlite-utils` `conventions` step, live: cites `doc:docs/contributing.rst`,
   answers *"start all improvements with an issue... use Black... use flake8"* —
   correct, concrete, real.
@@ -565,8 +631,12 @@ answers -- which is exactly what the tour used to do.
 ## Commits
 
 `d542b47` (days 1+2), `49de216` (Sparkle + stable signing), `24b50fe` (feed
-baked into the plist), `92532de` (substantiveness judge + conventions anchor).
+baked into the plist), `92532de` (substantiveness judge + conventions anchor),
+`ce52241` (CONTRIBUTING.md), `0d52147` (refresh path), `e229d48` (handoff),
+`c634d6d` (neighbors=False), `f7f7f6c` (CFBundleVersion aligned).
 Website: `effa604`. Tap: `5192c4d`.
+Deploys this session: rev 0000036 (conventions anchor) → 0000037 (refresh path)
+→ **0000038 (neighbors=False, current)**.
 
 ---
 
