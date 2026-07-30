@@ -517,8 +517,9 @@ removing, or renaming files). For class/function-level detail see
   just the ref. Reports distinct indexed file count, files grouped by
   language and by top-level directory, indexed documentation (+ an explicit
   `readme: null` when none was indexed), chunk counts per source, lexical/
-  semantic readiness, truncation, and `indexed_entry_points`
-  (`demo/entry_points.py`). **Every field is named `indexed_*` on
+  semantic readiness, truncation, `indexed_entry_points`
+  (`demo/entry_points.py`) and `indexed_structure` (`demo/structure.py` — the
+  import-derived arrangement). **Every field is named `indexed_*` on
   purpose**: a corpus-derived map describes what Icarus READ, never what
   EXISTS in the repository, so it publishes no total-file count and no
   excluded-file count/list. The ingest deny-lists are reported as
@@ -527,7 +528,14 @@ removing, or renaming files). For class/function-level detail see
   `classify_file` records nothing about what it skips. A future
   ingestion-manifest brick can add genuinely observed discovered/eligible/
   excluded/failed counts.
-- `demo/onboarding.py` — the guided onboarding tour: `STEPS` (the five steps
+- `demo/onboarding.py` — the tour now opens with TWO writer-free steps:
+  `overview` (the map) and `structure` (kind `"structure"`, served from
+  `/map`'s `indexed_structure`). The structure step is deliberately NOT the
+  writer-backed `architecture` step measurement cut at 2/10 — it asks no
+  writer, so it cannot abstain and cannot bluff; `architecture` stays cut and
+  stays measured by the probe. An older Mac app decodes an unknown step kind to
+  `.unsupported` and skips it, so this ships without a DMG.
+  `demo/onboarding.py` — the guided onboarding tour: `STEPS` (the five steps
   measurement proved reliable), `plan(status)` (the ordered tour -- pure and
   instant, no writer, no retrieval) and `answer_step(pipeline, status, step_id,
   token)` (one step, returning a `Result` untouched). Deliberately NOT a
@@ -588,6 +596,40 @@ removing, or renaming files). For class/function-level detail see
   under reversed input, the test-file and quoted-guard exclusions (both
   red→green from real-repo findings), and purity (signature takes only
   `chunks`; `builtins.open`/`socket.socket` patched to raise).
+- `demo/structure.py` — `build_structure(chunks)`: how the code is ARRANGED,
+  read off its own import statements. Answers the question measurement found
+  hardest (`architecture`, 2/10 on the ten-repo probe) and that anchoring to a
+  README provably could not fix — a README says what a project is FOR, not how
+  its code is laid out, and in most repos the arrangement is written down
+  nowhere but the code. Pure (chunks in, dict out), deterministic, no writer,
+  so it holds during the lexical-only window and cannot bluff. Emits
+  `file_edges` (Python/JS — imports there name a FILE), `package_edges` (Go —
+  an import names a package DIRECTORY), directory-level `components` each
+  carrying the indexed refs proving its edges, `most_depended_on_files`,
+  `unresolved_import_count` and `unanalysed_languages`. **Every resolver is
+  language-specific on purpose:** a first generic pass invented a `pkg -> demo`
+  edge across 566 files of lazygit (Go's `.../pkg/config` bare-name-matched
+  `demo/config.yml`), indistinguishable from the true edges beside it. Two
+  further fabrications were caught by sampling emitted edges against real
+  source, not by unit tests — resolving a Go package to one of its files meant
+  taking the alphabetically-first and stating it as fact (18.1% of sampled
+  edges wrong; cobra's `active_help.go`, glow's `config_cmd.go`), fixed by
+  splitting package edges from file edges. Final measurement: 8/10 repos yield
+  structure, **199 sampled edges, 0 unverified**; the 2 misses are honest
+  (shellcheck is Haskell and unindexed, mdBook is Rust and says so). 72ms over
+  a 14,675-chunk corpus, so it stays per-request like the rest of the map.
+- `demo/test_structure.py` — structure's contract, written before the
+  implementation and weighted toward what must NOT be emitted: the
+  fabrication-guard suite (bare-name match, unindexed target, cross-language
+  resolution, self-dependency, an import quoted in a PR body, a Go package
+  import never becoming a file-level edge), per-language resolution for
+  Python/JS/Go incl. src-layout, relative and root-package cases, components as
+  directories rather than top-level buckets (top-level collapses lazygit's
+  1,591 edges to 2), determinism under reordered input, no score/rank field,
+  and purity (`builtins.open`/`socket.socket` patched to raise). One guard here
+  was found to be VACUOUS and rewritten — its decoy was a `.yml` file rejected
+  by the language filter before the rule under test was reached, so it passed
+  with the bug deliberately reintroduced.
 - `demo/test_repo_map.py` — the map's contract, written before the
   implementation: every named file is an indexed ref (the map's version of
   groundedness), counts are deterministic and order-independent, a distinct

@@ -31,6 +31,7 @@ from evals.ingest import (
 )
 
 from .entry_points import detect_entry_points, is_auxiliary_path
+from .structure import build_structure
 
 # Sources whose ref carries a repo-relative PATH (`code:llm/cli.py#L1-L300`).
 # pr/issue/commit refs carry an identifier instead and have no file at all.
@@ -199,6 +200,15 @@ def build_map(chunks, status):
             "contributing": _named_doc(docs, lambda stem: stem == "contributing"),
         },
         "indexed_entry_points": entry_points,
+        # How the code is ARRANGED, derived from its own imports -- the
+        # question the onboarding probe measured worst (`architecture`, 2 of
+        # 10 real repositories) and the one anchoring to a README provably
+        # could not fix: a README says what a project is FOR, not how its code
+        # is laid out. Deterministic like the rest of the map, so it is solid
+        # during the lexical-only window and cannot bluff. Measured at 72ms
+        # over a 14,675-chunk corpus, so it stays per-request like everything
+        # else here rather than earning a cache.
+        "indexed_structure": build_structure(chunks),
         "indexed_auxiliary": {
             "file_count": auxiliary,
             "rule": "Counted within the totals above, and named here because a "

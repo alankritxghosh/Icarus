@@ -208,3 +208,41 @@ class MeasurementDriftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StructureStepTests(unittest.TestCase):
+    """The deterministic structure step (Brick S).
+
+    Deliberately NOT the `architecture` step that measurement cut. That one
+    was writer-backed and scored 2/10; this one asks no writer at all, so it
+    cannot abstain and cannot bluff. Same reasoning as the overview step:
+    a claim Icarus volunteers earns more scepticism than one a user asked for,
+    and the cheapest way to survive that scepticism is to not need a model.
+    """
+
+    def test_the_structure_step_is_in_the_tour_and_is_writer_free(self):
+        steps = plan(STATUS)["steps"]
+        structure = next(s for s in steps if s["id"] == "structure")
+        self.assertEqual(structure["kind"], "structure")
+
+    def test_both_writer_free_steps_lead_the_tour(self):
+        # Held to the same rationale already recorded for `overview`: the
+        # writer-backed steps are measurably worst during the lexical-only
+        # window right after a connect, which is exactly when a first-time
+        # user takes the tour.
+        kinds = [s["kind"] for s in plan(STATUS)["steps"]]
+        self.assertEqual(kinds[:2], ["map", "structure"])
+        self.assertEqual(set(kinds[2:]), {"question"})
+
+    def test_the_structure_step_is_not_answerable_through_the_writer_path(self):
+        # It carries no question, is served from GET /map, and must never
+        # reach answer_step -- which would be a billed writer call for a fact
+        # already computed deterministically.
+        structure = next(s for s in plan(STATUS)["steps"] if s["id"] == "structure")
+        self.assertNotIn("question", structure)
+        with self.assertRaises(ValueError):
+            answer_step(_with_readme(), STATUS, "structure")
+
+    def test_the_cut_architecture_step_is_still_absent(self):
+        # The deterministic step does not resurrect the writer-backed one.
+        self.assertNotIn("architecture", [s["id"] for s in plan(STATUS)["steps"]])

@@ -1645,7 +1645,8 @@ class OnboardingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["repo"], self.PRIVATE)
         self.assertEqual([s["id"] for s in body["steps"]],
-                         ["overview", "purpose", "stack", "decisions", "conventions", "recent"])
+                         ["overview", "structure", "purpose", "stack",
+                          "decisions", "conventions", "recent"])
 
     def test_the_plan_costs_no_writer_call(self):
         self._get("/onboarding", "tok-a")

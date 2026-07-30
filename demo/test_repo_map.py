@@ -349,3 +349,51 @@ class PurityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StructureIntegrationTests(unittest.TestCase):
+    """The map carries the derived dependency structure (Brick S).
+
+    The map already answers "what did Icarus read". Structure answers "how is
+    it arranged" -- the question the onboarding probe measured worst (2 of 10
+    real repositories) and the one anchoring to a README provably could not
+    fix, because a README says what a project is FOR, not how its code is laid
+    out.
+    """
+
+    def _map(self, chunks):
+        return build_map(chunks, {"repo": "o/r", "commit": "abc"})
+
+    def test_the_map_carries_the_structure_block(self):
+        chunks = [
+            Chunk(ref="code:app/api.py", source="code",
+                  text="from app.store import save\n"),
+            Chunk(ref="code:app/store.py", source="code", text="def save():\n    pass\n"),
+        ]
+        structure = self._map(chunks)["indexed_structure"]
+        self.assertEqual(structure["file_edges"], [("app/api.py", "app/store.py")])
+
+    def test_a_repo_with_no_resolvable_imports_reports_empty_structure(self):
+        chunks = [Chunk(ref="doc:README.md", source="doc", text="# hi\n")]
+        structure = self._map(chunks)["indexed_structure"]
+        self.assertEqual(structure["components"], [])
+        self.assertTrue(structure["limitations"])
+
+    def test_structure_names_only_files_the_map_also_indexed(self):
+        chunks = [
+            Chunk(ref="code:app/api.py", source="code",
+                  text="from app.store import save\n"),
+            Chunk(ref="code:app/store.py", source="code", text="def save():\n    pass\n"),
+        ]
+        result = self._map(chunks)
+        indexed = {c.ref.split(":", 1)[1].split("#", 1)[0] for c in chunks}
+        for source, target in result["indexed_structure"]["file_edges"]:
+            self.assertIn(source, indexed)
+            self.assertIn(target, indexed)
+
+    def test_structure_is_named_indexed_like_every_other_map_field(self):
+        # The map's one contract: every field describes what Icarus READ, never
+        # what exists in the repository. Structure is derived from indexed
+        # chunks only, so it carries the same prefix and the same promise.
+        result = self._map([])
+        self.assertIn("indexed_structure", result)

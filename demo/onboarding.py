@@ -99,6 +99,25 @@ _OVERVIEW = {"id": "overview", "kind": "map",
              "detail": "Served by GET /map -- indexed files, languages, "
                        "documentation and entry points. No writer, no retrieval."}
 
+# The second writer-free step: how the code is ARRANGED, read off its own
+# imports (`demo/structure.py`), served from the same GET /map response.
+#
+# This is deliberately NOT the `architecture` step measurement cut. That one
+# asked the writer "how is this codebase structured?" and answered 2 of 10 real
+# repositories -- the worst of any candidate -- and anchoring it to the README
+# the way `purpose` and `conventions` were anchored did not move it at all,
+# because a README says what a project is FOR, not how its code is laid out.
+# The arrangement is written down in exactly one place, the imports, so this
+# step reads it there instead of asking a model to recall it. It cannot
+# abstain and it cannot bluff; where a repository genuinely has no resolvable
+# internal imports it reports none, which is the true answer rather than a
+# failure. `architecture` stays cut, and stays measured by the probe.
+_STRUCTURE = {"id": "structure", "kind": "structure",
+              "title": "How the code is arranged",
+              "detail": "Served by GET /map as indexed_structure -- components, "
+                        "what depends on what, and the indexed chunk proving "
+                        "each edge. No writer, no retrieval."}
+
 _INDEXING_NOTE = (
     "Icarus is still building semantic search for this repository. The tour "
     "works now, but answers are keyword-only until it finishes, so a step that "
@@ -117,7 +136,7 @@ def plan(status):
         "commit": status.get("commit"),
         "semantic_indexing_in_progress": indexing,
         "note": _INDEXING_NOTE if indexing else "",
-        "steps": [_OVERVIEW] + [
+        "steps": [_OVERVIEW, _STRUCTURE] + [
             {"id": step_id, "kind": "question", "title": title, "question": question}
             for step_id, title, question in STEPS
         ],
