@@ -667,7 +667,12 @@ removing, or renaming files). For class/function-level detail see
   continuously and GitHub's API is not; keying on the commit means a refresh
   invalidates instantly, and `checked_at` reports when the check ACTUALLY ran,
   not now. A failed check is retried rather than pinned for the TTL. The
-  caller's token is used per request and never cached.
+  caller's token is used per request and never cached. `/status` adds a
+  `pinned` flag beside it: the committed demo corpus is frozen ON PURPOSE
+  (`connect_sync` exempts it — it is the reproducible eval board), so it is
+  permanently behind upstream (68 commits, measured live). The true numbers
+  stay; `pinned` is what stops a deliberate decision reading as neglect and
+  a client offering a refresh that is forbidden by design.
 - `demo/test_freshness.py` — freshness's contract, weighted toward the
   never-claim-fresh property: every unknown path, the differs-but-count-unknown
   case, TTL hit/expiry, per-repo and per-commit cache separation, a failed

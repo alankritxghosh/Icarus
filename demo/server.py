@@ -260,15 +260,25 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             which a user reads as "up to date", the one thing this must never
             imply without having checked.
             """
+            # The committed demo corpus is frozen ON PURPOSE -- it is the
+            # reproducible eval board, and `Library.connect_sync` exempts it
+            # from every re-ingest path. So it is permanently behind upstream
+            # (68 commits, measured live). The numbers below stay true and
+            # nothing is hidden; `pinned` is what stops a deliberate decision
+            # reading as neglect, and stops a client offering a refresh that
+            # is forbidden by design.
+            pinned = bool(default_repo) and snapshot.get("repo") == default_repo
             unknown = {"up_to_date": None, "behind_by": None,
-                       "head_commit": None, "checked_at": None}
+                       "head_commit": None, "checked_at": None, "pinned": pinned}
             if freshness is None:
                 return unknown
             try:
-                return freshness.check(snapshot.get("repo"), snapshot.get("commit"),
-                                       bearer_token(self.headers))
+                result = dict(freshness.check(snapshot.get("repo"), snapshot.get("commit"),
+                                              bearer_token(self.headers)))
             except Exception:  # noqa: BLE001 -- see docstring: never break /status
                 return unknown
+            result["pinned"] = pinned
+            return result
 
         def _entitled(self, lib) -> bool:
             """May this caller READ the library's currently-active repo?

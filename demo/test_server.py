@@ -1885,3 +1885,52 @@ class RefreshRateLimitTests(unittest.TestCase):
             self.assertEqual(self._post(fx.base, {"repo": "o/r", "refresh": True}), 200)
         finally:
             fx.close()
+
+
+class PinnedCorpusFreshnessTests(unittest.TestCase):
+    """The committed demo corpus is frozen ON PURPOSE and cannot be refreshed.
+
+    `Library.connect_sync` exempts the default repo from every re-ingest path:
+    it is the reproducible eval board, and re-ingesting it over the network
+    would silently change what every test measures. So it is permanently
+    behind upstream — live on production it read 68 commits behind — and
+    reporting that bare number would describe a deliberate decision as
+    neglect, and offer a refresh that does nothing.
+
+    The numbers stay (they are true and nothing is hidden); `pinned` says why.
+    """
+
+    def _status(self, repo, default_repo):
+        checker = _StubChecker({"up_to_date": False, "behind_by": 68,
+                                "head_commit": "def", "checked_at": 1.0})
+        fx = _ServerFixture(_FreshLibrary(repo=repo), freshness=checker,
+                            default_repo=default_repo)
+        try:
+            with urllib.request.urlopen(f"{fx.base}/status") as resp:
+                return json.loads(resp.read())
+        finally:
+            fx.close()
+
+    def test_the_default_corpus_is_marked_pinned(self):
+        body = self._status("simonw/llm", "simonw/llm")
+        self.assertIs(body["freshness"]["pinned"], True)
+
+    def test_a_pinned_corpus_still_reports_the_true_numbers(self):
+        # Hiding them would be its own dishonesty -- the index really is 68
+        # commits behind, and a reader is entitled to know by how much.
+        body = self._status("simonw/llm", "simonw/llm")
+        self.assertEqual(body["freshness"]["behind_by"], 68)
+        self.assertIs(body["freshness"]["up_to_date"], False)
+
+    def test_a_connected_repo_is_not_pinned(self):
+        body = self._status("psf/requests", "simonw/llm")
+        self.assertIs(body["freshness"]["pinned"], False)
+
+    def test_pinned_is_always_present_even_with_no_checker(self):
+        fx = _ServerFixture(_FreshLibrary(), default_repo="simonw/llm")
+        try:
+            with urllib.request.urlopen(f"{fx.base}/status") as resp:
+                body = json.loads(resp.read())
+        finally:
+            fx.close()
+        self.assertIn("pinned", body["freshness"])
