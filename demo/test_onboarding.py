@@ -47,8 +47,8 @@ class _FakePipeline:
         self.answer_calls.append((question, token))
         return self._result
 
-    def explain(self, path, start, end, question=None):
-        self.explain_calls.append((path, start, end, question))
+    def explain(self, path, start, end, question=None, neighbors=True):
+        self.explain_calls.append((path, start, end, question, neighbors))
         return self._result
 
 
@@ -107,11 +107,14 @@ class PurposeIsAddressedNotSearchedTests(unittest.TestCase):
         pipe = _with_readme()
         answer_step(pipe, STATUS, "purpose")
         self.assertEqual(len(pipe.explain_calls), 1)
-        path, start, _end, question = pipe.explain_calls[0]
+        path, start, _end, question, neighbors = pipe.explain_calls[0]
         self.assertEqual(path, "README.md")
         self.assertEqual(start, 1)
         self.assertIn("problem", question)
         self.assertEqual(pipe.answer_calls, [])
+        # Answer from the README alone -- see the live failure in
+        # evals/pipeline.py's explain() docstring.
+        self.assertFalse(neighbors, "an anchored step must not pull in neighbours")
 
     def test_purpose_falls_back_to_an_ordinary_ask_with_no_readme(self):
         # A repo with no indexed README must still get a tour, not a crash and

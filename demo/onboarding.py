@@ -155,7 +155,14 @@ def answer_step(pipeline, status, step_id, token=None):
         docs = build_map(pipeline.indexed_chunks(), status)["indexed_documentation"]
         path = docs.get(doc_key)
         if path:
-            return pipeline.explain(path, 1, _WHOLE_FILE_END, question=question)
+            # neighbors=False: answer from THIS document, nothing else. With
+            # neighbours on, the anchor resolved and ranked first and the
+            # writer still cited a commit message that merely discussed the
+            # topic -- reporting another project's conventions as this one's
+            # (found live 2026-07-30 on alankritxghosh/Icarus). Addressing a
+            # document guarantees it is present, not that it is used.
+            return pipeline.explain(path, 1, _WHOLE_FILE_END, question=question,
+                                    neighbors=False)
     return pipeline.answer(question, token=token)
 
 

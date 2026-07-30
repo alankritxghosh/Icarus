@@ -138,3 +138,80 @@ class AnswerBehaviorUnchangedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExplainWithoutNeighborsTests(unittest.TestCase):
+    """`neighbors=False` answers from the addressed location ALONE.
+
+    Found live 2026-07-30 on alankritxghosh/Icarus. The tour's `conventions`
+    step addressed the repo's own CONTRIBUTING.md -- the anchor resolved, and
+    ranked first -- and the writer cited a COMMIT MESSAGE instead, reporting
+    "Black and flake8, an AI Policy, E-Help-wanted labels" as this project's
+    conventions. Those belong to sqlite-utils, requests and mdBook; they were
+    quoted inside our own commit message describing a measurement.
+
+    Anchoring guarantees the document is PRESENT, not that it is USED.
+    `.explain()`'s neighbour search is right for a code selection and wrong for
+    "answer from this document", so a caller can now turn it off.
+
+    Narrowing evidence is fail-safe: fewer chunks can only cause MORE
+    abstention, never more fabrication, so this cannot weaken the honesty gate.
+    """
+
+    def setUp(self):
+        self.chunks = [
+            Chunk(ref="doc:CONTRIBUTING.md", source="doc",
+                  text="Run the tests with unittest. Never weaken an eval."),
+            Chunk(ref="commit:deadbeef", source="commit",
+                  text="conventions such as Black and flake8 and E-Help-wanted labels"),
+        ]
+
+    def _pipeline(self, reply, retriever=None):
+        return GatedPipeline(retriever or _SpyRetriever(["commit:deadbeef"]),
+                             self.chunks, StaticProvider([reply]))
+
+    def test_the_retriever_is_never_consulted(self):
+        spy = _SpyRetriever(["commit:deadbeef"])
+        pipe = self._pipeline('{"verdict":"answer","answer":"Use unittest.",'
+                              '"citations":["doc:CONTRIBUTING.md"]}', spy)
+        pipe.explain("CONTRIBUTING.md", 1, 10 ** 6, question="what conventions?",
+                     neighbors=False)
+        self.assertEqual(spy.calls, [], "a neighbour search must not run at all")
+
+    def test_only_the_addressed_document_is_retrieved(self):
+        pipe = self._pipeline('{"verdict":"answer","answer":"Use unittest.",'
+                              '"citations":["doc:CONTRIBUTING.md"]}')
+        r = pipe.explain("CONTRIBUTING.md", 1, 10 ** 6, neighbors=False)
+        self.assertEqual(r.retrieved, ["doc:CONTRIBUTING.md"])
+        self.assertEqual(r.anchored, ["doc:CONTRIBUTING.md"])
+
+    def test_a_citation_outside_the_document_is_forced_to_unknown(self):
+        # The live failure, now impossible: the commit is not retrieved, so
+        # citing it cannot be grounded.
+        pipe = self._pipeline('{"verdict":"answer","answer":"Black and flake8.",'
+                              '"citations":["commit:deadbeef"]}')
+        r = pipe.explain("CONTRIBUTING.md", 1, 10 ** 6, neighbors=False)
+        self.assertEqual(r.verdict, "unknown")
+
+    def test_no_coverage_still_abstains_honestly(self):
+        pipe = self._pipeline('{"verdict":"answer","answer":"x","citations":[]}')
+        r = pipe.explain("NOPE.md", 1, 10 ** 6, neighbors=False)
+        self.assertEqual(r.verdict, "unknown")
+
+    def test_neighbors_default_to_ON_so_existing_callers_are_unchanged(self):
+        spy = _SpyRetriever(["commit:deadbeef"])
+        pipe = self._pipeline('{"verdict":"answer","answer":"Use unittest.",'
+                              '"citations":["doc:CONTRIBUTING.md"]}', spy)
+        r = pipe.explain("CONTRIBUTING.md", 1, 10 ** 6, question="q")
+        self.assertEqual(len(spy.calls), 1)
+        self.assertIn("commit:deadbeef", r.retrieved)
+
+
+class _SpyRetriever:
+    def __init__(self, refs):
+        self._refs = refs
+        self.calls = []
+
+    def search(self, query, k):
+        self.calls.append((query, k))
+        return list(self._refs)

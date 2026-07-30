@@ -25,7 +25,7 @@ class _StubPipeline(Pipeline):
                           citations=["pr:1435"], retrieved=["pr:1435", "code:llm/x.py"])
         return Result(verdict="unknown", retrieved=["code:llm/x.py", "code:llm/y.py"])
 
-    def explain(self, path, start, end, question=None):
+    def explain(self, path, start, end, question=None, neighbors=True):
         """Brick D: a line-covered location answers; anywhere else abstains --
         mirrors GatedPipeline.explain's real "no coverage -> honest unknown"
         contract, not a special-cased error, from a fixed known location."""
@@ -1593,8 +1593,8 @@ class _TourPipeline(_StubPipeline):
         return Result(verdict="answer", answer="Because of X.", citations=["pr:1435"],
                       retrieved=["pr:1435"])
 
-    def explain(self, path, start, end, question=None):
-        self.explained.append((path, question))
+    def explain(self, path, start, end, question=None, neighbors=True):
+        self.explained.append((path, question, neighbors))
         return Result(verdict="answer", answer="A CLI for large language models.",
                       citations=["doc:README.md"], retrieved=["doc:README.md"])
 
@@ -1664,7 +1664,10 @@ class OnboardingEndpointTests(unittest.TestCase):
 
     def test_purpose_addresses_the_readme(self):
         _, body = self._post({"step": "purpose"}, "tok-a")
-        self.assertEqual([p for p, _q in self.pipe.explained], ["README.md"])
+        self.assertEqual([c[0] for c in self.pipe.explained], ["README.md"])
+        # Anchored steps answer from the document ALONE (see the live failure
+        # in evals/pipeline.py's explain() docstring).
+        self.assertFalse(self.pipe.explained[0][2])
         self.assertEqual(body["citations"][0]["ref"], "doc:README.md")
 
     def test_an_unknown_step_is_a_clean_400(self):

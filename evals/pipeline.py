@@ -247,7 +247,8 @@ class GatedPipeline(Pipeline):
                                  notes=_premise_notes(question, anchor_refs),
                                  anchored=anchor_refs)
 
-    def explain(self, path: str, start: int, end: int, question: str = None) -> Result:
+    def explain(self, path: str, start: int, end: int, question: str = None,
+                neighbors: bool = True) -> Result:
         """Brick D: explain a GitHub line selection, not a free-text question.
 
         Resolves evidence by LOCATION -- the chunk(s) covering [start, end] in
@@ -268,10 +269,27 @@ class GatedPipeline(Pipeline):
         honesty logic, no special-cased error path. No coverage at all for
         this location -> the gate's ordinary "no top chunks" abstention (an
         honest unknown), exactly like an unanswerable question today.
+
+        `neighbors=False` answers from the addressed location ALONE, skipping
+        the neighbour search entirely. Found live 2026-07-30: the onboarding
+        tour addressed a repo's own CONTRIBUTING.md, the anchor resolved and
+        ranked FIRST, and the writer cited a neighbouring commit message
+        instead -- reporting another project's conventions, quoted inside our
+        own commit, as this repository's. Addressing a document guarantees it
+        is PRESENT, not that it is USED, and neighbours that merely discuss the
+        topic can outrank the document that answers it.
+
+        Narrowing evidence is fail-safe: fewer chunks can only produce MORE
+        abstention, never more fabrication, so this cannot weaken the gate.
+        Neighbours stay ON by default -- a code selection genuinely wants its
+        surrounding context, which is what `.explain()` was built for.
         """
         anchor = [c for c in self._by_ref.values() if chunk_covers_lines(c, path, start, end)]
-        neighbor_query = question or (anchor[0].text if anchor else path)
-        neighbor_refs = self._retriever.search(neighbor_query, self._recall_n)
+        if neighbors:
+            neighbor_query = question or (anchor[0].text if anchor else path)
+            neighbor_refs = self._retriever.search(neighbor_query, self._recall_n)
+        else:
+            neighbor_refs = []
 
         anchor_refs = [c.ref for c in anchor]
         # Anchor first (most relevant), then neighbors, de-duplicated (the
