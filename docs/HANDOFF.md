@@ -1,3 +1,156 @@
+# Icarus — Session Handoff (2026-07-30, latest: brick 2 done — a connected repo now says when it has gone stale, and a refresh has its own budget)
+
+**READ THIS FIRST.** Bricks 1 and 2 of Alankrit's four are now DONE, committed
+and DEPLOYED. This entry covers brick 2; the entry below covers brick 1
+(structural comprehension) and the probe that cleared `neighbors=False`.
+
+**Live: `icarus-brain--0000041`, image `alpha-20260730-freshness2`, Healthy,
+100% traffic. `main` @ `266b387` (NOT pushed to GitHub — see OPEN). evals 571 ·
+demo 451 (1 PRE-EXISTING failure) · secrets scan clean.** DMG unchanged at
+`a88ebe42` (build 2) — `mac/` has not changed since.
+
+**The BILLING section two entries down still stands and still needs reading.**
+
+## What brick 2 actually was
+
+A connected repo's corpus is frozen at the commit it was ingested, and
+**nothing anywhere said so**. This repo's own index sat NINE COMMITS behind
+HEAD while answering with complete confidence; it was caught only because
+someone happened to add a file and go looking for it.
+
+That is this product's own failure mode moved out of citations and into time:
+every answer was grounded in evidence genuinely retrieved from a corpus that
+no longer described the repository. **The honesty gate cannot see this** — the
+evidence was real, it was just old.
+
+## The property the whole module is arranged around
+
+**"I could not check" must never render as "up to date".**
+
+`up_to_date` in `demo/freshness.py` is THREE-VALUED — `True`, `False`, or
+`None` for unknown — and every failure path lands on `None`. A network blip, a
+revoked token, a rate limit: all unknown, none of them reassuring. The
+`freshness` block is always present on `/status` for the same reason: **a
+missing field renders as no banner, which a reader takes as current.**
+
+One deliberate exception in the other direction: if HEAD is readable and
+DIFFERS but the compare call then fails, `up_to_date` stays `False` and only
+`behind_by` is `None`. We genuinely know it differs; discarding that would be
+its own dishonesty.
+
+## Where it lives and why
+
+On `/status`, because that is what the Mac app already polls — a banner costs
+one field, not a new endpoint or a new call.
+
+Cached per `(repo, indexed_commit)`: `/status` is polled continuously and
+GitHub's API is not. Two details that are load-bearing rather than incidental:
+- **Keying on the indexed commit** means a refresh invalidates the entry
+  instantly. Otherwise the moment a user finishes a refresh and looks at the
+  banner to watch it clear is exactly when they would be served the
+  pre-refresh verdict.
+- **`checked_at` reports when the check ACTUALLY ran**, not now, so a reader
+  knows the verdict may be ten minutes old.
+- A FAILED check is retried on the next poll rather than pinned for the TTL —
+  one blip should not hide staleness for ten minutes.
+
+The caller's token is used per request and **never cached**: a checker is
+shared across a repo's users, so a retained token would be one caller's
+credential spent on another's request.
+
+## The refresh limiter — the thing the previous entry said to settle first
+
+`refresh: true` now has its OWN limiter (2/hour), checked only once `refresh`
+is parsed so an ordinary connect never spends it. They are not the same
+operation: an ordinary connect to a cached repo is a **~1s cache hit**, a
+refresh is a **full re-ingest — 283s measured live** — that also republishes a
+corpus concurrent readers are using. One shared budget would let a caller
+spend an allowance sized for cache hits on minutes of CPU each.
+
+## The bug live verification caught (and a test would not have)
+
+The deploy went out, `/status` was checked on production, and the committed
+demo corpus reported **`behind_by: 68`**. True — and misleading. That corpus is
+frozen ON PURPOSE (`Library.connect_sync` exempts the default repo from every
+re-ingest path, because it is the reproducible eval board and re-ingesting it
+over the network would silently change what every test measures).
+
+So **the one repo a first-time visitor meets would have shown the loudest
+staleness warning in the product, attached to a refresh that is forbidden by
+design and would do nothing.**
+
+Fixed with a `pinned` flag (`266b387`). The numbers stay — the index really is
+68 commits behind and hiding that would be its own dishonesty — and `pinned`
+supplies the reason, so a client can say "pinned demo corpus" rather than
+"your index is neglected", and can decline to offer a refresh it cannot
+honour. Present on every path including the no-checker and exception paths.
+
+## Live-verified on production (rev 0000041)
+
+13 assertions run INSIDE the image before pushing, per the standing
+discipline, including the unknown-is-never-fresh property and the
+retry-not-pinned cache behaviour.
+
+    simonw/llm (pinned demo)   -> behind_by 68, up_to_date false, pinned TRUE
+    alankritxghosh/Icarus      -> behind_by  4, up_to_date false, pinned false
+                                  indexed 0d52147a  head f7de8683
+
+**The `4` was verified independently**, not merely accepted from the API:
+`git rev-list --count 0d52147..f7de868` is exactly 4.
+
+Also verified against the REAL GitHub API before deploying (the unit tests all
+inject an opener, so they prove the parsing and nothing about the endpoints):
+`head_commit` returns a real 40-char sha, `commits_between` returns exactly 9
+for a commit nine back, and a nonexistent repo yields all-`None` rather than
+"up to date".
+
+## ⚠️ OPEN — what brick 2 did NOT do
+
+1. **Nothing auto-triggers a refresh, and webhooks are still unbuilt.**
+   Deliberate: firing a 283s re-ingest off a status poll is precisely what the
+   rate limit above exists to gate first. That limit now exists, so
+   auto-refresh is unblocked whenever it is wanted — a webhook still needs its
+   own auth story (verifying the delivery came from GitHub), which does not
+   exist anywhere in this codebase.
+2. **No client renders the `freshness` block.** Same state as brick 1's
+   `indexed_structure`: the data is live, the pixels are not. `RepoStatus` in
+   `mac/.../Models.swift` needs the field, and so does `demo/index.html`.
+   Adding a field is additive, so nothing is broken meanwhile.
+   **These two together are now the obvious next brick, and it is small.**
+3. **`main` is NOT pushed to GitHub.** Local `main` is at `266b387`; GitHub's
+   HEAD is `f7de868`. Nothing has been pushed this session — push before
+   relying on the remote, and note that Icarus's own connected index will
+   report itself further behind until you do.
+4. **`demo/test_warm_cache.py:70` is still broken and still pre-existing** —
+   calls `load_vectors` without the `fingerprint` argument required since
+   `c0c6fd1`. Fix the TEST, not `load_vectors`: the required argument is
+   deliberate.
+
+## THE REMAINING BRICKS
+
+1. ~~Explain how the code is structured~~ — **DONE** (rev 0000039).
+2. ~~Notice your repo changed~~ — **DONE** (rev 0000041), minus auto-trigger
+   and webhooks, both deliberately deferred above.
+3. **Remember you (returning-user briefings)** — NOT STARTED. Alankrit's
+   scoped approval stands (user identity, repo identity, last-seen commit,
+   last-visit timestamp; **never questions, never employee-activity
+   histories**). `LibraryRegistry._last_repo` is in-process memory only and
+   does not survive a deploy, so this needs a real storage decision first.
+   **Write the privacy decision doc BEFORE the code**, per his own condition.
+   Note that brick 2 just built the "last-seen commit" half of the data this
+   needs — `freshness` already computes indexed-vs-HEAD per repo.
+4. **More than one repo at a time** — **explicitly deferred to LAST by
+   Alankrit. Do not start it.** Get his answer first: does a user pick ONE
+   active repo from a list they have connected, or can Icarus answer ACROSS
+   repos in one question? That changes the size by an order of magnitude.
+
+## Commits
+
+`53466ce` (freshness + refresh limiter), `266b387` (pinned demo corpus).
+Deploys: rev 0000039 → 0000040 → **0000041 (current)**.
+
+---
+
 # Icarus — Session Handoff (2026-07-30, later: the owed probe cleared the anchor fix, and structural comprehension was reopened, built, deployed — it caught itself fabricating three times)
 
 **READ THIS FIRST.** Two things happened. The owed measurement from the
