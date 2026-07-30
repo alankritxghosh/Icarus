@@ -14,26 +14,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// source of truth. Persists across launches — sign in once per device — and the
     /// BrainClient reads it to authorize /ask and /connect. Sign out deletes it.
     private let tokenStore: TokenStore = KeychainTokenStore()
-    /// A thread-safe reader for the current token, for the Authorization header.
-    private lazy var tokenReader: @Sendable () -> String? = { [tokenStore] in
-        (try? tokenStore.load()) ?? nil
-    }
     /// Auth (web GitHub login) + repo connection, shared by the shell and overlay.
     private lazy var auth = AuthModel(store: tokenStore, client: BrainClient(base: AppConfig.brainBaseURL), webAuth: AppleWebAuth())
-    private lazy var connect = ConnectModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
+    private lazy var connect = ConnectModel(client: AppConfig.client())
     /// Voice-in: real-time on-device streaming via Apple's Speech framework.
     private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
     /// The real in-session ask record, shared by the overlay (which records into it)
     /// and the shell window (which displays it).
     private let history = AskHistory()
-    private lazy var status = StatusModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
+    private lazy var status = StatusModel(client: AppConfig.client())
     /// The repo's SHARED ask ledger — what the whole TEAM asked, which is a
     /// different (and far more useful) thing than `history`'s per-session list.
-    private lazy var ledger = LedgerModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
+    private lazy var ledger = LedgerModel(client: AppConfig.client())
     /// "What changed since you were last here" -- fetched once per connected
     /// repo, never polled (see BriefingModel).
-    private lazy var briefing = BriefingModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
-    private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: tokenReader, history: history)
+    private lazy var briefing = BriefingModel(client: AppConfig.client())
+    private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: AppConfig.tokenReader, history: history)
     /// The primary window: the full app shell. Sign-in + connect are folded into
     /// Home's setup gate, so there's no separate onboarding window.
     private lazy var shell = MainWindowController {

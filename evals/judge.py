@@ -5,8 +5,7 @@ parses the reply into correct/incorrect, failing safe to incorrect. Reuses the
 Provider abstraction so the unit suite runs offline with StaticProvider.
 """
 
-import json
-import re
+from .gate import extract_json
 
 JUDGE_INSTRUCTION = (
     "You are grading whether a CANDIDATE answer matches the REFERENCE answer for "
@@ -31,19 +30,10 @@ def build_judge_prompt(question: str, reference: str, candidate: str) -> str:
     )
 
 
-_JSON = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def parse_verdict(raw: str) -> bool:
     """True only if the reply parses as JSON with verdict 'correct'; else False.
     Fails safe to incorrect (an unparseable judge never inflates the score)."""
-    m = _JSON.search(raw or "")
-    if not m:
-        return False
-    try:
-        data = json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return False
+    data = extract_json(raw)
     return isinstance(data, dict) and data.get("verdict") == "correct"
 
 

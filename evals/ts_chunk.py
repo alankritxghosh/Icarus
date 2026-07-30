@@ -391,12 +391,7 @@ def _scope_header(lines: List[str], import_types: set) -> str:
     # A cheap text-based header: real import syntax across this language set
     # is single-line (`import ...`, `#import "..."`), so scanning leading
     # lines by a per-language prefix keeps this simple and avoids re-parsing
-    # for header purposes. Prefixes are exact substrings of what the node
-    # types above actually match against.
-    prefixes = {
-        "typescript": "import ", "tsx": "import ",
-        "objc": "#import", "java": "import ", "kotlin": "import ",
-    }
+    # for header purposes.
     # import_types uniquely identifies the language here (small enough set).
     prefix = None
     if import_types == {"import_statement"}:

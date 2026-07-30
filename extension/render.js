@@ -15,22 +15,23 @@ function sourceOf(ref) {
   return ["pr", "issue", "code", "doc", "config"].includes(p) ? p : "ref";
 }
 
+// The three small states share one wrapper: a label line plus a body. Only
+// the label's class/text and the body vary.
+function block(labelClass, label, bodyHtml) {
+  return `<div class="icarus-block"><p class="icarus-label ${labelClass}">${label}</p>${bodyHtml}</div>`;
+}
+
 function renderLoadingHtml() {
-  return '<div class="icarus-block"><p class="icarus-label icarus-muted">thinking…</p></div>';
+  return block("icarus-muted", "thinking…", "");
 }
 
 function renderSignedOutHtml() {
-  return (
-    '<div class="icarus-block"><p class="icarus-label">not signed in</p>' +
-    "<p>Sign in with GitHub from the Icarus toolbar icon to ask questions here.</p></div>"
-  );
+  return block("", "not signed in",
+    "<p>Sign in with GitHub from the Icarus toolbar icon to ask questions here.</p>");
 }
 
 function renderErrorHtml(message) {
-  return (
-    '<div class="icarus-block"><p class="icarus-label icarus-danger">something went wrong</p>' +
-    `<p>${escapeHtml(message)}</p></div>`
-  );
+  return block("icarus-danger", "something went wrong", `<p>${escapeHtml(message)}</p>`);
 }
 
 function renderAnswerHtml(payload, opts) {

@@ -29,8 +29,7 @@ failed reply must never inflate the score -- the same reasoning that makes
 `judge.parse_verdict` fail safe to "incorrect".
 """
 
-import json
-import re
+from .gate import extract_json
 
 SUBSTANCE_INSTRUCTION = (
     "You are grading whether an ANSWER actually answers the QUESTION asked "
@@ -59,18 +58,9 @@ def build_substance_prompt(question: str, answer: str) -> str:
     return f"{SUBSTANCE_INSTRUCTION}\n\nQUESTION: {question}\n\nANSWER: {text}"
 
 
-_JSON = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def parse_substance(raw) -> bool:
     """True only if the reply parses as JSON with verdict 'substantive'."""
-    m = _JSON.search(raw or "")
-    if not m:
-        return False
-    try:
-        data = json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return False
+    data = extract_json(raw)
     return isinstance(data, dict) and data.get("verdict") == "substantive"
 
 

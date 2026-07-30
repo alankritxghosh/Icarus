@@ -7,9 +7,10 @@ import Foundation
 /// and deliberately nothing else. See
 /// `docs/decisions/2026-07-30-returning-user-state.md`.
 ///
-/// `stored` is the whole record held about the caller, returned so a user can
-/// SEE it rather than be told about it — a privacy promise nobody can verify
-/// is marketing.
+/// The server also returns a `stored` block (the whole record held about the
+/// caller, so the decision doc's transparency property is verifiable) -- not
+/// decoded here because no view surfaces it yet. Add it back the moment a
+/// view needs to show a user what is stored about them.
 public struct Briefing: Decodable, Equatable, Sendable {
     public let repo: String?
     public let firstVisit: Bool
@@ -20,10 +21,9 @@ public struct Briefing: Decodable, Equatable, Sendable {
     /// must never be rendered as "nothing changed"** — zero is a real answer
     /// and arrives as `0`. `change` enforces the distinction.
     public let commitsSince: Int?
-    public let stored: StoredRecord?
 
     private enum CodingKeys: String, CodingKey {
-        case repo, stored
+        case repo
         case firstVisit = "first_visit"
         case lastVisitAt = "last_visit_at"
         case lastSeenCommit = "last_seen_commit"
@@ -31,30 +31,15 @@ public struct Briefing: Decodable, Equatable, Sendable {
         case commitsSince = "commits_since"
     }
 
-    /// Everything Icarus holds about this user for this repo. Four fields, and
-    /// there is no fifth to show.
-    public struct StoredRecord: Decodable, Equatable, Sendable {
-        public let repo: String
-        public let commit: String
-        public let at: Double
-
-        public init(repo: String, commit: String, at: Double) {
-            self.repo = repo
-            self.commit = commit
-            self.at = at
-        }
-    }
-
     public init(repo: String?, firstVisit: Bool, lastVisitAt: Double?,
                 lastSeenCommit: String?, currentCommit: String?,
-                commitsSince: Int?, stored: StoredRecord?) {
+                commitsSince: Int?) {
         self.repo = repo
         self.firstVisit = firstVisit
         self.lastVisitAt = lastVisitAt
         self.lastSeenCommit = lastSeenCommit
         self.currentCommit = currentCommit
         self.commitsSince = commitsSince
-        self.stored = stored
     }
 
     public var change: BriefingChange {

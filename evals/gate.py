@@ -42,7 +42,13 @@ from .pipeline import Result
 _JSON = re.compile(r"\{.*\}", re.DOTALL)
 
 
-def _extract_json(raw: str):
+def extract_json(raw: str):
+    """First `{...}` block in `raw`, parsed, or None on any parse failure.
+
+    Shared with `evals/judge.py` and `evals/substance.py` -- all three do the
+    same "find the JSON, fail safe to None" extraction on a raw writer/judge
+    reply, so this is the one real implementation.
+    """
     m = _JSON.search(raw or "")
     if not m:
         return None
@@ -332,7 +338,7 @@ def _entity_is_absent(question, evidence) -> bool:
 
 
 def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = None) -> Result:
-    data = _extract_json(raw)
+    data = extract_json(raw)
     verdict = data.get("verdict") if isinstance(data, dict) else None
     if not isinstance(data, dict) or not isinstance(verdict, str) or verdict.lower() != "answer":
         # Distinguish "the writer honestly said unknown" from "the reply was

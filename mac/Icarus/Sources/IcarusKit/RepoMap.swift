@@ -23,7 +23,6 @@ public struct RepoMap: Decodable, Sendable {
     /// separately. Optional so a brain deployed before this field existed
     /// still decodes — absent simply means the share is unknown, never zero.
     public let indexedAuxiliary: IndexedAuxiliary?
-    public let indexedChunksBySource: [String: Int]
     public let lexicalSearchReady: Bool
     public let semanticIndexingInProgress: Bool
     public let corpusTruncated: Bool
@@ -44,7 +43,6 @@ public struct RepoMap: Decodable, Sendable {
         case indexedDocumentation = "indexed_documentation"
         case indexedEntryPoints = "indexed_entry_points"
         case indexedAuxiliary = "indexed_auxiliary"
-        case indexedChunksBySource = "indexed_chunks_by_source"
         case lexicalSearchReady = "lexical_search_ready"
         case semanticIndexingInProgress = "semantic_indexing_in_progress"
         case corpusTruncated = "corpus_truncated"
@@ -55,7 +53,6 @@ public struct RepoMap: Decodable, Sendable {
                 indexedLanguages: [String: Int], indexedDirectories: [String: Int],
                 indexedDocumentation: IndexedDocumentation,
                 indexedEntryPoints: [EntryPoint], indexedAuxiliary: IndexedAuxiliary? = nil,
-                indexedChunksBySource: [String: Int],
                 lexicalSearchReady: Bool, semanticIndexingInProgress: Bool,
                 corpusTruncated: Bool, exclusionRules: [String], limitations: [String],
                 indexedStructure: IndexedStructure? = nil) {
@@ -68,7 +65,6 @@ public struct RepoMap: Decodable, Sendable {
         self.indexedDocumentation = indexedDocumentation
         self.indexedEntryPoints = indexedEntryPoints
         self.indexedAuxiliary = indexedAuxiliary
-        self.indexedChunksBySource = indexedChunksBySource
         self.lexicalSearchReady = lexicalSearchReady
         self.semanticIndexingInProgress = semanticIndexingInProgress
         self.corpusTruncated = corpusTruncated
@@ -127,20 +123,12 @@ public struct EntryPoint: Decodable, Identifiable, Sendable {
 
 public struct EntryPointRule: Decodable, Identifiable, Sendable {
     public let rule: String
-    /// The indexed chunk that proves it — citable like any other evidence.
-    public let evidenceRef: String?
     public let detail: String
 
     public var id: String { rule }
 
-    enum CodingKeys: String, CodingKey {
-        case rule, detail
-        case evidenceRef = "evidence_ref"
-    }
-
-    public init(rule: String, evidenceRef: String?, detail: String) {
+    public init(rule: String, detail: String) {
         self.rule = rule
-        self.evidenceRef = evidenceRef
         self.detail = detail
     }
 }
@@ -175,11 +163,6 @@ public extension RepoMap {
 public struct IndexedStructure: Decodable, Equatable, Sendable {
     public let components: [Component]
     public let mostDependedOnFiles: [CoreFile]
-    /// Imports seen and not resolved to another indexed file. Mostly
-    /// third-party and standard-library imports, which are external by
-    /// definition — a large number here is normal and does not mean anything
-    /// is missing.
-    public let unresolvedImportCount: Int
     /// Indexed languages with no resolver at all. Naming them is what stops an
     /// empty result reading as "no structure exists".
     public let unanalysedLanguages: [String]
@@ -188,61 +171,43 @@ public struct IndexedStructure: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case components, limitations
         case mostDependedOnFiles = "most_depended_on_files"
-        case unresolvedImportCount = "unresolved_import_count"
         case unanalysedLanguages = "unanalysed_languages"
     }
 
     public struct Component: Decodable, Equatable, Sendable {
         public let path: String
-        public let fileCount: Int
-        public let dependsOn: [String]
         public let dependedOnBy: [String]
-        /// The indexed chunks proving this component's edges — citable like
-        /// any other claim Icarus makes.
-        public let evidenceRefs: [String]
 
         private enum CodingKeys: String, CodingKey {
             case path
-            case fileCount = "file_count"
-            case dependsOn = "depends_on"
             case dependedOnBy = "depended_on_by"
-            case evidenceRefs = "evidence_refs"
         }
 
-        public init(path: String, fileCount: Int, dependsOn: [String],
-                    dependedOnBy: [String], evidenceRefs: [String]) {
+        public init(path: String, dependedOnBy: [String]) {
             self.path = path
-            self.fileCount = fileCount
-            self.dependsOn = dependsOn
             self.dependedOnBy = dependedOnBy
-            self.evidenceRefs = evidenceRefs
         }
     }
 
     public struct CoreFile: Decodable, Equatable, Sendable {
         public let path: String
         public let dependedOnByCount: Int
-        public let evidenceRef: String
 
         private enum CodingKeys: String, CodingKey {
             case path
             case dependedOnByCount = "depended_on_by_count"
-            case evidenceRef = "evidence_ref"
         }
 
-        public init(path: String, dependedOnByCount: Int, evidenceRef: String) {
+        public init(path: String, dependedOnByCount: Int) {
             self.path = path
             self.dependedOnByCount = dependedOnByCount
-            self.evidenceRef = evidenceRef
         }
     }
 
     public init(components: [Component], mostDependedOnFiles: [CoreFile],
-                unresolvedImportCount: Int, unanalysedLanguages: [String],
-                limitations: [String]) {
+                unanalysedLanguages: [String], limitations: [String]) {
         self.components = components
         self.mostDependedOnFiles = mostDependedOnFiles
-        self.unresolvedImportCount = unresolvedImportCount
         self.unanalysedLanguages = unanalysedLanguages
         self.limitations = limitations
     }

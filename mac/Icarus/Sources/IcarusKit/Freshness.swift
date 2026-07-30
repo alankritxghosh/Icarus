@@ -19,10 +19,6 @@ public struct Freshness: Decodable, Equatable, Sendable {
     /// How many commits the repository has moved since the indexed commit.
     /// nil means the count is unavailable — which is NOT the same as zero.
     public let behindBy: Int?
-    public let headCommit: String?
-    /// When the check actually ran — not now. A cached verdict can be minutes
-    /// old and a reader is entitled to know that before trusting it.
-    public let checkedAt: Double?
     /// The built-in demo corpus is frozen deliberately (it is the reproducible
     /// eval board), so it is permanently behind upstream. Absent reads as
     /// false, which is correct for every real connected repo.
@@ -32,16 +28,11 @@ public struct Freshness: Decodable, Equatable, Sendable {
         case pinned
         case upToDate = "up_to_date"
         case behindBy = "behind_by"
-        case headCommit = "head_commit"
-        case checkedAt = "checked_at"
     }
 
-    public init(upToDate: Bool?, behindBy: Int?, headCommit: String?,
-                checkedAt: Double?, pinned: Bool? = nil) {
+    public init(upToDate: Bool?, behindBy: Int?, pinned: Bool? = nil) {
         self.upToDate = upToDate
         self.behindBy = behindBy
-        self.headCommit = headCommit
-        self.checkedAt = checkedAt
         self.pinned = pinned
     }
 

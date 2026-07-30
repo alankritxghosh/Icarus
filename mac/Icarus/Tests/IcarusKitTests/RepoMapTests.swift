@@ -30,7 +30,6 @@ final class RepoMapTests: XCTestCase {
         XCTAssertEqual(map.indexedDocumentation.readme, "README.md")
         XCTAssertEqual(map.indexedEntryPoints.first?.path, "sqlite_utils/cli.py")
         XCTAssertEqual(map.indexedEntryPoints.first?.rules.first?.rule, "pyproject-console-script")
-        XCTAssertEqual(map.indexedEntryPoints.first?.rules.first?.evidenceRef, "config:pyproject.toml")
         XCTAssertFalse(map.corpusTruncated)
         XCTAssertFalse(map.limitations.isEmpty)
     }
@@ -61,7 +60,7 @@ final class RepoMapTests: XCTestCase {
                           indexedLanguages: ["Zig": 2, "Ada": 2],
                           indexedDirectories: [:],
                           indexedDocumentation: IndexedDocumentation(files: [], readme: nil),
-                          indexedEntryPoints: [], indexedChunksBySource: [:],
+                          indexedEntryPoints: [],
                           lexicalSearchReady: true, semanticIndexingInProgress: false,
                           corpusTruncated: false, exclusionRules: [], limitations: [])
         XCTAssertEqual(map.languagesByFileCount.map(\.name), ["Ada", "Zig"])
@@ -130,16 +129,6 @@ final class IndexedStructureTests: XCTestCase {
         XCTAssertEqual(s.components.first?.dependedOnBy, ["llm/default_plugins"])
         XCTAssertEqual(s.mostDependedOnFiles.first?.dependedOnByCount, 6)
         XCTAssertFalse(s.isEmpty)
-    }
-
-    func testEveryComponentCarriesItsEvidence() throws {
-        let s = try decode("""
-        {"components":[{"path":"a","file_count":1,"depends_on":["b"],"depended_on_by":[],
-                        "evidence_refs":["code:a/x.py"]}],
-         "most_depended_on_files":[],"unresolved_import_count":0,
-         "unanalysed_languages":[],"limitations":[]}
-        """)
-        XCTAssertEqual(s.components.first?.evidenceRefs, ["code:a/x.py"])
     }
 
     func testAnEmptyArrangementNamesTheUnanalysedLanguages() throws {

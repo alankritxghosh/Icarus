@@ -852,8 +852,8 @@ removing, or renaming files). For class/function-level detail see
 
 ## extension/ (Brick D — Chrome browser extension, Manifest V3, no build step)
 - `extension/manifest.json` — MV3 manifest: `identity`+`storage` permissions,
-  host permissions for `github.com` and the local brain (`127.0.0.1:8000` --
-  TODO once hosted), a content script matching `github.com/*/*/blob/*` pages
+  host permissions for `github.com` and the hosted brain (Azure Container
+  Apps), a content script matching `github.com/*/*/blob/*` pages
   loading `lib.js` then `content.js`, a background service worker
   (`background.js`), and a toolbar popup (`popup.html`).
 - `extension/lib.js` — the pure, DOM-free parse/gate functions
@@ -990,16 +990,25 @@ removing, or renaming files). For class/function-level detail see
   do. An enum has no default to fall into. `offersRefresh` is false for
   `unknown` (offering a refresh implies knowing it is stale) and for `pinned`
   (the server forbids refreshing the demo corpus, so the button would lie).
+  Decodes only what a view reads (`headCommit`/`checkedAt` were cut in the
+  2026-07-30 ponytail audit — decoded but never rendered; add back the moment
+  a view needs them).
 - `Briefing.swift` — `Briefing` + **`BriefingChange`** (`firstVisit` /
   `nothingChanged` / `changed(Int)` / `unknown`), same reasoning: `?? 0` on
   `commits_since` would turn "couldn't work out what changed" into "nothing
-  changed". Carries `stored`, the WHOLE record held about the caller, so a
-  user can SEE it rather than be told about it.
+  changed". The server also returns a `stored` block (the decision doc's
+  transparency property); not decoded here since no view surfaces it yet
+  (cut in the 2026-07-30 ponytail audit — add back with the view that needs it).
 - `RepoMap.swift` — `GET /map` decoded: `indexed*` counts, documentation
   (`readme: nil` when none was indexed), `EntryPoint`/`EntryPointRule` (every
   entry point carries the RULE that produced it), truncation, exclusion RULES
   and limitations. Field names mirror the brain's on purpose -- the map
-  describes what Icarus READ, never what exists in the repository.
+  describes what Icarus READ, never what exists in the repository. Decodes
+  only the fields a view actually reads — `indexedChunksBySource`,
+  `EntryPointRule.evidenceRef`, and `IndexedStructure`'s `unresolvedImportCount`/
+  `Component.fileCount`/`.dependsOn`/`.evidenceRefs`/`CoreFile.evidenceRef` were
+  cut in the 2026-07-30 ponytail audit as decoded-but-unrendered; the server
+  still sends them, Codable just ignores what nothing reads.
 
 ### mac/Icarus/Sources/Icarus (the executable app)
 - `IcarusApp.swift` — `@main`; no window, delegates to `AppDelegate`.
