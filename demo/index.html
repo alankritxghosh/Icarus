@@ -70,6 +70,19 @@
   .ghost{font:600 13px var(--sans);border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:9px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--line);}
   .ghost:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--line);}
   .muted{color:var(--muted);}
+  .repo-panel{border:1.5px solid var(--line);border-radius:4px;padding:14px 16px;margin:0 0 20px;background:#fff;}
+  .repo-panel .row{font:12px var(--mono);color:var(--ink);margin:0 0 7px;display:flex;gap:8px;align-items:baseline;}
+  .repo-panel .row:last-child{margin-bottom:0;}
+  .repo-panel .tag{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;background:var(--ink);padding:1px 6px;border-radius:3px;flex:none;}
+  .repo-panel .tag.ok{background:var(--grounded);}
+  .repo-panel .tag.stale{background:var(--accent);}
+  /* Unknown is its own colour on purpose: it must not look like either good
+     news or an error. "I could not check" is a third state, not a failure. */
+  .repo-panel .tag.unknown{background:var(--unknown);}
+  .repo-panel .arrangement{margin-top:10px;padding-top:10px;border-top:1px solid var(--line);}
+  .repo-panel .parts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+  .repo-panel .part{font:11px var(--mono);border:1.5px solid var(--line);border-radius:4px;padding:3px 8px;}
+  .repo-panel .note{font:11px var(--mono);color:var(--muted);margin-top:8px;}
   .skel{height:13px;background:#E4E2DB;border-radius:3px;margin:9px 0;}
   .err{border-color:var(--danger);box-shadow:5px 5px 0 var(--danger);}
   .err .label{color:var(--danger);}
@@ -121,6 +134,13 @@
   <main class="canvas">
     <h1>Ask the codebase</h1>
     <p class="sub" id="sub">Answers come only from what was written down — with proof, or an honest “no one wrote this down.”</p>
+
+    <!-- What Icarus knows about this repo BEFORE anyone asks: what changed
+         since you were last here, whether the index still matches the
+         repository, and how the code is arranged. Every one of these can be
+         UNKNOWN, and each renders that as unknown rather than as good news --
+         see renderRepoPanel(). -->
+    <section id="repo-panel" class="repo-panel" style="display:none"></section>
 
     <form id="form" class="composer">
       <input id="question" name="question" autocomplete="off" placeholder="Why was it built this way?" />
@@ -245,6 +265,93 @@ async function refreshStatus(){
   }catch(e){return null;}
 }
 
+const repoPanel=document.getElementById("repo-panel");
+
+function ago(ts){
+  if(!ts)return "";
+  const s=Math.max(0,Date.now()/1000-ts);
+  if(s<90)return "just now";
+  if(s<5400)return Math.round(s/60)+" min ago";
+  if(s<172800)return Math.round(s/3600)+" hours ago";
+  return Math.round(s/86400)+" days ago";
+}
+
+// --- the three "before you ask" rows -----------------------------------
+// Each one can be UNKNOWN, and each renders unknown as UNKNOWN. A failed
+// check that reads as "you're up to date" or "nothing changed" is the same
+// class of failure as a bluffed citation: a confident claim the evidence does
+// not support. That is why there is no `|| 0` or `|| false` anywhere below.
+
+function freshnessRow(f){
+  if(!f)return "";
+  if(f.pinned){
+    // Frozen deliberately (the reproducible eval board). Showing the raw
+    // "68 commits behind" here would describe a decision as neglect and
+    // offer a refresh that is forbidden by design.
+    const n=typeof f.behind_by==="number"?f.behind_by:null;
+    return `<div class="row"><span class="tag">pinned</span><span>Built-in demo corpus, frozen on purpose${
+      n===null?"":" — "+n.toLocaleString()+" commits behind upstream"}.</span></div>`;
+  }
+  if(f.up_to_date===true)
+    return `<div class="row"><span class="tag ok">index</span><span>Matches the repository${f.checked_at?" · checked "+ago(f.checked_at):""}.</span></div>`;
+  if(f.up_to_date===false){
+    const n=typeof f.behind_by==="number"?f.behind_by:null;
+    return `<div class="row"><span class="tag stale">index</span><span>${
+      n===null?"Behind the repository — Icarus couldn’t work out by how much"
+             :n.toLocaleString()+" commit"+(n===1?"":"s")+" behind the repository"}${
+      f.checked_at?" · checked "+ago(f.checked_at):""}. Reconnect with refresh to re-read it.</span></div>`;
+  }
+  return `<div class="row"><span class="tag unknown">index</span><span>Icarus couldn’t check whether this index is current. It may or may not be.</span></div>`;
+}
+
+function briefingRow(b){
+  if(!b)return "";
+  if(b.first_visit)
+    return `<div class="row"><span class="tag">first visit</span><span>First time you’ve looked at this repository here.</span></div>`;
+  const n=b.commits_since;
+  const when=b.last_visit_at?" ("+ago(b.last_visit_at)+")":"";
+  if(n===null||n===undefined)
+    return `<div class="row"><span class="tag unknown">since</span><span>You were last here${when}, but Icarus couldn’t work out what has changed since.</span></div>`;
+  if(n===0)
+    return `<div class="row"><span class="tag ok">since</span><span>Nothing has changed since you were last here${when}.</span></div>`;
+  return `<div class="row"><span class="tag stale">since</span><span>${n.toLocaleString()} commit${n===1?"":"s"} since you were last here${when}.</span></div>`;
+}
+
+function arrangementRow(st){
+  if(!st)return "";
+  const parts=(st.components||[]).slice(0,6).map(c=>
+    `<span class="part">${esc(c.path)}<span class="muted"> ←${c.depended_on_by.length}</span></span>`).join("");
+  const core=(st.most_depended_on_files||[]).slice(0,4).map(f=>
+    `<span class="part">${esc(f.path)}<span class="muted"> ←${f.depended_on_by_count}</span></span>`).join("");
+  const unanalysed=(st.unanalysed_languages||[]);
+  if(!parts&&!core){
+    // Nothing found is NOT the same as nothing there, and the difference is
+    // the whole honesty of this row.
+    return `<div class="arrangement"><p class="label" style="margin:0;color:var(--muted)">how the code is arranged</p>
+      <div class="note">${unanalysed.length
+        ? "Icarus does not analyse "+esc(unanalysed.join(", "))+" imports, so it did not look for structure here — this is not a claim that there is none."
+        : "No internal imports resolved, so Icarus has nothing to show. That can be true of a project whose code lives in one flat package."}</div></div>`;
+  }
+  return `<div class="arrangement">
+    <p class="label" style="margin:0;color:var(--muted)">how the code is arranged · read from its own imports</p>
+    ${parts?`<div class="parts">${parts}</div>`:""}
+    ${core?`<div class="note" style="margin-top:9px">most depended on</div><div class="parts">${core}</div>`:""}
+    ${unanalysed.length?`<div class="note">Not analysed: ${esc(unanalysed.join(", "))} — no claim is made about those.</div>`:""}
+  </div>`;
+}
+
+async function renderRepoPanel(status){
+  if(!status||!status.repo){repoPanel.style.display="none";return;}
+  let briefing=null,map=null;
+  // Both are extras. Neither may break the page it decorates.
+  try{const r=await fetch("/briefing",{headers:authHeaders()});if(r.ok)briefing=await r.json();}catch(e){}
+  try{const r=await fetch("/map",{headers:authHeaders()});if(r.ok)map=await r.json();}catch(e){}
+  const html=briefingRow(briefing)+freshnessRow(status.freshness)
+            +arrangementRow(map&&map.indexed_structure);
+  repoPanel.innerHTML=html;
+  repoPanel.style.display=html?"block":"none";
+}
+
 repoForm.addEventListener("submit",async(e)=>{
   e.preventDefault();
   const repo=repoInput.value.trim();
@@ -278,7 +385,7 @@ repoForm.addEventListener("submit",async(e)=>{
           : "";
         setStatus("indexing "+repo+" — read "+n(p.done)+" of "+n(p.total)+eta,"indexing");
       }
-      if(s.state==="ready"&&s.repo===repo){setStatus("connected · "+repo,"");sub.textContent="Now answering about "+repo+" — with proof, or an honest “no one wrote this down.”";result.innerHTML="";settled=true;break;}
+      if(s.state==="ready"&&s.repo===repo){setStatus("connected · "+repo,"");sub.textContent="Now answering about "+repo+" — with proof, or an honest “no one wrote this down.”";result.innerHTML="";renderRepoPanel(s);settled=true;break;}
       if(s.state==="error"){setStatus(s.error||"indexing failed","error");settled=true;break;}
     }
     if(!settled){setStatus("timed out indexing "+repo+" — try again","error");}
@@ -294,7 +401,7 @@ function renderAuthState(){
   const on=!!getToken();
   signedOut.style.display=on?"none":"block";
   signedIn.style.display=on?"block":"none";
-  if(!on){activeRepo.textContent="—";setStatus("");}
+  if(!on){activeRepo.textContent="—";setStatus("");repoPanel.style.display="none";}
 }
 
 document.getElementById("signin-btn").addEventListener("click",async()=>{
@@ -332,7 +439,7 @@ async function refreshBadge(){
   }catch(e){}
 }
 
-(async()=>{ await redeemFromUrl(); renderAuthState(); await refreshStatus(); await refreshBadge(); })();
+(async()=>{ await redeemFromUrl(); renderAuthState(); const s=await refreshStatus(); await refreshBadge(); await renderRepoPanel(s); })();
 </script>
 </body>
 </html>
