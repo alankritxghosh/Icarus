@@ -3,7 +3,9 @@
 
 GET  /        -> the static demo page (demo/index.html)
 GET  /health  -> {"ok": true, "repo": ..., "commit": ...} -- liveness + provenance
-GET  /status  -> the active repo + switch status (JSON)
+GET  /status  -> the active repo + switch status, and a `freshness` block
+                 saying whether the index still matches the repository
+                 (demo/freshness.py; unknown is reported, never omitted)
 GET  /map     -> what Icarus INDEXED for the active repo (demo/repo_map.py)
 GET  /onboarding -> the guided tour plan; POST {"step": ...} -> one cited step
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
@@ -29,6 +31,7 @@ from urllib.parse import urlparse, parse_qs
 from evals.corpus_meta import load_meta
 from evals.env_file import load_env_file
 
+from .freshness import FreshnessChecker
 from .ledger import Ledger
 from .payload import build_payload
 from .repo_map import build_map
@@ -121,7 +124,8 @@ def _resolve_storage_root(raw, default):
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
                  sync_connect: bool = False, background_upgrade: bool = False,
-                 access_verifier=None, default_repo=None, ledger=None):
+                 access_verifier=None, default_repo=None, ledger=None,
+                 refresh_limiter=None, freshness=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -150,11 +154,25 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     `ledger` (a `demo.ledger.Ledger`) records each ask against the repo, so a
     team accumulates one shared record -- and, in its unknowns, a map of what
     the organisation never wrote down. None disables recording entirely.
+
+    `refresh_limiter` bounds `POST /connect {"refresh": true}` SEPARATELY from
+    ordinary connects, and much more tightly. They are not the same operation:
+    an ordinary connect to an already-cached repo is a ~1s cache hit, while a
+    refresh is a full re-ingest -- 283 seconds measured live on production --
+    that also republishes a corpus other entitled readers are using
+    concurrently. Sharing one budget would let a caller spend an allowance
+    sized for cache hits on minutes of CPU each.
+
+    `freshness` (a `demo.freshness.FreshnessChecker`) adds a `freshness` block
+    to /status saying whether the index still matches the repository. None
+    still reports the block, with everything unknown -- never omitted, because
+    a missing field renders as "no banner", which reads as up to date.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
     ask_limiter = ask_limiter or RateLimiter(30, 60)          # 30 asks/min
     connect_limiter = connect_limiter or RateLimiter(5, 600)  # 5 connects/10min
+    refresh_limiter = refresh_limiter or RateLimiter(2, 3600)  # 2 re-ingests/hour
 
     class Handler(BaseHTTPRequestHandler):
         _MAX_BODY = 64 * 1024
@@ -232,6 +250,26 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 return None
             return verifier.verify(token)
 
+        def _freshness_of(self, lib, snapshot) -> dict:
+            """Does the connected index still match the repository?
+
+            Never raises and never omits the block. Staleness is a nicety;
+            the connected-repo status is not, so a GitHub outage degrades this
+            to "unknown" rather than taking /status down with it. And unknown
+            is reported EXPLICITLY -- a missing field renders as no banner,
+            which a user reads as "up to date", the one thing this must never
+            imply without having checked.
+            """
+            unknown = {"up_to_date": None, "behind_by": None,
+                       "head_commit": None, "checked_at": None}
+            if freshness is None:
+                return unknown
+            try:
+                return freshness.check(snapshot.get("repo"), snapshot.get("commit"),
+                                       bearer_token(self.headers))
+            except Exception:  # noqa: BLE001 -- see docstring: never break /status
+                return unknown
+
         def _entitled(self, lib) -> bool:
             """May this caller READ the library's currently-active repo?
 
@@ -284,7 +322,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 except _RegistryWarming:
                     self._send_json(503, {"error": "starting up, try again shortly"})
                     return
-                self._send_json(200, lib.status_snapshot())
+                snapshot = lib.status_snapshot()
+                snapshot["freshness"] = self._freshness_of(lib, snapshot)
+                self._send_json(200, snapshot)
             elif route == "/ledger":
                 # The team's questions about their own code -- at least as
                 # sensitive as the corpus, so guarded by the same check rather
@@ -557,6 +597,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not isinstance(refresh, bool):
                     self._send_json(400, {"error": "refresh must be true or false"})
                     return
+                # Checked only once we know this really IS a refresh, so an
+                # ordinary connect never spends the re-ingest budget -- and
+                # before any GitHub call or ingest, like the connect limiter
+                # above. A refresh costs minutes of CPU (283s measured on
+                # production) and republishes a corpus concurrent readers are
+                # using, so it gets its own, much tighter allowance.
+                if refresh and not refresh_limiter.allow(identity):
+                    self._send_json(429, {"error": "a refresh re-reads the whole "
+                                                   "repository -- try again later"})
+                    return
                 token = bearer_token(self.headers)
                 private = False
                 if require_auth:
@@ -755,7 +805,7 @@ def serve(host: str = None, port: int = None):
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
                            sync_connect=sync_connect, background_upgrade=background_upgrade,
                            access_verifier=access_verifier, default_repo=default_repo,
-                           ledger=ledger)
+                           ledger=ledger, freshness=FreshnessChecker())
     httpd = ThreadingHTTPServer((host, port), handler)
     if allowed_hosts and "*" in allowed_hosts:
         host_note = "any host (cloud: relies on the bearer gate)"

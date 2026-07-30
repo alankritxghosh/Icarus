@@ -1740,3 +1740,148 @@ class ConnectRefreshTests(unittest.TestCase):
                     _post(self.base + "/connect", {"repo": "a/b", "refresh": bad})
                 self.assertEqual(e.exception.code, 400)
         self.assertEqual(self.lib.refresh_calls, [])
+
+
+class _FreshLibrary:
+    """A library whose status reports a fixed repo/commit, for freshness tests."""
+
+    def __init__(self, repo="o/r", commit="abc"):
+        self._repo, self._commit = repo, commit
+
+    def status_snapshot(self):
+        return {"state": "ready", "repo": self._repo, "commit": self._commit,
+                "counts": {}, "error": None, "phase": None, "private": False,
+                "truncated": False, "indexing": False, "indexing_progress": None}
+
+    def provenance(self):
+        return self._repo, self._commit
+
+    def connect_sync(self, repo, **kwargs):
+        return self.status_snapshot()
+
+
+class _StubChecker:
+    def __init__(self, result):
+        self.result, self.calls = result, []
+
+    def check(self, repo, indexed_commit, token):
+        self.calls.append((repo, indexed_commit, token))
+        return self.result
+
+
+class StatusFreshnessTests(unittest.TestCase):
+    """`/status` carries whether the index still matches the repository.
+
+    It rides on /status rather than a new endpoint because that is what the
+    Mac app already polls -- a banner needs one new field, not a new call.
+    """
+
+    def _status(self, checker):
+        fx = _ServerFixture(_FreshLibrary(), freshness=checker)
+        try:
+            with urllib.request.urlopen(f"{fx.base}/status") as resp:
+                return json.loads(resp.read())
+        finally:
+            fx.close()
+
+    def test_status_carries_the_freshness_verdict(self):
+        body = self._status(_StubChecker(
+            {"up_to_date": False, "behind_by": 9, "head_commit": "def", "checked_at": 1.0}))
+        self.assertEqual(body["freshness"]["behind_by"], 9)
+        self.assertIs(body["freshness"]["up_to_date"], False)
+
+    def test_the_check_is_asked_about_the_indexed_commit(self):
+        checker = _StubChecker({"up_to_date": True, "behind_by": 0,
+                                "head_commit": "abc", "checked_at": 1.0})
+        self._status(checker)
+        self.assertEqual(checker.calls[0][:2], ("o/r", "abc"))
+
+    def test_an_unknown_verdict_is_reported_as_unknown_not_omitted(self):
+        # Omitting the field would let a client fall back to "no banner",
+        # which reads as up to date -- the exact thing this must never do.
+        body = self._status(_StubChecker(
+            {"up_to_date": None, "behind_by": None, "head_commit": None, "checked_at": None}))
+        self.assertIn("freshness", body)
+        self.assertIsNone(body["freshness"]["up_to_date"])
+
+    def test_status_still_works_with_no_checker_configured(self):
+        fx = _ServerFixture(_FreshLibrary())
+        try:
+            with urllib.request.urlopen(f"{fx.base}/status") as resp:
+                body = json.loads(resp.read())
+        finally:
+            fx.close()
+        self.assertEqual(body["state"], "ready")
+        self.assertIsNone(body["freshness"]["up_to_date"])
+
+    def test_a_checker_that_raises_never_breaks_status(self):
+        # Staleness is a nicety; the connected-repo status is not. A failure
+        # here must degrade to "unknown", never take /status down with it.
+        class _Boom:
+            def check(self, *a):
+                raise RuntimeError("github is down")
+        fx = _ServerFixture(_FreshLibrary(), freshness=_Boom())
+        try:
+            with urllib.request.urlopen(f"{fx.base}/status") as resp:
+                body = json.loads(resp.read())
+        finally:
+            fx.close()
+        self.assertEqual(body["state"], "ready")
+        self.assertIsNone(body["freshness"]["up_to_date"])
+
+
+class RefreshRateLimitTests(unittest.TestCase):
+    """A refresh is not an ordinary connect and must not share its budget.
+
+    An ordinary connect on an already-cached repo is a ~1s cache hit. A
+    refresh is a full re-ingest -- 283s measured live on production -- that
+    republishes a corpus other entitled readers are using concurrently. Five
+    per ten minutes is a reasonable allowance for the first and an easy way to
+    tie up the box with the second.
+
+    Per-IDENTITY isolation is not re-proven here: `refresh_limiter` is an
+    ordinary `RateLimiter`, whose per-key behaviour `test_ratelimit.py` already
+    pins. What these tests pin is the wiring specific to refresh -- that it has
+    its own budget, and that the two operations never spend each other's.
+    """
+
+    def _post(self, base, body, token="tok-a"):
+        req = urllib.request.Request(
+            f"{base}/connect", data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {token}"}, method="POST")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    def test_a_refresh_is_refused_once_its_own_limit_is_spent(self):
+        from .ratelimit import RateLimiter
+        fx = _ServerFixture(_FreshLibrary(), sync_connect=True,
+                            refresh_limiter=RateLimiter(1, 600))
+        try:
+            self.assertEqual(self._post(fx.base, {"repo": "o/r", "refresh": True}), 200)
+            self.assertEqual(self._post(fx.base, {"repo": "o/r", "refresh": True}), 429)
+        finally:
+            fx.close()
+
+    def test_an_ordinary_connect_is_unaffected_by_a_spent_refresh_budget(self):
+        from .ratelimit import RateLimiter
+        fx = _ServerFixture(_FreshLibrary(), sync_connect=True,
+                            refresh_limiter=RateLimiter(1, 600))
+        try:
+            self._post(fx.base, {"repo": "o/r", "refresh": True})
+            self.assertEqual(self._post(fx.base, {"repo": "o/r"}), 200)
+        finally:
+            fx.close()
+
+    def test_an_ordinary_connect_never_spends_the_refresh_budget(self):
+        from .ratelimit import RateLimiter
+        fx = _ServerFixture(_FreshLibrary(), sync_connect=True,
+                            refresh_limiter=RateLimiter(1, 600))
+        try:
+            self._post(fx.base, {"repo": "o/r"})
+            self.assertEqual(self._post(fx.base, {"repo": "o/r", "refresh": True}), 200)
+        finally:
+            fx.close()

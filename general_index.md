@@ -250,6 +250,13 @@ removing, or renaming files). For class/function-level detail see
 - `evals/github_access.py` — `repo_info`: the caller-scoped permission check
   (`GET /repos/{owner}/{repo}` as the caller's own token); 200 → `{"private":
   bool}`, anything else (403/404/network/malformed) → `None` (fail-safe refuse).
+  Plus the two staleness probes behind `demo/freshness.py`: `head_commit`
+  (default-branch HEAD sha) and `commits_between` (GitHub's own `ahead_by` for
+  `base...head`, asked only once the shas are known to differ, so the common
+  up-to-date case costs one request not two). Both fail safe to `None` meaning
+  UNKNOWN, and both allow a missing token — unlike `repo_info`, they read
+  public state, and refusing without one would make freshness permanently
+  unavailable on the web surface, whose login narrowed to `read:user`.
 - `evals/env_file.py` — `load_env_file`: stdlib loader that reads a gitignored
   `.env` into `os.environ` without overriding real env vars.
 - `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt (also tells
@@ -646,6 +653,26 @@ removing, or renaming files). For class/function-level detail see
   republishes with `os.replace()` and would destroy it. Read via `GET /ledger`
   (`?unknowns=1` for the map of what the org never wrote down). **No UI on any
   surface yet — HTTP only.**
+- `demo/freshness.py` — `FreshnessChecker`: does the connected index still
+  match the repository? A corpus is frozen at the commit it was ingested and
+  nothing said so — this repo's own index sat NINE commits behind HEAD while
+  answering with full confidence. Reports `up_to_date` / `behind_by` /
+  `head_commit` / `checked_at` on `/status`. **`up_to_date` is three-valued
+  and every failure path lands on `None`**: telling someone their index is
+  current because the check failed is the same class of failure as a bluffed
+  citation. One deliberate exception the other way — if HEAD is readable and
+  DIFFERS but the compare call then fails, `up_to_date` stays `False` and only
+  the count is unknown, since "it differs" is a fact we actually hold.
+  TTL-cached per `(repo, indexed_commit)` because `/status` is polled
+  continuously and GitHub's API is not; keying on the commit means a refresh
+  invalidates instantly, and `checked_at` reports when the check ACTUALLY ran,
+  not now. A failed check is retried rather than pinned for the TTL. The
+  caller's token is used per request and never cached.
+- `demo/test_freshness.py` — freshness's contract, weighted toward the
+  never-claim-fresh property: every unknown path, the differs-but-count-unknown
+  case, TTL hit/expiry, per-repo and per-commit cache separation, a failed
+  check being retried, `checked_at` reporting the real check time on a cached
+  read, and the token never reaching the cache.
 - `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
   `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
   `NormalizingRetriever` (Brick Q query normalization, wired into serving
@@ -701,7 +728,11 @@ removing, or renaming files). For class/function-level detail see
 - `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
-  limits via `demo/ratelimit.py`, web-login endpoints), `resolve_provenance`,
+  limits via `demo/ratelimit.py` — including a SEPARATE, much tighter
+  `refresh_limiter` (2/hour) checked only once `refresh: true` is parsed, since
+  an ordinary connect to a cached repo is a ~1s cache hit while a refresh is a
+  283s re-ingest that republishes a corpus concurrent readers are using —
+  web-login endpoints), `resolve_provenance`,
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
   `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/map` (the repository
   map — `demo/repo_map.py` over `indexed_refs()` + the status snapshot; guarded
