@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 from demo import library, warm_cache
-from evals.vector_cache import load_vectors
+from evals.vector_cache import corpus_fingerprint, load_vectors
 from evals.corpus import load_chunks
 
 try:
@@ -67,7 +67,11 @@ class WarmCacheLiveTests(unittest.TestCase):
         chunks = load_chunks(self.corpus / "chunks.jsonl")
         refs = [c.ref for c in chunks]
         model = library._shared_embedder().model_name
-        cached = load_vectors(cache, model, refs)
+        # The same fingerprint the runtime path computes over this exact
+        # corpus (evals.vector_cache.corpus_fingerprint, required since
+        # c0c6fd1 -- a stale ref-only check let a re-ingested corpus with
+        # rewritten text still report a cache HIT).
+        cached = load_vectors(cache, model, refs, corpus_fingerprint(chunks))
         self.assertIsNotNone(cached, "runtime would MISS the baked cache and re-embed")
         self.assertEqual(set(cached.keys()), set(refs))
 
