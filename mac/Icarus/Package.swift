@@ -28,5 +28,6 @@ let package = Package(
             path: "Sources/Icarus"
         ),
         .testTarget(name: "IcarusKitTests", dependencies: ["IcarusKit"], path: "Tests/IcarusKitTests"),
+        .testTarget(name: "IcarusAppTests", dependencies: ["Icarus"], path: "Tests/IcarusAppTests"),
     ]
 )

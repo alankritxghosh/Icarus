@@ -944,8 +944,9 @@ removing, or renaming files). For class/function-level detail see
 
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.
-- `mac/Icarus/Package.swift` — SwiftPM manifest: `IcarusKit` (testable logic) +
-  `Icarus` (the app), dependency on KeyboardShortcuts.
+- `mac/Icarus/Package.swift` — SwiftPM manifest: `IcarusKit` (UI-free logic),
+  `Icarus` (the app), their unit-test targets, and the KeyboardShortcuts +
+  Sparkle dependencies.
 - `mac/Icarus/Package.resolved` — pinned dependency versions.
 - `mac/Icarus/Icarus-Info.plist` — bundle Info.plist (mic + speech usage strings)
   assembled into `Icarus.app` for TCC.
@@ -1061,7 +1062,9 @@ removing, or renaming files). For class/function-level detail see
   state for asking, GitHub web login (Keychain-persisted token), and repo connect
   (public alpha; saves/resumes the connection via `SavedConnection`,
   `disconnect()` deletes server-side data, `.lost` when the server drops the
-  session). Shared via `AppDelegate`.
+  session). A re-read remains visibly in progress until `/status` confirms the
+  refreshed index is current, preventing accepted background work from looking
+  inert and blocking duplicate clicks. Shared via `AppDelegate`.
 - `AppleWebAuth.swift` — the real `ASWebAuthenticationSession` sheet (GitHub login,
   captures the `icarus://` callback); ephemeral browser session so Sign out → pick
   another GitHub account. Completion handler is non-isolated (fires off-main).
@@ -1161,6 +1164,11 @@ removing, or renaming files). For class/function-level detail see
 - `SavedConnectionTests.swift` — the saved-connection store round-trip/clear and
   every branch of the `isLost` downgrade check (ready-elsewhere = lost;
   indexing/error/no-save = not lost; case-insensitive repo match).
+
+### mac/Icarus/Tests/IcarusAppTests
+- `ConnectModelTests.swift` — app-model boundary proof that an accepted
+  background repository re-read stays visibly in progress while the index is
+  stale and completes only after `/status` confirms freshness.
 
 ## .claude/agents/ and .codex/agents/
 - `.claude/agents/opus-architect.md` — the opus-architect agent (principal

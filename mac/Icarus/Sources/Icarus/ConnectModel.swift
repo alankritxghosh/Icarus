@@ -102,11 +102,11 @@ final class ConnectModel {
         isRefreshing = true
         refreshError = nil
         refreshTask = Task {
-            defer { isRefreshing = false }
             do {
                 try await client.connect(repo: repo, refresh: true)
             } catch let error as BrainError {
                 // The brain answered and refused — a rate limit, a sign-out.
+                isRefreshing = false
                 refreshError = error.userMessage
             } catch {
                 // TRANSPORT failure, and here it is EXPECTED rather than
@@ -114,8 +114,9 @@ final class ConnectModel {
                 // measured) while Azure cuts an inbound request at 240s, so a
                 // successful refresh routinely never gets to answer. Reporting
                 // that as a failure would be the same misdiagnosis `run()`
-                // documents. The freshness banner is the real signal — it
-                // re-checks against the indexed commit and clears itself.
+                // documents. Keep the visible refresh state alive: /status is
+                // the real signal and `noteStatus` clears it only once the
+                // indexed commit is confirmed current.
             }
         }
     }
@@ -151,8 +152,22 @@ final class ConnectModel {
     /// other than the one we connected, the session was dropped server-side —
     /// surface it explicitly instead of pretending nothing happened.
     func noteStatus(_ status: RepoStatus) {
+        if isRefreshing {
+            if status.isError {
+                isRefreshing = false
+                refreshError = status.error ?? "The repository re-read failed."
+            } else if status.indexFreshness == .matches {
+                // POST /connect only means "accepted"; freshness is the
+                // completion signal. Until this point, reverting the button to
+                // idle makes a real background re-read look like a no-op and
+                // permits duplicate clicks that spend the hourly allowance.
+                isRefreshing = false
+                refreshError = nil
+            }
+        }
         guard case .ready = state, saved.isLost(given: status),
               let connection = saved.load() else { return }
+        isRefreshing = false
         state = .lost(repo: connection.repo)
     }
 
