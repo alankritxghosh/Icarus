@@ -32,8 +32,14 @@ are building the trust primitive one will eventually require.
 
 A **conversational engineering brain** a company can buy — a privacy-first
 assistant that learns a company's codebase and the history of decisions around
-it well enough to answer *why*, *what*, and *how* in natural language, and that
-always knows the difference between what it can prove and what it's guessing.
+it well enough to answer *why*, *what*, and *how* for engineers and their coding
+agents, and that always knows the difference between what it can prove and what
+it's guessing.
+
+**The ideal one-sentence journey:** before an engineer or coding agent makes a
+meaningful change, Icarus supplies the repo-scoped recorded why and its evidence
+— or clearly states what it found and what remains unknown — then gets out of
+the way.
 
 ## 2. The scene we are building toward
 
@@ -49,6 +55,17 @@ reason, Icarus says so — plainly — instead of inventing one.
 
 That is the whole product: **fluent like Iron Man's JARVIS, but honest about what
 it actually knows.**
+
+The same brain also meets an engineer inside Claude Code, Codex, Cursor, or
+another MCP-capable tool. Before the coding agent proposes a meaningful change,
+it asks Icarus for the recorded why. Icarus returns a cited answer or an honest
+unknown plus the bounded evidence retrieval considered. The coding agent uses
+that context to improve its plan; Icarus never writes the code or silently
+changes repositories on its behalf. This is a second client of the same
+organizational memory, not a second product and not a retreat from the human
+conversation above. The engineer signs into the Mac app once; approved coding
+tools receive only a short-lived, public-read Icarus session, never the
+Keychain-held GitHub credential.
 
 ## 3. The non-negotiable: it cannot bluff
 
@@ -76,7 +93,7 @@ with "different product" is the trap.
 |------|-----------|-------|
 | **Core engine** (honest retrieval: cite-or-unknown) | the defensible core + grounded conversational synthesis | deeper structural understanding |
 | **Data sources** (what it knows) | **GitHub** (PRs, reviews, merges, reverts) | Slack, Linear, Notion, org-wide |
-| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay, browser extension** | team surfaces, web |
+| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay, browser extension, read-only coding-agent tools** | team surfaces, web |
 | **Deployment** (where compute runs) | one unified cloud we operate, with **per-tenant data isolation** | true single-tenant / in-customer-cloud for the most regulated (enterprise upsell) |
 
 The core engine is the slow, defensible, expensive part — and it is
@@ -158,6 +175,9 @@ the brand.
   from training memory.
 - **Show your work, don't hide it.** "Here is my proof," not "hidden from the
   room."
+- **Humans and agents share one truth boundary.** Agents receive structured
+  evidence, not a more permissive answer. An unknown remains unknown; related
+  evidence may shape a plan but must never be promoted into an invented reason.
 - **Never capture the screen silently.** If Icarus ever reads on-screen context,
   it must be explicit, opt-in, and never silently uploaded.
 
@@ -180,6 +200,8 @@ the brand.
   too.
 - New hires ramp by *talking to the codebase* instead of interrupting senior
   engineers.
+- Coding agents consult Icarus before meaningful changes, and the retrieved
+  context measurably changes plans or prevents avoidable review corrections.
 - The org starts writing decisions down because Icarus makes that knowledge pay
   off.
 

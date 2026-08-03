@@ -121,8 +121,10 @@ abstraction really did make this a one-line swap, not a rewrite.
 1. **Phase 1 — brain as a typed API** over one GitHub repo. ✅ shipped. See
    [PHASE_1_PLAN.md](PHASE_1_PLAN.md).
 2. **Phase 2 — Mac app + overlay**. ✅ shipped.
-3. **Phase 3 — voice**. ✅ shipped — on-device STT when available, automatic
-   cloud fallback otherwise, degraded-but-honest by design.
+3. **Phase 3 — voice**. Implementation shipped — on-device STT when available,
+   automatic cloud fallback otherwise, degraded-but-honest by design. Latency
+   instrumentation is shipped; Phase 3 acceptance still requires the real-device
+   baseline defined in [METRICS.md](METRICS.md).
 4. **Phase 4 — multi-company + trust** (per-tenant isolation, permissions,
    SOC 2). **Partial:** per-tenant isolation and private-repo permissions are
    shipped and live-tested. Note the tenant changed on **2026-07-27**: it is now

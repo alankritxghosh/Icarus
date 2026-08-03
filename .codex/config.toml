@@ -1,0 +1,4 @@
+[mcp_servers.icarus]
+command = ".venv/bin/python"
+args = ["-m", "demo.mcp_server"]
+env_vars = ["ICARUS_BRAIN_URL", "ICARUS_TOKEN"]

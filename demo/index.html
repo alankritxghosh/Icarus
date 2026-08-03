@@ -282,7 +282,7 @@ function ago(ts){
 // class of failure as a bluffed citation: a confident claim the evidence does
 // not support. That is why there is no `|| 0` or `|| false` anywhere below.
 
-function freshnessRow(f){
+function freshnessRow(f,repo){
   if(!f)return "";
   if(f.pinned){
     // Frozen deliberately (the reproducible eval board). Showing the raw
@@ -296,10 +296,15 @@ function freshnessRow(f){
     return `<div class="row"><span class="tag ok">index</span><span>Matches the repository${f.checked_at?" · checked "+ago(f.checked_at):""}.</span></div>`;
   if(f.up_to_date===false){
     const n=typeof f.behind_by==="number"?f.behind_by:null;
+    // The ONLY branch that offers a re-read. `pinned` must never offer one --
+    // the server refuses it by design -- and neither must `unknown`, which by
+    // definition does not know that anything is stale. This mirrors
+    // IndexFreshness.offersRefresh in the Mac app.
     return `<div class="row"><span class="tag stale">index</span><span>${
       n===null?"Behind the repository — Icarus couldn’t work out by how much"
              :n.toLocaleString()+" commit"+(n===1?"":"s")+" behind the repository"}${
-      f.checked_at?" · checked "+ago(f.checked_at):""}. Reconnect with refresh to re-read it.</span></div>`;
+      f.checked_at?" · checked "+ago(f.checked_at):""}. Icarus is answering from the older index until you re-read it.</span>${
+      repo?`<button id="refresh-btn" class="ghost" style="margin-left:auto;padding:4px 9px;font-size:12px;box-shadow:2px 2px 0 var(--line)" data-repo="${esc(repo)}">Re-read repository</button>`:""}</div>`;
   }
   return `<div class="row"><span class="tag unknown">index</span><span>Icarus couldn’t check whether this index is current. It may or may not be.</span></div>`;
 }
@@ -346,11 +351,51 @@ async function renderRepoPanel(status){
   // Both are extras. Neither may break the page it decorates.
   try{const r=await fetch("/briefing",{headers:authHeaders()});if(r.ok)briefing=await r.json();}catch(e){}
   try{const r=await fetch("/map",{headers:authHeaders()});if(r.ok)map=await r.json();}catch(e){}
-  const html=briefingRow(briefing)+freshnessRow(status.freshness)
+  const html=briefingRow(briefing)+freshnessRow(status.freshness,status.repo)
             +arrangementRow(map&&map.indexed_structure);
   repoPanel.innerHTML=html;
   repoPanel.style.display=html?"block":"none";
 }
+
+// Re-read a repository the brain has reported stale. Delegated, because the
+// panel's innerHTML is rebuilt on every status render and a handler bound to
+// the old button would be thrown away with it.
+//
+// Deliberately does NOT run the connect poll loop above. That loop waits for
+// state==="ready" on a matching repo, which during a refresh is true from the
+// first tick -- the brain keeps serving the existing corpus until the new one
+// is ready -- so it would report "connected" the instant it started and teach
+// the user that a re-read takes one second. The freshness row is the honest
+// signal: it re-checks against the indexed commit and clears itself.
+repoPanel.addEventListener("click",async(e)=>{
+  const btn=e.target.closest("#refresh-btn");
+  if(!btn)return;
+  const repo=btn.dataset.repo;
+  if(!repo)return;
+  btn.disabled=true; btn.textContent="Re-reading…";
+  try{
+    const r=await fetch("/connect",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),
+                                    body:JSON.stringify({repo,refresh:true})});
+    if(r.status===429){
+      // A refresh has its own, much tighter budget (2/hour) than an ordinary
+      // connect. Saying "wait a minute" here would misdescribe an hourly limit.
+      setStatus("Icarus re-reads the whole repository on a refresh, so it allows a couple an hour. Try again later.","error");
+      btn.disabled=false; btn.textContent="Re-read repository"; return;
+    }
+    if(!r.ok){
+      let msg="couldn’t start the re-read";
+      try{msg=(await r.json()).error||msg;}catch(err){}
+      setStatus(msg,"error"); btn.disabled=false; btn.textContent="Re-read repository"; return;
+    }
+  }catch(err){
+    // TRANSPORT failure, and here it is expected rather than exceptional: a
+    // refresh re-reads the whole repository (283s measured) while the host cuts
+    // an inbound request well before that, so a re-read that is working fine
+    // routinely never gets to answer. Calling that a failure would be the same
+    // misdiagnosis the connect path documents.
+  }
+  setStatus("re-reading "+repo+" — this takes a few minutes","indexing");
+});
 
 repoForm.addEventListener("submit",async(e)=>{
   e.preventDefault();

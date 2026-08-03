@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var connect = ConnectModel(client: AppConfig.client())
     /// Voice-in: real-time on-device streaming via Apple's Speech framework.
     private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
+    /// Durations only, in memory: proves the shipped voice loop against Phase 3's
+    /// latency budget without retaining questions, transcripts, or answers.
+    private let voiceLatency = VoiceLatencyTracker()
     /// The real in-session ask record, shared by the overlay (which records into it)
     /// and the shell window (which displays it).
     private let history = AskHistory()
@@ -29,13 +32,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// "What changed since you were last here" -- fetched once per connected
     /// repo, never polled (see BriefingModel).
     private lazy var briefing = BriefingModel(client: AppConfig.client())
-    private lazy var overlay = OverlayController(auth: auth, connect: connect, voice: voice, tokenReader: AppConfig.tokenReader, history: history)
+    private lazy var overlay = OverlayController(
+        auth: auth,
+        connect: connect,
+        voice: voice,
+        latency: voiceLatency,
+        tokenReader: AppConfig.tokenReader,
+        history: history
+    )
     /// The primary window: the full app shell. Sign-in + connect are folded into
     /// Home's setup gate, so there's no separate onboarding window.
     private lazy var shell = MainWindowController {
         ShellView(auth: self.auth, connect: self.connect,
                   history: self.history, status: self.status, ledger: self.ledger,
                   briefing: self.briefing,
+                  voiceLatency: self.voiceLatency,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
     /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.

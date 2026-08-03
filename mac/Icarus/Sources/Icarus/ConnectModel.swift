@@ -38,9 +38,18 @@ final class ConnectModel {
     /// until a connect confirms otherwise, so it can never over-claim privacy.
     private(set) var isPrivate = false
 
+    /// A re-read of the connected repo is in flight. Separate from `state`
+    /// because the repo stays connected and answerable while it runs.
+    private(set) var isRefreshing = false
+    /// Why the last refresh was refused, when the brain actually refused it.
+    /// nil for a refresh that was accepted — or one whose request timed out,
+    /// which is not evidence of failure (see `refreshConnected`).
+    private(set) var refreshError: String?
+
     private let client: BrainClient
     private let saved: SavedConnection
     private var task: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
 
     /// owner/name — same shape the brain's /connect accepts.
     private static let repoPattern = #"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"#
@@ -74,6 +83,41 @@ final class ConnectModel {
         indexingProgressLine = nil
         state = .connecting(repo)
         task = Task { await run(repo: repo) }
+    }
+
+    /// Re-read the CONNECTED repo, for an index the brain reported stale.
+    ///
+    /// Deliberately does NOT go through `connect()`'s state machine. A refresh
+    /// leaves the repo connected and answerable throughout — the brain keeps
+    /// serving the existing corpus until the new one is ready — so flipping
+    /// `state` to `.connecting` would drop the user out of the dashboard and
+    /// back to the setup gate for the several minutes a re-ingest takes, while
+    /// claiming they were disconnected from a repo they can still ask about.
+    ///
+    /// The repo comes from `state`, never `repoInput`: the user may have typed
+    /// another name into the box without connecting it, and re-reading
+    /// something other than what the banner described would be a silent switch.
+    func refreshConnected() {
+        guard case .ready(let repo) = state, !isRefreshing else { return }
+        isRefreshing = true
+        refreshError = nil
+        refreshTask = Task {
+            defer { isRefreshing = false }
+            do {
+                try await client.connect(repo: repo, refresh: true)
+            } catch let error as BrainError {
+                // The brain answered and refused — a rate limit, a sign-out.
+                refreshError = error.userMessage
+            } catch {
+                // TRANSPORT failure, and here it is EXPECTED rather than
+                // exceptional: a refresh re-reads the whole repository (283s
+                // measured) while Azure cuts an inbound request at 240s, so a
+                // successful refresh routinely never gets to answer. Reporting
+                // that as a failure would be the same misdiagnosis `run()`
+                // documents. The freshness banner is the real signal — it
+                // re-checks against the indexed commit and clears itself.
+            }
+        }
     }
 
     /// Reconnect the repo remembered from a previous launch (or a lost session).

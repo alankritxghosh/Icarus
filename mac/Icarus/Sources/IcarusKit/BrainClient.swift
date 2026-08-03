@@ -13,6 +13,14 @@ public enum BrainError: Error, Equatable, Sendable {
     case unauthorized       // 401 — signed out, or the token was rejected
     case forbidden          // 403 — this GitHub account can't read that repo (or it's private)
     case rateLimited        // 429 — too many requests from this identity
+    /// 429 on a request that asked to RE-READ the repository. Same status code,
+    /// different budget: the ordinary connect allowance clears in about a
+    /// minute, the refresh allowance is 2 per hour (demo/server.py), because a
+    /// refresh re-reads the whole repository — 283 seconds measured on
+    /// production. Telling that user to "wait a minute" would be a confident
+    /// claim about a wait we know is longer. Distinguished by what we SENT,
+    /// not by parsing the body: the client knows whether it asked to refresh.
+    case refreshRateLimited
     case server(Int)        // any other non-2xx
 
     /// Plain-language copy for a refusal the brain actually sent us. Every one of
@@ -27,9 +35,23 @@ public enum BrainError: Error, Equatable, Sendable {
             return "That repo doesn't exist, or your GitHub account can't read it."
         case .rateLimited:
             return "Too many attempts in a row. Wait a minute, then try again."
+        case .refreshRateLimited:
+            return "Icarus re-reads a whole repository on a refresh, so it allows a couple an hour. Try again later."
         case .server(let code):
             return "Icarus's brain had a problem (error \(code)). Try again in a moment."
         }
+    }
+}
+
+public struct AgentSession: Codable, Equatable, Sendable {
+    public let token: String
+    public let expiresAt: TimeInterval
+    public let repo: String
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case expiresAt = "expires_at"
+        case repo
     }
 }
 
@@ -116,14 +138,26 @@ public struct BrainClient: Sendable {
 
     /// POST /connect {repo} -> start indexing/switching to that public repo. The
     /// brain ingests in the background; poll `status()` until ready. 2xx = accepted.
-    public func connect(repo: String) async throws {
+    /// `refresh: true` asks the brain to RE-INGEST a repo it already has cached,
+    /// rather than serving the existing corpus. Only send it when the user asked:
+    /// it costs minutes of server CPU and republishes a corpus other entitled
+    /// readers may be mid-question on. The key is omitted entirely when false —
+    /// the server's default — so an ordinary connect cannot spend that budget.
+    public func connect(repo: String, refresh: Bool = false) async throws {
         var request = URLRequest(url: base.appending(path: "connect"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["repo": repo])
+        var body: [String: Any] = ["repo": repo]
+        if refresh { body["refresh"] = true }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         authorize(&request)
         let (_, response) = try await dataWithRetry(for: request)
-        try check(response, accepting: 200...299)
+        do {
+            try check(response, accepting: 200...299)
+        } catch BrainError.rateLimited where refresh {
+            // Same 429, different budget — see BrainError.refreshRateLimited.
+            throw BrainError.refreshRateLimited
+        }
     }
 
     /// POST /disconnect -> the brain deletes the caller's own on-disk corpus and
@@ -166,6 +200,20 @@ public struct BrainClient: Sendable {
         try check(response)
         struct Redeem: Decodable { let token: String }
         return try JSONDecoder().decode(Redeem.self, from: data).token
+    }
+
+    /// Exchange the app-owned GitHub bearer for a short-lived, public-read
+    /// credential suitable for a coding-agent process. The GitHub token remains
+    /// behind this client boundary and is never part of the returned value.
+    public func createAgentSession() async throws -> AgentSession {
+        var request = URLRequest(url: base.appending(path: "auth/agent/session"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(AgentSession.self, from: data)
     }
 
     /// GET /status -> the active repo + switch state. MUST carry the bearer:

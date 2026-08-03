@@ -7,11 +7,15 @@ struct IcarusApp: App {
     }
 }
 
-/// Real entry point. It first handles the bundler's headless icon export
-/// (`Icarus --render-iconset <dir>`) and exits; otherwise it launches the app.
+/// Real entry point. It first handles the two bounded headless commands and
+/// exits; otherwise it launches the app.
 @main
 struct Main {
-    static func main() {
+    @MainActor
+    static func main() async {
+        if AgentSessionCommand.requested {
+            exit(await AgentSessionCommand.run())
+        }
         if let dir = IconExport.iconsetDirArg() {
             IconExport.writeIconset(to: dir)
             exit(0)

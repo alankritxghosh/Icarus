@@ -57,23 +57,30 @@ def excerpt(text: str) -> str:
     return joined
 
 
-def build_payload(result: Result, repo: str, commit: str, indexing: bool = False) -> dict:
+def build_payload(result: Result, repo: str, commit: str, indexing: bool = False,
+                  include_evidence: bool = False) -> dict:
     """`indexing` marks an answer produced while the search index is still being
-    built (lexical only, semantic pending).
+    built (lexical only, semantic pending). `include_evidence` lets read-only
+    agent clients inspect the bounded chunks that retrieval considered even
+    when the honesty gate returns unknown; human clients keep the existing
+    citation-only presentation by leaving it false.
 
     It exists because an abstention in that window means "I have not finished
     reading", which is a DIFFERENT claim from "no one wrote this down" -- and
     this product's whole promise is that the second one is trustworthy. Proven
     live 2026-07-28: the same question abstained mid-window and answered once
-    the embed finished, on an identical corpus. Defaults False so every existing
-    caller keeps its exact shape."""
+    the embed finished, on an identical corpus."""
     citations = []
     if result.verdict == "answer":
         citations = [{"ref": ref,
                       "url": ref_to_url(ref, repo, commit),
                       "excerpt": excerpt(result.evidence.get(ref, ""))}
                      for ref in result.citations]
-    return {
+    payload = {
+        # Make every response self-identifying. Agent clients must never infer
+        # which active repository happened to serve an answer.
+        "repo": repo,
+        "commit": commit,
         "verdict": result.verdict,
         "answer": result.answer if result.verdict == "answer" else "",
         "citations": citations,
@@ -85,3 +92,13 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
         # asked about isn't in this repo". None on an answer.
         "reason": result.abstention_reason if result.verdict == "unknown" else None,
     }
+    if include_evidence:
+        payload["evidence"] = [
+            {
+                "ref": ref,
+                "url": ref_to_url(ref, repo, commit),
+                "excerpt": excerpt(result.evidence.get(ref, "")),
+            }
+            for ref in result.retrieved
+        ]
+    return payload

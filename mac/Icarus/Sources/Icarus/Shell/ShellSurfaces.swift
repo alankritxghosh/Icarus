@@ -137,8 +137,9 @@ struct PrivacyBoundaryView: View {
 }
 
 /// Ask by voice: instructions + a button that opens the overlay (the single ask
-/// path). Kept thin in Phase B; a live in-window composer can come later.
+/// path), followed by duration-only measurements from completed voice asks.
 struct AskByVoiceView: View {
+    let latency: VoiceLatencyTracker
     let onOpenOverlay: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -152,7 +153,64 @@ struct AskByVoiceView: View {
                     Button(action: onOpenOverlay) { Text("Open the ask overlay") }.buttonStyle(PrimaryButton())
                 }
             }
+            if let latest = latency.latest {
+                ShellCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        MonoLabel("VOICE LATENCY · THIS APP SESSION")
+                        latencyRow(
+                            "Release → first word",
+                            duration(latest.releaseToFirstWord)
+                        )
+                        HStack(spacing: 18) {
+                            stage("transcribe", latest.transcription)
+                            stage("brain", latest.brain)
+                            stage("voice start", latest.speechQueue)
+                        }
+                        if let p50 = latency.releaseToFirstWordP50,
+                           let p95 = latency.releaseToFirstWordP95 {
+                            Text(
+                                "\(latency.samples.count) completed voice ask"
+                                + "\(latency.samples.count == 1 ? "" : "s")"
+                                + " · p50 \(duration(p50)) · p95 \(duration(p95))"
+                            )
+                            .font(Theme.mono(11))
+                            .foregroundStyle(Theme.muted)
+                        }
+                        Text(
+                            "Total including the time you held the key: "
+                            + duration(latest.total)
+                            + ". Durations only; no audio, transcript, question, "
+                            + "answer, repository, or identity is retained here."
+                        )
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
         }
+    }
+
+    private func latencyRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+            Spacer()
+            Text(value).font(Theme.mono(15)).foregroundStyle(Theme.accent)
+        }
+    }
+
+    private func stage(_ label: String, _ value: TimeInterval) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(duration(value)).font(Theme.mono(12)).foregroundStyle(Theme.ink)
+            Text(label).font(.system(size: 11)).foregroundStyle(Theme.muted)
+        }
+    }
+
+    private func duration(_ value: TimeInterval) -> String {
+        value < 1
+            ? "\(Int((value * 1_000).rounded())) ms"
+            : String(format: "%.1f s", value)
     }
 }
 

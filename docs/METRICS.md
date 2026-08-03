@@ -41,14 +41,27 @@ These improve continuously and are never improved by weakening Group 1.
 
 | Metric | Target (starting guess) | Notes |
 |--------|-------------------------|-------|
-| **Hotkey → spoken answer, p50** | feels immediate (~ a couple seconds) | The magic dies if it's slow. |
-| **Hotkey → spoken answer, p95** | bounded, no long tails | Tail latency breaks trust in the loop. |
+| **Release → speech start, p50** | ≤ 3 seconds | The controllable system latency after the user finishes speaking. |
+| **Release → speech start, p95** | ≤ 8 seconds | Tail latency breaks trust in the loop. |
+| **Hotkey-down → speech start** | report, no target | Includes how long the user chooses to speak, so treating it as system performance would be misleading. |
 | **Speech-to-text accuracy** | high | Errors here poison everything downstream. |
 | **Time-to-first-word** | low | Start speaking the answer before it's fully formed where safe. |
 
 Latency budget is split across speech-in → retrieval → synthesis → speech-out;
 each leg gets a sub-budget once Phase 3 starts. This is a primary reason heavy
 inference runs in the cloud.
+
+The Mac app now measures release → final transcript → brain answer → the system
+speech synthesizer's `didStart` callback. This callback is the closest
+deterministic local proxy for first audible speech; it is not an audio-loopback
+measurement. The app keeps only the newest 50 duration samples in memory and
+shows the latest breakdown plus session p50/p95 on “Ask by voice.” It retains no
+audio, transcript, question, answer, repository, or identity.
+
+Phase 3 latency is not accepted from synthetic tests. Establish the baseline
+with at least 20 completed voice asks on a real Mac and report on-device and
+Apple-cloud speech recognition separately. A small local sample proves the loop
+on that device; it does not establish fleet-wide percentiles.
 
 ## 4. Trust & business
 

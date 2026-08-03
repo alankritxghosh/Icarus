@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// Reads text aloud with the system speech synthesizer — no dependency, no
 /// permission. It speaks the brain's answer, and equally speaks the honest unknown,
@@ -11,9 +11,15 @@ import AVFoundation
 /// none is downloaded it falls back to the standard en-US voice — never a novelty
 /// voice (Zarvox, Bells, …).
 @MainActor
-final class Speaker {
+final class Speaker: NSObject, AVSpeechSynthesizerDelegate {
     private let synth = AVSpeechSynthesizer()
     private lazy var voice: AVSpeechSynthesisVoice? = Self.bestEnglishVoice()
+    var onFirstWordStarted: (() -> Void)?
+
+    override init() {
+        super.init()
+        synth.delegate = self
+    }
 
     /// Speak `text`, interrupting anything currently being spoken (barge-in).
     func speak(_ text: String) {
@@ -28,6 +34,15 @@ final class Speaker {
     /// Stop mid-sentence, cleanly.
     func stop() {
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+    }
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didStart utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor [weak self] in
+            self?.onFirstWordStarted?()
+        }
     }
 
     /// Best premium/enhanced English voice (prefer en-US); else the standard en-US

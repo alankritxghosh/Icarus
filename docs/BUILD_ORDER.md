@@ -27,6 +27,45 @@ answers documented "why" questions with correct citations, and returns "I don't
 know" for questions whose answer was never written down — measured by the
 evaluation harness, not by vibes. See [EVALUATION.md](EVALUATION.md).
 
+## Phase 1B — The coding-agent face (read-only)
+
+**Build:** expose the proven text brain through a thin, read-only MCP adapter so
+Claude Code, Codex, Cursor, and compatible tools can retrieve the recorded why
+before planning a meaningful change. The adapter adds no answering logic and
+cannot edit code or switch repositories.
+
+**Why here:** coding agents are another consumer of the text brain, not a new
+brain and not an autonomous Icarus. Brick 0 showed that retrieved context can
+materially change a coding plan; it also showed that an honest unknown must carry
+the bounded related evidence retrieval considered without promoting that
+evidence into an asserted reason.
+
+**Done when:** a public-repository agent call returns a self-identifying
+repo/commit, cited answer or honest unknown, and opt-in retrieved evidence; repo
+mismatches and private or uncertain data egress fail closed. Private-repository
+agent access remains a later trust brick requiring verified provider posture.
+
+**Authentication bridge complete:** without a development override, the MCP
+adapter asks the installed, signed-in Mac app to exchange its Keychain-held
+GitHub bearer for a ten-minute, in-memory, public-read Icarus session. The agent
+never receives the GitHub credential. The server binds the session to one
+identity and active public repo, rate-limits issuance, and permits only
+`/status`, `/ask`, and `/explain`.
+
+**Next smallest brick:** make short-lived session verification topology-safe
+before distributing it. The accepted first bridge is process-local, while the
+documented Azure configuration permits multiple replicas; either adopt
+stateless signed grants with a dedicated shared secret, use shared session
+storage, or explicitly constrain the service to one replica. That choice adds a
+credential or availability consequence and must be made deliberately. Then ship
+the adapter with Icarus and add an explicit one-action project registration flow,
+so a user can enable Icarus in any codebase without carrying this repository's
+Python module or virtualenv path. Project-level client approval must remain
+explicit. Only after a provider policy can be identified and verified may
+private-repository evidence cross into a coding agent. Measure
+time-to-first-context and whether context reduces plan changes or review
+corrections; do not infer those outcomes from tool availability.
+
 ## Phase 2 — The face (Mac app + overlay)
 
 **Build:** wrap Phase 1 in a macOS app with the translucent on-screen overlay
@@ -41,7 +80,7 @@ the proof rendered in the overlay, talking to the private-cloud brain.
 ## Phase 3 — The voice
 
 **Build:** the hotkey (push-to-talk), speech-to-text in, text-to-speech out. The
-full ctrl → speak → hear loop with the overlay showing proof.
+full hold Right Option → speak → hear loop with the overlay showing proof.
 
 **Why now (and not sooner):** voice only gets to speak once the brain underneath
 physically cannot lie. This is the deliberate crossing where speed becomes
@@ -49,6 +88,18 @@ load-bearing.
 
 **Done when:** holding the hotkey, asking out loud, and hearing a correct, cited
 answer feels immediate — within the latency budget in [METRICS.md](METRICS.md).
+
+**Implementation status:** the push-to-talk, streaming speech recognition,
+grounded answer, honest spoken unknown, and system TTS loop are shipped. The app
+now measures the controllable release → transcript → answer → speech-start path,
+keeps only 50 duration-only samples in memory, and shows the latest breakdown
+plus session p50/p95.
+
+**Next smallest brick:** run at least 20 real voice asks on a Mac for each
+available recognition path (on-device and Apple cloud fallback), record the
+release → speech-start p50/p95, and compare them with the 3s/8s starting budget
+in [METRICS.md](METRICS.md). Phase 3 is implemented but not latency-accepted
+until those observed results exist.
 
 ## Phase 4 — Sellable (multi-company + trust)
 
@@ -71,7 +122,8 @@ just claim.
   "done" because it looks done — it's done when the evaluation harness says so.
 - **Cite-or-unknown never degrades**, on any tier, in any phase.
 - **Don't widen scope mid-phase.** New data sources (Slack, Linear, Notion),
-  structural code understanding, and team surfaces are *post-Phase-4* — listed in
-  [VISION.md](VISION.md) §4, deliberately not now.
+  structural code understanding, and broader team surfaces are *post-Phase-4* —
+  listed in [VISION.md](VISION.md) §4, deliberately not now. The Phase 1B
+  read-only coding-agent face is the explicit narrow exception.
 - **Rent the commodities, build the moat** — see the table in
   [ARCHITECTURE.md](ARCHITECTURE.md).

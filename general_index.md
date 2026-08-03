@@ -24,6 +24,15 @@ removing, or renaming files). For class/function-level detail see
   offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
   imported, so everything else runs pure-stdlib without it. Install into a venv.
 
+## Coding-agent integration
+- `.mcp.json` — Claude Code project registration for the read-only Icarus MCP
+  adapter; default authentication comes from the signed-in Icarus app, with no
+  credential in project configuration.
+- `.cursor/mcp.json` — Cursor IDE/CLI project registration for the same stdio
+  adapter.
+- `.codex/config.toml` — Codex project registration for the same stdio adapter,
+  forwarding `ICARUS_BRAIN_URL` and `ICARUS_TOKEN` when present.
+
 ## Cloud deployment (host the brain on Azure Container Apps)
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
   repo-switch ingest), non-root UID 1000 (required by some hosts, harmless on
@@ -48,16 +57,18 @@ removing, or renaming files). For class/function-level detail see
   Python suites (evals, demo) + Swift build/test.
 
 ## docs/
-- `docs/VISION.md` — product vision: the conversational engineering brain, what
-  it answers, and the v1 scope (GitHub + Mac voice app + private cloud).
-- `docs/ARCHITECTURE.md` — plain-language map of how Icarus is built (the Mac app
-  is the face; the cloud is the brain).
+- `docs/VISION.md` — product vision: one honest organizational-memory brain for
+  engineers and their coding agents, preserving the Mac/extension experience
+  and the cite-or-unknown boundary.
+- `docs/ARCHITECTURE.md` — plain-language map of how Icarus is built (human and
+  agent faces over the same cloud brain), including the public-only first MCP
+  trust boundary.
 - `docs/STRATEGY.md` — build & product strategy: sell the typed brain first, rent
   the commodities, own the moat. Includes the decided stack.
 - `docs/COMPETITIVE.md` — competitive landscape: how comparable products were
   built, what to steal, what to avoid.
 - `docs/BUILD_ORDER.md` — the phase-by-phase build order; never build the talker
-  before the brain.
+  before the brain, with Phase 1B as the narrow read-only coding-agent face.
 - `docs/PHASE_1_PLAN.md` — the concrete Phase 1 build: cited answer or honest
   unknown about one GitHub repo, proven by the harness.
 - `docs/EVALUATION.md` — how Icarus proves it isn't bluffing; the gates and
@@ -510,10 +521,21 @@ removing, or renaming files). For class/function-level detail see
   brain; imports `evals/`, changes no brain code.
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
-- `demo/payload.py` — `build_payload`, turning a `Result` into the page JSON.
-  Carries `anchored` beside `searched` (2026-07-28) so a renderer can say what
-  the QUESTION named versus what search suggested; `searched` still lists
-  everything, so "all of them shown" stays true.
+- `demo/payload.py` — `build_payload`, turning a `Result` into self-identifying
+  repo/commit JSON. Human callers keep citation-only evidence; read-only agent
+  callers can explicitly request bounded retrieved evidence even on an honest
+  unknown. Carries `anchored` beside `searched` so a renderer can distinguish
+  what the question named from what search suggested.
+- `demo/mcp_server.py` — dependency-free stdio MCP adapter over `/status`,
+  `/ask`, and `/explain`: two read-only tools, explicit repo mismatch refusal,
+  evidence-rich unknowns, and fail-closed private/uncertain agent egress. It
+  obtains a ten-minute public-read credential from the installed Mac app when
+  no development override is present, keeps it only in memory, owns no
+  retrieval or answering logic, and its evidence-opt-in asks do not pollute the
+  human documentation-demand ledger.
+- `demo/agent_sessions.py` — bounded, thread-safe in-memory store for opaque
+  coding-agent sessions. Grants carry only verified identity, active public
+  repo, and expiry—never the GitHub credential.
 - `demo/repo_map.py` — `build_map(chunks, status)`: the repository map served
   by `GET /map` — what Icarus INDEXED, said before anyone asks a question. Pure
   (the in-memory corpus + a status snapshot in, dict out): no model call, no
@@ -798,6 +820,12 @@ removing, or renaming files). For class/function-level detail see
   `fetch`. This is the typed **web staging link** (no voice/overlay — native only).
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
+- `demo/test_mcp_server.py` — MCP handshake/tool contracts, evidence-rich honest
+  unknowns, explicit selection forwarding, repo mismatch refusal, and
+  private-repository fail-closed behavior; also pins automatic app-issued
+  session acquisition/reuse and explicit development overrides.
+- `demo/test_agent_sessions.py` — opaque agent-grant issuance, identity/repo
+  scope, expiry, and unknown-token refusal.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's
   token→id mapping, cache hit/expiry, and network-error fail-safe (offline).
 - `demo/test_github_oauth.py` — the web-login flow: authorize-url building,
@@ -954,8 +982,9 @@ removing, or renaming files). For class/function-level detail see
   `AskResponse`, `RepoStatus`, and
   `IndexCounts` (real `/status` counts).
 - `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,
-  `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`); attaches
-  an `Authorization: Bearer` from a shared token; injectable URLSession.
+  `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`,
+  `/auth/agent/session`); attaches an `Authorization: Bearer` from a shared
+  token; injectable URLSession.
 - `SavedConnection.swift` — persists the last-connected repo
   (injectable UserDefaults) and the pure `isLost` check behind the
   eviction/restart lost-connection banner.
@@ -969,6 +998,10 @@ removing, or renaming files). For class/function-level detail see
 - `SpeechRecognizer.swift` — streaming speech-to-text protocol + a stub.
 - `VoiceModel.swift` — `@Observable` push-to-talk orchestrator: live
   `partialTranscript`, silence → empty → not emitted.
+- `VoiceLatencyTracker.swift` — bounded, duration-only Phase 3 measurement for
+  hotkey hold, transcript finalization, brain answer, and system speech start;
+  keeps the newest 50 samples in memory and derives release-to-speech p50/p95
+  without accepting or retaining any content.
 - `AskHistory.swift` — the real in-session ask record (most-recent-first,
   `unknowns` filter, `citedRate` nil until the first ask); powers the shell.
 - `ShellNav.swift` — `ShellSurface`, the sidebar surfaces + their titles;
@@ -1016,9 +1049,11 @@ removing, or renaming files). For class/function-level detail see
   `BrainEndpoint` over `Bundle.main` (hosted in a shipped build, local otherwise).
 - `AppDelegate.swift` — app wiring: activation policy, menu-bar item, hotkey,
   push-to-talk, shared models (auth/connect/voice/history/status), and the
-  primary shell window (setup is folded into its Home gate).
+  primary shell window (setup is folded into its Home gate); shares one
+  duration-only voice latency tracker between the overlay and shell.
 - `OverlayController.swift` — owns the ⌘⇧I ask overlay + ask/voice/speak wiring;
-  records each ask into the shared `AskHistory`.
+  records each ask into the shared `AskHistory` and marks the live Phase 3
+  release/transcript/answer/speech-start timeline.
 - `FloatingPanel.swift` — a translucent, non-activating, chromeless `NSPanel` that
   floats above other apps (hidden transparent title bar).
 - `OverlayView.swift` — the overlay UI: question, cited answer, honest unknown.
@@ -1032,6 +1067,10 @@ removing, or renaming files). For class/function-level detail see
   another GitHub account. Completion handler is non-isolated (fires off-main).
 - `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
   Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
+- `AgentSessionCommand.swift` — the headless `Icarus --agent-session` bridge:
+  uses the Keychain-backed app client to mint a short-lived public-read Icarus
+  credential and writes only that credential, expiry, repo, and brain URL to
+  stdout.
 - `Updater.swift` — in-app updates via Sparkle, so shipping a change stops
   meaning "email every tester and ask them to re-download". Sparkle signs its
   own feed with an EdDSA key, so this needs no Apple Developer ID -- it does
@@ -1052,7 +1091,8 @@ removing, or renaming files). For class/function-level detail see
 - `PushToTalkMonitor.swift` — hold Right Option (⌥) to talk via a global
   `.flagsChanged` monitor.
 - `Speaker.swift` — `AVSpeechSynthesizer`; speaks the answer and the honest
-  unknown, with barge-in.
+  unknown, with barge-in; its delegate reports when system speech actually
+  starts for latency measurement.
 
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
 - `ShellView.swift` — sidebar + content router across the five surfaces (passes
@@ -1077,7 +1117,8 @@ removing, or renaming files). For class/function-level detail see
   folders, documentation, and where to start reading with each rule's reason).
   Back/Next plus "Ask your own question", which needs no session to return from.
 - `ShellSurfaces.swift` — Decision history, Unknowns, Privacy boundary (true
-  claims), and Ask-by-voice surfaces, with honest empty states.
+  claims), and Ask-by-voice surfaces, with honest empty states. Ask-by-voice
+  shows the latest duration breakdown and in-session release-to-speech p50/p95.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
   `VerdictPill`, `HistoryRow`, `ShellCard`).
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
@@ -1091,10 +1132,14 @@ removing, or renaming files). For class/function-level detail see
   and the `private` flag (absent → public default).
 - `TokenStoreTests.swift` — the in-memory token store's save/load/delete.
 - `VoiceModelTests.swift` — push-to-talk states; silence → no question.
+- `VoiceLatencyTrackerTests.swift` — complete-stage arithmetic, out-of-order
+  refusal, 50-sample bound, release-to-speech percentile calculation, and
+  replacement of incomplete journeys.
 - `AskHistoryTests.swift` — record order, unknowns filter, cited-rate (nil first).
 - `BrainClientTests.swift` — the bearer token is sent when present, omitted when
-  absent; `/disconnect` POSTs with the bearer and decodes the fresh snapshot
-  (URLProtocol stub).
+  absent; `/disconnect` POSTs with the bearer and decodes the fresh snapshot;
+  `/auth/agent/session` uses the GitHub bearer and decodes the scoped short
+  credential (URLProtocol stub).
 - `ShellNavTests.swift` — the five surfaces' order, titles, and stable ids.
 - `BrainEndpointTests.swift` — `BrainEndpoint.resolve` uses a valid hosted URL,
   falls back on missing/empty/invalid, and honors an explicit fallback.

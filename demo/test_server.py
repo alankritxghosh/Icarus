@@ -23,7 +23,14 @@ class _StubPipeline(Pipeline):
         if "responses api" in question.lower():
             return Result(verdict="answer", answer="Because other plugins import the old class.",
                           citations=["pr:1435"], retrieved=["pr:1435", "code:llm/x.py"])
-        return Result(verdict="unknown", retrieved=["code:llm/x.py", "code:llm/y.py"])
+        return Result(
+            verdict="unknown",
+            retrieved=["code:llm/x.py", "code:llm/y.py"],
+            evidence={
+                "code:llm/x.py": "The current implementation.",
+                "code:llm/y.py": "A related call site.",
+            },
+        )
 
     def explain(self, path, start, end, question=None, neighbors=True):
         """Brick D: a line-covered location answers; anywhere else abstains --
@@ -114,6 +121,31 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["verdict"], "unknown")
         self.assertEqual(payload["answer"], "")
         self.assertEqual(payload["searched"], ["code:llm/x.py", "code:llm/y.py"])
+        self.assertNotIn("evidence", payload)
+
+    def test_agent_can_request_retrieved_evidence_without_turning_it_into_citations(self):
+        status, payload = _post(
+            self.base + "/ask",
+            {"question": "Why is there no retry?", "include_evidence": True},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["verdict"], "unknown")
+        self.assertEqual(payload["citations"], [])
+        self.assertEqual(payload["repo"], REPO)
+        self.assertEqual(payload["commit"], COMMIT)
+        self.assertEqual(
+            [item["excerpt"] for item in payload["evidence"]],
+            ["The current implementation.", "A related call site."],
+        )
+
+    def test_include_evidence_must_be_a_real_boolean(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            _post(
+                self.base + "/ask",
+                {"question": "Why is there no retry?", "include_evidence": "true"},
+            )
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
 
     def test_health_reports_ok_and_provenance(self):
         with urllib.request.urlopen(self.base + "/health") as resp:
@@ -275,6 +307,21 @@ class IndexHtmlSmokeTests(unittest.TestCase):
 
     def test_renders_the_honest_unknown_hero(self):
         self.assertIn("No one wrote this down", self.html)
+
+    def test_a_stale_index_offers_a_refresh_the_user_can_actually_click(self):
+        """The banner said "Reconnect with refresh to re-read it" while the page
+        had no way to do that -- the instruction named an action the UI did not
+        expose. The refresh must be a control, and it must be reachable only
+        from the `behind` branch: `pinned` (the frozen demo corpus) and
+        `unknown` ("we couldn't check") must never offer it, since one is
+        forbidden server-side and the other doesn't know it is stale."""
+        self.assertIn('id="refresh-btn"', self.html)
+        self.assertIn("refresh:true", self.html.replace(" ", ""))
+        # The button is built inside freshnessRow's stale branch only.
+        stale_branch = self.html.split("function freshnessRow")[1].split("function")[0]
+        self.assertIn("refresh-btn", stale_branch)
+        pinned_branch = stale_branch.split("f.pinned")[1].split("}")[0]
+        self.assertNotIn("refresh-btn", pinned_branch)
 
     def test_has_repo_connect_controls(self):
         self.assertIn('id="repo"', self.html)
@@ -1267,9 +1314,10 @@ class _RepoLibrary(_StubLibrary):
     """A library whose active repo is configurable (the default demo repo is
     special-cased by the guard, so tests need a NON-default repo)."""
 
-    def __init__(self, repo, pipeline=None):
+    def __init__(self, repo, pipeline=None, private=False):
         super().__init__()
         self._repo = repo
+        self._private = private
         if pipeline is not None:
             self._pipe = pipeline
 
@@ -1279,6 +1327,7 @@ class _RepoLibrary(_StubLibrary):
     def status_snapshot(self):
         snap = super().status_snapshot()
         snap["repo"] = self._repo
+        snap["private"] = self._private
         return snap
 
 
@@ -1393,6 +1442,207 @@ class ReadEntitlementTests(unittest.TestCase):
             fx.close()
 
 
+# --- Phase 1B auth: short-lived public-read agent sessions -----------------
+
+class AgentSessionEndpointTests(unittest.TestCase):
+    PUBLIC = "octo/public"
+    GITHUB_TOKEN = "github-token"
+    IDENTITY = "1001"
+
+    class _TokenPipeline(_CountingPipeline):
+        def __init__(self):
+            super().__init__()
+            self.tokens = []
+
+        def answer(self, question, token=None):
+            self.tokens.append(token)
+            return super().answer(question, token=token)
+
+    def setUp(self):
+        from .agent_sessions import AgentSessionStore
+        from .auth import StaticTokenVerifier
+
+        self.now = 1_000.0
+        self.sessions = AgentSessionStore(
+            ttl=600.0,
+            clock=lambda: self.now,
+        )
+        self.pipeline = self._TokenPipeline()
+        self.lib = _RepoLibrary(self.PUBLIC, pipeline=self.pipeline)
+        self.public_checks = []
+
+        def repo_info(repo, token):
+            self.public_checks.append((repo, token))
+            if repo == self.PUBLIC and token == self.GITHUB_TOKEN:
+                return {"private": False}
+            return None
+
+        self.fx = _ServerFixture(
+            self.lib,
+            require_auth=True,
+            verifier=StaticTokenVerifier({self.GITHUB_TOKEN: self.IDENTITY}),
+            default_repo=REPO,
+            agent_sessions=self.sessions,
+            agent_repo_info=repo_info,
+        )
+
+    def tearDown(self):
+        self.fx.close()
+
+    def _request(self, path, token, body=None):
+        data = None if body is None else json.dumps(body).encode()
+        headers = {}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(
+            self.fx.base + path,
+            data=data,
+            headers=headers,
+        )
+        return urllib.request.urlopen(request)
+
+    def _issue(self):
+        with self._request(
+                "/auth/agent/session", self.GITHUB_TOKEN, {}) as response:
+            return response, json.loads(response.read())
+
+    def test_github_bearer_mints_an_opaque_repo_scoped_session(self):
+        response, body = self._issue()
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotEqual(body["token"], self.GITHUB_TOKEN)
+        self.assertEqual(body["repo"], self.PUBLIC)
+        self.assertEqual(body["expires_at"], 1_600.0)
+        grant = self.sessions.verify(body["token"])
+        self.assertEqual(grant.identity, self.IDENTITY)
+        self.assertEqual(grant.repo, self.PUBLIC)
+        self.assertEqual(
+            self.public_checks,
+            [(self.PUBLIC, self.GITHUB_TOKEN)],
+        )
+
+    def test_agent_session_reads_status_and_asks_as_the_same_identity(self):
+        _, issued = self._issue()
+        agent_token = issued["token"]
+
+        with self._request("/status", agent_token) as response:
+            status = json.loads(response.read())
+        with self._request(
+                "/ask",
+                agent_token,
+                {"question": "Why?", "include_evidence": True},
+        ) as response:
+            answer = json.loads(response.read())
+
+        self.assertEqual(status["repo"], self.PUBLIC)
+        self.assertEqual(answer["repo"], self.PUBLIC)
+        self.assertEqual(self.pipeline.tokens, [None],
+                         "an Icarus session token must never be sent to GitHub")
+
+    def test_agent_session_cannot_mutate_or_read_unrelated_surfaces(self):
+        _, issued = self._issue()
+        token = issued["token"]
+        attempts = [
+            ("/connect", {"repo": "octo/other"}),
+            ("/disconnect", {}),
+            ("/onboarding", {"step": "purpose"}),
+            ("/briefing", {}),
+        ]
+
+        for path, body in attempts:
+            with self.subTest(path=path):
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    self._request(path, token, body)
+                self.assertEqual(raised.exception.code, 403)
+                raised.exception.close()
+
+    def test_agent_session_is_bound_to_the_repo_active_when_it_was_issued(self):
+        _, issued = self._issue()
+        self.lib._repo = "octo/other"
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request("/status", issued["token"])
+        self.assertEqual(raised.exception.code, 403)
+        raised.exception.close()
+
+    def test_private_or_unverifiable_repo_cannot_mint_a_session(self):
+        self.lib._private = True
+        with self.assertRaises(urllib.error.HTTPError) as private:
+            self._request("/auth/agent/session", self.GITHUB_TOKEN, {})
+        self.assertEqual(private.exception.code, 403)
+        private.exception.close()
+
+        self.lib._private = False
+        self.public_checks.clear()
+        self.lib._repo = "octo/unverifiable"
+        with self.assertRaises(urllib.error.HTTPError) as unknown:
+            self._request("/auth/agent/session", self.GITHUB_TOKEN, {})
+        self.assertEqual(unknown.exception.code, 403)
+        unknown.exception.close()
+
+    def test_agent_session_cannot_mint_another_session(self):
+        _, issued = self._issue()
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request("/auth/agent/session", issued["token"], {})
+        self.assertEqual(raised.exception.code, 403)
+        raised.exception.close()
+
+    def test_expired_session_is_rejected(self):
+        _, issued = self._issue()
+        self.now = issued["expires_at"]
+
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._request(
+                "/ask",
+                issued["token"],
+                {"question": "Why?", "include_evidence": True},
+            )
+        self.assertEqual(raised.exception.code, 401)
+        raised.exception.close()
+
+    def test_session_minting_has_its_own_per_identity_rate_limit(self):
+        from .auth import StaticTokenVerifier
+        from .ratelimit import RateLimiter
+
+        limited = _ServerFixture(
+            _RepoLibrary(self.PUBLIC),
+            require_auth=True,
+            verifier=StaticTokenVerifier({self.GITHUB_TOKEN: self.IDENTITY}),
+            default_repo=REPO,
+            agent_sessions=self.sessions,
+            agent_repo_info=lambda _repo, _token: {"private": False},
+            agent_session_limiter=RateLimiter(1, 60),
+        )
+        try:
+            data = json.dumps({}).encode()
+            headers = {
+                "Authorization": f"Bearer {self.GITHUB_TOKEN}",
+                "Content-Type": "application/json",
+            }
+            first = urllib.request.Request(
+                limited.base + "/auth/agent/session",
+                data=data,
+                headers=headers,
+            )
+            with urllib.request.urlopen(first) as response:
+                self.assertEqual(response.status, 200)
+            second = urllib.request.Request(
+                limited.base + "/auth/agent/session",
+                data=data,
+                headers=headers,
+            )
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(second)
+            self.assertEqual(raised.exception.code, 429)
+            raised.exception.close()
+        finally:
+            limited.close()
+
+
 # --- T4: the shared ask ledger ---------------------------------------------
 
 class AskLedgerTests(unittest.TestCase):
@@ -1436,6 +1686,24 @@ class AskLedgerTests(unittest.TestCase):
         _ask_as(self.base, "tok-a", "something nobody documented")
         gaps = self.ledger.entries(self.PRIVATE, unknowns_only=True)
         self.assertEqual([e["question"] for e in gaps], ["something nobody documented"])
+
+    def test_agent_context_asks_do_not_pollute_human_documentation_demand(self):
+        data = json.dumps({
+            "question": "Why is there no retry?",
+            "include_evidence": True,
+        }).encode()
+        request = urllib.request.Request(
+            self.base + "/ask",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer tok-a",
+            },
+        )
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+
+        self.assertEqual(self.ledger.entries(self.PRIVATE), [])
 
     def test_ledger_endpoint_returns_the_teams_questions(self):
         _ask_as(self.base, "tok-a", "Why the Responses API as a new class?")

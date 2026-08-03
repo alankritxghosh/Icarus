@@ -343,9 +343,65 @@ Map a `source:ref` citation to its GitHub URL. No classes.
 ## demo/payload.py
 Turn a pipeline `Result` into the JSON the demo page renders. No classes.
 
-- `build_payload(result, repo, commit) -> dict` — `{verdict, answer, citations:
-  [{ref,url}], searched:[refs]}`. Answers carry prose + citation URLs; the honest
-  unknown carries empty answer/citations but always the retrieved `searched` refs.
+- `excerpt(text: str) -> str` — return a visibly truncation-marked, four-line /
+  300-character evidence excerpt for display.
+- `build_payload(result, repo, commit, indexing=False,
+  include_evidence=False) -> dict` — self-identifying repo/commit answer or
+  honest-unknown JSON. Human callers retain citation-only excerpts; an explicit
+  agent opt-in adds bounded evidence for every retrieved ref without promoting
+  it into a citation or answer.
+
+## demo/agent_sessions.py
+Bounded, thread-safe in-memory grants for public-read coding-agent access. No
+GitHub credential is accepted, retained, logged, or persisted.
+
+- `class AgentGrant` — immutable verified identity + active-repository scope.
+- `class AgentSessionStore` — issues opaque ten-minute tokens, purges expired
+  grants, bounds total live grants, and resolves a token to its scoped grant or
+  `None`.
+
+## demo/mcp_server.py
+Dependency-free read-only MCP adapter over the existing Icarus HTTP boundary.
+Module constants define the supported protocol, server identity/instructions,
+and the two tool schemas.
+
+- `class _ToolError` — safe, user-actionable failures returned as MCP tool
+  errors rather than leaked stack traces.
+- `class _NoRedirects` — urllib redirect handler that refuses redirects so a
+  bearer Authorization header can never be forwarded to another origin.
+- `class _Connection` — immutable brain URL + bearer selection; managed
+  app-issued credentials include only their expiry and stay in process memory.
+- `_validated_base(raw)` — accept only credential-free HTTP(S) brain bases.
+- `_app_binary()` — discover an explicit, installed, PATH, or local-development
+  Icarus executable.
+- `_connection()` — use explicit URL/token development overrides when present;
+  otherwise invoke `Icarus --agent-session`, validate its JSON, and reuse the
+  short credential until shortly before expiry.
+- `_request(path, body=None)` — authenticated GET/POST to the configured Icarus
+  brain; validates a credential-free HTTP(S) base URL, refuses redirects, keeps
+  the token in the Authorization header, refreshes a rejected managed session
+  once, and maps HTTP/network/JSON failures to `_ToolError`.
+- `_required_string(arguments, name)` / `_required_line(arguments, name)` —
+  strict tool-argument validators, including rejecting booleans as line
+  integers.
+- `_checked_public_repo(expected_repo)` — preflight `/status`, refuse a
+  missing/mismatched active repo, and fail closed unless privacy is explicitly
+  `false`.
+- `_get_change_context(arguments)` — preflight the repo, call `/ask` with
+  `include_evidence: true`, verify the answer was stamped with the same
+  repository, then recheck public status before returning evidence.
+- `_explain_code_context(arguments)` — validate an explicit file selection,
+  preflight the public repo, call `/explain` with evidence enabled, verify
+  response provenance, and recheck public status before returning evidence.
+- `_tool_result(payload)` / `_tool_error(message)` — MCP tool result shaping;
+  successful output includes both `structuredContent` and a JSON TextContent
+  fallback.
+- `_response(request_id, result=None, error=None)` — JSON-RPC 2.0 response
+  envelope.
+- `handle_message(message)` — handle `initialize`, `ping`, `tools/list`, and
+  `tools/call`; notifications return no response.
+- `serve(stdin=None, stdout=None)` — newline-delimited JSON-RPC stdio loop;
+  stdout remains protocol-only and unexpected diagnostics go to stderr.
 
 ## demo/auth.py
 Bearer-token auth that resolves the caller's *identity*, not just validity.
@@ -420,23 +476,29 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
 - `_resolve_storage_root(raw, default) -> Path` — `ICARUS_STORAGE_ROOT`,
   falling back to `default` when unset OR set-but-blank.
 - `make_handler(registry, html_path, require_auth=False, verifier=None,
-  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None)` —
+  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None, ...)` —
   return a `BaseHTTPRequestHandler` subclass bound to the registry:
   - `_authorized()` — loopback Host + same-origin guard; skipped entirely when
     `allowed_hosts` contains `'*'` (cloud mode — the bearer gate is the real
     boundary).
-  - `_identity() -> str | None` — `"local"` when auth is off; the verified
-    GitHub user id when auth is on and the token verifies; `None` otherwise
-    (fail safe).
+  - `_principal()` / `_identity()` / `_github_token()` — distinguish local,
+    verified GitHub, and short-lived agent credentials while ensuring an agent
+    token can never be forwarded to GitHub.
   - `do_GET` — `/` serves the page; `/health`/`/status` resolve
     `registry.library_for(self._identity())` and return its provenance/snapshot;
     `/auth/github/callback` completes the web-login redirect; else 404.
   - `do_POST` — `/auth/github/begin`/`/auth/github/redeem` work without a
-    token (they mint one). Everything else requires an identity (401 if None).
+    token (they mint one). `/auth/agent/session` requires a verified GitHub
+    bearer, re-verifies that the active repo is public, rate-limits issuance,
+    and returns an opaque repo-bound session with `Cache-Control: no-store`.
+    Agent sessions can call only `/ask` and `/explain` here; other routes are
+    forbidden. Everything else requires an identity (401 if None).
     `/disconnect` calls `registry.disconnect(identity)`. `/ask` and `/connect`
     check their `RateLimiter` BEFORE parsing the body (429 if exceeded, so a
     rate-limited caller never reaches the billed writer or a clone/ingest).
-    `/ask` returns `build_payload(lib.current_pipeline().answer(q), ...)`.
+    `/ask` returns `build_payload(lib.current_pipeline().answer(q), ...)`; a
+    strict boolean `include_evidence` opt-in adds retrieved evidence for agent
+    clients and deliberately skips the human documentation-demand ledger.
     `/connect` validates `owner/name`; when auth is required, calls
     `evals.github_access.repo_info(repo, token)` first — `None` → 403 (refuse,
     fail safe); otherwise spawns `lib.connect_sync` in a daemon thread with the
@@ -452,7 +514,14 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
 ## demo/ test modules
 - `demo/test_links.py` — pins `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — pins the answer and honest-unknown payload shapes
-  (citation URLs, order preserved, `searched`, url=None for unknown sources).
+  (citation URLs, order preserved, `searched`, url=None for unknown sources),
+  opt-in retrieved evidence, and exact repo/commit provenance.
+- `demo/test_mcp_server.py` — pins the stdio MCP handshake and read-only tool
+  schemas, evidence-rich honest unknowns, explicit line selections, repo
+  mismatch refusal, private-repository fail-closed behavior, automatic
+  app-issued session acquisition/reuse, and explicit development overrides.
+- `demo/test_agent_sessions.py` — pins opaque grants, identity/repo scope,
+  expiry, and unknown-token refusal.
 - `demo/test_auth.py` — pins `bearer_token` parsing, `StaticTokenVerifier`'s
   token→id mapping, and `GitHubTokenVerifier`'s cache hit/expiry, valid-token id
   resolution, and fail-safe None on network error/malformed body.
@@ -471,7 +540,8 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
 - `demo/test_server.py` — pins routing against a stub registry (GET `/`, `/status`,
   POST `/ask` answer/unknown, POST `/connect` valid→202 / bad→400, missing question
   → 400, 404), the Origin guard, body cap, per-request identity resolution,
-  `/disconnect`, rate-limit 429s, concurrency, and index.html smoke checks.
+  `/disconnect`, rate-limit 429s, concurrency, short-lived agent-session
+  issuance/scope/expiry/route refusal, and index.html smoke checks.
 - `demo/test_isolation.py` — pins cross-user isolation at the HTTP boundary: a
   real `LibraryRegistry` behind a real running server with two authenticated
   identities — connect/storage/disconnect/provenance all stay disjoint, and an
@@ -479,3 +549,15 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
 - `demo/test_demo_live.py` — end-to-end live guard over the real pipeline (built via
   `Library`): an answerable question returns a cited answer with a github.com link,
   an unrecorded one returns the honest unknown (skips without a provider key/corpus).
+
+## mac/Icarus/Sources/IcarusKit/VoiceLatencyTracker.swift
+Privacy-safe Phase 3 experience measurement. It accepts monotonic timing marks,
+not product content, and retains only the newest 50 completed samples in memory.
+
+- `class VoiceLatencyTracker` — records `begin`, `released`,
+  `transcriptReady`, `answerReady`, and `firstWordStarted` in strict order;
+  incomplete or time-inverted journeys never become samples.
+- `struct VoiceLatencyTracker.Sample` — hold, transcription, brain, speech
+  queue, release-to-first-word, and total durations.
+- `releaseToFirstWordP50` / `releaseToFirstWordP95` — nearest-rank session
+  percentiles over completed samples.

@@ -105,6 +105,41 @@ class ExcerptTests(unittest.TestCase):
         self.assertEqual(out["citations"], [])
         self.assertNotIn("should not leak", str(out))
 
+    def test_agents_can_opt_in_to_retrieved_evidence_on_an_unknown(self):
+        r = Result(
+            verdict="unknown",
+            retrieved=["issue:112", "issue:850"],
+            evidence={
+                "issue:112": "Add retry support for transient failures.",
+                "issue:850": "Retries remain an open feature request.",
+            },
+        )
+        out = payload.build_payload(
+            r, "simonw/llm", "abc1234", include_evidence=True)
+
+        self.assertEqual(out["verdict"], "unknown")
+        self.assertEqual(out["citations"], [])
+        self.assertEqual(
+            out["evidence"],
+            [
+                {
+                    "ref": "issue:112",
+                    "url": "https://github.com/simonw/llm/issues/112",
+                    "excerpt": "Add retry support for transient failures.",
+                },
+                {
+                    "ref": "issue:850",
+                    "url": "https://github.com/simonw/llm/issues/850",
+                    "excerpt": "Retries remain an open feature request.",
+                },
+            ],
+        )
+
+    def test_payload_identifies_the_exact_corpus_that_answered(self):
+        out = payload.build_payload(Result(verdict="unknown"), REPO, COMMIT)
+        self.assertEqual(out["repo"], REPO)
+        self.assertEqual(out["commit"], COMMIT)
+
 
 
 class IndexingCaveatTests(unittest.TestCase):

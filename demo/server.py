@@ -12,6 +12,7 @@ GET  /briefing -> what changed since this caller was last here (pure);
                  POST /briefing acknowledges it and moves the anchor forward
                  (demo/visits.py; docs/decisions/2026-07-30-returning-user-state.md)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
+POST /auth/agent/session -> short-lived public-read token for the active repo
 POST /connect -> {"repo": "owner/name"[, "refresh": true]} -> index/switch to it
 POST /disconnect -> forget the caller's library and delete their on-disk storage
 
@@ -42,6 +43,7 @@ from .visits import VisitStore
 from . import onboarding
 from .registry import LibraryRegistry
 from .auth import bearer_token, GitHubTokenVerifier, RepoAccessVerifier
+from .agent_sessions import AgentSessionStore
 from . import github_oauth
 from .ratelimit import RateLimiter
 from evals import github_access
@@ -130,7 +132,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  sync_connect: bool = False, background_upgrade: bool = False,
                  access_verifier=None, default_repo=None, ledger=None,
                  refresh_limiter=None, freshness=None, visits=None,
-                 commits_since=None):
+                 commits_since=None, agent_sessions=None, agent_repo_info=None,
+                 agent_session_limiter=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -180,12 +183,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     decision stores nothing about anyone. `commits_since(repo, base, head,
     token)` computes how much moved between two commits; it defaults to
     `evals.github_access.commits_between` and is injectable for tests.
+
+    `agent_sessions` enables short-lived, public-read bearer tokens for coding
+    agents. `agent_repo_info` verifies the active repository is public when a
+    signed-in GitHub caller mints one. Agent sessions are bound to that caller
+    and repository and can reach only /status, /ask, and /explain.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
     ask_limiter = ask_limiter or RateLimiter(30, 60)          # 30 asks/min
     connect_limiter = connect_limiter or RateLimiter(5, 600)  # 5 connects/10min
     refresh_limiter = refresh_limiter or RateLimiter(2, 3600)  # 2 re-ingests/hour
+    agent_session_limiter = agent_session_limiter or RateLimiter(10, 60)
     commits_since = commits_since or github_access.commits_between
 
     class Handler(BaseHTTPRequestHandler):
@@ -199,15 +208,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
         def log_message(self, fmt, *args):  # keep the console quiet
             pass
 
-        def _send(self, code, body: bytes, content_type: str):
+        def _send(self, code, body: bytes, content_type: str, headers=None):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_json(self, code, obj):
-            self._send(code, json.dumps(obj).encode(), "application/json")
+        def _send_json(self, code, obj, headers=None):
+            self._send(code, json.dumps(obj).encode(), "application/json", headers)
 
         def _content_length(self) -> int:
             """Validated body length. Rejects a NEGATIVE Content-Length (M1: a
@@ -253,16 +264,43 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
 
         LOCAL_USER = "local"
 
-        def _identity(self) -> str | None:
-            """Who is calling? 'local' when auth is off (the single local
-            operator); the verified GitHub user id when auth is on; None when
-            auth is on and the token is missing/invalid (fail safe)."""
+        def _principal(self):
+            """Return (identity, credential kind, agent grant), once per request."""
+            if "_principal_cache" in self.__dict__:
+                return self._principal_cache
             if not require_auth:
-                return self.LOCAL_USER
+                principal = (self.LOCAL_USER, "local", None)
+                self._principal_cache = principal
+                return principal
             token = bearer_token(self.headers)
-            if not token or verifier is None:
-                return None
-            return verifier.verify(token)
+            grant = agent_sessions.verify(token) if agent_sessions is not None else None
+            if grant is not None:
+                principal = (grant.identity, "agent", grant)
+            else:
+                identity = verifier.verify(token) if token and verifier is not None else None
+                principal = (identity, "github" if identity is not None else None, None)
+            self._principal_cache = principal
+            return principal
+
+        def _identity(self) -> str | None:
+            """Verified caller identity, or None when authentication fails."""
+            return self._principal()[0]
+
+        def _github_token(self):
+            """Return a bearer only when it was verified as a GitHub credential."""
+            return bearer_token(self.headers) if self._principal()[1] == "github" else None
+
+        def _agent_repo_allowed(self, lib, grant) -> bool:
+            """An agent grant cannot follow its owner when they switch repos."""
+            if grant is None:
+                return False
+            snapshot = lib.status_snapshot() or {}
+            repo = snapshot.get("repo")
+            return (
+                isinstance(repo, str)
+                and repo.casefold() == grant.repo.casefold()
+                and snapshot.get("private") is False
+            )
 
         def _freshness_of(self, lib, snapshot) -> dict:
             """Does the connected index still match the repository?
@@ -288,7 +326,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 return unknown
             try:
                 result = dict(freshness.check(snapshot.get("repo"), snapshot.get("commit"),
-                                              bearer_token(self.headers)))
+                                              self._github_token()))
             except Exception:  # noqa: BLE001 -- see docstring: never break /status
                 return unknown
             result["pinned"] = pinned
@@ -316,18 +354,26 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             re-asking GitHub each time is what contains that, where trusting the
             visibility we recorded at connect time would not.
             """
-            if not require_auth or access_verifier is None:
+            if not require_auth:
+                return True
+            _identity, kind, grant = self._principal()
+            if kind == "agent":
+                return self._agent_repo_allowed(lib, grant)
+            if access_verifier is None:
                 return True
             repo = (lib.status_snapshot() or {}).get("repo")
             if not repo or repo == default_repo:
                 return True
-            return access_verifier.can_read(repo, bearer_token(self.headers))
+            return access_verifier.can_read(repo, self._github_token())
 
         def do_GET(self):
             if not self._authorized():
                 self._send_json(403, {"error": "forbidden"})
                 return
             route = urlparse(self.path).path
+            if self._principal()[1] == "agent" and route != "/status":
+                self._send_json(403, {"error": "agent sessions are read-only and route-scoped"})
+                return
             if route == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
             elif route == "/health":
@@ -345,6 +391,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     lib = registry.library_for(self._identity())
                 except _RegistryWarming:
                     self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                if self._principal()[1] == "agent" and not self._entitled(lib):
+                    self._send_json(403, {"error": "agent session is not valid for the active public repo"})
                     return
                 snapshot = lib.status_snapshot()
                 snapshot["freshness"] = self._freshness_of(lib, snapshot)
@@ -507,9 +556,54 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 self._send_json(200, {"token": token})
                 return
+            if self.path == "/auth/agent/session":
+                identity, kind, _grant = self._principal()
+                if identity is None:
+                    self._send_json(401, {"error": "sign in with GitHub to continue"})
+                    return
+                if kind != "github":
+                    self._send_json(403, {"error": "a GitHub credential is required"})
+                    return
+                if agent_sessions is None or agent_repo_info is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                if not agent_session_limiter.allow(identity):
+                    self._send_json(429, {"error": "slow down -- try again in a minute"})
+                    return
+                try:
+                    lib = registry.library_for(identity)
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                snapshot = lib.status_snapshot() or {}
+                repo = snapshot.get("repo")
+                if (
+                    not isinstance(repo, str)
+                    or not repo
+                    or snapshot.get("private") is not False
+                ):
+                    self._send_json(403, {"error": "agent sessions require an active public repo"})
+                    return
+                try:
+                    info = agent_repo_info(repo, self._github_token())
+                except Exception:  # fail closed when GitHub cannot verify visibility
+                    info = None
+                if not isinstance(info, dict) or info.get("private") is not False:
+                    self._send_json(403, {"error": "GitHub could not verify the active repo is public"})
+                    return
+                token, expires_at = agent_sessions.issue(identity, repo)
+                self._send_json(
+                    200,
+                    {"token": token, "expires_at": expires_at, "repo": repo},
+                    headers={"Cache-Control": "no-store"},
+                )
+                return
             identity = self._identity()
             if identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
+                return
+            if self._principal()[1] == "agent" and self.path not in ("/ask", "/explain"):
+                self._send_json(403, {"error": "agent sessions are read-only and route-scoped"})
                 return
             if self.path == "/disconnect":
                 try:
@@ -548,12 +642,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
                     return
                 try:
-                    question = self._body()["question"]
+                    body = self._body()
+                    question = body["question"]
                 except (ValueError, KeyError, TypeError):
                     self._send_json(400, {"error": "missing question"})
                     return
                 if not isinstance(question, str) or not question.strip():
                     self._send_json(400, {"error": "missing question"})
+                    return
+                include_evidence = body.get("include_evidence", False)
+                if not isinstance(include_evidence, bool):
+                    self._send_json(400, {"error": "include_evidence must be true or false"})
                     return
                 repo, commit = lib.provenance()
                 try:
@@ -563,7 +662,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # through (see GatedPipeline.answer). Without it a private
                     # repo's live fetch fails safe to None, as it always did.
                     result = lib.current_pipeline().answer(
-                        question, token=bearer_token(self.headers))
+                        question, token=self._github_token())
                     # Read AFTER answering: the flag must describe the index
                     # that actually served this question, not the one that
                     # existed when the request arrived.
@@ -576,7 +675,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     print(f"/ask writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                     self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                     return
-                if ledger is not None:
+                if ledger is not None and not include_evidence:
                     # Recorded against the REPO, and deliberately WITHOUT the
                     # asking identity -- a map of what the organisation never
                     # wrote down, not a record of who asked what. Never allowed
@@ -584,14 +683,25 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # ledger is an asset, not a dependency (Ledger.record
                     # swallows its own I/O errors; this catches anything else,
                     # including a broken ledger object).
+                    # Evidence-opt-in asks come from the coding-agent adapter;
+                    # recording its automatic preflights would turn human
+                    # documentation demand into machine-generated noise.
                     try:
                         ledger.record(repo, question=question,
                                       reason=result.abstention_reason,
                                       verdict=result.verdict, citations=result.citations)
                     except Exception as e:
                         print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(200, build_payload(result, repo, commit,
-                                                   indexing=still_indexing))
+                self._send_json(
+                    200,
+                    build_payload(
+                        result,
+                        repo,
+                        commit,
+                        indexing=still_indexing,
+                        include_evidence=include_evidence,
+                    ),
+                )
             elif self.path == "/onboarding":
                 self._handle_onboarding(lib, identity)
             elif self.path == "/briefing":
@@ -635,7 +745,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(429, {"error": "a refresh re-reads the whole "
                                                    "repository -- try again later"})
                     return
-                token = bearer_token(self.headers)
+                token = self._github_token()
                 private = False
                 if require_auth:
                     # Caller-scoped check BEFORE any clone/ingest: can THIS token
@@ -721,7 +831,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if last and last["commit"] and commit and last["commit"] != commit:
                 try:
                     since = commits_since(repo, last["commit"], commit,
-                                          bearer_token(self.headers))
+                                          self._github_token())
                 except Exception:  # noqa: BLE001
                     since = None
             elif last and last["commit"] == commit:
@@ -778,7 +888,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             try:
                 result = onboarding.answer_step(
                     lib.current_pipeline(), lib.status_snapshot(), step.strip(),
-                    token=bearer_token(self.headers))
+                    token=self._github_token())
             except ValueError:
                 # An unknown step id -- including one measurement CUT from the
                 # tour -- is a caller error, never a silently-invented question.
@@ -840,6 +950,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(400, {"error": "question must be a string"})
                     return
                 question = question.strip() or None
+            include_evidence = body.get("include_evidence", False)
+            if not isinstance(include_evidence, bool):
+                self._send_json(400, {"error": "include_evidence must be true or false"})
+                return
             active_repo, commit = lib.provenance()
             if repo.strip() != active_repo:
                 self._send_json(409, {"error": "that repo isn't your currently connected repo"})
@@ -851,8 +965,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                 return
-            self._send_json(200, build_payload(result, active_repo, commit,
-                                               indexing=still_indexing))
+            self._send_json(
+                200,
+                build_payload(
+                    result,
+                    active_repo,
+                    commit,
+                    indexing=still_indexing,
+                    include_evidence=include_evidence,
+                ),
+            )
 
     return Handler
 
@@ -882,6 +1004,7 @@ def serve(host: str = None, port: int = None):
     registry = _LazyRegistry(lambda: LibraryRegistry(CORPUS_DIR, storage_root, default_repo))
     require_auth = bool(os.environ.get("ICARUS_REQUIRE_GITHUB_AUTH"))
     verifier = GitHubTokenVerifier() if require_auth else None
+    agent_sessions = AgentSessionStore() if require_auth else None
     # Read entitlement for a shared per-repo index. Only meaningful with auth on
     # (without it there is a single local operator and no tenancy to enforce).
     access_verifier = RepoAccessVerifier() if require_auth else None
@@ -911,6 +1034,8 @@ def serve(host: str = None, port: int = None):
                            sync_connect=sync_connect, background_upgrade=background_upgrade,
                            access_verifier=access_verifier, default_repo=default_repo,
                            ledger=ledger, freshness=FreshnessChecker(),
+                           agent_sessions=agent_sessions,
+                           agent_repo_info=github_access.repo_info,
                            # Returning-user state lives under each caller's own
                            # storage dir -- the exact tree /disconnect deletes,
                            # so "deletable, and actually deleted" needs no

@@ -36,6 +36,76 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(auth, "Bearer tok-123")
     }
 
+    // MARK: - Refresh (re-read a repository that has moved on)
+    // A connected corpus is frozen at its ingested commit; the server has always
+    // supported `POST /connect {"refresh": true}` to re-read it, and no client
+    // ever sent the flag. These pin the wire contract in both directions --
+    // because the two mistakes here are opposite and both expensive: never
+    // sending it leaves the staleness banner unactionable, and sending it by
+    // accident spends minutes of server CPU republishing a corpus other readers
+    // are mid-question on.
+
+    private func connectBody() throws -> [String: Any] {
+        // URLProtocol strips httpBody into httpBodyStream, so read whichever survived.
+        guard let request = _CapturingProtocol.lastRequest else { return [:] }
+        var data = request.httpBody
+        if data == nil, let stream = request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            data = Data(buffer.prefix(max(read, 0)))
+        }
+        guard let data, !data.isEmpty else { return [:] }
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    func testConnectSendsTheRefreshFlagWhenRefreshIsRequested() async throws {
+        _CapturingProtocol.lastRequest = nil
+        let client = BrainClient(session: stubbedSession())
+        try await client.connect(repo: "octo/hello", refresh: true)
+        let body = try connectBody()
+        XCTAssertEqual(body["repo"] as? String, "octo/hello")
+        XCTAssertEqual(body["refresh"] as? Bool, true,
+                       "a refresh must actually reach the brain, or the banner's button does nothing")
+    }
+
+    func testAnOrdinaryConnectNeverAsksForARefresh() async throws {
+        // The server treats a missing key as false, and rejects non-booleans --
+        // so the safe wire shape is to omit it entirely unless it was asked for.
+        _CapturingProtocol.lastRequest = nil
+        let client = BrainClient(session: stubbedSession())
+        try await client.connect(repo: "octo/hello")
+        let body = try connectBody()
+        XCTAssertNil(body["refresh"],
+                     "an ordinary connect must not spend the re-ingest budget")
+    }
+
+    func testARefusedRefreshIsDistinctFromAnOrdinaryRateLimit() async {
+        // Both come back 429, but they are different budgets: an ordinary
+        // connect limit clears in about a minute, a refresh limit is 2/hour
+        // (demo/server.py). Telling someone to "wait a minute" for an hour-long
+        // budget is a confident claim the evidence doesn't support.
+        let client = BrainClient(session: sessionReturning(status: 429), retryDelay: .milliseconds(1))
+        do {
+            try await client.connect(repo: "octo/hello", refresh: true)
+            XCTFail("expected a refused refresh to throw")
+        } catch let error as BrainError {
+            XCTAssertEqual(error, .refreshRateLimited)
+        } catch {
+            XCTFail("expected BrainError.refreshRateLimited, got \(error)")
+        }
+    }
+
+    func testRefusedRefreshCopyDoesNotPromiseAMinuteItCannotDeliver() {
+        let msg = BrainError.refreshRateLimited.userMessage
+        XCTAssertFalse(msg.lowercased().contains("a minute"),
+                       "the refresh budget is hourly, not a minute: \(msg)")
+        XCTAssertFalse(msg.lowercased().contains("internet connection"))
+        XCTAssertTrue(msg.lowercased().contains("hour"),
+                      "say what the real wait is: \(msg)")
+    }
+
     func testBeginGitHubLoginReturnsAuthorizeURL() async throws {
         _CapturingProtocol.body = Data(#"{"authorize_url":"https://github.com/login/oauth/authorize?client_id=x&state=y"}"#.utf8)
         let client = BrainClient(session: stubbedSession())
@@ -49,6 +119,30 @@ final class BrainClientTests: XCTestCase {
         let client = BrainClient(session: stubbedSession())
         let token = try await client.redeemGitHubSession("sess-1")
         XCTAssertEqual(token, "gho_redeemed")
+    }
+
+    func testCreateAgentSessionUsesGitHubBearerAndDecodesShortCredential() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(
+            #"{"token":"short-lived","expires_at":1600,"repo":"octo/public"}"#.utf8
+        )
+        let client = BrainClient(
+            token: { "github-token" },
+            session: stubbedSession()
+        )
+
+        let session = try await client.createAgentSession()
+
+        let request = _CapturingProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/auth/agent/session")
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(
+            request?.value(forHTTPHeaderField: "Authorization"),
+            "Bearer github-token"
+        )
+        XCTAssertEqual(session.token, "short-lived")
+        XCTAssertEqual(session.expiresAt, 1600)
+        XCTAssertEqual(session.repo, "octo/public")
     }
 
     func testStatusSendsBearerToken() async throws {

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "icarus": {
+      "type": "stdio",
+      "command": ".venv/bin/python",
+      "args": [
+        "-m",
+        "demo.mcp_server"
+      ]
+    }
+  }
+}

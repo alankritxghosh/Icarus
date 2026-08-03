@@ -93,9 +93,15 @@ struct HomeView: View {
         case .matches:
             EmptyView()
         case .behind(let n):
+            // The only branch that offers the button, and it asks the enum
+            // rather than assuming: `offersRefresh` is where the policy lives
+            // (never for `pinned`, whose refresh the server forbids; never for
+            // `unknown`, which does not know it is stale).
             staleRow(IndexFreshness.behind(n).summary,
-                     detail: "Reconnect with refresh to re-read the repository.",
-                     colour: Theme.accent)
+                     detail: connect.refreshError
+                        ?? "Icarus is answering from the older index until you re-read it.",
+                     colour: Theme.accent,
+                     refresh: IndexFreshness.behind(n).offersRefresh)
         case .unknown:
             // Amber, the honest-unknown palette -- deliberately neither the
             // green of "fine" nor the red of "broken". It is a third state.
@@ -108,13 +114,22 @@ struct HomeView: View {
         }
     }
 
-    private func staleRow(_ title: String, detail: String, colour: Color) -> some View {
+    private func staleRow(_ title: String, detail: String, colour: Color,
+                          refresh: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text("◷").font(.system(size: 13)).foregroundStyle(colour)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink)
                 Text(detail).font(.system(size: 12)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if refresh {
+                Spacer(minLength: 12)
+                Button(connect.isRefreshing ? "Re-reading…" : "Re-read repository") {
+                    connect.refreshConnected()
+                }
+                .disabled(connect.isRefreshing)
+                .font(.system(size: 12, weight: .semibold))
             }
         }
         .padding(12)

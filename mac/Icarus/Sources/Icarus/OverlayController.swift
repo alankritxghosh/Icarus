@@ -15,26 +15,41 @@ final class OverlayController {
     /// Voice state (push-to-talk). Injected so the app delegate can pre-warm the
     /// transcriber. Its transcript feeds the same ask path a typed question uses.
     private let voice: VoiceModel
+    private let latency: VoiceLatencyTracker
     /// Speaks the brain's reply aloud (voice-out). The promise carries into voice:
     /// it reads the honest unknown just as it reads a cited answer.
     private let speaker = Speaker()
 
     init(auth: AuthModel, connect: ConnectModel, voice: VoiceModel,
+         latency: VoiceLatencyTracker,
          tokenReader: @escaping @Sendable () -> String? = { nil },
          history: AskHistory? = nil) {
         self.auth = auth
         self.connect = connect
         self.voice = voice
+        self.latency = latency
         self.model = AskModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
         self.model.history = history   // asks flow into the shared shell history
         // Speech becomes the exact same question a user would type, then submits.
         self.voice.onTranscript = { [weak self] text in
             guard let self else { return }
+            self.latency.transcriptReady()
             self.model.question = text
             Task { await self.model.submit() }
         }
         // Speak whatever the brain returned — verbatim answer, or the honest unknown.
-        self.model.onResult = { [weak self] state in self?.speak(for: state) }
+        self.model.onResult = { [weak self] state in
+            guard let self else { return }
+            if case .response = state {
+                self.latency.answerReady()
+                self.speak(for: state)
+            } else {
+                self.latency.cancel()
+            }
+        }
+        self.speaker.onFirstWordStarted = { [weak self] in
+            self?.latency.firstWordStarted()
+        }
     }
 
     private func speak(for state: AskModel.State) {
@@ -67,11 +82,13 @@ final class OverlayController {
         speaker.stop()
         present()
         guard auth.isSignedIn, connect.isReady else { return }
+        latency.begin()
         Task { await voice.startRecording() }
     }
 
     /// Push-to-talk up: stop + transcribe (transcript flows via `onTranscript`).
     func endVoice() {
+        latency.released()
         Task { await voice.stopAndTranscribe() }
     }
 
