@@ -197,11 +197,13 @@ final class BrainNameTests: XCTestCase {
         let s = try status(#"{"state":"ready","repo":"acme/api","commit":"abc","counts":null,"error":null,"private":true}"#)
         XCTAssertEqual(s.isPrivate, true)
         XCTAssertEqual(s.brainName, "COMPANY BRAIN")
+        XCTAssertEqual(s.repositoryVisibilityName, "private repo")
     }
 
     func testPublicRepoIsTheRepoBrain() throws {
         let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null,"private":false}"#)
         XCTAssertEqual(s.brainName, "REPO BRAIN")
+        XCTAssertEqual(s.repositoryVisibilityName, "public repo")
     }
 
     func testAbsentFlagFallsBackToPublic() throws {
@@ -210,6 +212,7 @@ final class BrainNameTests: XCTestCase {
         let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null}"#)
         XCTAssertNil(s.isPrivate)
         XCTAssertEqual(s.brainName, "REPO BRAIN")
+        XCTAssertEqual(s.repositoryVisibilityName, "public repo")
     }
 }
 

@@ -130,6 +130,8 @@ struct HomeView: View {
                 }
                 .disabled(connect.isRefreshing)
                 .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.borderedProminent)
+                .tint(colour)
             }
         }
         .padding(12)
@@ -171,7 +173,7 @@ struct HomeView: View {
                 pill("hold ⌥ Right Option", filled: true)
                 pill("GitHub · \(status.repo ?? "not connected")", filled: false)
                 if let s = status.status, s.isReady {
-                    pill("public repo", filled: false)
+                    pill(s.repositoryVisibilityName, filled: false)
                 }
             }
         }

@@ -220,6 +220,10 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public var isIndexing: Bool { indexing == true }
     /// The brain's own name for this connection, shown in the sidebar.
     public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
+    /// The repository visibility label shown beside the active repo.
+    public var repositoryVisibilityName: String {
+        isPrivate == true ? "private repo" : "public repo"
+    }
 
     /// Staleness as a CLOSED SET of cases rather than an optional Bool.
     ///
