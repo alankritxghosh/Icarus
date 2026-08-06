@@ -1,0 +1,69 @@
+# Browser harness for the Icarus extension
+
+`node --test extension/*.test.js` (41 tests, zero install) covers pure
+functions: string parsing and HTML-string building. **Every bug this extension
+has actually shipped lived outside them** and was found by loading it in a
+browser:
+
+- the stylesheet was injected lazily inside `showPanel`, so the first trigger a
+  user ever saw was completely unstyled;
+- an inline `style.position = "relative"` silently overrode the CSS class's
+  `position: fixed`, putting the panel off-screen at `left:-24px`;
+- a content script's own `fetch()` is bound by the GitHub page's CORS and
+  Private Network Access rules, so every brain call failed with a bare
+  "Failed to fetch" until they were relayed through the service worker.
+
+This harness runs the **real unpacked extension** in real Chromium against real
+github.com, with only the brain stubbed.
+
+## Running it
+
+```
+cd extension/e2e
+npm run setup     # once: npm install + playwright install chromium
+npm test
+```
+
+The dependency is deliberately confined to this directory. `extension/` itself
+stays installable by copying files, and the fast stdlib tests keep running with
+no install at all.
+
+## Why it needs a token and a stub
+
+`content.js` returns immediately when `chrome.storage.local` has no token, and
+only shows its trigger when `/status` reports a connected repo **matching the
+page**. An unseeded run would therefore pass every test by doing nothing.
+`fixtures.js` seeds a token through the service worker and stubs the brain, so
+these tests never touch the live brain or a paid writer.
+
+## These tests were verified by breaking the code
+
+A harness nobody has seen fail is not evidence. Each test was checked against a
+throwaway copy of the extension (`ICARUS_EXT_DIR=/path/to/copy`) with a bug
+that really shipped reintroduced:
+
+| reintroduced bug | test that caught it |
+|---|---|
+| `content.js` fetches the brain directly instead of via the service worker (the CORS bug) | cited answer |
+| stylesheet injected lazily in `showPanel` only (the unstyled first trigger) | styled and on-screen |
+| inline `position:relative` overriding the CSS class (the off-screen panel) | styled and on-screen |
+| connected-repo gate removed | a repo that is not the connected one shows nothing |
+| index citation rendered as a raw `index:overview` ref | cited answer |
+
+One of these mutations exposed a mistake in the harness rather than the product:
+an early attempt removed a style-injection call from inside `showTrigger`, the
+test stayed green, and the reason was that injection happens once at module load
+— which *is* the fix. The test only became meaningful once the mutation matched
+the real bug.
+
+An earlier assertion was also wrong rather than the code: it required a
+background colour on `.icarus-trigger-bar`, which is a transparent flex
+container by design. It now asserts on properties the stylesheet genuinely sets.
+
+## What is still not covered
+
+- the GitHub OAuth flow (`chrome.identity.launchWebAuthFlow`) — needs real
+  credentials and a real consent screen;
+- the popup;
+- anything against the live brain. By design: these tests must not depend on a
+  deployment being up, or spend writer calls.
