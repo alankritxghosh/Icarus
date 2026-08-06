@@ -168,13 +168,17 @@ function authHeaders(extra){
 }
 
 function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
-function srcOf(ref){const p=(ref||"").split(":")[0];return ["pr","issue","code"].includes(p)?p:"ref";}
+function srcOf(ref){const p=(ref||"").split(":")[0];return ["pr","issue","code","doc","commit","index"].includes(p)?p:"ref";}
+// `index:` evidence is Icarus reporting what it READ, measured from the repo
+// rather than written by anyone -- so it is labelled in words and never linked.
+// Shown as a bare `index:overview` chip it reads as a document someone wrote.
+function citeLabel(ref){return srcOf(ref)==="index"?"Icarus's own index":ref;}
 
 function renderAnswer(p){
   const chips=p.citations.map(c=>{
     const s=srcOf(c.ref);
-    const inner=`<span class="src">${esc(s)}</span>${esc(c.ref)}`;
-    return c.url
+    const inner=`<span class="src">${esc(s)}</span>${esc(citeLabel(c.ref))}`;
+    return c.url && s!=="index"
       ? `<a class="chip ${s}" href="${esc(c.url)}" target="_blank" rel="noopener">${inner}</a>`
       : `<span class="chip ${s}">${inner}</span>`;
   }).join("");

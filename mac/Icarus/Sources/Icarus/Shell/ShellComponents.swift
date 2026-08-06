@@ -80,7 +80,10 @@ struct HistoryRow: View {
             // was one — that is what tells a reader it looked where they asked.
             return entry.response.compactTrail
         }
-        let refs = entry.response.citations.map(\.ref)
+        // displayLabel, not ref: index evidence reads as "Icarus's own index"
+        // here too, or the recent-asks list quietly reintroduces the raw
+        // `index:overview` the chip was just fixed to stop showing.
+        let refs = entry.response.citations.map(\.displayLabel)
         return "evidence: " + (refs.isEmpty ? "—" : refs.prefix(4).joined(separator: " · "))
     }
 }

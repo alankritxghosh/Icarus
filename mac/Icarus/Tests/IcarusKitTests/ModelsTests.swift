@@ -360,3 +360,39 @@ final class IndexingProgressTests: XCTestCase {
         XCTAssertEqual(IndexingProgress(done: 1, total: 0, etaSeconds: nil).fraction, 0)
     }
 }
+
+/// `index:` citations are Icarus reporting what it READ -- measured from the
+/// repository, not written by a person. Added 2026-08-06 with the
+/// index-as-evidence brick: before this, `index:overview` rendered as a bare
+/// chip identical to `pr:1482`, which makes exactly the claim the honesty
+/// boundary forbids -- that a human documented it.
+final class IndexCitationLabellingTests: XCTestCase {
+    func testIndexRefIsRecognised() {
+        XCTAssertTrue(Citation(ref: "index:overview", url: nil).isIndex)
+    }
+
+    func testOrdinaryRefsAreNotIndex() {
+        for ref in ["pr:1482", "code:llm/utils.py#L1-L9", "doc:README.md",
+                    "issue:7", "commit:abc1234"] {
+            XCTAssertFalse(Citation(ref: ref, url: nil).isIndex, ref)
+        }
+    }
+
+    func testIndexCitationShowsWordsNotTheRawRef() {
+        let label = Citation(ref: "index:overview", url: nil).displayLabel
+        XCTAssertEqual(label, "Icarus's own index")
+        XCTAssertFalse(label.contains("index:overview"))
+    }
+
+    func testOrdinaryCitationStillShowsItsRef() {
+        XCTAssertEqual(Citation(ref: "pr:1482", url: nil).displayLabel, "pr:1482")
+    }
+
+    func testIndexCitationIsNeverLinkable() {
+        // Even if a brain somehow sent a URL: there is no page "what Icarus
+        // read" lives on, and a link implies a human-authored source.
+        let c = Citation(ref: "index:overview", url: "https://github.com/a/b")
+        XCTAssertNil(c.linkURL)
+        XCTAssertNotNil(Citation(ref: "pr:1482", url: "https://github.com/a/b/pull/1482").linkURL)
+    }
+}

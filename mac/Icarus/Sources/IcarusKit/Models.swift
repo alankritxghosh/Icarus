@@ -28,6 +28,28 @@ public struct Citation: Decodable, Identifiable, Hashable, Sendable {
         self.url = url
         self.excerpt = excerpt
     }
+
+    /// `index:` evidence is Icarus reporting what it READ — file counts,
+    /// languages, what got indexed — measured from the repository rather than
+    /// written by anyone (see evals/index_facts.py). Every other citation
+    /// points at something a person authored, so this one must not look the
+    /// same: `index:overview` sitting in a row beside `pr:1482` reads as a
+    /// document somebody wrote, which is precisely the claim it may not make.
+    public var isIndex: Bool { ref.hasPrefix("index:") }
+
+    /// What a reader should SEE on the chip. Words for the index, the raw ref
+    /// for everything else (a ref is genuinely the most useful label there —
+    /// it is what a reader would search for).
+    public var displayLabel: String { isIndex ? "Icarus's own index" : ref }
+
+    /// The URL to open, or nil when there is nothing to open. Index evidence is
+    /// nil unconditionally — the server already sends no URL for it
+    /// (demo/links.ref_to_url), and this makes that a property of the client
+    /// too rather than trust in the server's restraint.
+    public var linkURL: URL? {
+        guard !isIndex, let url, let parsed = URL(string: url) else { return nil }
+        return parsed
+    }
 }
 
 /// The `/ask` response, mirroring demo/payload.py:

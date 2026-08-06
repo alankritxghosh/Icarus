@@ -48,16 +48,26 @@ struct CitationChip: View {
         // (`commit:` / `code:path` identifies the source, the tail
         // disambiguates), so `commit:8384…45779` stays readable where a
         // tail-truncated `commit:83840902c890f0eb85decda…` does not.
-        let pill = Text(citation.ref)
+        //
+        // `displayLabel` (IcarusKit) shows the raw ref for anything a person
+        // wrote and words — "Icarus's own index" — for `index:` evidence, which
+        // is measured from the repository rather than authored. Rendering that
+        // as a bare `index:overview` chip beside `pr:1482` implied a document
+        // somebody wrote, which is the one claim it must not make.
+        let pill = Text(citation.displayLabel)
             .font(Theme.mono(11, .bold))
             .lineLimit(1)
             .truncationMode(.middle)
-            .foregroundStyle(Theme.cited)
+            .foregroundStyle(citation.isIndex ? Theme.muted : Theme.cited)
             .padding(.horizontal, 9).padding(.vertical, 5)
             .background(Theme.card)
             .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.cited, lineWidth: 1))
-        if let urlString = citation.url, let url = URL(string: urlString) {
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(citation.isIndex ? Theme.muted : Theme.cited,
+                              style: StrokeStyle(lineWidth: 1,
+                                                 dash: citation.isIndex ? [3, 2] : [])))
+        // linkURL is nil for index evidence, so it can never become a link.
+        if let url = citation.linkURL {
             Link(destination: url) { pill }.buttonStyle(.plain)
         } else {
             pill

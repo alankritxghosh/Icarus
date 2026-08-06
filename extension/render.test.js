@@ -120,3 +120,35 @@ test("renderUnknownHtml: an older brain with no anchored field reads as before",
   assert.doesNotMatch(html, /you named/);
   assert.match(html, /searched 2 sources/);
 });
+
+// --- index: citations are Icarus's OWN index, not something a person wrote ---
+// Added 2026-08-06 with the index-as-evidence brick. `index:overview` carries no
+// URL (there is no GitHub page for "what Icarus read"), so before this it
+// rendered as a bare grey chip reading `index:overview` beside `pr:1482` and
+// `code:llm/utils.py` -- visually identical to a human-authored source. The
+// whole point of the honesty boundary is that a reader can tell the difference.
+
+test("sourceOf recognises index as its own source, not a generic ref", () => {
+  assert.equal(sourceOf("index:overview"), "index");
+});
+
+test("an index citation is labelled in words, not as a raw ref", () => {
+  const html = renderAnswerHtml(
+    { answer: "Python.", citations: [{ ref: "index:overview", url: null }] }, {});
+  assert.match(html, /Icarus&#039;s own index|Icarus's own index/);
+  assert.ok(!html.includes("index:overview"),
+    "the raw ref must not be shown -- it reads as a document someone wrote");
+});
+
+test("an index citation never renders as a link", () => {
+  const html = renderAnswerHtml(
+    { answer: "Python.", citations: [{ ref: "index:overview", url: "https://evil" }] }, {});
+  assert.ok(!html.includes("<a"), "index evidence has no source page to link to");
+});
+
+test("ordinary citations are untouched by the index labelling", () => {
+  const html = renderAnswerHtml(
+    { answer: "x", citations: [{ ref: "pr:1482", url: "https://github.com/a/b/pull/1482" }] }, {});
+  assert.ok(html.includes("pr:1482"));
+  assert.ok(html.includes("<a"));
+});

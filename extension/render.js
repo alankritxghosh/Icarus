@@ -12,7 +12,18 @@ function escapeHtml(s) {
 
 function sourceOf(ref) {
   const p = (ref || "").split(":")[0];
-  return ["pr", "issue", "code", "doc", "config"].includes(p) ? p : "ref";
+  return ["pr", "issue", "code", "doc", "config", "commit", "index"].includes(p) ? p : "ref";
+}
+
+// `index:` evidence is Icarus reporting what it READ -- file counts, languages,
+// what got indexed -- measured from the repository rather than written by a
+// person. It has no source page, so it never links. Shown in words instead of
+// as a raw ref: `index:overview` sitting in a row beside `pr:1482` reads as a
+// document somebody wrote, which is exactly the claim it must not make.
+const INDEX_LABEL = "Icarus's own index";
+
+function citationLabel(ref) {
+  return sourceOf(ref) === "index" ? INDEX_LABEL : ref;
 }
 
 // The three small states share one wrapper: a label line plus a body. Only
@@ -38,8 +49,12 @@ function renderAnswerHtml(payload, opts) {
   const chips = (payload.citations || [])
     .map((c) => {
       const s = sourceOf(c.ref);
-      const inner = `<span class="icarus-src icarus-src-${s}">${escapeHtml(s)}</span>${escapeHtml(c.ref)}`;
-      return c.url
+      const inner = `<span class="icarus-src icarus-src-${s}">${escapeHtml(s)}</span>`
+        + escapeHtml(citationLabel(c.ref));
+      // An index citation never links, even if a URL were somehow supplied:
+      // there is no page that "what Icarus read" lives on, and a link would
+      // imply a human-authored source behind it.
+      return c.url && s !== "index"
         ? `<a class="icarus-chip" href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${inner}</a>`
         : `<span class="icarus-chip">${inner}</span>`;
     })
@@ -98,6 +113,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     escapeHtml,
     sourceOf,
+    citationLabel,
     renderLoadingHtml,
     renderSignedOutHtml,
     renderErrorHtml,
