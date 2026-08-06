@@ -195,6 +195,11 @@ class GatedPipeline(Pipeline):
         self._provider = provider
         self._recall_n = recall_n
         self._writer_k = writer_k
+        # Built once per pipeline, not per ask: it is derived purely from the
+        # corpus, which cannot change under a live pipeline (a refresh builds a
+        # new one). None for an empty corpus -- see index_facts.build_index_chunk.
+        self._index = None
+        self._index_built = False
         # Optional `live_fetch(number:int, token:str|None) -> Optional[Chunk]`:
         # resolves an explicit "PR/issue #N" the corpus never indexed (it caps at
         # the most-recent PR_LIMIT/ISSUE_LIMIT) by fetching that one ref + its
@@ -313,11 +318,27 @@ class GatedPipeline(Pipeline):
             guard_rationale=False,   # explain delivers the selected code's "what"
             anchored=anchor_refs,    # the chunks covering the user's own selection
             selection=anchor_refs,   # ...and the writer is TOLD which those are
+            # `neighbors=False` means "answer from the addressed location ALONE"
+            # -- the guarantee the onboarding tour's README step rests on, after
+            # a live bug where a neighbouring commit was cited instead. The index
+            # is context like any other, so it is withheld there too.
+            index_evidence=neighbors,
+            index_standalone=False,  # a location that resolved to nothing stays unknown
         )
+
+    def _index_chunk(self):
+        """Icarus's own index as one evidence chunk, memoised. Lazy so a
+        pipeline that is built but never asked pays nothing."""
+        if not self._index_built:
+            from .index_facts import build_index_chunk
+            self._index = build_index_chunk(list(self._by_ref.values()))
+            self._index_built = True
+        return self._index
 
     def _answer_from(self, question: str, top: List, retrieved: List[str],
                      guard_rationale: bool = True, notes=None, anchored=None,
-                     selection=None) -> Result:
+                     selection=None, index_evidence: bool = True,
+                     index_standalone: bool = True) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -344,6 +365,28 @@ class GatedPipeline(Pipeline):
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate
         anchored = list(dict.fromkeys(anchored or ()))
+        # Icarus's own index, offered as ordinary evidence (evals/index_facts).
+        #
+        # APPENDED, never prepended: retrieved[:k] drives recall@k on every eval
+        # number in this repo, so putting it first would push a real ref out of
+        # the top-k window and silently re-baseline the board while looking like
+        # an improvement. Appending leaves the first k refs exactly as the
+        # retriever ranked them.
+        #
+        # `index_standalone` decides whether it may be the ONLY evidence:
+        #   .answer()  -- yes. "what languages is this in?" matches no chunk
+        #                 lexically, so retrieval legitimately returns nothing
+        #                 and the index IS the answer. Withholding it here was
+        #                 the whole bug (found live on muxinc/media-chrome).
+        #   .explain() -- no. A line selection that resolves to no chunk means
+        #                 "that location isn't in the index"; answering it with
+        #                 a repo-wide file listing would be a non sequitur
+        #                 dressed as an answer. It stays an honest unknown.
+        index_chunk = self._index_chunk() if index_evidence else None
+        if index_chunk is not None and index_chunk.ref not in retrieved \
+                and (top or index_standalone):
+            top = list(top) + [index_chunk]
+            retrieved = list(retrieved) + [index_chunk.ref]
         if not top:
             from .gate import ABSTAIN_NO_EVIDENCE
             return Result(verdict="unknown", retrieved=retrieved, anchored=anchored,

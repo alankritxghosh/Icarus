@@ -209,6 +209,38 @@ removing, or renaming files). For class/function-level detail see
   docs/plans/2026-07-17-ast-chunking-all-languages.md; verified max chunk
   size across 17,657 real RN files is 19,991 chars), NOT yet wired into
   `fetch_code` and no per-language recall eval yet (T3/T4 pending).**
+- `evals/index_facts.py` — `build_index_chunk(chunks)`: Icarus's OWN index as one
+  citable evidence chunk (`index:overview`, source `index`), plus the shared
+  `language_for(path)` extension→language table (`demo/repo_map.py` imports it,
+  so a cited answer and the map can never disagree about a file's language).
+  Exists because every other evidence chunk is something a PERSON wrote, which
+  left a class of true statements Icarus could not make: nobody writes "this
+  project is in TypeScript" in a doc — it is a property of the FILES. Found
+  live 2026-08-06 on muxinc/media-chrome, where "what coding languages does the
+  codebase contain" returned "No one wrote this down" while `/map` had already
+  computed the answer and the tour had rendered it (the word "languages"
+  lexically matched `docs/src/languages.ts`, an i18n file about HUMAN
+  languages). Deliberately NOT a keyword router — the index is offered as
+  ordinary evidence on every ask, so any phrasing retrieval routes to it can be
+  answered and cited. Honesty boundary: the text states only measured counts and
+  is pinned against gate.py's REAL `_RATIONALE_MARKERS` list, because an earlier
+  draft ending "...they say nothing about intent" made a DISCLAIMER of intent
+  register as a statement of one (substring `intent`), which would have let a
+  "why was TypeScript chosen?" ground on a file listing. `index:` is not a
+  rationale source and `demo/links.ref_to_url` gives it no URL.
+- `evals/test_index_facts.py` — the chunk's contract: distinct FILES counted (not
+  chunks), languages by file count, determinism under reordering, empty corpus
+  yielding None rather than asserting zeroes, purity (`open`/`socket` patched to
+  raise), and the two honesty guards (never trips `_states_reason`, never a
+  rationale `_source`) checked against gate.py's real rules, not a hand-copy.
+- `evals/test_index_evidence_wiring.py` — the chunk reaching the writer without
+  disturbing anything measured: appended LAST so `retrieved[:k]` (and therefore
+  every recall@k number in the repo) is byte-identical, real retrieval order
+  otherwise untouched, a citation to it grounds, a "why" grounded only on it is
+  still forced to unknown, `.explain(neighbors=False)` gets no index either (the
+  onboarding README step's answer-from-this-location-alone guarantee), and an
+  unresolvable location stays unknown rather than being answered with a
+  repo-wide file listing.
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links. `write_meta` also stamps a
   `"chunking"` field (`"chunk_text"` or `"ast"`, default `"chunk_text"` so

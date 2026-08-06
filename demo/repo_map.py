@@ -30,30 +30,13 @@ from evals.ingest import (
     _MAX_FILE_BYTES,
 )
 
+from evals.index_facts import language_for
 from .entry_points import detect_entry_points, is_auxiliary_path
 from .structure import build_structure
 
 # Sources whose ref carries a repo-relative PATH (`code:llm/cli.py#L1-L300`).
 # pr/issue/commit refs carry an identifier instead and have no file at all.
 _FILE_SOURCES = ("code", "doc", "config")
-
-# Extension -> the name a human would use. Display only: it never affects
-# ingest, retrieval or the gate. An unmapped extension falls back to the
-# extension itself, so a file can never vanish from the totals just because
-# this table doesn't know its language (the totals must equal
-# indexed_file_count, and a test pins that).
-_LANGUAGE_BY_EXT = {
-    ".py": "Python", ".js": "JavaScript", ".jsx": "JavaScript",
-    ".mjs": "JavaScript", ".cjs": "JavaScript", ".ts": "TypeScript",
-    ".tsx": "TypeScript", ".go": "Go", ".rs": "Rust", ".java": "Java",
-    ".rb": "Ruby", ".c": "C", ".h": "C/C++ header", ".cpp": "C++",
-    ".m": "Objective-C", ".mm": "Objective-C++", ".swift": "Swift",
-    ".kt": "Kotlin", ".php": "PHP", ".cs": "C#", ".scala": "Scala",
-    ".sh": "Shell", ".md": "Markdown", ".rst": "reStructuredText",
-    ".txt": "Text", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
-    ".cfg": "Config", ".ini": "Config", ".sql": "SQL",
-    ".gradle": "Gradle", ".podspec": "Podspec",
-}
 
 _ROOT = "."  # the directory bucket for a file with no directory component
 
@@ -67,10 +50,15 @@ def _split(ref):
     return source, rest.split("#", 1)[0]
 
 
-def _language(path):
-    dot = path.rfind(".")
-    ext = path[dot:].lower() if dot > path.rfind("/") else ""
-    return _LANGUAGE_BY_EXT.get(ext, ext or "(no extension)")
+# Extension -> the name a human would use. Display only: it never affects
+# ingest, retrieval or the gate. An unmapped extension falls back to the
+# extension itself, so a file can never vanish from the totals just because the
+# table doesn't know its language (the totals must equal indexed_file_count,
+# and a test pins that). The table lives in evals/index_facts.py because the
+# ASK path needs it too (the index is offered to the writer as evidence there);
+# one table, so the map and a cited answer can never disagree about what
+# language a file is.
+_language = language_for
 
 
 def _top_directory(path):

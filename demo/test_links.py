@@ -58,3 +58,13 @@ class RefToUrlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IndexRefHasNoGitHubUrlTests(unittest.TestCase):
+    """`index:overview` is Icarus describing what it READ -- there is no GitHub
+    page for that. It must never resolve to a URL, or a citation to Icarus's own
+    file listing would render as a link to the repository and read as though a
+    person had written it down."""
+
+    def test_index_ref_resolves_to_no_url(self):
+        self.assertIsNone(ref_to_url("index:overview", "simonw/llm", "94769b8"))
