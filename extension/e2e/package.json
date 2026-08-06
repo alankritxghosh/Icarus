@@ -3,7 +3,8 @@
   "private": true,
   "description": "Browser harness for the Icarus Chrome extension. Deliberately isolated here: extension/ itself stays dependency-free and installable by copying files, and `node --test extension/*.test.js` keeps running with zero install.",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test extension.spec.js",
+    "test:live": "ICARUS_LIVE=1 playwright test live.spec.js",
     "setup": "npm install && npx playwright install chromium"
   },
   "devDependencies": {

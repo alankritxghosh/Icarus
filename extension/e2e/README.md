@@ -60,10 +60,24 @@ An earlier assertion was also wrong rather than the code: it required a
 background colour on `.icarus-trigger-bar`, which is a transparent flex
 container by design. It now asserts on properties the stylesheet genuinely sets.
 
+## `live.spec.js` — the real thing, on request
+
+`npm test` never touches the network beyond loading github.com; the brain is
+always stubbed. `npm run test:live` (or `ICARUS_LIVE=1 npx playwright test
+live.spec.js`) runs the same extension against the **real** github.com and the
+**real deployed Azure brain** — no stub, real writer call, real citations
+checked to actually resolve on GitHub. It uses `gh auth token` for sign-in
+(this machine's own identity; never written to disk or passed as a CLI arg) and
+targets whichever repo that account currently has connected.
+
+Skipped by default because it costs a real writer call and needs both `gh` auth
+and a live deployment. First run of this file found a real bug in the harness,
+not the product: it asserted the panel `toBeVisible`, which is true the instant
+it renders its "thinking…" state, and read the text right then. Fixed to poll
+until the panel actually resolves to evidence or an honest unknown.
+
 ## What is still not covered
 
-- the GitHub OAuth flow (`chrome.identity.launchWebAuthFlow`) — needs real
-  credentials and a real consent screen;
-- the popup;
-- anything against the live brain. By design: these tests must not depend on a
-  deployment being up, or spend writer calls.
+- the GitHub OAuth flow (`chrome.identity.launchWebAuthFlow`) itself — needs a
+  real consent screen, not just a token dropped into storage;
+- the popup.
