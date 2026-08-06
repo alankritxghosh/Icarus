@@ -3,10 +3,13 @@
   "commit": "94769b8b076cde9392059d76bd766453cf900180",
   "code_dir": "llm",
   "counts": {
-    "pr": 141,
-    "issue": 84,
+    "pr": 526,
+    "issue": 964,
+    "commit": 1091,
     "code": 470
   },
   "chunking": "ast",
-  "generated_at": "2026-07-17T17:56:37.236658+00:00"
+  "corpus_version": 4,
+  "truncated": false,
+  "generated_at": "2026-08-06T14:30:24.033773+00:00"
 }
