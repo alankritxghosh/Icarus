@@ -178,7 +178,15 @@ class GatedPipeline(Pipeline):
 
     # Brick D's default writer prompt when a GitHub selection carries no typed
     # question (the common case: select a line, click "Ask Icarus").
-    _DEFAULT_EXPLAIN_QUESTION = "What does this code do, and why is it here?"
+    # NOT compound. "What does this code do, and why is it here?" shipped until
+    # 2026-08-06 and measurably abstained on plain utility code that the SAME
+    # pipeline explained correctly when asked only the first half: the writer's
+    # contract is answer-everything-or-unknown, with no partial path, so an
+    # unrecorded "why" dragged an answerable "what" down with it. The "why" is
+    # not lost -- a user who wants it types it, and then an honest unknown is
+    # the correct answer rather than a side effect.
+    _DEFAULT_EXPLAIN_QUESTION = ("What does this code do, and how is it used in "
+                                 "this codebase?")
 
     def __init__(self, retriever, chunks, provider, recall_n: int = 20, writer_k: int = 10,
                  live_fetch=None, live_commit_fetch=None):
@@ -304,10 +312,12 @@ class GatedPipeline(Pipeline):
             question or self._DEFAULT_EXPLAIN_QUESTION, top[: self._writer_k], retrieved,
             guard_rationale=False,   # explain delivers the selected code's "what"
             anchored=anchor_refs,    # the chunks covering the user's own selection
+            selection=anchor_refs,   # ...and the writer is TOLD which those are
         )
 
     def _answer_from(self, question: str, top: List, retrieved: List[str],
-                     guard_rationale: bool = True, notes=None, anchored=None) -> Result:
+                     guard_rationale: bool = True, notes=None, anchored=None,
+                     selection=None) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -322,7 +332,15 @@ class GatedPipeline(Pipeline):
 
         `anchored` is carried through untouched for display (see Result). It is
         set on BOTH exits -- an abstention is exactly the case where a reader
-        needs to see that the thing they named was in fact looked up."""
+        needs to see that the thing they named was in fact looked up.
+
+        `selection` is DIFFERENT from `anchored` and deliberately not merged with
+        it. Both are exact-lookup refs, but only `selection` is shown to the
+        writer as "this is the subject". .answer() sets `anchored` whenever a
+        question names a PR/commit, so merging them would change every /ask
+        prompt the eval board was measured on -- a silent re-baselining of every
+        number in the repo. Only .explain() passes `selection`, because only
+        there did the USER point at specific lines."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate
         anchored = list(dict.fromkeys(anchored or ()))
@@ -333,7 +351,8 @@ class GatedPipeline(Pipeline):
         # Pass the question + the evidence text the writer actually saw so the
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}
-        result = gate(self._provider.complete(build_prompt(question, top, notes=notes)), retrieved,
+        result = gate(self._provider.complete(
+                          build_prompt(question, top, notes=notes, selection=selection)), retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
         result.anchored = anchored

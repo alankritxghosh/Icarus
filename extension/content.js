@@ -119,15 +119,22 @@ function showTrigger(selection) {
   const input = document.createElement("input");
   input.type = "text";
   input.className = "icarus-question-input";
-  input.placeholder = "Ask about this code (optional)…";
+  // NOT labelled "(optional)". Typing a question is the BETTER path, not the
+  // skippable one: explain() searches for surrounding context using the typed
+  // question, and falls back to the selected code's own text when there isn't
+  // one -- measured to find worse evidence (see GatedPipeline.explain). Calling
+  // the stronger path optional pushed users onto the weaker one.
+  input.placeholder = "Ask about this line…";
 
   const btn = document.createElement("button");
   btn.textContent = "Ask Icarus";
   btn.className = "icarus-ask-btn";
 
-  // Empty input -> the same default "what does this code do, and why is it
-  // here?" behavior as before; a typed question is passed through to
-  // /explain's optional `question` field, unchanged on the server side.
+  // Empty input -> the server's default explain question ("what does this code
+  // do, and how is it used in this codebase?" -- deliberately NOT compound; the
+  // old "...and why is it here?" made an unrecorded why abstain the answerable
+  // what). A typed question is passed through to /explain's `question` field,
+  // unchanged on the server side.
   const submit = () => askIcarus(selection, input.value.trim() || undefined);
   btn.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => {

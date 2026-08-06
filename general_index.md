@@ -274,6 +274,13 @@ removing, or renaming files). For class/function-level detail see
   the writer to treat evidence as data, not instructions). Truncates prose chunks
   to `_MAX_CHUNK_CHARS` (1500) but CODE chunks to `_MAX_CODE_CHUNK_CHARS` (10000)
   so a 300-line code window stays visible to the writer instead of ~40 lines.
+  `selection=` (2026-08-06) marks the refs the caller resolved BY LOCATION — a
+  user's line selection — so the writer answers about the code they pointed at
+  rather than a neighbour that merely ranked well. Marker text and instruction
+  are appended only when a selected ref actually survived into the chunks shown;
+  an empty/None/unmatched selection leaves the prompt BYTE-IDENTICAL, which is
+  what keeps `/ask` and every number on the eval board untouched (`.answer()`
+  sets `anchored` too, so the two are deliberately NOT merged).
 - `evals/gate.py` — the deterministic honesty gate: emits an answer ONLY if it
   parses, claims "answer", has prose, and cites ≥1 retrieved ref; else "unknown".
   Citation matching is tolerant-but-safe (`_parse_ref`/`_resolve`): it grounds a
@@ -483,6 +490,21 @@ removing, or renaming files). For class/function-level detail see
   on an unretrieved path or an out-of-window line; and `build_prompt` shows code
   past the old 1500-char cap so a mid-window answer isn't truncated out. Started
   as a RED failing eval (red→green, deterministic, no live model).
+- `evals/test_explain_selection_eval.py` — live proof (self-skips without paid
+  key/fastembed/corpus) that a LINE SELECTION is answered about the selected
+  lines. Red→green 2026-08-06 against the real serving pipeline: selecting
+  `logging_client()` (`llm/utils.py#L149-L153`) and clicking "Ask Icarus" with
+  no typed question returned an honest-looking `unknown`, while the SAME
+  pipeline asked only the "what" half answered correctly — the shipped default
+  question was compound ("...and why is it here?") and the writer's
+  answer-everything-or-unknown contract let an unrecorded why drag the
+  answerable what down with it. Worse, asking why the selected code was chosen
+  produced a confident, correctly-cited explanation of an unrelated Pydantic
+  v1/v2 decision: **every citation resolved, so the honesty gate passed it** —
+  groundedness proves a citation is real, never that the answer is about the
+  code the user pointed at. Third test is the honesty guard that must stay red
+  if the fix ever buys helpfulness with a bluff (an unrecorded why must still
+  abstain).
 - `evals/test_retrieval_eval.py` — end-to-end red→green: retrieval recall@k rises
   without dropping a gate (skips without the corpus).
 - `evals/test_gated_eval.py` — real-model proof: citation correctness > 0 with

@@ -215,3 +215,69 @@ class _SpyRetriever:
     def search(self, query, k):
         self.calls.append((query, k))
         return list(self._refs)
+
+
+class _PromptSpyProvider:
+    """StaticProvider that also records the prompt it was handed."""
+
+    private_safe = True
+
+    def __init__(self, response):
+        self._response = response
+        self.prompts = []
+
+    def complete(self, prompt):
+        self.prompts.append(prompt)
+        return self._response
+
+
+class ExplainMarksTheSelectionTests(unittest.TestCase):
+    """The selected lines must reach the writer MARKED as the subject, so
+    neighbours stay context instead of becoming an alternative thing to answer
+    about (see evals/test_synth.SelectionMarkingTests for the live finding)."""
+
+    ANSWER = json.dumps({"verdict": "answer", "answer": "It returns the current time.",
+                         "citations": ["code:llm/tools.py#L10-L40"]})
+
+    def test_explain_marks_the_anchor_in_the_writer_prompt(self):
+        spy = _PromptSpyProvider(self.ANSWER)
+        _pipe(spy).explain("llm/tools.py", 15, 20)
+        marked = [ln for ln in spy.prompts[0].splitlines() if "SELECTED" in ln]
+        self.assertEqual(len(marked), 1, f"expected the anchor marked once, got {marked}")
+        self.assertIn("code:llm/tools.py#L10-L40", marked[0])
+
+    def test_neighbours_reach_the_writer_but_unmarked(self):
+        # The whole point of option B: keep the surrounding context, don't let
+        # it impersonate the subject.
+        spy = _PromptSpyProvider(self.ANSWER)
+        _pipe(spy).explain("llm/tools.py", 15, 20)
+        prompt = spy.prompts[0]
+        self.assertIn("pr:99", prompt)
+        self.assertNotIn("SELECTED", prompt.split("pr:99")[1].split("\n")[0])
+
+    def test_answer_marks_nothing_even_when_it_anchors_an_exact_ref(self):
+        # .answer() also sets `anchored` (a question naming "PR 99"). Marking it
+        # would change every /ask prompt and silently invalidate the eval board,
+        # so the selection marker is explicitly explain-only.
+        spy = _PromptSpyProvider(json.dumps({"verdict": "answer", "answer": "x",
+                                             "citations": ["pr:99"]}))
+        _pipe(spy).answer("What did PR 99 do?")
+        self.assertNotIn("SELECTED", spy.prompts[0])
+
+
+class ExplainDefaultQuestionTests(unittest.TestCase):
+    """The default question fired by a bare "Ask Icarus" click must not be
+    compound. Proven live 2026-08-06: "What does this code do, and why is it
+    here?" abstained on plain utility code that the same pipeline explained
+    correctly when asked only the "what" half -- the unanswerable "why" half
+    dragged the answerable half down with it, because the writer's contract is
+    answer-everything-or-unknown with no partial path."""
+
+    def test_default_question_does_not_ask_why(self):
+        q = GatedPipeline._DEFAULT_EXPLAIN_QUESTION.lower()
+        self.assertNotIn("why", q)
+
+    def test_default_question_still_asks_what_and_usage(self):
+        q = GatedPipeline._DEFAULT_EXPLAIN_QUESTION.lower()
+        self.assertIn("what", q)
+        self.assertIn("used", q)

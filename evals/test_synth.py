@@ -6,6 +6,60 @@ from .corpus import Chunk
 from .synth import build_prompt
 
 
+class SelectionMarkingTests(unittest.TestCase):
+    """A line selection names ONE piece of evidence as the subject; the rest is
+    context. Without that distinction the writer answers about whichever chunk
+    is easiest to answer -- proven live 2026-08-06 against the real corpus:
+    selecting `logging_client()` (llm/utils.py#L149-L153) with neighbours on
+    produced a confident, correctly-cited explanation of a DIFFERENT function
+    (`extract_fenced_code_block`). Groundedness held; relevance did not, and the
+    honesty gate cannot catch that -- it proves citations resolve to retrieved
+    evidence, never that the answer is about the code the user pointed at."""
+
+    def setUp(self):
+        self.chunks = [Chunk("pr:1", "pr", "We did X because Y."),
+                       Chunk("code:a.py", "code", "N = 32")]
+
+    def test_no_selection_leaves_the_prompt_byte_identical(self):
+        # The board-protection guard: /ask must not change at all. If this ever
+        # fails, every eval number in the repo was measured on a different prompt.
+        base = build_prompt("Why X?", self.chunks)
+        self.assertEqual(base, build_prompt("Why X?", self.chunks, selection=None))
+        self.assertEqual(base, build_prompt("Why X?", self.chunks, selection=[]))
+
+    def test_selected_chunk_is_marked_and_others_are_not(self):
+        prompt = build_prompt("What does this do?", self.chunks, selection=["code:a.py"])
+        marked = [ln for ln in prompt.splitlines() if "SELECTED" in ln]
+        self.assertEqual(len(marked), 1, f"expected exactly one marked block, got {marked}")
+        self.assertIn("code:a.py", marked[0])
+        self.assertNotIn("pr:1", marked[0])
+
+    def test_instruction_names_the_selection_as_the_subject(self):
+        low = build_prompt("What does this do?", self.chunks, selection=["code:a.py"]).lower()
+        self.assertIn("selected", low)
+        # and must say the rest is context, not an alternative subject
+        self.assertIn("context", low)
+
+    def test_selection_never_weakens_the_honesty_rules(self):
+        # Same guard the charity clause carries: helpfulness may never be bought
+        # with honesty. Evidence-only, no outside knowledge, unknown still open.
+        low = build_prompt("What does this do?", self.chunks, selection=["code:a.py"]).lower()
+        self.assertIn("only the numbered", low)
+        self.assertIn("never use outside knowledge", low)
+        self.assertIn("unknown", low)
+
+    def test_a_selection_ref_not_among_the_chunks_marks_nothing(self):
+        # Fail safe: an anchor that didn't survive the writer_k cut must not
+        # crash and must not mark an unrelated block.
+        prompt = build_prompt("What?", self.chunks, selection=["code:missing.py#L1-L9"])
+        self.assertNotIn("SELECTED", prompt)
+
+    def test_every_selected_chunk_is_marked_when_several_are_selected(self):
+        prompt = build_prompt("What?", self.chunks, selection=["code:a.py", "pr:1"])
+        marked = [ln for ln in prompt.splitlines() if "SELECTED" in ln]
+        self.assertEqual(len(marked), 2)
+
+
 class BuildPromptTests(unittest.TestCase):
     def setUp(self):
         self.chunks = [Chunk("pr:1", "pr", "We did X because Y."), Chunk("code:a.py", "code", "N = 32")]
