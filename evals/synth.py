@@ -39,6 +39,29 @@ INSTRUCTION = (
 # lines.
 _SELECTION_MARKER = "  <-- SELECTED BY THE USER"
 
+# Voice add-ons, keyed by `audience`. `None`/"developer" adds NOTHING -- the
+# prompt stays byte-identical to before this parameter existed, which is what
+# keeps /ask and the eval board untouched for every existing caller. Requested
+# 2026-08-06: explaining a PR to a PM should not require them to parse "chain
+# resume from pending tool calls".
+#
+# Deliberately only touches PROSE, never the JSON contract (rules 1-4, the
+# verdict/answer/citations shape) -- the gate parses that shape regardless of
+# who is meant to read the answer, and weakening it for one audience would
+# weaken it for both.
+_AUDIENCE_INSTRUCTIONS = {
+    "plain": (
+        "Write the answer for a non-technical reader -- a product manager or "
+        "executive with no coding background. Avoid jargon; where a technical "
+        "term is unavoidable (a function name, a file path), say in plain words "
+        "what it does rather than assuming the reader recognizes it. Prefer "
+        "short, plain sentences over compound ones. This changes ONLY how you "
+        "phrase the answer -- rules 1-4 above still apply exactly as written: "
+        "still evidence-only, still cite refs, still say unknown when the "
+        "evidence does not support an answer."
+    ),
+}
+
 _SELECTION_INSTRUCTION = (
     "The user selected the evidence marked above as their subject. Answer about "
     "THAT code specifically -- what it does and how it is used here. The other "
@@ -60,7 +83,8 @@ _MAX_CHUNK_CHARS = 1500
 _MAX_CODE_CHUNK_CHARS = 10000
 
 
-def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None) -> str:
+def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
+                  audience=None) -> str:
     """`notes` are facts DERIVED IN CODE from the retrieved refs themselves, not
     model output and not outside knowledge -- currently only "#N is an issue, not
     a pull request", which the pipeline can state with certainty because it knows
@@ -87,7 +111,15 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None)
     Empty/None `selection`, or one naming no chunk actually present, leaves the
     prompt BYTE-IDENTICAL to before this parameter existed. That is deliberate:
     /ask sets `anchored` too (a question naming "PR 99"), and marking there would
-    silently change every prompt the eval board was measured on."""
+    silently change every prompt the eval board was measured on.
+
+    `audience` selects a voice add-on from `_AUDIENCE_INSTRUCTIONS`. None or
+    "developer" leaves the prompt untouched -- same byte-identical guarantee as
+    an empty `selection`. Any other unrecognized value raises rather than
+    silently falling back to the developer voice, so a typo'd audience string
+    is a loud bug, not a quietly wrong answer."""
+    if audience not in (None, "developer") and audience not in _AUDIENCE_INSTRUCTIONS:
+        raise ValueError(f"unknown audience: {audience!r}")
     selected = set(selection or ())
     marked_any = False
     blocks = []
@@ -118,4 +150,6 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None)
     # unchanged, which is what keeps /ask and the eval board untouched.
     if marked_any:
         prompt += "\n\n" + _SELECTION_INSTRUCTION
+    if audience in _AUDIENCE_INSTRUCTIONS:
+        prompt += "\n\n" + _AUDIENCE_INSTRUCTIONS[audience]
     return prompt

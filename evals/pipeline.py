@@ -217,7 +217,12 @@ class GatedPipeline(Pipeline):
     def indexed_chunks(self) -> List:
         return list(self._by_ref.values())
 
-    def answer(self, question: str, token: str = None) -> Result:
+    def answer(self, question: str, token: str = None, audience: str = None) -> Result:
+        # `audience` (2026-08-06): None/"developer" is byte-identical to before
+        # this parameter existed (see synth.build_prompt). "plain" asks the
+        # writer for prose a non-technical reader can follow -- same evidence,
+        # same honesty gate, same JSON contract, only the sentence changes.
+        #
         # `token`, when given, is the CALLER's own GitHub token, used only to
         # live-fetch an exact ref they named. It is passed straight through to
         # the fetcher for the duration of this call and never stored on the
@@ -256,7 +261,7 @@ class GatedPipeline(Pipeline):
         retrieved = list(dict.fromkeys(anchor_refs + searched))
         lookup = {**self._by_ref, **fetched} if fetched else self._by_ref
         top = [lookup[r] for r in retrieved[: self._writer_k] if r in lookup]
-        return self._answer_from(question, top, retrieved,
+        return self._answer_from(question, top, retrieved, audience=audience,
                                  notes=_premise_notes(question, anchor_refs),
                                  anchored=anchor_refs)
 
@@ -338,7 +343,7 @@ class GatedPipeline(Pipeline):
     def _answer_from(self, question: str, top: List, retrieved: List[str],
                      guard_rationale: bool = True, notes=None, anchored=None,
                      selection=None, index_evidence: bool = True,
-                     index_standalone: bool = True) -> Result:
+                     index_standalone: bool = True, audience: str = None) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -395,7 +400,8 @@ class GatedPipeline(Pipeline):
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}
         result = gate(self._provider.complete(
-                          build_prompt(question, top, notes=notes, selection=selection)), retrieved,
+                          build_prompt(question, top, notes=notes, selection=selection,
+                                       audience=audience)), retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
         result.anchored = anchored

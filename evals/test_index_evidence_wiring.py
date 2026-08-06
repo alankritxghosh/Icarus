@@ -100,6 +100,28 @@ class BoardIsUntouchedTests(unittest.TestCase):
         self.assertEqual(without_index, expected)
 
 
+class AnswerAudienceWiringTests(unittest.TestCase):
+    """`answer(question, audience=...)` reaches the writer prompt, and does not
+    leak into .explain(), which has no audience concept of its own."""
+
+    def test_answer_passes_audience_through_to_the_prompt(self):
+        spy = _PromptSpy(json.dumps({"verdict": "unknown"}))
+        _pipe(spy).answer("what happened here?", audience="plain")
+        self.assertIn("non-technical", spy.prompts[0].lower())
+
+    def test_default_answer_call_is_unaffected(self):
+        spy = _PromptSpy(json.dumps({"verdict": "unknown"}))
+        _pipe(spy).answer("what happened here?")
+        self.assertNotIn("non-technical", spy.prompts[0].lower())
+
+    def test_explain_ignores_audience_it_was_never_given(self):
+        # explain() has no audience parameter; this just pins that its prompt
+        # is unaffected by anything answer() does elsewhere.
+        spy = _PromptSpy(json.dumps({"verdict": "unknown"}))
+        _pipe(spy).explain("llm/utils.py", 1, 5)
+        self.assertNotIn("non-technical", spy.prompts[0].lower())
+
+
 class IndexCannotLaunderAnUnrecordedWhyTests(unittest.TestCase):
     def test_a_why_grounded_only_on_the_index_is_forced_to_unknown(self):
         raw = json.dumps({"verdict": "answer",

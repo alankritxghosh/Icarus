@@ -60,6 +60,60 @@ class SelectionMarkingTests(unittest.TestCase):
         self.assertEqual(len(marked), 2)
 
 
+class PlainLanguageAudienceTests(unittest.TestCase):
+    """`audience="plain"` asks the writer for prose a non-technical reader can
+    follow -- same evidence, same honesty gate, same JSON contract, just a
+    different sentence. Requested 2026-08-06: explaining a PR to a PM should
+    not require them to parse "chain resume from pending tool calls"."""
+
+    def setUp(self):
+        self.chunks = [Chunk("pr:1482", "pr", "PauseChain primitive + chain resume.")]
+
+    def test_default_audience_is_byte_identical_to_before_this_existed(self):
+        # The board-protection guard, same shape as selection=None: nothing
+        # about /ask's prompt may change for a caller that doesn't opt in.
+        base = build_prompt("What did PR 1482 do?", self.chunks)
+        self.assertEqual(base, build_prompt("What did PR 1482 do?", self.chunks, audience=None))
+        self.assertEqual(base, build_prompt("What did PR 1482 do?", self.chunks, audience="developer"))
+
+    def test_plain_audience_adds_a_distinct_instruction(self):
+        dev = build_prompt("What did PR 1482 do?", self.chunks)
+        plain = build_prompt("What did PR 1482 do?", self.chunks, audience="plain")
+        self.assertNotEqual(dev, plain)
+        low = plain.lower()
+        self.assertIn("non-technical", low)
+
+    def test_plain_audience_forbids_jargon_without_explanation(self):
+        low = build_prompt("x", self.chunks, audience="plain").lower()
+        self.assertIn("jargon", low)
+
+    def test_plain_audience_keeps_the_json_contract_unchanged(self):
+        # The prose changes; the machine-readable shape must not, or the gate's
+        # parser breaks.
+        plain = build_prompt("x", self.chunks, audience="plain")
+        self.assertIn('"verdict"', plain)
+        self.assertIn('"citations"', plain)
+
+    def test_plain_audience_never_weakens_the_honesty_rules(self):
+        low = build_prompt("x", self.chunks, audience="plain").lower()
+        self.assertIn("only the numbered", low)
+        self.assertIn("never use outside knowledge", low)
+        self.assertIn("unknown", low)
+
+    def test_unknown_audience_value_is_rejected_not_silently_ignored(self):
+        # A typo'd audience string silently falling back to developer mode
+        # would be a confusing bug to track down later.
+        with self.assertRaises(ValueError):
+            build_prompt("x", self.chunks, audience="frendly")
+
+    def test_composes_with_selection_marking(self):
+        # audience and selection are independent options on the same function;
+        # both must be able to apply to the same prompt at once.
+        prompt = build_prompt("x", self.chunks, audience="plain", selection=["pr:1482"])
+        self.assertIn("non-technical", prompt.lower())
+        self.assertIn("SELECTED", prompt)
+
+
 class BuildPromptTests(unittest.TestCase):
     def setUp(self):
         self.chunks = [Chunk("pr:1", "pr", "We did X because Y."), Chunk("code:a.py", "code", "N = 32")]
