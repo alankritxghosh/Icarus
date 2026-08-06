@@ -1,9 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Icarus — Explain This Line",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Select a line of code on GitHub and ask Icarus what it does or why it's here — for repos you've already connected to Icarus.",
   "permissions": ["identity", "storage"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "host_permissions": [
     "https://github.com/*",
     "https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io/*"
@@ -12,7 +18,11 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   },
   "content_scripts": [
     {
