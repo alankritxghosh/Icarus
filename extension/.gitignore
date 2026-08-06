@@ -1,0 +1,3 @@
+# Build artifact from package.sh — the zip is produced, not authored.
+# Published copies live in the website repo, not in git history here.
+dist/
