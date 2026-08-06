@@ -1,56 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Source Info.plist for the Icarus.app bundle (assembled by scripts/bundle.sh).
-     A bundle + usage string + signature is what macOS TCC requires before it will
-     grant microphone access; a bare SwiftPM executable cannot get the mic. -->
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Icarus</string>
-    <key>CFBundleDisplayName</key>
-    <string>Icarus</string>
-    <key>CFBundleExecutable</key>
-    <string>Icarus</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.alankrit.icarus</string>
-    <!-- Static Dock/Finder/DMG icon, generated from IconArt by scripts/bundle.sh
-         (Icarus --render-iconset → iconutil → Resources/AppIcon.icns). Without it
-         the bundle shows a blank tile until the app launches and sets its icon. -->
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.2</string>
-    <key>SUFeedURL</key>
-    <string>https://icarus-website-kappa.vercel.app/appcast.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>UM9GialmYjEtQia20gfLG3qd9xbcoQgL9/EuSRgxuw8=</string>
-    <key>SUEnableAutomaticChecks</key>
-    <true/>
-    <key>CFBundleVersion</key>
-    <string>5</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <!-- App is Dock-visible (.regular); no LSUIElement. -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Icarus transcribes your spoken question while you hold the hotkey. Recognition runs on-device when your Mac has the local speech model; otherwise it uses Apple's speech recognition service.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Icarus turns your spoken question into text. It's recognized on-device when your Mac has the local model; otherwise Apple's speech recognition service is used.</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <!-- Custom scheme for the GitHub web-login callback (icarus://auth?session=…);
-         ASWebAuthenticationSession captures it to close the sign-in sheet. -->
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>com.alankrit.icarus.auth</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>icarus</string>
-            </array>
-        </dict>
-    </array>
+	<key>CFBundleDisplayName</key>
+	<string>Icarus</string>
+	<key>CFBundleExecutable</key>
+	<string>Icarus</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.alankrit.icarus</string>
+	<key>CFBundleName</key>
+	<string>Icarus</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.3</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.alankrit.icarus.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>icarus</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>6</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Icarus transcribes your spoken question while you hold the hotkey. Recognition runs on-device when your Mac has the local speech model; otherwise it uses Apple's speech recognition service.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Icarus turns your spoken question into text. It's recognized on-device when your Mac has the local model; otherwise Apple's speech recognition service is used.</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://icarus-website-kappa.vercel.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>UM9GialmYjEtQia20gfLG3qd9xbcoQgL9/EuSRgxuw8=</string>
 </dict>
 </plist>
