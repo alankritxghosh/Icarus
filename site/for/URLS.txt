@@ -1,0 +1,6 @@
+cap       https://icarus.alankrit.dev/for/cap-7b7b8d.html
+builder   https://icarus.alankrit.dev/for/builder-0f8168.html
+tldraw    https://icarus.alankrit.dev/for/tldraw-fa0166.html
+mockoon   https://icarus-website-kappa.vercel.app/for/mockoon-da269a.html
+letta     https://icarus-website-kappa.vercel.app/for/letta-728562.html
+paseo     https://icarus-website-kappa.vercel.app/for/paseo-43698d.html
