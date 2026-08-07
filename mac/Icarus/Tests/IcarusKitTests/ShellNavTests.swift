@@ -4,7 +4,7 @@ import XCTest
 final class ShellNavTests: XCTestCase {
     func testSurfaceOrderAndTitles() {
         XCTAssertEqual(ShellSurface.allCases.map(\.title),
-            ["Home", "Start here", "Ask by voice", "Decision history", "Unknowns", "Privacy boundary"])
+            ["Home", "Start here", "Decision history", "Engineering memory"])
     }
 
     /// The tour sits directly under Home: it is the first experience a new
@@ -17,6 +17,6 @@ final class ShellNavTests: XCTestCase {
 
     func testStableIdentity() {
         XCTAssertEqual(ShellSurface.home.id, "home")
-        XCTAssertEqual(ShellSurface.privacyBoundary.id, "privacyBoundary")
+        XCTAssertEqual(ShellSurface.engineeringMemory.id, "engineeringMemory")
     }
 }

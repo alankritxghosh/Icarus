@@ -36,6 +36,7 @@ OUT="dist/icarus-extension-${VERSION}.zip"
 FILES=(
   manifest.json
   background.js
+  background_bridge.js
   content.js
   lib.js
   render.js

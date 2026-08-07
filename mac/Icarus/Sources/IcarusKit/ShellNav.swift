@@ -6,10 +6,8 @@ public enum ShellSurface: String, CaseIterable, Sendable, Identifiable {
     case home
     /// The guided onboarding tour -- the first experience with a new repo.
     case startHere
-    case askByVoice
     case decisionHistory
-    case unknowns
-    case privacyBoundary
+    case engineeringMemory
 
     public var id: String { rawValue }
 
@@ -17,10 +15,8 @@ public enum ShellSurface: String, CaseIterable, Sendable, Identifiable {
         switch self {
         case .home: return "Home"
         case .startHere: return "Start here"
-        case .askByVoice: return "Ask by voice"
         case .decisionHistory: return "Decision history"
-        case .unknowns: return "Unknowns"
-        case .privacyBoundary: return "Privacy boundary"
+        case .engineeringMemory: return "Engineering memory"
         }
     }
 }

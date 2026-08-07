@@ -35,6 +35,19 @@ test("manifest is valid MV3 with a version", () => {
   assert.ok(manifest.name && manifest.description);
 });
 
+test("the Mac bridge permission and worker dependency ship together", () => {
+  assert.ok(
+    (manifest.permissions || []).includes("nativeMessaging"),
+    "nativeMessaging permission is required for the Mac app bridge"
+  );
+  const bg = fs.readFileSync(path.join(DIR, "background.js"), "utf8");
+  const imported = bg.match(/importScripts\("([^"]+)"\)/);
+  assert.ok(imported, "background.js must load its bridge policy");
+  assert.ok(fs.existsSync(path.join(DIR, imported[1])), `missing ${imported[1]}`);
+  const packageScript = fs.readFileSync(path.join(DIR, "package.sh"), "utf8");
+  assert.match(packageScript, new RegExp(`^\\s*${imported[1]}\\s*$`, "m"));
+});
+
 test("every file the manifest references exists on disk", () => {
   for (const rel of referencedFiles(manifest)) {
     assert.ok(fs.existsSync(path.join(DIR, rel)), `manifest references missing file: ${rel}`);

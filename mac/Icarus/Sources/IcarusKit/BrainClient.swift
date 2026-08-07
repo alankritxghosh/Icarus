@@ -136,6 +136,34 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(AskResponse.self, from: data)
     }
 
+    /// POST /explain for one GitHub line selection. Used by the Mac-owned
+    /// native extension bridge so the GitHub credential remains in Keychain.
+    public func explain(
+        repo: String,
+        path: String,
+        start: Int,
+        end: Int,
+        question: String? = nil
+    ) async throws -> AskResponse {
+        var request = URLRequest(url: base.appending(path: "explain"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "repo": repo,
+            "path": path,
+            "start": start,
+            "end": end,
+        ]
+        if let question, !question.isEmpty {
+            body["question"] = question
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(AskResponse.self, from: data)
+    }
+
     /// POST /connect {repo} -> start indexing/switching to that public repo. The
     /// brain ingests in the background; poll `status()` until ready. 2xx = accepted.
     /// `refresh: true` asks the brain to RE-INGEST a repo it already has cached,
@@ -221,17 +249,72 @@ public struct BrainClient: Sendable {
     /// library by identity, so an unauthenticated /status returns the shared
     /// public default instead of the caller's connected (possibly private) repo
     /// — which would make the connect poll never see its repo go ready.
-    /// GET /ledger — the repo's shared ask record. `unknownsOnly` asks the
-    /// server for just the abstentions: the map of what the team never wrote
-    /// down, which is the whole point of keeping the record.
-    public func ledger(unknownsOnly: Bool = true) async throws -> LedgerResponse {
-        var request = URLRequest(url: base.appendingPathComponent("ledger")
-            .appending(queryItems: [URLQueryItem(name: "unknowns",
-                                                 value: unknownsOnly ? "1" : "0")]))
+    /// GET /ledger?gaps=1 — the server-owned engineering-memory lifecycle.
+    ///
+    /// The server owns identity and lifecycle because it sees the repository's
+    /// shared chronological record.
+    public func memoryGaps(includeResolved: Bool = true) async throws -> MemoryGapsResponse {
+        var items = [URLQueryItem(name: "gaps", value: "1")]
+        if includeResolved {
+            items.append(URLQueryItem(name: "resolved", value: "1"))
+        }
+        var request = URLRequest(
+            url: base.appendingPathComponent("ledger").appending(queryItems: items)
+        )
         authorize(&request)
         let (data, response) = try await dataWithRetry(for: request)
         try check(response)
-        return try JSONDecoder().decode(LedgerResponse.self, from: data)
+        return try JSONDecoder().decode(MemoryGapsResponse.self, from: data)
+    }
+
+    /// Propose one human-authored record for an existing actionable Memory Gap.
+    /// The brain bounds the GitHub write to one branch, one new file, and one
+    /// pull request; this client renders success only after decoding the
+    /// observed pull-request URL.
+    public func recordEngineeringMemory(
+        gapID: String,
+        rationale: String,
+        tradeoffs: String = "",
+        references: [String] = []
+    ) async throws -> MemoryRecordResult {
+        var request = URLRequest(url: base.appending(path: "memory-gaps/record"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "gap_id": gapID,
+            "rationale": rationale,
+            "tradeoffs": tradeoffs,
+            "references": references,
+        ])
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        if !(200...299).contains(http.statusCode) {
+            switch http.statusCode {
+            case 401: throw BrainError.unauthorized
+            case 403: throw BrainError.forbidden
+            case 429: throw BrainError.rateLimited
+            default:
+                struct FailureBody: Decodable {
+                    let error: String?
+                    let recoveryURL: URL?
+
+                    enum CodingKeys: String, CodingKey {
+                        case error
+                        case recoveryURL = "recovery_url"
+                    }
+                }
+                let body = try? JSONDecoder().decode(FailureBody.self, from: data)
+                throw MemoryRecordFailure(
+                    status: http.statusCode,
+                    message: body?.error ?? "GitHub could not create the memory proposal",
+                    recoveryURL: body?.recoveryURL
+                )
+            }
+        }
+        return try JSONDecoder().decode(MemoryRecordResult.self, from: data)
     }
 
     public func status() async throws -> RepoStatus {

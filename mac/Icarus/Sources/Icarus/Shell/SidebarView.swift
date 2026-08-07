@@ -1,7 +1,7 @@
 import SwiftUI
 import IcarusKit
 
-/// The shell's left rail: brand mark, the five nav rows, and a footer showing the
+/// The shell's left rail: brand mark, the four nav rows, and a footer showing the
 /// REAL connected repo (from /status) — never a fabricated tenant name.
 struct SidebarView: View {
     @Binding var selected: ShellSurface

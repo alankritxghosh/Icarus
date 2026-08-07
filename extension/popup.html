@@ -7,12 +7,16 @@
   body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; width: 220px; padding: 12px; }
   h1 { font-size: 14px; margin: 0 0 10px; }
   button { width: 100%; padding: 8px; cursor: pointer; font-size: 13px; }
+  button + button { margin-top: 8px; }
   #status { font-size: 12px; color: #666; margin-top: 8px; }
+  #bridge-status { font-size: 12px; color: #666; margin-top: 8px; }
 </style>
 </head>
 <body>
   <h1>Icarus</h1>
+  <button id="connect-mac">Connect Mac app</button>
   <button id="signin">Sign in with GitHub</button>
+  <div id="bridge-status"></div>
   <div id="status"></div>
   <script src="popup.js"></script>
 </body>

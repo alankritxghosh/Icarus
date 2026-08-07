@@ -9,6 +9,7 @@ const {
   parseLineHash,
   parseBlobPath,
   isConnectedRepo,
+  createLatestOnly,
 } = require("./lib.js");
 
 test("parseLineHash: single line", () => {
@@ -35,6 +36,11 @@ test("parseLineHash: an inverted range (end before start) -> null", () => {
   assert.equal(parseLineHash("#L10-L1"), null);
 });
 
+test("parseLineHash: zero and unsafe integer ranges fail closed", () => {
+  assert.equal(parseLineHash("#L0"), null);
+  assert.equal(parseLineHash("#L9007199254740993"), null);
+});
+
 test("parseBlobPath: a real blob-view path", () => {
   assert.deepEqual(
     parseBlobPath("/simonw/llm/blob/94769b8b076cde9392059d76bd766453cf900180/llm/cli.py"),
@@ -45,6 +51,27 @@ test("parseBlobPath: a real blob-view path", () => {
 test("parseBlobPath: a nested file path", () => {
   const got = parseBlobPath("/simonw/llm/blob/main/llm/default_plugins/openai_models.py");
   assert.equal(got.path, "llm/default_plugins/openai_models.py");
+});
+
+test("parseBlobPath: decodes URL-escaped filenames before sending them to the brain", () => {
+  assert.deepEqual(
+    parseBlobPath("/acme/web/blob/main/packages/ui/hello%20world.tsx"),
+    {
+      owner: "acme",
+      repo: "web",
+      ref: "main",
+      path: "packages/ui/hello world.tsx",
+    }
+  );
+});
+
+test("parseBlobPath: supports both main and master default branch URLs", () => {
+  assert.equal(parseBlobPath("/acme/web/blob/main/src/a.ts").ref, "main");
+  assert.equal(parseBlobPath("/acme/legacy/blob/master/src/a.c").ref, "master");
+});
+
+test("parseBlobPath: malformed URL encoding fails closed", () => {
+  assert.equal(parseBlobPath("/acme/web/blob/main/src/%ZZ.ts"), null);
 });
 
 test("parseBlobPath: NOT a blob view (e.g. the repo root) -> null", () => {
@@ -70,4 +97,15 @@ test("isConnectedRepo: a different repo does not match", () => {
 test("isConnectedRepo: no connected repo at all -> false, never a crash", () => {
   assert.equal(isConnectedRepo("simonw", "llm", null), false);
   assert.equal(isConnectedRepo("simonw", "llm", undefined), false);
+});
+
+test("latest-only gate invalidates responses from an older navigation or ask", () => {
+  const gate = createLatestOnly();
+  const first = gate.begin();
+  assert.equal(gate.isCurrent(first), true);
+  const second = gate.begin();
+  assert.equal(gate.isCurrent(first), false);
+  assert.equal(gate.isCurrent(second), true);
+  gate.invalidate();
+  assert.equal(gate.isCurrent(second), false);
 });

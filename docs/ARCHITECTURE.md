@@ -30,6 +30,15 @@ key, plays the spoken answer back, and draws the translucent overlay showing the
 citations. It holds **no** intelligence — it is a thin client that talks to the
 brain. This is the part most comfortable to build first as an app.
 
+The Chrome extension is another thin face for selected GitHub lines. When the
+Mac app is installed, Chrome native messaging proxies bounded `ping`, `status`,
+and `explain` requests through a one-request helper process. The GitHub token
+stays in the Mac Keychain and is never returned to the extension. Installing
+the bridge requires an explicit confirmation in the app, and its native-host
+manifest allowlists exactly one Chrome extension origin. The extension's older
+OAuth credential remains a fallback only when Chrome cannot launch the native
+host; a real refusal from the app is authoritative.
+
 ### 2. The Agent Adapter — another thin face
 A local, read-only MCP process lets Claude Code, Codex, Cursor, and compatible
 tools ask the existing HTTP brain for change context before they edit. It owns no
@@ -137,7 +146,20 @@ controls are the floor, not a premium add-on.
 5. If yes, the AI writer turns the evidence into a colleague-style answer + the
    exact citations. *(cloud)*
 6. The answer is spoken back; the overlay shows the proof. *(cloud → laptop)*
-7. Nothing is retained — the request data is discarded. *(cloud)*
+7. The answer body and model request are discarded. The repo-scoped shared
+   ledger retains the question, verdict, reason, citation refs, and timestamp
+   without the asker's identity; this is what makes Memory Gaps observable.
+   *(cloud)*
+
+When the result is an actionable `no_recorded_reason`, the engineer can
+explicitly propose an engineering-memory record. The server verifies the
+active opaque gap ID and caller, then uses that caller's in-memory GitHub
+credential to create exactly one deterministic branch, one Markdown file, and
+one pull request. Replays discover and return that same proposal, including
+after an ambiguous GitHub response; they do not create duplicates. The server
+persists the observed pull-request URL and moves the gap from `open` to
+`proposed` before claiming success. It never merges. Only a later cited answer
+after merge and re-index moves the gap to `resolved`.
 
 For a coding agent, steps 1–2 and 6 become a structured MCP exchange: the agent
 names the expected repository and asks a focused question, the adapter refuses a

@@ -117,7 +117,10 @@ test("asking renders a cited answer, with the index citation labelled", async ({
 test("an honest unknown renders as an unknown, not an empty panel", async ({ context, worker, page }) => {
   await signIn(worker);
   await stubBrain(context, {
-    explain: { verdict: "unknown", searched: ["pr:1", "pr:2"], anchored: [] },
+    explain: {
+      verdict: "unknown", answer: "", citations: [],
+      searched: ["pr:1", "pr:2"], anchored: [],
+    },
   });
   await page.goto(blobUrl("simonw/llm", FILE, "#L149-L153"), { waitUntil: "domcontentloaded" });
   await page.locator(".icarus-ask-btn").click();
@@ -160,4 +163,167 @@ test("signed out, nothing is injected", async ({ context, page }) => {
 
   await page.waitForTimeout(1500);
   await expect(page.locator(".icarus-trigger-bar")).toHaveCount(0);
+});
+
+test("activates across Python, TypeScript, and C repositories on main and master", async ({ context, worker, page }) => {
+  await signIn(worker);
+  let connectedRepo = "simonw/llm";
+  await stubBrain(context, { repo: () => connectedRepo });
+  const cases = [
+    ["simonw/llm", "llm/utils.py", "main"],
+    ["muxinc/media-chrome", "src/js/constants.ts", "main"],
+    ["torvalds/linux", "kernel/sched/core.c", "master"],
+  ];
+
+  for (const [repo, file, ref] of cases) {
+    connectedRepo = repo;
+    await page.goto(blobUrl(repo, file, "#L1-L3", ref), {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page.locator(".icarus-trigger-bar"), `${repo} (${ref})`).toBeVisible({
+      timeout: 20_000,
+    });
+  }
+});
+
+test("double-submit produces exactly one explain request", async ({ context, worker, page }) => {
+  await signIn(worker);
+  let explainCalls = 0;
+  await stubBrain(context, {
+    onExplain: () => { explainCalls += 1; },
+    explain: {
+      verdict: "unknown", answer: "", citations: [],
+      searched: ["code:llm/utils.py#L1-L3"], anchored: [],
+    },
+  });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1-L3"), {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.locator(".icarus-ask-btn").dblclick();
+  await expect(page.locator(".icarus-panel")).toContainText("No one wrote this down");
+  expect(explainCalls).toBe(1);
+});
+
+test("a malformed successful server body is an error, never an honest unknown", async ({ context, worker, page }) => {
+  await signIn(worker);
+  await stubBrain(context, { explainRaw: "{definitely-not-json" });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1-L3"), {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.locator(".icarus-ask-btn").click();
+  const panel = page.locator(".icarus-panel");
+  await expect(panel).toContainText("invalid explanation");
+  await expect(panel).not.toContainText("No one wrote this down");
+});
+
+test("an explain transport failure is an error, never an honest unknown", async ({ context, worker, page }) => {
+  await signIn(worker);
+  await stubBrain(context, { abortExplain: true });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1-L3"), {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.locator(".icarus-ask-btn").click();
+  const panel = page.locator(".icarus-panel");
+  await expect(panel).toContainText(/fetch|network/i);
+  await expect(panel).not.toContainText("No one wrote this down");
+});
+
+test("rechecks the app's connected repo while the GitHub tab remains open", async ({ context, worker, page }) => {
+  await signIn(worker);
+  let connectedRepo = "simonw/llm";
+  await stubBrain(context, { repo: () => connectedRepo });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1"), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+
+  connectedRepo = "muxinc/media-chrome";
+  await page.evaluate(() => { location.hash = "#L2"; });
+  await expect(page.locator(".icarus-trigger-bar")).toHaveCount(0);
+});
+
+test("an explain response arriving after line navigation cannot overwrite the new trigger", async ({ context, worker, page }) => {
+  await signIn(worker);
+  await stubBrain(context, {
+    explainDelay: 1_500,
+    explain: {
+      verdict: "answer",
+      answer: "This answer belongs to the old line.",
+      citations: [{ ref: "code:llm/utils.py#L1", url: null }],
+      searched: ["code:llm/utils.py#L1"],
+      anchored: [],
+    },
+  });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1"), {
+    waitUntil: "domcontentloaded",
+  });
+  await page.locator(".icarus-ask-btn").click();
+  await page.evaluate(() => { location.hash = "#L2"; });
+
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".icarus-panel")).toHaveCount(0);
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+});
+
+test("a slower old status response cannot erase a newer selection", async ({ context, worker, page }) => {
+  await signIn(worker);
+  let statusCalls = 0;
+  await stubBrain(context, {
+    statusDelay: () => {
+      statusCalls += 1;
+      return statusCalls === 1 ? 1_500 : 0;
+    },
+  });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1"), {
+    waitUntil: "domcontentloaded",
+  });
+  await page.evaluate(() => { location.hash = "#L2"; });
+
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+  await page.waitForTimeout(1_800);
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+});
+
+test("an indexing abstention says Icarus has not finished reading", async ({ context, worker, page }) => {
+  await signIn(worker);
+  await stubBrain(context, {
+    explain: {
+      verdict: "unknown", answer: "", citations: [], searched: [],
+      anchored: [], indexing: true,
+    },
+  });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1"), {
+    waitUntil: "domcontentloaded",
+  });
+  await page.locator(".icarus-ask-btn").click();
+  await expect(page.locator(".icarus-panel")).toContainText("haven’t finished reading");
+});
+
+test("auth and entitlement refusals remain distinct", async ({ context, worker, page }) => {
+  await signIn(worker);
+  let refusal = 403;
+  await stubBrain(context, {
+    explainStatus: () => refusal,
+    explain: () => ({
+      error: refusal === 403
+        ? "your GitHub account can't read the connected repo"
+        : "sign in with GitHub to continue",
+    }),
+  });
+  await page.goto(blobUrl("simonw/llm", FILE, "#L1"), {
+    waitUntil: "domcontentloaded",
+  });
+
+  await page.locator(".icarus-ask-btn").click();
+  await expect(page.locator(".icarus-panel")).toContainText("can't read the connected repo");
+
+  refusal = 401;
+  await page.evaluate(() => { location.hash = "#L2"; });
+  await expect(page.locator(".icarus-trigger-bar")).toBeVisible();
+  await page.locator(".icarus-ask-btn").click();
+  await expect(page.locator(".icarus-panel")).toContainText("Sign in with GitHub");
 });

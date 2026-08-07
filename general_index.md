@@ -90,6 +90,9 @@ removing, or renaming files). For class/function-level detail see
   model: one unified cloud we operate with per-tenant data isolation.
 - `docs/decisions/2026-06-30-organizational-memory-positioning.md` — positioning
   (Icarus is organizational memory; explanation is the wedge) + roadmap.
+- `docs/decisions/2026-08-07-engineering-memory-records.md` — accepted first
+  closed-loop record path: one human-triggered repository Markdown proposal,
+  one branch, one GitHub pull request, never an automatic merge.
 
 ## docs/plans/
 - `docs/plans/2026-06-28-phase-1.md` — the Phase 1 plan.
@@ -134,6 +137,9 @@ removing, or renaming files). For class/function-level detail see
   16GB, verified). Enumerates every real touchpoint (Dockerfile non-root user,
   hardcoded Render URLs in extension/, GitHub OAuth callback, docs) found by
   grep, not guessed; task-ordered smallest-loop-first. Not started.
+- `docs/plans/2026-08-07-engineering-memory-loop-extension-bridge.md` — executable
+  red→green plan for Memory Gaps, reviewed memory records, removal of two shell
+  sections, the Mac-native Chrome bridge, and the adversarial extension matrix.
 
 ## evals/ (the Phase 1 eval harness — Python stdlib only)
 - `evals/__init__.py` — package docstring: the harness is the product's
@@ -727,8 +733,19 @@ removing, or renaming files). For class/function-level detail see
   verdict, citations, timestamp — deliberately NOT the answer body and NOT who
   asked). One JSONL file per repo, stored OUTSIDE the corpus dir because ingest
   republishes with `os.replace()` and would destroy it. Read via `GET /ledger`
-  (`?unknowns=1` for the map of what the org never wrote down). **No UI on any
-  surface yet — HTTP only.**
+  (`?gaps=1&resolved=1` for server-owned open/proposed/resolved Memory Gaps).
+  One Unicode-casefold identity and opaque repo-scoped gap ID are used for
+  listing, proposing, and resolution. Exact-text gaps resolve only after a
+  later cited answer; entity-absent/unclear unknowns are visible but not
+  actionable.
+- `demo/memory_writer.py` — `GitHubMemoryWriter`: caller-scoped, stdlib-only
+  bounded, idempotent write for one actionable gap. Verifies push permission;
+  uses the opaque gap ID to deterministically create or recover one branch, one
+  retrospective Markdown record under `docs/engineering-memory/`, and one pull
+  request; never merges or overwrites.
+- `demo/test_memory_writer.py` — offline GitHub request-shape, permission,
+  validation, deterministic replay, lost-response recovery, and partial-failure
+  tests for the bounded writer.
 - `demo/freshness.py` — `FreshnessChecker`: does the connected index still
   match the repository? A corpus is frozen at the commit it was ingested and
   nothing said so — this repo's own index sat NINE commits behind HEAD while
@@ -866,6 +883,10 @@ removing, or renaming files). For class/function-level detail see
   caller's currently connected repo, never silently answering about or
   switching to a different one; calls `lib.current_pipeline().explain(...)`
   and reuses `build_payload` unchanged (identical response shape to `/ask`).
+  `POST /memory-gaps/record` requires a verified GitHub caller, read
+  entitlement, an exact actionable open gap, bounded human-authored fields,
+  and its own rate limit before calling `GitHubMemoryWriter`; returns success
+  only with an observed pull-request URL and preserves a partial recovery URL.
 - `demo/index.html` — the single-page UI: question box, cited-answer card, the
   honest-unknown hero, an `owner/repo` connect control, and **browser GitHub
   sign-in** (web-mode OAuth → session redeemed for a token held in
@@ -913,7 +934,9 @@ removing, or renaming files). For class/function-level detail see
   separation, the unknowns-only filter, most-recent-first + limit, surviving a
   new process, an unknown repo reading empty rather than raising, concurrent
   writes all landing and staying parseable, a hostile repo name unable to
-  escape the ledger root, and the guard that **who asked is never recorded**.
+  escape the ledger root, and the guard that **who asked is never recorded**;
+  plus shared casefold identity, opaque IDs, and open→proposed→resolved memory
+  lifecycle.
 - `demo/test_server.py` — routing against a stub registry, plus the Origin guard
   (403), body cap (413), bearer-auth gate (401), per-request identity, rate
   limiting (429), `/disconnect`, concurrency, and index.html smoke checks.
@@ -921,6 +944,9 @@ removing, or renaming files). For class/function-level detail see
   unknown for uncovered locations, optional-question pass-through, wrong-repo
   refusal (409, never reaches the pipeline), and input validation (missing
   fields, non-integer/non-positive/inverted start-end, blank path).
+  `/memory-gaps/record`: opaque gap selection, actionable-only writes,
+  persisted proposal state, retry reuse even after the write limit is spent,
+  and recoverable partial failures.
 - `demo/test_isolation.py` — cross-user isolation proven at the HTTP boundary: a
   real `LibraryRegistry` behind a real server with two authenticated identities
   — connect, storage, disconnect, and provenance all stay disjoint.
@@ -933,13 +959,16 @@ removing, or renaming files). For class/function-level detail see
   without fastembed/the corpus.
 
 ## extension/ (Brick D — Chrome browser extension, Manifest V3, no build step)
-- `extension/manifest.json` — MV3 manifest: `identity`+`storage` permissions,
+- `extension/manifest.json` — MV3 manifest: `identity`+`storage`+
+  `nativeMessaging` permissions,
   host permissions for `github.com` and the hosted brain (Azure Container
   Apps), a content script matching `github.com/*/*/blob/*` pages
   loading `lib.js` then `content.js`, a background service worker
   (`background.js`), and a toolbar popup (`popup.html`).
 - `extension/lib.js` — the pure, DOM-free parse/gate functions
-  `parseLineHash`, `parseBlobPath`, `isConnectedRepo` -- dual CommonJS/browser-
+  `parseLineHash`, `parseBlobPath`, `isConnectedRepo`, `createLatestOnly` --
+  URL-decodes paths, rejects unsafe line numbers/encoding, and supplies
+  generation gates for stale async responses; dual CommonJS/browser-
   global export so the SAME file runs unmodified as a plain `<script>` in the
   extension and under `node --test` (no bundler, no npm install).
 - `extension/render.js` — Brick D4's pure HTML-string builders
@@ -949,7 +978,8 @@ removing, or renaming files). For class/function-level detail see
   source type, "No one wrote this down.") and labels the public alpha without
   paid-writer or training claims.
 - `extension/content.js` — the on-page logic: gates on the caller's connected
-  repo (`GET /status`, cached per repo not per line-selection), listens for a real line selection via
+  repo (`GET /status`, re-read on navigation/selection so Mac-side repo
+  switches are visible), listens for a real line selection via
   the Navigation API's `navigate` event (live-verified: covers both SPA
   file-to-file navigation and hash-only line changes; GitHub's `popstate`/
   Turbo/pjax events do NOT fire for this -- checked live, none did), and
@@ -976,6 +1006,12 @@ removing, or renaming files). For class/function-level detail see
   silently overrode the CSS class's `position:fixed` (the panel rendered
   off-screen, `left:-24px` in a 1440px viewport) -- both confirmed live via
   `getBoundingClientRect()`/`getComputedStyle`, not guessed from a screenshot.
+- `extension/background_bridge.js` — testable native-message policy: call the
+  Mac host `com.icarus.extension` first, accept a real app refusal as
+  authoritative, and use the older OAuth path only when Chrome cannot launch
+  the host. Validates successful status/explain shapes before UI rendering.
+- `extension/background_bridge.test.js` — native-first/fallback boundary,
+  refusal preservation, and malformed-response contract tests.
 - `extension/background.js` — MV3 service worker: the GitHub sign-in flow via
   `chrome.identity.launchWebAuthFlow`, using `demo/github_oauth.py`'s new
   `extension` OAuth mode; stores the token in `chrome.storage.local`. Also the
@@ -984,9 +1020,9 @@ removing, or renaming files). For class/function-level detail see
   Network Access restrictions that block a content script's direct fetch (see
   `content.js`); `content.js` relays every brain call here via
   `chrome.runtime.onMessage`/`sendMessage` instead of fetching directly.
-- `extension/popup.html` / `extension/popup.js` — a minimal "Sign in with
-  GitHub" toolbar popup (a real user gesture is required to open the sign-in
-  flow -- it can never happen silently).
+- `extension/popup.html` / `extension/popup.js` — toolbar popup for explicitly
+  connecting/reconnecting the installed Mac app plus fallback GitHub sign-in;
+  both actions require a real user gesture.
 - `extension/lib.test.js` — `node --test` (Node's built-in test runner, zero
   npm installs, mirrors the Python side's stdlib-only ethos): 13 tests over
   `parseLineHash`/`parseBlobPath`/`isConnectedRepo`, including the D0-derived
@@ -994,7 +1030,17 @@ removing, or renaming files). For class/function-level detail see
 - `extension/render.test.js` — 16 tests over `render.js`: HTML-escaping,
   every citation shape (with/without a URL), the private/public repo label,
   and the guard against reintroducing the "paid writer"/"trained" claim.
-  Run both: `node --test extension/*.test.js`.
+- `extension/manifest.test.js` — manifest/file/package consistency, icon shape,
+  narrow GitHub match pattern, brain host permission, and native bridge
+  permission/dependency guards.
+- `extension/package.sh` — explicit-allowlist zip packager for the Web Store or
+  load-unpacked distribution; now includes the native bridge policy.
+- `extension/e2e/` — Playwright persistent-Chromium harness loading the real
+  unpacked extension on real GitHub pages. The controlled suite covers Python,
+  TypeScript, C, main/master, repo switching, double-submit, stale navigation
+  races, indexing, auth/entitlement, malformed payloads, cited answers and
+  honest unknowns; `live.spec.js` reaches the deployed brain on explicit opt-in.
+  Run unit contracts with `node --test extension/*.test.js`.
 
 ## mac/ (the macOS app — SwiftPM, SwiftUI + AppKit)
 - `mac/.gitignore` — ignores SwiftPM build artifacts and the assembled `.app`.
@@ -1034,12 +1080,20 @@ removing, or renaming files). For class/function-level detail see
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
-  `AskResponse`, `RepoStatus`, and
-  `IndexCounts` (real `/status` counts).
+  `AskResponse`, `RepoStatus`, `MemoryGap`, `MemoryGapsResponse`,
+  `MemoryRecordResult`, and `IndexCounts` (real `/status` counts). Memory gaps
+  carry the server's opaque ID and `open`/`proposed`/`resolved` lifecycle.
 - `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,
   `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`,
-  `/auth/agent/session`); attaches an `Authorization: Bearer` from a shared
-  token; injectable URLSession.
+  `/auth/agent/session`,`/ledger?gaps=1`,`/memory-gaps/record`,`/explain`);
+  attaches an `Authorization: Bearer` from a shared token; sends opaque gap IDs
+  for memory proposals; injectable URLSession.
+- `NativeMessageCodec.swift` — bounded 64 KiB Chrome native-message framing,
+  one-message-per-process reader, and the closed `ping`/`status`/`explain`
+  request contract.
+- `NativeHostManifest.swift` — validates canonical Chrome extension origins,
+  generates the exact-origin native-host manifest, and atomically installs it
+  under the current user's Chrome configuration.
 - `SavedConnection.swift` — persists the last-connected repo
   (injectable UserDefaults) and the pure `isLost` check behind the
   eviction/restart lost-connection banner.
@@ -1104,8 +1158,9 @@ removing, or renaming files). For class/function-level detail see
   `BrainEndpoint` over `Bundle.main` (hosted in a shipped build, local otherwise).
 - `AppDelegate.swift` — app wiring: activation policy, menu-bar item, hotkey,
   push-to-talk, shared models (auth/connect/voice/history/status), and the
-  primary shell window (setup is folded into its Home gate); shares one
-  duration-only voice latency tracker between the overlay and shell.
+  primary shell window (setup is folded into its Home gate). Also confirms and
+  installs an exact-origin Chrome native bridge from the explicit
+  `icarus://install-extension-bridge` callback.
 - `OverlayController.swift` — owns the ⌘⇧I ask overlay + ask/voice/speak wiring;
   records each ask into the shared `AskHistory` and marks the live Phase 3
   release/transcript/answer/speech-start timeline.
@@ -1128,6 +1183,10 @@ removing, or renaming files). For class/function-level detail see
   uses the Keychain-backed app client to mint a short-lived public-read Icarus
   credential and writes only that credential, expiry, repo, and brain URL to
   stdout.
+- `ExtensionBridgeCommand.swift` — one-process/one-request Chrome native host;
+  reads the Keychain-backed credential, proxies only `ping`, `status`, and
+  `explain`, reports signed-out status honestly, and returns framed JSON without
+  ever emitting the GitHub token.
 - `Updater.swift` — in-app updates via Sparkle, so shipping a change stops
   meaning "email every tester and ask them to re-download". Sparkle signs its
   own feed with an EdDSA key, so this needs no Apple Developer ID -- it does
@@ -1152,7 +1211,7 @@ removing, or renaming files). For class/function-level detail see
   starts for latency measurement.
 
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
-- `ShellView.swift` — sidebar + content router across the five surfaces (passes
+- `ShellView.swift` — sidebar + content router across four surfaces (passes
   auth/connect through to Home for its setup gate).
 - `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer
   (with the public-alpha badge), Disconnect
@@ -1173,9 +1232,15 @@ removing, or renaming files). For class/function-level detail see
   abstention, and opens with the writer-free `/map` overview (files, languages,
   folders, documentation, and where to start reading with each rule's reason).
   Back/Next plus "Ask your own question", which needs no session to return from.
-- `ShellSurfaces.swift` — Decision history, Unknowns, Privacy boundary (true
-  claims), and Ask-by-voice surfaces, with honest empty states. Ask-by-voice
-  shows the latest duration breakdown and in-session release-to-speech p50/p95.
+- `ShellSurfaces.swift` — Decision history plus the Engineering Memory surface:
+  observable open/proposed/recurring/resolved gaps, honest load failure, and the
+  structured “Record engineering memory” reviewed-proposal sheet. Proposed
+  gaps link to the existing pull request and cannot create another. The prior
+  Ask-by-voice and Privacy-boundary navigation sections were removed; underlying
+  voice and privacy enforcement remain elsewhere.
+- `LedgerModel.swift` — loads server-owned Memory Gap lifecycle state and submits
+  a human-authored GitHub memory proposal by opaque gap ID, blocks overlapping
+  submissions, and surfaces only an observed pull-request URL as success.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
   `VerdictPill`, `HistoryRow`, `ShellCard`).
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
@@ -1196,8 +1261,15 @@ removing, or renaming files). For class/function-level detail see
 - `BrainClientTests.swift` — the bearer token is sent when present, omitted when
   absent; `/disconnect` POSTs with the bearer and decodes the fresh snapshot;
   `/auth/agent/session` uses the GitHub bearer and decodes the scoped short
-  credential (URLProtocol stub).
-- `ShellNavTests.swift` — the five surfaces' order, titles, and stable ids.
+  credential; memory recording sends `gap_id` and never display text
+  (URLProtocol stub).
+- `LedgerTests.swift` — decodes the server-owned open/proposed/resolved Memory
+  Gap contract, including the existing pull-request URL, and rejects unknown
+  lifecycle states instead of inventing one.
+- `ShellNavTests.swift` — the four surfaces' order, titles, and stable ids.
+- `NativeBridgeTests.swift` — production pipe-reader framing, size, and
+  one-frame-per-process guards; closed action decoding, exact Chrome origin
+  allowlisting, and install-URL validation.
 - `BrainEndpointTests.swift` — `BrainEndpoint.resolve` uses a valid hosted URL,
   falls back on missing/empty/invalid, and honors an explicit fallback.
 - `OnboardingTests.swift` — the tour's decoding + `TourModel`: plan/step
@@ -1223,6 +1295,9 @@ removing, or renaming files). For class/function-level detail see
 - `ConnectModelTests.swift` — app-model boundary proof that an accepted
   background repository re-read stays visibly in progress while the index is
   stale and completes only after `/status` confirms freshness.
+- `ExtensionBridgeCommandTests.swift` — exercises the real native-host handler
+  for signed-out status plus proxied status/explain response shapes without
+  installing a host in the test browser.
 
 ## .claude/agents/ and .codex/agents/
 - `.claude/agents/opus-architect.md` — the opus-architect agent (principal

@@ -158,3 +158,148 @@ class AbstentionReasonTests(unittest.TestCase):
         entry = self.ledger.entries("o/r")[0]
         for forbidden in ("user", "user_id", "asker", "identity", "who"):
             self.assertNotIn(forbidden, entry)
+
+
+class MemoryGapLifecycleTests(unittest.TestCase):
+    """The closed loop: an honest unknown opens a gap; a later cited answer
+    resolves it. Nothing weaker is allowed to claim the team's ignorance was
+    repaired."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ledger = Ledger(Path(self.tmp.name))
+
+    def test_a_later_cited_answer_resolves_the_exact_gap(self):
+        self.ledger.record(
+            "o/r", question="Why is auth synchronous?", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+        self.ledger.record(
+            "o/r", question="  why is AUTH synchronous?  ", verdict="answer",
+            citations=["doc:docs/engineering-memory/auth-synchronous.md#L1-L18"],
+        )
+
+        gaps = self.ledger.gaps("o/r", include_resolved=True)
+
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual(gaps[0]["status"], "resolved")
+        self.assertEqual(gaps[0]["unknown_count"], 1)
+        self.assertEqual(
+            gaps[0]["resolution_citations"],
+            ["doc:docs/engineering-memory/auth-synchronous.md#L1-L18"],
+        )
+
+    def test_an_answer_without_a_citation_does_not_resolve_a_gap(self):
+        self.ledger.record(
+            "o/r", question="Why is auth synchronous?", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+        self.ledger.record(
+            "o/r", question="Why is auth synchronous?", verdict="answer",
+            citations=[],
+        )
+
+        self.assertEqual(self.ledger.gaps("o/r")[0]["status"], "open")
+
+    def test_entity_absent_is_visible_but_not_recordable_memory_debt(self):
+        self.ledger.record(
+            "o/r", question="Why does Xyzzy authenticate?", verdict="unknown",
+            reason="entity_absent",
+        )
+
+        gap = self.ledger.gaps("o/r")[0]
+
+        self.assertFalse(gap["actionable"])
+        self.assertEqual(gap["kind"], "not_in_repo")
+
+    def test_only_genuine_recorded_reason_absence_is_actionable(self):
+        for reason in (None, "writer_abstained", "self_disclaimed", "no_evidence"):
+            self.ledger.record(
+                "o/r", question=f"question {reason}", verdict="unknown",
+                reason=reason,
+            )
+
+        self.assertFalse(any(g["actionable"] for g in self.ledger.gaps("o/r")))
+
+    def test_open_filter_excludes_resolved_but_preserves_recurring_counts(self):
+        for _ in range(3):
+            self.ledger.record(
+                "o/r", question="Why Redis?", verdict="unknown",
+                reason="no_recorded_reason",
+            )
+        self.ledger.record(
+            "o/r", question="Why Redis?", verdict="answer", citations=["pr:42"],
+        )
+        self.ledger.record(
+            "o/r", question="Why billing isolated?", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+
+        self.assertEqual(
+            [g["question"] for g in self.ledger.gaps("o/r")],
+            ["Why billing isolated?"],
+        )
+        resolved = self.ledger.gaps("o/r", include_resolved=True)
+        redis = next(g for g in resolved if g["question"] == "Why Redis?")
+        self.assertEqual(redis["unknown_count"], 3)
+
+    def test_gap_records_never_contain_an_asker(self):
+        self.ledger.record(
+            "o/r", question="Why billing isolated?", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+
+        raw = json.dumps(self.ledger.gaps("o/r"))
+        for forbidden in ("user", "user_id", "identity", "asker", "who"):
+            self.assertNotIn(forbidden, raw)
+
+    def test_unicode_casefold_identity_is_shared_by_listing_and_recording(self):
+        for question in ("Why Straße?", "WHY STRASSE?"):
+            self.ledger.record(
+                "o/r", question=question, verdict="unknown",
+                reason="no_recorded_reason",
+            )
+
+        gaps = self.ledger.gaps("o/r")
+
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual(gaps[0]["unknown_count"], 2)
+        self.assertRegex(gaps[0]["id"], r"^[0-9a-f]{64}$")
+
+    def test_proposal_survives_later_unknowns_until_a_cited_answer_resolves_it(self):
+        question = "Why is auth synchronous?"
+        self.ledger.record(
+            "o/r", question=question, verdict="unknown",
+            reason="no_recorded_reason",
+        )
+        gap = self.ledger.gaps("o/r")[0]
+        proposal = {
+            "repo": "o/r",
+            "question": question,
+            "branch": f"icarus/memory-{gap['id'][:20]}",
+            "path": "docs/engineering-memory/auth.md",
+            "file_url": "https://github.com/o/r/blob/branch/auth.md",
+            "pull_request_url": "https://github.com/o/r/pull/42",
+        }
+
+        self.ledger.record_proposal(
+            "o/r", gap_id=gap["id"], question=question, result=proposal,
+        )
+        self.ledger.record(
+            "o/r", question=question, verdict="unknown",
+            reason="no_recorded_reason",
+        )
+
+        proposed = self.ledger.gaps("o/r")[0]
+        self.assertEqual(proposed["status"], "proposed")
+        self.assertFalse(proposed["actionable"])
+        self.assertEqual(proposed["proposal"], proposal)
+        self.assertEqual(proposed["unknown_count"], 2)
+
+        self.ledger.record(
+            "o/r", question=question, verdict="answer",
+            citations=["doc:docs/engineering-memory/auth.md#L1-L12"],
+        )
+        resolved = self.ledger.gaps("o/r", include_resolved=True)[0]
+        self.assertEqual(resolved["status"], "resolved")

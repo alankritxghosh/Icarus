@@ -272,116 +272,73 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     }
 }
 
-/// One recorded ask from the repo's shared ledger (`demo/ledger.py`).
-///
-/// Deliberately carries NO identity. The server never records who asked, so a
-/// gap can be ranked by how OFTEN it was hit and never by how many DISTINCT
-/// people hit it — that is memory for a team rather than surveillance of one,
-/// and the absence is guarded by a test on the server.
-public struct LedgerEntry: Decodable, Sendable {
-    public let ts: Double
+/// Server-owned lifecycle state for one exact-text engineering-memory gap.
+/// Unknown values fail decoding: rendering an invented "open" or "resolved"
+/// state would be a product claim without evidence.
+public enum MemoryGapStatus: String, Decodable, Sendable {
+    case open
+    case proposed
+    case resolved
+}
+
+public struct MemoryGap: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
     public let question: String
-    public let verdict: Verdict
-    public let citations: [String]
-    /// WHY the gate abstained (evals/gate.py's ABSTAIN_* constants). Optional:
-    /// entries written before this field existed carry no reason, and an
-    /// answer never has one.
-    public let reason: String?
-
-    public init(ts: Double, question: String, verdict: Verdict,
-                citations: [String], reason: String? = nil) {
-        self.ts = ts
-        self.question = question
-        self.verdict = verdict
-        self.citations = citations
-        self.reason = reason
-    }
-}
-
-/// What an abstention actually MEANT, for the unknowns map.
-///
-/// Only `undocumented` is a documentation gap the team can act on. Rendering
-/// the others as one would overstate their debt — a fabricated symbol is not a
-/// missing decision record, it is a question about something that isn't there.
-public enum GapKind: String, Sendable {
-    case undocumented       // the thing exists; nobody wrote down why
-    case notInThisRepo      // the named thing isn't in what we indexed
-    case unclear            // recorded before reasons existed, or a defect
-
-    public init(reason: String?) {
-        switch reason {
-        case "no_recorded_reason", "writer_abstained", "self_disclaimed", "no_evidence":
-            self = .undocumented
-        case "entity_absent":
-            self = .notInThisRepo
-        default:
-            self = .unclear
-        }
-    }
-
-    public var label: String? {
-        switch self {
-        case .undocumented: return nil          // the default case needs no badge
-        case .notInThisRepo: return "not in this repo"
-        case .unclear: return "reason not recorded"
-        }
-    }
-}
-
-/// The `GET /ledger` response: the repo's shared ask record.
-public struct LedgerResponse: Decodable, Sendable {
-    public let repo: String
-    public let entries: [LedgerEntry]
-
-    public init(repo: String, entries: [LedgerEntry]) {
-        self.repo = repo
-        self.entries = entries
-    }
-}
-
-/// One documentation gap: a question the record could not answer, and how many
-/// times the team hit it.
-public struct Gap: Identifiable, Sendable, Equatable {
-    public let question: String
-    public let count: Int
+    public let unknownCount: Int
     public let lastAsked: Double
-    /// What this gap actually is. A `.notInThisRepo` gap is NOT documentation
-    /// debt and must not be presented as if it were.
-    public let kind: GapKind
-    public var id: String { question }
+    public let status: MemoryGapStatus
+    public let kind: String
+    public let actionable: Bool
+    public let resolutionCitations: [String]
+    public let proposal: MemoryRecordResult?
+
+    enum CodingKeys: String, CodingKey {
+        case id, question
+        case unknownCount = "unknown_count"
+        case lastAsked = "last_asked"
+        case status
+        case kind
+        case actionable
+        case resolutionCitations = "resolution_citations"
+        case proposal
+    }
 }
 
-public extension LedgerResponse {
-    /// Unknowns collapsed into ranked gaps — the map of what this codebase
-    /// never wrote down.
-    ///
-    /// Ranked by FREQUENCY, because that is the honest signal available: the
-    /// ledger stores no asker, so "asked nine times" cannot be distinguished
-    /// between one frustrated person and nine different ones. Ties break on
-    /// most-recent, so an equally-common gap that is live outranks a stale one.
-    ///
-    /// Questions are matched case-insensitively on trimmed text — deliberately
-    /// literal, never fuzzy: clustering near-identical phrasings would merge
-    /// two genuinely different questions and silently overstate a gap.
-    var gaps: [Gap] {
-        var counts: [String: (display: String, n: Int, last: Double, kind: GapKind)] = [:]
-        for e in entries where e.verdict == .unknown {
-            let text = e.question.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { continue }
-            let key = text.lowercased()
-            let kind = GapKind(reason: e.reason)
-            let prior = counts[key]
-            // The most RECENT classification wins for a repeated question: an
-            // older entry may predate reasons entirely, and treating that as
-            // authoritative would permanently mark a real gap "unclear".
-            let resolved = (prior == nil || e.ts >= prior!.last) ? kind : prior!.kind
-            counts[key] = (prior?.display ?? text,
-                           (prior?.n ?? 0) + 1,
-                           max(prior?.last ?? 0, e.ts),
-                           resolved)
-        }
-        return counts.values
-            .map { Gap(question: $0.display, count: $0.n, lastAsked: $0.last, kind: $0.kind) }
-            .sorted { $0.count == $1.count ? $0.lastAsked > $1.lastAsked : $0.count > $1.count }
+public struct MemoryGapsResponse: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let gaps: [MemoryGap]
+
+    public var open: [MemoryGap] { gaps.filter { $0.status == .open } }
+    public var proposed: [MemoryGap] { gaps.filter { $0.status == .proposed } }
+    public var resolved: [MemoryGap] { gaps.filter { $0.status == .resolved } }
+}
+
+/// GitHub artifacts observed after one explicit memory-record proposal.
+/// A pull-request URL is required: without it the client must not claim the
+/// proposal succeeded.
+public struct MemoryRecordResult: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let question: String
+    public let branch: String
+    public let path: String
+    public let fileURL: URL?
+    public let pullRequestURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case repo, question, branch, path
+        case fileURL = "file_url"
+        case pullRequestURL = "pull_request_url"
+    }
+}
+
+public struct MemoryRecordFailure: Error, Sendable, Equatable {
+    public let status: Int
+    public let message: String
+    public let recoveryURL: URL?
+
+    public init(status: Int, message: String, recoveryURL: URL?) {
+        self.status = status
+        self.message = message
+        self.recoveryURL = recoveryURL
     }
 }

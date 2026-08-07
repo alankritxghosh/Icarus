@@ -37,6 +37,7 @@ from evals.env_file import load_env_file
 
 from .freshness import FreshnessChecker
 from .ledger import Ledger
+from .memory_writer import GitHubMemoryWriter, MemoryWriteError
 from .payload import build_payload
 from .repo_map import build_map
 from .visits import VisitStore
@@ -56,6 +57,7 @@ QUESTIONS = ROOT.parent / "evals" / "phase1_questions.json"
 INDEX_HTML = ROOT / "index.html"
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_GAP_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
@@ -133,7 +135,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  access_verifier=None, default_repo=None, ledger=None,
                  refresh_limiter=None, freshness=None, visits=None,
                  commits_since=None, agent_sessions=None, agent_repo_info=None,
-                 agent_session_limiter=None):
+                 agent_session_limiter=None, memory_writer=None,
+                 memory_limiter=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -188,6 +191,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     agents. `agent_repo_info` verifies the active repository is public when a
     signed-in GitHub caller mints one. Agent sessions are bound to that caller
     and repository and can reach only /status, /ask, and /explain.
+
+    `memory_writer` enables the explicit engineering-memory write: one branch,
+    one new Markdown file, and one pull request. It receives the caller's
+    verified GitHub bearer in memory and never receives an identity to persist.
     """
     hosts = set(allowed_hosts) if allowed_hosts is not None else set(_LOOPBACK_HOSTS)
     wildcard = "*" in hosts
@@ -195,6 +202,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     connect_limiter = connect_limiter or RateLimiter(5, 600)  # 5 connects/10min
     refresh_limiter = refresh_limiter or RateLimiter(2, 3600)  # 2 re-ingests/hour
     agent_session_limiter = agent_session_limiter or RateLimiter(10, 60)
+    memory_limiter = memory_limiter or RateLimiter(5, 3600)
     commits_since = commits_since or github_access.commits_between
 
     class Handler(BaseHTTPRequestHandler):
@@ -421,6 +429,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 repo, _commit = lib.provenance()
                 q = parse_qs(urlparse(self.path).query)
+                lifecycle = q.get("gaps", ["0"])[0] not in ("0", "", "false")
+                if lifecycle:
+                    include_resolved = q.get("resolved", ["0"])[0] not in ("0", "", "false")
+                    self._send_json(200, {
+                        "repo": repo,
+                        "gaps": ledger.gaps(repo, include_resolved=include_resolved),
+                    })
+                    return
                 unknowns = q.get("unknowns", ["0"])[0] not in ("0", "", "false")
                 self._send_json(200, {
                     "repo": repo,
@@ -627,7 +643,120 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             except _RegistryWarming:
                 self._send_json(503, {"error": "starting up, try again shortly"})
                 return
-            if self.path == "/ask":
+            if self.path == "/memory-gaps/record":
+                if memory_writer is None or ledger is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                if self._principal()[1] != "github":
+                    self._send_json(403, {"error": "a GitHub credential is required"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
+                try:
+                    body = self._body()
+                    gap_id = body["gap_id"]
+                    rationale = body["rationale"]
+                except (ValueError, KeyError, TypeError):
+                    self._send_json(400, {"error": "gap_id and rationale are required"})
+                    return
+                if not isinstance(gap_id, str) or not _GAP_ID_RE.fullmatch(gap_id):
+                    self._send_json(400, {"error": "gap_id is invalid"})
+                    return
+                if not isinstance(rationale, str) or not rationale.strip() \
+                        or len(rationale.strip()) > 8000:
+                    self._send_json(400, {"error": "rationale is required and must be at most 8000 characters"})
+                    return
+                tradeoffs = body.get("tradeoffs", "")
+                references = body.get("references", [])
+                if not isinstance(tradeoffs, str) or len(tradeoffs.strip()) > 4000:
+                    self._send_json(400, {"error": "tradeoffs must be text at most 4000 characters"})
+                    return
+                if not isinstance(references, list) or any(
+                    not isinstance(item, str) or not item.strip() or len(item.strip()) > 500
+                    for item in references
+                ) or sum(len(item.strip()) for item in references) > 4000:
+                    self._send_json(400, {"error": "references must be a short list of text values"})
+                    return
+
+                repo, _commit = lib.provenance()
+                try:
+                    gap = next((
+                        item for item in ledger.gaps(repo, include_resolved=True)
+                        if item.get("id") == gap_id
+                    ), None)
+                except Exception as error:
+                    print(f"memory gap read failed: {type(error).__name__}: {error}",
+                          file=sys.stderr)
+                    self._send_json(503, {"error": "the engineering-memory record is unavailable"})
+                    return
+                if (
+                    gap is not None
+                    and gap.get("status") == "proposed"
+                    and isinstance(gap.get("proposal"), dict)
+                ):
+                    self._send_json(
+                        200, gap["proposal"],
+                        headers={"Cache-Control": "no-store"},
+                    )
+                    return
+                if not memory_limiter.allow(identity):
+                    self._send_json(429, {"error": "too many memory proposals -- try again later"})
+                    return
+                if (
+                    gap is None
+                    or gap.get("status") != "open"
+                    or gap.get("actionable") is not True
+                ):
+                    self._send_json(
+                        409,
+                        {"error": "this is not an open, actionable engineering-memory gap"},
+                    )
+                    return
+                try:
+                    result = memory_writer.record(
+                        repo=repo,
+                        token=self._github_token(),
+                        gap_id=gap_id,
+                        question=gap["question"],
+                        rationale=rationale.strip(),
+                        tradeoffs=tradeoffs.strip(),
+                        references=[item.strip() for item in references],
+                    )
+                except MemoryWriteError as error:
+                    payload = {"error": str(error)}
+                    if error.recovery_url:
+                        payload["recovery_url"] = error.recovery_url
+                    self._send_json(error.status, payload)
+                    return
+                except Exception as error:
+                    print(f"memory record write failed: {type(error).__name__}: {error}",
+                          file=sys.stderr)
+                    self._send_json(502, {"error": "GitHub could not create the memory proposal"})
+                    return
+                try:
+                    ledger.record_proposal(
+                        repo,
+                        gap_id=gap_id,
+                        question=gap["question"],
+                        result=result,
+                    )
+                except Exception as error:
+                    print(
+                        f"memory proposal ledger write failed: "
+                        f"{type(error).__name__}: {error}",
+                        file=sys.stderr,
+                    )
+                    self._send_json(502, {
+                        "error": (
+                            "GitHub created the proposal, but Icarus could not "
+                            "persist its proposed state"
+                        ),
+                        "recovery_url": result.get("pull_request_url"),
+                    })
+                    return
+                self._send_json(201, result, headers={"Cache-Control": "no-store"})
+            elif self.path == "/ask":
                 # Rate-limit BEFORE parsing/validating the body: a caller must not
                 # be able to dodge the limiter by sending bodies that fail cheap
                 # validation, and this also saves us from ever reaching the real
@@ -1036,6 +1165,7 @@ def serve(host: str = None, port: int = None):
                            ledger=ledger, freshness=FreshnessChecker(),
                            agent_sessions=agent_sessions,
                            agent_repo_info=github_access.repo_info,
+                           memory_writer=GitHubMemoryWriter(),
                            # Returning-user state lives under each caller's own
                            # storage dir -- the exact tree /disconnect deletes,
                            # so "deletable, and actually deleted" needs no

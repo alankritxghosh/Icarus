@@ -448,6 +448,36 @@ Per-key sliding-window rate limiter. Stdlib, thread-safe.
   - `allow(key) -> bool` — drop hits older than `window`, then admit iff under
     `limit`, recording the hit.
 
+## demo/ledger.py
+Append-only, per-repository engineering-memory ledger. Stores shared question
+and verdict history without answer bodies or asker identity.
+
+- `normalize_question(question: str) -> str` — trim and Unicode-casefold the
+  one exact-text identity used by listing, recording, and resolution.
+- `memory_gap_id(repo: str, question: str) -> str` — derive the opaque,
+  repository-scoped SHA-256 identity used by clients.
+- `class Ledger` — thread-safe JSONL store under one validated repo slug.
+  - `record(repo, *, question, verdict, citations=(), reason=None)` — append an
+    ask best-effort; answering never fails because the ledger disk did.
+  - `record_proposal(repo, *, gap_id, question, result)` — validate and
+    durably append an observed GitHub proposal before the API claims success.
+  - `entries(repo, *, limit=100, unknowns_only=False)` — return newest-first
+    parseable entries, with a missing ledger treated as empty.
+  - `gaps(repo, *, include_resolved=False)` — collapse chronological asks into
+    exact-text `open`/`proposed`/`resolved` gaps; only a cited answer resolves.
+
+## demo/memory_writer.py
+Bounded, caller-scoped GitHub writer for reviewed engineering-memory records.
+
+- `class MemoryWriteError` — client-safe failure carrying an HTTP status and
+  optional recoverable GitHub artifact URL.
+- `class GitHubMemoryWriter` — injected-transport, stdlib-only writer.
+  - `record(*, repo, token, gap_id, question, rationale, tradeoffs="",
+    references=())` — verify push permission and deterministically create or
+    recover one gap-owned branch, one new retrospective Markdown file, and one
+    pull request. Never overwrite, merge, close, delete, or edit unrelated
+    content.
+
 ## demo/library.py
 One active repo's state: which corpus is loaded, its pipeline, and switch
 status. Thread-safe (a lock guards the pipeline swap). Helpers
@@ -476,7 +506,8 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
 - `_resolve_storage_root(raw, default) -> Path` — `ICARUS_STORAGE_ROOT`,
   falling back to `default` when unset OR set-but-blank.
 - `make_handler(registry, html_path, require_auth=False, verifier=None,
-  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None, ...)` —
+  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
+  memory_writer=None, memory_limiter=None, ...)` —
   return a `BaseHTTPRequestHandler` subclass bound to the registry:
   - `_authorized()` — loopback Host + same-origin guard; skipped entirely when
     `allowed_hosts` contains `'*'` (cloud mode — the bearer gate is the real
@@ -496,6 +527,11 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
     `/disconnect` calls `registry.disconnect(identity)`. `/ask` and `/connect`
     check their `RateLimiter` BEFORE parsing the body (429 if exceeded, so a
     rate-limited caller never reaches the billed writer or a clone/ingest).
+    `/ledger?gaps=1&resolved=1` returns the server-owned memory lifecycle.
+    `/memory-gaps/record` accepts an opaque actionable gap ID, returns an
+    already-proposed pull request without consuming the write limit, otherwise
+    invokes the bounded GitHub writer and durably appends `proposed` before
+    returning success.
     `/ask` returns `build_payload(lib.current_pipeline().answer(q), ...)`; a
     strict boolean `include_evidence` opt-in adds retrieved evidence for agent
     clients and deliberately skips the human documentation-demand ledger.
@@ -532,6 +568,12 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
   eviction, and disconnect deleting only that user's storage.
 - `demo/test_ratelimit.py` — pins `RateLimiter`: allows up to the limit, blocks
   past it, a different key is unaffected, and the window sliding restores access.
+- `demo/test_ledger.py` — pins repo isolation, append/read behavior, no asker
+  identity, hostile-name containment, shared Unicode-casefold identity, opaque
+  gap IDs, and open→proposed→resolved lifecycle.
+- `demo/test_memory_writer.py` — pins validation, push permission, bounded
+  GitHub request shapes, deterministic proposal reuse, lost-response recovery,
+  and truthful partial-failure URLs.
 - `demo/test_library.py` — pins the `Library`: starts on the default repo, cache-hit
   switches without re-ingesting, a miss ingests, default uses the committed corpus,
   an ingest failure keeps the previous repo answerable, and (Task 11) private
@@ -541,7 +583,8 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
   POST `/ask` answer/unknown, POST `/connect` valid→202 / bad→400, missing question
   → 400, 404), the Origin guard, body cap, per-request identity resolution,
   `/disconnect`, rate-limit 429s, concurrency, short-lived agent-session
-  issuance/scope/expiry/route refusal, and index.html smoke checks.
+  issuance/scope/expiry/route refusal, engineering-memory gap listing and
+  idempotent proposal recording, and index.html smoke checks.
 - `demo/test_isolation.py` — pins cross-user isolation at the HTTP boundary: a
   real `LibraryRegistry` behind a real running server with two authenticated
   identities — connect/storage/disconnect/provenance all stay disjoint, and an

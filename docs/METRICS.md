@@ -55,8 +55,10 @@ The Mac app now measures release → final transcript → brain answer → the s
 speech synthesizer's `didStart` callback. This callback is the closest
 deterministic local proxy for first audible speech; it is not an audio-loopback
 measurement. The app keeps only the newest 50 duration samples in memory and
-shows the latest breakdown plus session p50/p95 on “Ask by voice.” It retains no
-audio, transcript, question, answer, repository, or identity.
+retains no audio, transcript, question, answer, repository, or identity. The
+dedicated “Ask by voice” frontend section was removed; these diagnostics remain
+available to the implementation and tests rather than occupying product
+navigation.
 
 Phase 3 latency is not accepted from synthetic tests. Establish the baseline
 with at least 20 completed voice asks on a real Mac and report on-device and
