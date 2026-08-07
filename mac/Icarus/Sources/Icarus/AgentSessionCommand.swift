@@ -42,7 +42,7 @@ enum AgentSessionCommand {
             FileHandle.standardOutput.write(data)
             return 0
         } catch BrainError.forbidden {
-            writeError("Icarus agent access requires an active public repository.")
+            writeError("Icarus agent access requires an active repository you can read.")
             return 1
         } catch BrainError.unauthorized {
             writeError("Icarus sign-in expired. Open the app and sign in again.")

@@ -44,9 +44,12 @@ A local, read-only MCP process lets Claude Code, Codex, Cursor, and compatible
 tools ask the existing HTTP brain for change context before they edit. It owns no
 retrieval or answering logic and never switches repositories or writes code. It
 returns the same cited answer or honest unknown, plus bounded retrieved evidence
-when the agent explicitly opts in. The first release fails closed on private
-repositories because Icarus cannot yet verify every coding model provider's
-data-use posture.
+when the agent explicitly opts in. It serves public AND private repositories
+(decided 2026-08-07). Icarus cannot verify the calling client's model
+provider's data-use posture, so private evidence crossing this boundary is an
+exposure owned by whoever configures the client, not a guarantee Icarus makes
+— see
+[docs/decisions/2026-08-07-mcp-private-repository-access.md](decisions/2026-08-07-mcp-private-repository-access.md).
 
 The signed-in Mac app is the credential bridge for this local process. A
 headless app command exchanges the GitHub bearer held in Keychain for a

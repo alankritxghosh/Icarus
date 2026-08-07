@@ -61,8 +61,9 @@ removing, or renaming files). For class/function-level detail see
   engineers and their coding agents, preserving the Mac/extension experience
   and the cite-or-unknown boundary.
 - `docs/ARCHITECTURE.md` — plain-language map of how Icarus is built (human and
-  agent faces over the same cloud brain), including the public-only first MCP
-  trust boundary.
+  agent faces over the same cloud brain), including the MCP trust boundary
+  (public AND private repos since 2026-08-07; the exposure is transferred to
+  whoever configures the client, not verified by Icarus).
 - `docs/STRATEGY.md` — build & product strategy: sell the typed brain first, rent
   the commodities, own the moat. Includes the decided stack.
 - `docs/COMPETITIVE.md` — competitive landscape: how comparable products were
@@ -588,8 +589,12 @@ removing, or renaming files). For class/function-level detail see
   what the question named from what search suggested.
 - `demo/mcp_server.py` — dependency-free stdio MCP adapter over `/status`,
   `/ask`, and `/explain`: two read-only tools, explicit repo mismatch refusal,
-  evidence-rich unknowns, and fail-closed private/uncertain agent egress. It
-  obtains a ten-minute public-read credential from the installed Mac app when
+  and evidence-rich unknowns. Serves PUBLIC AND PRIVATE repositories since
+  2026-08-07 — the prior fail-closed private check was removed deliberately
+  (`docs/decisions/2026-08-07-mcp-private-repository-access.md`): Icarus cannot
+  verify a calling MCP client's model-provider posture, so that exposure is
+  transferred to whoever configures the client rather than refused on their
+  behalf. It obtains a ten-minute credential from the installed Mac app when
   no development override is present, keeps it only in memory, owns no
   retrieval or answering logic, and its evidence-opt-in asks do not pollute the
   human documentation-demand ledger.
@@ -896,9 +901,11 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
 - `demo/test_mcp_server.py` — MCP handshake/tool contracts, evidence-rich honest
-  unknowns, explicit selection forwarding, repo mismatch refusal, and
-  private-repository fail-closed behavior; also pins automatic app-issued
-  session acquisition/reuse and explicit development overrides.
+  unknowns, explicit selection forwarding, repo mismatch refusal, and the
+  2026-08-07 reversal: a private repository IS served
+  (`test_private_repo_is_served_like_any_other`, so reinstating a block breaks a
+  named test) while a mid-answer repo SWITCH still refuses. Also pins automatic
+  app-issued session acquisition/reuse and explicit development overrides.
 - `demo/test_agent_sessions.py` — opaque agent-grant issuance, identity/repo
   scope, expiry, and unknown-token refusal.
 - `demo/test_auth.py` — the bearer helpers: `bearer_token` parsing, the verifier's

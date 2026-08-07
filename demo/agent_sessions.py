@@ -1,8 +1,14 @@
-"""Short-lived, public-read session tokens for coding-agent clients.
+"""Short-lived, read-only session tokens for coding-agent clients.
 
 The store holds only the verified GitHub user id and repository scope. The
 GitHub credential used to mint a session is never passed in, retained, logged,
 or written to disk.
+
+Scope covers public AND private repositories since 2026-08-07 (see
+docs/decisions/2026-08-07-mcp-private-repository-access.md). A grant is still
+bound to one identity and the one repo that identity had connected, and every
+request re-checks entitlement -- what changed is that a private repo is no
+longer refused outright.
 """
 
 import secrets

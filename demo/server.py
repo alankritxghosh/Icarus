@@ -12,7 +12,7 @@ GET  /briefing -> what changed since this caller was last here (pure);
                  POST /briefing acknowledges it and moves the anchor forward
                  (demo/visits.py; docs/decisions/2026-07-30-returning-user-state.md)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
-POST /auth/agent/session -> short-lived public-read token for the active repo
+POST /auth/agent/session -> short-lived read-only token for the active repo
 POST /connect -> {"repo": "owner/name"[, "refresh": true]} -> index/switch to it
 POST /disconnect -> forget the caller's library and delete their on-disk storage
 
@@ -187,9 +187,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     token)` computes how much moved between two commits; it defaults to
     `evals.github_access.commits_between` and is injectable for tests.
 
-    `agent_sessions` enables short-lived, public-read bearer tokens for coding
-    agents. `agent_repo_info` verifies the active repository is public when a
-    signed-in GitHub caller mints one. Agent sessions are bound to that caller
+    `agent_sessions` enables short-lived, read-only bearer tokens for coding
+    agents, covering public AND private repositories since 2026-08-07 (see
+    docs/decisions/2026-08-07-mcp-private-repository-access.md).
+    `agent_repo_info` verifies the signed-in GitHub caller can READ the active
+    repository when they mint one -- authorization survived that decision, the
+    public-only requirement did not. Agent sessions are bound to that caller
     and repository and can reach only /status, /ask, and /explain.
 
     `memory_writer` enables the explicit engineering-memory write: one branch,
@@ -299,7 +302,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             return bearer_token(self.headers) if self._principal()[1] == "github" else None
 
         def _agent_repo_allowed(self, lib, grant) -> bool:
-            """An agent grant cannot follow its owner when they switch repos."""
+            """An agent grant cannot follow its owner when they switch repos.
+
+            Privacy is deliberately NOT checked here (2026-08-07, see
+            docs/decisions/2026-08-07-mcp-private-repository-access.md). The
+            binding that matters is grant-to-repo: a grant minted for one repo
+            must never answer about whichever repo its owner switched to since.
+            That is what this enforces, and it holds for private repos too.
+            """
             if grant is None:
                 return False
             snapshot = lib.status_snapshot() or {}
@@ -307,7 +317,6 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             return (
                 isinstance(repo, str)
                 and repo.casefold() == grant.repo.casefold()
-                and snapshot.get("private") is False
             )
 
         def _freshness_of(self, lib, snapshot) -> dict:
@@ -401,7 +410,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(503, {"error": "starting up, try again shortly"})
                     return
                 if self._principal()[1] == "agent" and not self._entitled(lib):
-                    self._send_json(403, {"error": "agent session is not valid for the active public repo"})
+                    self._send_json(403, {"error": "agent session is not valid for the active repo"})
                     return
                 snapshot = lib.status_snapshot()
                 snapshot["freshness"] = self._freshness_of(lib, snapshot)
@@ -593,19 +602,21 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 snapshot = lib.status_snapshot() or {}
                 repo = snapshot.get("repo")
-                if (
-                    not isinstance(repo, str)
-                    or not repo
-                    or snapshot.get("private") is not False
-                ):
-                    self._send_json(403, {"error": "agent sessions require an active public repo"})
+                if not isinstance(repo, str) or not repo:
+                    self._send_json(403, {"error": "agent sessions require an active repo"})
                     return
+                # Private repos are allowed here since 2026-08-07 (see
+                # docs/decisions/2026-08-07-mcp-private-repository-access.md).
+                # The caller's own read access is still what gates this: the
+                # session is minted against the repo THIS identity already
+                # connected, and `_entitled` re-checks per request. What was
+                # dropped is the public-only requirement, not authorization.
                 try:
                     info = agent_repo_info(repo, self._github_token())
-                except Exception:  # fail closed when GitHub cannot verify visibility
+                except Exception:  # fail closed when GitHub cannot verify access
                     info = None
-                if not isinstance(info, dict) or info.get("private") is not False:
-                    self._send_json(403, {"error": "GitHub could not verify the active repo is public"})
+                if not isinstance(info, dict):
+                    self._send_json(403, {"error": "GitHub could not verify access to the active repo"})
                     return
                 token, expires_at = agent_sessions.issue(identity, repo)
                 self._send_json(

@@ -13,6 +13,14 @@ mac/
 docs/
 plugins/
 scripts/
+# Not the brain: the Vercel-deployed marketing site, the outreach tooling, and
+# its scratch output (indexed prospect corpora, GBs). Added 2026-08-07 after a
+# build context of 623MB was traced to outputs/ -- these had been silently
+# baked into the shipped image, which is both bloat and prospect data in a
+# production container.
+site/
+sales/
+outputs/
 Dockerfile
 .dockerignore
 .gitignore

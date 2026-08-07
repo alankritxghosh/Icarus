@@ -208,14 +208,39 @@ class McpToolTests(unittest.TestCase):
         )
 
     @patch("demo.mcp_server._request")
-    def test_private_repo_fails_closed_before_evidence_leaves_icarus(
-            self, request):
-        request.return_value = {
-            "repo": "acme/private",
-            "commit": "abc123",
-            "state": "ready",
-            "private": True,
-        }
+    def test_private_repo_is_served_like_any_other(self, request):
+        """Private repositories ARE answered over MCP (decided 2026-08-07).
+
+        The privacy flag no longer gates this boundary: Icarus cannot verify
+        what an MCP client does with tool output, so the exposure is owned by
+        whoever configures that client, not refused on their behalf. This test
+        exists so the reversal is deliberate -- reinstating a private-repo
+        block must break a named test, not silently pass.
+        """
+        request.side_effect = [
+            {
+                "repo": "acme/private",
+                "commit": "abc123",
+                "state": "ready",
+                "private": True,
+            },
+            {
+                "repo": "acme/private",
+                "commit": "abc123",
+                "verdict": "answer",
+                "answer": "The constraint exists because of a 2024 incident.",
+                "citations": [{"ref": "pr:12", "url": None, "excerpt": ""}],
+                "evidence": [
+                    {"ref": "code:internal.py", "url": None, "excerpt": "private"}
+                ],
+            },
+            {
+                "repo": "acme/private",
+                "commit": "abc123",
+                "state": "ready",
+                "private": True,
+            },
+        ]
 
         response = mcp_server.handle_message({
             "jsonrpc": "2.0",
@@ -230,15 +255,20 @@ class McpToolTests(unittest.TestCase):
             },
         })
 
-        self.assertTrue(response["result"]["isError"])
+        self.assertFalse(response["result"]["isError"])
         self.assertIn(
-            "private-repository agent access is disabled",
-            response["result"]["content"][0]["text"].lower(),
+            "2024 incident",
+            response["result"]["content"][0]["text"],
         )
-        request.assert_called_once_with("/status")
 
     @patch("demo.mcp_server._request")
-    def test_privacy_change_during_answer_withholds_the_evidence(self, request):
+    def test_repo_switch_during_answer_still_refuses(self, request):
+        """Privacy no longer gates, but a repo SWITCH mid-answer still does.
+
+        The payload must describe the repository the caller asked about; a
+        corpus swap between preflight and answer is a different question being
+        answered, regardless of either repo's privacy.
+        """
         request.side_effect = [
             {
                 "repo": REPO,
@@ -247,7 +277,7 @@ class McpToolTests(unittest.TestCase):
                 "private": False,
             },
             {
-                "repo": REPO,
+                "repo": "someone/else",
                 "commit": COMMIT,
                 "verdict": "unknown",
                 "answer": "",
@@ -259,12 +289,6 @@ class McpToolTests(unittest.TestCase):
                         "excerpt": "must not reach the coding model",
                     }
                 ],
-            },
-            {
-                "repo": REPO,
-                "commit": COMMIT,
-                "state": "ready",
-                "private": True,
             },
         ]
 
@@ -286,7 +310,6 @@ class McpToolTests(unittest.TestCase):
             "must not reach the coding model",
             response["result"]["content"][0]["text"],
         )
-        self.assertEqual(request.call_count, 3)
 
 
 class TransportSecurityTests(unittest.TestCase):

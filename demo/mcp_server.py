@@ -41,10 +41,11 @@ _TOOLS = [
         "description": (
             "Retrieve the recorded why and related evidence before planning a "
             "meaningful code change. Read-only: it never edits code or switches "
-            "the connected repository. This first release fails closed on "
-            "private repositories. An unknown verdict can still include related "
-            "evidence, but that evidence must not be presented as a recorded "
-            "decision."
+            "the connected repository. Serves public AND private repositories; "
+            "private evidence leaves Icarus's verified-provider boundary, so "
+            "whoever configures this client owns that exposure. An unknown "
+            "verdict can still include related evidence, but that evidence "
+            "must not be presented as a recorded decision."
         ),
         "inputSchema": {
             "type": "object",
@@ -81,8 +82,9 @@ _TOOLS = [
         "title": "Explain code context",
         "description": (
             "Retrieve cited historical context for an exact file and line "
-            "selection. Read-only, repository-explicit, and currently limited "
-            "to public repositories."
+            "selection. Read-only and repository-explicit. Serves public AND "
+            "private repositories; private evidence leaves Icarus's "
+            "verified-provider boundary when it does."
         ),
         "inputSchema": {
             "type": "object",
@@ -324,8 +326,19 @@ def _required_line(arguments, name):
     return value
 
 
-def _checked_public_repo(expected_repo):
-    """Return the active repo, refusing mismatches and unverified egress."""
+def _checked_repo(expected_repo):
+    """Return the active repo, refusing only a mismatch with what was asked.
+
+    Private repositories ARE served over MCP (decided 2026-08-07). Icarus
+    cannot verify what an arbitrary MCP client does with tool output -- the
+    client forwards it into whatever coding model it is configured with, whose
+    training/logging posture is outside Icarus's deterministic interlock. That
+    interlock still governs Icarus's OWN writer calls; it has never been able
+    to reach past this boundary. Serving private evidence here is therefore a
+    deliberate, accepted risk owned by whoever configures the MCP client, not a
+    guarantee Icarus is able to make. See
+    docs/decisions/2026-08-07-mcp-private-repository-access.md.
+    """
     status = _request("/status")
     active_repo = status.get("repo")
     if not active_repo:
@@ -335,14 +348,6 @@ def _checked_public_repo(expected_repo):
         raise _ToolError(
             f"Icarus is connected to {active_repo}, not {expected_repo}; "
             "connect the intended repository in Icarus first")
-    # An MCP client forwards tool output into its coding model. Until Icarus
-    # can verify that provider's private-data posture, sending private evidence
-    # across this boundary would bypass the existing deterministic interlock.
-    # Missing status is uncertainty, so it fails closed too.
-    if status.get("private") is not False:
-        raise _ToolError(
-            "Private-repository agent access is disabled until this MCP "
-            "client's data-use posture can be verified")
     return active_repo
 
 
@@ -352,7 +357,7 @@ def _get_change_context(arguments):
 
     # Refuse before spending a writer call or silently asking about whichever
     # repository happens to be active. This adapter never calls /connect.
-    active_repo = _checked_public_repo(expected_repo)
+    active_repo = _checked_repo(expected_repo)
 
     payload = _request(
         "/ask",
@@ -365,7 +370,7 @@ def _get_change_context(arguments):
             "Icarus changed repositories while answering; retry the request")
     # Check again before returning any evidence to the coding model. A repo can
     # change privacy or active state while the writer is running.
-    _checked_public_repo(active_repo)
+    _checked_repo(active_repo)
     return payload
 
 
@@ -376,7 +381,7 @@ def _explain_code_context(arguments):
     end = _required_line(arguments, "end")
     if end < start:
         raise _ToolError("end must be greater than or equal to start")
-    active_repo = _checked_public_repo(repo)
+    active_repo = _checked_repo(repo)
 
     body = {
         "repo": active_repo,
@@ -395,7 +400,7 @@ def _explain_code_context(arguments):
     if payload.get("repo") != active_repo:
         raise _ToolError(
             "Icarus changed repositories while answering; retry the request")
-    _checked_public_repo(active_repo)
+    _checked_repo(active_repo)
     return payload
 
 

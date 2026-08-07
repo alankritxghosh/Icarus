@@ -1442,7 +1442,7 @@ class ReadEntitlementTests(unittest.TestCase):
             fx.close()
 
 
-# --- Phase 1B auth: short-lived public-read agent sessions -----------------
+# --- Phase 1B auth: short-lived read-only agent sessions -------------------
 
 class AgentSessionEndpointTests(unittest.TestCase):
     PUBLIC = "octo/public"
@@ -1568,12 +1568,20 @@ class AgentSessionEndpointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 403)
         raised.exception.close()
 
-    def test_private_or_unverifiable_repo_cannot_mint_a_session(self):
+    def test_private_repo_mints_a_session_but_unverifiable_access_does_not(self):
+        """Private is allowed (2026-08-07); unverifiable ACCESS still is not.
+
+        The public-only requirement was dropped deliberately -- see
+        docs/decisions/2026-08-07-mcp-private-repository-access.md. What
+        survives is authorization: if GitHub cannot confirm this caller can
+        read the repo at all, minting still fails closed.
+        """
         self.lib._private = True
-        with self.assertRaises(urllib.error.HTTPError) as private:
-            self._request("/auth/agent/session", self.GITHUB_TOKEN, {})
-        self.assertEqual(private.exception.code, 403)
-        private.exception.close()
+        with self._request(
+                "/auth/agent/session", self.GITHUB_TOKEN, {}) as response:
+            body = json.loads(response.read())
+        self.assertEqual(response.status, 200)
+        self.assertEqual(body["repo"], self.PUBLIC)
 
         self.lib._private = False
         self.public_checks.clear()

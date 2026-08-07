@@ -1,4 +1,7 @@
 [mcp_servers.icarus]
-command = ".venv/bin/python"
+command = "/Users/alankritghosh/JARVIS /jarvis_engineering/.venv/bin/python"
 args = ["-m", "demo.mcp_server"]
 env_vars = ["ICARUS_BRAIN_URL", "ICARUS_TOKEN"]
+
+[mcp_servers.icarus.env]
+PYTHONPATH = "/Users/alankritghosh/JARVIS /jarvis_engineering"
