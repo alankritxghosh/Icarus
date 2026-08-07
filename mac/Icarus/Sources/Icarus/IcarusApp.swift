@@ -13,6 +13,9 @@ struct IcarusApp: App {
 struct Main {
     @MainActor
     static func main() async {
+        if ExtensionBridgeCommand.requestedOrigin != nil {
+            exit(await ExtensionBridgeCommand.run())
+        }
         if AgentSessionCommand.requested {
             exit(await AgentSessionCommand.run())
         }

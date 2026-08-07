@@ -30,16 +30,43 @@ are building the trust primitive one will eventually require.
 
 ## 1. The product, in one sentence
 
-A **conversational engineering brain** a company can buy — a privacy-first
-assistant that learns a company's codebase and the history of decisions around
-it well enough to answer *why*, *what*, and *how* for engineers and their coding
-agents, and that always knows the difference between what it can prove and what
-it's guessing.
+**Icarus is your company's engineering memory.** It reconstructs why systems
+became the way they are from code, pull requests, reviews, and recorded
+decisions—with evidence a person can verify and an honest unknown when the
+reason was never recorded.
 
 **The ideal one-sentence journey:** before an engineer or coding agent makes a
 meaningful change, Icarus supplies the repo-scoped recorded why and its evidence
 — or clearly states what it found and what remains unknown — then gets out of
 the way.
+
+### The engineering-memory loop
+
+The product is not complete when it finds nothing. That unknown becomes a
+visible Memory Gap:
+
+1. An engineer asks a real question.
+2. Icarus searches the bounded record and proves no rationale was documented.
+3. The team explicitly records the missing rationale through a reviewed,
+   repository-owned pull request. The gap is visibly proposed and cannot spawn
+   duplicate proposals.
+4. After merge and re-index, the same question receives a cited answer.
+5. The gap is resolved by evidence—not by clicking a button or writing a draft.
+
+The magic moment is not merely “AI answered.” It is: **Icarus remembered
+something the team would otherwise have lost—or proved nobody ever documented
+it, then helped the team stop that knowledge from dying.**
+
+Every proposed feature faces one test: *does this preserve, reconstruct, or
+reason over engineering memory?* Generic autocomplete, code generation, test
+generation, and autonomous bug fixing do not pass that test.
+
+The company roadmap follows the dependency:
+
+1. Become the memory.
+2. Become the reasoning engine over that memory.
+3. Become the advisor that improves decisions because it understands what came
+   before.
 
 ## 2. The scene we are building toward
 

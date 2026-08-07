@@ -24,12 +24,11 @@
 //    something to cite. Everywhere else it stays dormant, per the plan's
 //    scope guard: no "answer anything on any GitHub page."
 
-let lastOwnerRepo = null; // "owner/repo" last checked, so /status is only
-let connectedRepoStatus = null; // {repo} | null -- re-fetched when
-                                 // the repo actually changes, not on every
-                                 // line-selection hash change.
+let connectedRepoStatus = null;
 let widgetEl = null; // the single on-page element: either the "Ask Icarus"
                       // trigger button, or the full answer panel -- never both.
+const navigationGate = createLatestOnly();
+const askGate = createLatestOnly();
 
 const STYLE_ID = "icarus-style";
 const STYLE_CSS = `
@@ -88,7 +87,6 @@ async function getToken() {
 }
 
 async function fetchConnectedRepoStatus(token) {
-  if (!token) return null;
   try {
     // Routed through the background worker, not fetched here directly -- a
     // content script's own fetch is bound by the GitHub page's CORS/Private
@@ -135,7 +133,14 @@ function showTrigger(selection) {
   // old "...and why is it here?" made an unrecorded why abstain the answerable
   // what). A typed question is passed through to /explain's `question` field,
   // unchanged on the server side.
-  const submit = () => askIcarus(selection, input.value.trim() || undefined);
+  let submitting = false;
+  const submit = () => {
+    if (submitting) return;
+    submitting = true;
+    btn.disabled = true;
+    input.disabled = true;
+    askIcarus(selection, input.value.trim() || undefined);
+  };
   btn.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") submit();
@@ -164,19 +169,20 @@ function showPanel(html) {
   const close = document.createElement("button");
   close.className = "icarus-close";
   close.textContent = "×";
-  close.addEventListener("click", removeWidget);
+  close.addEventListener("click", () => {
+    askGate.invalidate();
+    removeWidget();
+  });
   panel.appendChild(close);
   document.body.appendChild(panel);
   widgetEl = panel;
 }
 
 async function askIcarus(selection, question) {
+  const requestID = askGate.begin();
   showPanel(renderLoadingHtml());
   const token = await getToken();
-  if (!token) {
-    showPanel(renderSignedOutHtml());
-    return;
-  }
+  if (!askGate.isCurrent(requestID)) return;
   const explainPayload = {
     repo: `${selection.owner}/${selection.repo}`,
     path: selection.path,
@@ -190,11 +196,19 @@ async function askIcarus(selection, question) {
     // comment; the same CORS/Private Network Access restriction applies here.
     response = await chrome.runtime.sendMessage({ action: "fetchExplain", token, payload: explainPayload });
   } catch (e) {
+    if (!askGate.isCurrent(requestID)) return;
     showPanel(renderErrorHtml("could not reach Icarus -- check your connection"));
     return;
   }
+  if (!askGate.isCurrent(requestID)) return;
   if (!response || !response.ok) {
-    const errMsg = (response && response.data && response.data.error) || `request failed${response && response.status ? ` (${response.status})` : ""}`;
+    if (response && response.status === 401) {
+      showPanel(renderSignedOutHtml());
+      return;
+    }
+    const errMsg = (response && response.error)
+      || (response && response.data && response.data.error)
+      || `request failed${response && response.status ? ` (${response.status})` : ""}`;
     showPanel(renderErrorHtml(errMsg));
     return;
   }
@@ -210,16 +224,18 @@ async function askIcarus(selection, question) {
 }
 
 async function handleLocationChange(pathname, hash) {
+  const navigationID = navigationGate.begin();
+  askGate.invalidate();
   const blob = parseBlobPath(pathname);
   if (!blob) {
     removeWidget();
     return;
   }
-  const ownerRepo = `${blob.owner}/${blob.repo}`;
-  if (ownerRepo !== lastOwnerRepo) {
-    lastOwnerRepo = ownerRepo;
-    connectedRepoStatus = await fetchConnectedRepoStatus(await getToken());
-  }
+  // Re-read status on each real selection/navigation. The Mac app can switch
+  // repositories while this GitHub tab stays open; caching by page repo made
+  // that switch invisible until a full reload.
+  connectedRepoStatus = await fetchConnectedRepoStatus(await getToken());
+  if (!navigationGate.isCurrent(navigationID)) return;
   const connectedRepo = connectedRepoStatus ? connectedRepoStatus.repo : null;
   if (!isConnectedRepo(blob.owner, blob.repo, connectedRepo)) {
     removeWidget();

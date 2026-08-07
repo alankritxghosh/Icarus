@@ -65,28 +65,57 @@ async function signIn(worker, token = "test-token") {
  * Stub the brain. `explain` is the /explain payload to return; `repo` is what
  * /status reports as connected (null = no repo, i.e. the dormant case).
  */
-async function stubBrain(context, { repo = CONNECTED_REPO, explain = null } = {}) {
+async function stubBrain(context, {
+  repo = CONNECTED_REPO,
+  explain = null,
+  statusCode = 200,
+  explainStatus = 200,
+  statusDelay = 0,
+  explainDelay = 0,
+  explainRaw = null,
+  onExplain = null,
+  abortExplain = false,
+} = {}) {
   await context.route(`${BRAIN_ORIGIN}/**`, async (route) => {
     const url = route.request().url();
     if (url.includes("/status")) {
+      const delay = typeof statusDelay === "function"
+        ? statusDelay(route.request())
+        : statusDelay;
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      const connected = typeof repo === "function" ? repo() : repo;
       return route.fulfill({
-        status: 200,
+        status: statusCode,
         contentType: "application/json",
-        body: JSON.stringify(repo ? { repo, private: false, ready: true } : {}),
+        body: JSON.stringify(
+          connected ? { repo: connected, private: false, state: "ready" } : {}
+        ),
       });
     }
     if (url.includes("/explain")) {
+      if (abortExplain) return route.abort("failed");
+      if (onExplain) onExplain(route.request());
+      const delay = typeof explainDelay === "function"
+        ? explainDelay(route.request())
+        : explainDelay;
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      const body = typeof explain === "function"
+        ? await explain(route.request())
+        : (explain || {});
+      const responseStatus = typeof explainStatus === "function"
+        ? explainStatus(route.request())
+        : explainStatus;
       return route.fulfill({
-        status: 200,
+        status: responseStatus,
         contentType: "application/json",
-        body: JSON.stringify(explain || {}),
+        body: explainRaw === null ? JSON.stringify(body) : explainRaw,
       });
     }
     return route.fulfill({ status: 404, body: "{}" });
   });
 }
 
-const blobUrl = (repo, file, hash = "") =>
-  `https://github.com/${repo}/blob/main/${file}${hash}`;
+const blobUrl = (repo, file, hash = "", ref = "main") =>
+  `https://github.com/${repo}/blob/${ref}/${file}${hash}`;
 
 module.exports = { test, expect, signIn, stubBrain, blobUrl, BRAIN_ORIGIN, CONNECTED_REPO, EXT_DIR };

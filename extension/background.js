@@ -19,6 +19,8 @@
 // content.js's direct fetches didn't. content.js now messages this worker
 // for every brain call instead of fetching directly.
 
+importScripts("background_bridge.js");
+
 const BRAIN_URL = "https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io"; // TODO: configurable (post-demo per CLAUDE.md); hardcoded to the live Azure Container Apps deploy
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -34,9 +36,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetchExplain(message.token, message.payload).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
+  if (message && message.action === "bridgePing") {
+    IcarusBridge.sendNativeMessage({ action: "ping" })
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, unavailable: true, error: String(e) }));
+    return true;
+  }
 });
 
 async function fetchStatus(token) {
+  const response = await IcarusBridge.bridgeFirst(
+    { action: "status" },
+    () => fetchStatusWithOAuth(token)
+  );
+  if (response.ok && !IcarusBridge.validateStatusResponse(response.data)) {
+    return { ok: false, status: 502, error: "Icarus returned an invalid status response" };
+  }
+  return response;
+}
+
+async function fetchStatusWithOAuth(token) {
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Connect the Icarus Mac app or sign in with GitHub",
+    };
+  }
   const res = await fetch(`${BRAIN_URL}/status`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -46,6 +72,24 @@ async function fetchStatus(token) {
 }
 
 async function fetchExplain(token, payload) {
+  const response = await IcarusBridge.bridgeFirst(
+    { action: "explain", payload },
+    () => fetchExplainWithOAuth(token, payload)
+  );
+  if (response.ok && !IcarusBridge.validateExplainResponse(response.data)) {
+    return { ok: false, status: 502, error: "Icarus returned an invalid explanation" };
+  }
+  return response;
+}
+
+async function fetchExplainWithOAuth(token, payload) {
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Connect the Icarus Mac app or sign in with GitHub",
+    };
+  }
   const res = await fetch(`${BRAIN_URL}/explain`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

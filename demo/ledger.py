@@ -33,6 +33,7 @@ Format is JSONL, append-only, one file per repo -- the same shape as the corpus
 itself, and readable with nothing but the standard library.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,19 @@ def _slug(repo: str) -> str:
     if not repo or not _SAFE_REPO.match(repo) or ".." in repo:
         raise ValueError("invalid repo name")
     return repo.replace("/", "__")
+
+
+def normalize_question(question: str) -> str:
+    """The one exact-text identity used by listing, recording, and resolution."""
+    return question.strip().casefold()
+
+
+def memory_gap_id(repo: str, question: str) -> str:
+    normalized = normalize_question(question)
+    if not normalized:
+        raise ValueError("question is required")
+    material = f"{repo.casefold()}\0{normalized}".encode()
+    return hashlib.sha256(material).hexdigest()
 
 
 class Ledger:
@@ -83,6 +97,42 @@ class Ledger:
             # before this field existed.
             "reason": reason,
         }
+        self._append(path, entry, required=False)
+
+    def record_proposal(self, repo: str, *, gap_id: str, question: str,
+                        result: dict) -> None:
+        """Persist an observed GitHub proposal before the API claims success."""
+        path = self._path(repo)
+        if gap_id != memory_gap_id(repo, question):
+            raise ValueError("gap id does not match question")
+        if not isinstance(result, dict):
+            raise ValueError("proposal result is required")
+        proposal = {
+            key: result.get(key)
+            for key in (
+                "repo", "question", "branch", "path", "file_url",
+                "pull_request_url",
+            )
+        }
+        if (
+            proposal["repo"] != repo
+            or proposal["question"] != question
+            or not isinstance(proposal["branch"], str)
+            or not isinstance(proposal["path"], str)
+            or not isinstance(proposal["pull_request_url"], str)
+            or not proposal["pull_request_url"].startswith("https://github.com/")
+        ):
+            raise ValueError("invalid proposal result")
+        entry = {
+            "ts": time.time(),
+            "question": question,
+            "verdict": "proposal",
+            "gap_id": gap_id,
+            "proposal": proposal,
+        }
+        self._append(path, entry, required=True)
+
+    def _append(self, path: Path, entry: dict, *, required: bool) -> None:
         line = json.dumps(entry, ensure_ascii=False) + "\n"
         try:
             with self._lock:
@@ -93,6 +143,8 @@ class Ledger:
                 with open(path, "a", encoding="utf-8") as fh:
                     fh.write(line)
         except OSError:
+            if required:
+                raise
             pass  # the ledger is an asset, not a dependency of answering
 
     def entries(self, repo: str, *, limit: int = 100, unknowns_only: bool = False):
@@ -122,3 +174,100 @@ class Ledger:
             if len(out) >= limit:
                 break
         return out
+
+    def gaps(self, repo: str, *, include_resolved: bool = False):
+        """Collapse the repo's asks into exact-text engineering-memory gaps.
+
+        A gap begins with an unknown verdict. It is resolved only when the latest
+        ask of that same normalized question is an answer carrying at least one
+        citation. An answer-shaped row with no receipt cannot repair
+        organizational knowledge.
+
+        Matching is deliberately literal after trim+casefold. Semantic
+        clustering would risk merging distinct decisions and claiming the wrong
+        gap was resolved.
+        """
+        # `entries` is newest-first; process oldest-first so the last matching
+        # row is the actual current state. This beta already reads the whole
+        # JSONL file in `entries`, so a generous bound changes no resource shape.
+        chronological = reversed(self.entries(repo, limit=1_000_000))
+        grouped = {}
+        for entry in chronological:
+            question = entry.get("question")
+            if not isinstance(question, str):
+                continue
+            display = question.strip()
+            if not display:
+                continue
+            key = normalize_question(display)
+            gap_id = memory_gap_id(repo, display)
+            verdict = entry.get("verdict")
+            citations = entry.get("citations")
+            citations = citations if isinstance(citations, list) else []
+            ts = entry.get("ts")
+            ts = float(ts) if isinstance(ts, (int, float)) else 0.0
+
+            gap = grouped.get(key)
+            if verdict == "unknown":
+                reason = entry.get("reason")
+                if gap is None:
+                    gap = grouped[key] = {
+                        "question": display,
+                        "id": gap_id,
+                        "unknown_count": 0,
+                        "last_asked": ts,
+                        "status": "open",
+                        "kind": "unclear",
+                        "actionable": False,
+                        "resolution_citations": [],
+                        "proposal": None,
+                    }
+                was_proposed = gap["status"] == "proposed"
+                gap["unknown_count"] += 1
+                gap["last_asked"] = max(gap["last_asked"], ts)
+                if not was_proposed:
+                    gap["status"] = "open"
+                    gap["resolution_citations"] = []
+                    gap["proposal"] = None
+                    if reason == "no_recorded_reason":
+                        gap["kind"] = "undocumented"
+                        gap["actionable"] = True
+                    elif reason == "entity_absent":
+                        gap["kind"] = "not_in_repo"
+                        gap["actionable"] = False
+                    else:
+                        gap["kind"] = "unclear"
+                        gap["actionable"] = False
+            elif verdict == "proposal" and gap is not None:
+                proposal = entry.get("proposal")
+                if (
+                    entry.get("gap_id") == gap_id
+                    and isinstance(proposal, dict)
+                    and isinstance(proposal.get("pull_request_url"), str)
+                    and proposal["pull_request_url"].startswith("https://github.com/")
+                    and gap["status"] != "resolved"
+                ):
+                    gap["status"] = "proposed"
+                    gap["actionable"] = False
+                    gap["proposal"] = proposal
+                    gap["last_asked"] = max(gap["last_asked"], ts)
+            elif gap is not None:
+                gap["last_asked"] = max(gap["last_asked"], ts)
+                if verdict == "answer" and citations:
+                    gap["status"] = "resolved"
+                    gap["actionable"] = False
+                    gap["resolution_citations"] = citations
+                elif gap["status"] != "proposed":
+                    # A malformed "answer" with no citations cannot resolve the
+                    # gap; leave it open and preserve its last honest kind.
+                    gap["status"] = "open"
+                    gap["resolution_citations"] = []
+
+        gaps = [
+            gap for gap in grouped.values()
+            if include_resolved or gap["status"] != "resolved"
+        ]
+        return sorted(
+            gaps,
+            key=lambda gap: (-gap["unknown_count"], -gap["last_asked"], gap["question"]),
+        )

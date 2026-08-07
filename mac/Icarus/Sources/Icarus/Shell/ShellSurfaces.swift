@@ -38,10 +38,12 @@ struct DecisionHistoryView: View {
 /// hidden, so nobody reads the ranking as more than it is.
 struct UnknownsView: View {
     let ledger: LedgerModel
+    @State private var selectedGap: MemoryGap?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            surfaceTitle("Unknowns",
-                         "Questions your codebase couldn't answer. Every one is a decision nobody wrote down.")
+            surfaceTitle("Engineering memory",
+                         "Open gaps, recurring questions, and knowledge the team has recovered.")
             ShellCard {
                 switch ledger.state {
                 case .idle, .loading:
@@ -59,23 +61,33 @@ struct UnknownsView: View {
                     }
                 case .loaded(let repo, let gaps) where gaps.isEmpty:
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Nothing unanswered yet in \(repo).")
+                        Text("No engineering-memory gaps recorded yet in \(repo).")
                             .font(.system(size: 13)).foregroundStyle(Theme.ink)
                         Text("When a question has no recorded answer, it lands here — honestly.")
                             .font(.system(size: 12)).foregroundStyle(Theme.muted)
                     }
                 case .loaded(let repo, let gaps):
+                    let open = gaps.filter { $0.status == .open }
+                    let recurring = open.filter { $0.unknownCount > 1 }
+                    let proposed = gaps.filter { $0.status == .proposed }
+                    let resolved = gaps.filter { $0.status == .resolved }
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
-                            MonoLabel("\(gaps.count) GAP\(gaps.count == 1 ? "" : "S") IN \(repo.uppercased())", Theme.unknown)
+                            MonoLabel("ENGINEERING MEMORY · \(repo.uppercased())", Theme.unknown)
                             Spacer()
-                            Text("ranked by how often asked")
+                            Text(
+                                "\(open.count) open · \(proposed.count) proposed · "
+                                + "\(recurring.count) recurring · \(resolved.count) resolved"
+                            )
                                 .font(Theme.mono(10)).foregroundStyle(Theme.muted)
                         }
                         .padding(.bottom, 12)
                         ForEach(Array(gaps.enumerated()), id: \.element.id) { i, gap in
                             if i > 0 { Divider().background(Theme.border).padding(.vertical, 12) }
-                            GapRow(gap: gap)
+                            MemoryGapRow(gap: gap, recordDisabled: ledger.isRecording) {
+                                ledger.resetRecordState()
+                                selectedGap = gap
+                            }
                         }
                     }
                 }
@@ -84,133 +96,176 @@ struct UnknownsView: View {
                 .font(.system(size: 11)).foregroundStyle(Theme.muted)
         }
         .onAppear { ledger.load() }
+        .sheet(item: $selectedGap, onDismiss: ledger.resetRecordState) { gap in
+            MemoryRecordSheet(ledger: ledger, gap: gap)
+        }
     }
 }
 
 /// One documentation gap: the question, and how many times the team hit it.
-private struct GapRow: View {
-    let gap: Gap
+private struct MemoryGapRow: View {
+    let gap: MemoryGap
+    let recordDisabled: Bool
+    let onRecord: () -> Void
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(gap.question)
-                .font(.system(size: 14)).foregroundStyle(Theme.ink)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 12)
-            // A gap that is really "you asked about something that isn't here"
-            // is not documentation debt, and must not be shown as if it were.
-            if let label = gap.kind.label {
-                Text(label)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(gap.question)
+                    .font(.system(size: 14)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                if gap.status == .resolved {
+                    Text("resolved")
+                        .font(Theme.mono(10)).foregroundStyle(Theme.accent)
+                } else if gap.status == .proposed {
+                    Text("proposal open")
+                        .font(Theme.mono(10)).foregroundStyle(Theme.accent)
+                } else if gap.kind == "not_in_repo" {
+                    Text("not in this repo")
+                        .font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                } else if !gap.actionable {
+                    Text("reason unclear")
+                        .font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                }
+                if gap.unknownCount > 1 {
+                    Text("asked \(gap.unknownCount)x")
+                        .font(Theme.mono(11)).foregroundStyle(Theme.unknown)
+                }
+            }
+            if gap.status == .resolved, !gap.resolutionCitations.isEmpty {
+                Text("Confirmed by \(gap.resolutionCitations.joined(separator: " · "))")
                     .font(Theme.mono(10)).foregroundStyle(Theme.muted)
+                    .lineLimit(2)
             }
-            if gap.count > 1 {
-                Text("asked \(gap.count)x")
-                    .font(Theme.mono(11)).foregroundStyle(Theme.unknown)
+            if gap.status == .proposed, let proposal = gap.proposal {
+                Link("Open memory proposal", destination: proposal.pullRequestURL)
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.top, 4)
+            }
+            if gap.status == .open, gap.actionable {
+                Button("Record engineering memory", action: onRecord)
+                    .buttonStyle(PrimaryButton())
+                    .padding(.top, 4)
+                    .disabled(recordDisabled)
             }
         }
     }
 }
 
-/// A true, plain-language statement of the privacy model. Every line must be
-/// literally true of this build — no fake compliance badges, no invented tenant.
-struct PrivacyBoundaryView: View {
+private struct MemoryRecordSheet: View {
+    let ledger: LedgerModel
+    let gap: MemoryGap
+    @Environment(\.dismiss) private var dismiss
+    @State private var rationale = ""
+    @State private var tradeoffs = ""
+    @State private var references = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            surfaceTitle("Privacy boundary", "What crosses the line off your machine — and what never does.")
-            ShellCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    claim("Voice: on-device when supported", "Speech is transcribed on-device via Apple Speech when your Mac has the local model — then audio never leaves the machine. When the model isn't installed, Icarus falls back to Apple's speech recognition service so voice works with no setup.")
-                    claim("Never trained on", "Retrieved evidence goes to the answering model to write one answer, then is discarded. Your code is never used to train anything.")
-                    claim("Shared with your team, nobody else", "A repository is indexed once and shared with the people who can already read it on GitHub. Icarus asks GitHub on every request rather than keeping its own list of who works where — when access is revoked there, it's gone here within five minutes.")
-                    claim("Questions are recorded, who asked is not", "Each question, its verdict and its citations are recorded against the repository — that's what builds the list of things nobody wrote down. The asker isn't recorded, and answers aren't stored.")
-                    claim("Cite or say \"I don't know\"", "Every answer carries the receipts it's built from. When the record doesn't hold the answer, Icarus says so — it never bluffs.")
-                }
-            }
-        }
-    }
+            surfaceTitle(
+                "Record engineering memory",
+                "Propose a reviewed record in GitHub. Icarus never merges it."
+            )
+            Text(gap.question)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
 
-    private func claim(_ title: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
-            Text(body).font(.system(size: 13)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
+            field("Recorded rationale", text: $rationale, prompt: "What decision was made, and why?")
+            field("Accepted tradeoffs", text: $tradeoffs, prompt: "What cost or constraint did the team accept?")
+            field(
+                "Related evidence · one reference per line",
+                text: $references,
+                prompt: "PR #418\nIncident report\nRFC link"
+            )
 
-/// Ask by voice: instructions + a button that opens the overlay (the single ask
-/// path), followed by duration-only measurements from completed voice asks.
-struct AskByVoiceView: View {
-    let latency: VoiceLatencyTracker
-    let onOpenOverlay: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            surfaceTitle("Ask by voice", "Hold the key, speak your question, hear the answer.")
-            ShellCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Hold ⌥ (Right Option) anywhere and speak. On release, Icarus answers — and reads it aloud, cited or honestly unknown.")
-                        .font(.system(size: 14)).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
-                    Text("Prefer to type? Press ⌘⇧I to open the overlay.")
-                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
-                    Button(action: onOpenOverlay) { Text("Open the ask overlay") }.buttonStyle(PrimaryButton())
+            switch ledger.recordState {
+            case .idle:
+                EmptyView()
+            case .submitting:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Creating a branch, Markdown record, and pull request…")
                 }
-            }
-            if let latest = latency.latest {
-                ShellCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        MonoLabel("VOICE LATENCY · THIS APP SESSION")
-                        latencyRow(
-                            "Release → first word",
-                            duration(latest.releaseToFirstWord)
-                        )
-                        HStack(spacing: 18) {
-                            stage("transcribe", latest.transcription)
-                            stage("brain", latest.brain)
-                            stage("voice start", latest.speechQueue)
-                        }
-                        if let p50 = latency.releaseToFirstWordP50,
-                           let p95 = latency.releaseToFirstWordP95 {
-                            Text(
-                                "\(latency.samples.count) completed voice ask"
-                                + "\(latency.samples.count == 1 ? "" : "s")"
-                                + " · p50 \(duration(p50)) · p95 \(duration(p95))"
-                            )
-                            .font(Theme.mono(11))
-                            .foregroundStyle(Theme.muted)
-                        }
-                        Text(
-                            "Total including the time you held the key: "
-                            + duration(latest.total)
-                            + ". Durations only; no audio, transcript, question, "
-                            + "answer, repository, or identity is retained here."
-                        )
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            case .succeeded(let url):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Proposal created. The gap stays proposed until the record is merged, the repo is re-read, and a cited answer confirms it.")
+                        .font(.system(size: 12)).foregroundStyle(Theme.ink)
+                    Link("Open pull request", destination: url)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+            case .failed(let message, let recoveryURL):
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(message)
+                        .font(.system(size: 12)).foregroundStyle(Theme.unknown)
+                    if let recoveryURL {
+                        Link("Open the recoverable GitHub work", destination: recoveryURL)
+                            .font(.system(size: 12, weight: .semibold))
                     }
                 }
             }
+
+            HStack {
+                Button("Cancel") { dismiss() }
+                Spacer()
+                Button("Create reviewed memory proposal") {
+                    ledger.record(
+                        gap: gap,
+                        rationale: rationale,
+                        tradeoffs: tradeoffs,
+                        references: references
+                            .split(whereSeparator: \.isNewline)
+                            .map { String($0).trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty }
+                    )
+                }
+                .buttonStyle(PrimaryButton())
+                .disabled(
+                    rationale.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !canSubmit
+                )
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+    }
+
+    private var canSubmit: Bool {
+        switch ledger.recordState {
+        case .idle, .failed:
+            return true
+        case .submitting, .succeeded:
+            return false
         }
     }
 
-    private func latencyRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label).font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.ink)
-            Spacer()
-            Text(value).font(Theme.mono(15)).foregroundStyle(Theme.accent)
+    private func field(
+        _ label: String,
+        text: Binding<String>,
+        prompt: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(Theme.mono(10)).foregroundStyle(Theme.muted)
+            TextEditor(text: text)
+                .font(.system(size: 13))
+                .frame(minHeight: 72)
+                .overlay(alignment: .topLeading) {
+                    if text.wrappedValue.isEmpty {
+                        Text(prompt)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.muted.opacity(0.7))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Theme.border, lineWidth: 1)
+                )
         }
-    }
-
-    private func stage(_ label: String, _ value: TimeInterval) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(duration(value)).font(Theme.mono(12)).foregroundStyle(Theme.ink)
-            Text(label).font(.system(size: 11)).foregroundStyle(Theme.muted)
-        }
-    }
-
-    private func duration(_ value: TimeInterval) -> String {
-        value < 1
-            ? "\(Int((value * 1_000).rounded())) ms"
-            : String(format: "%.1f s", value)
     }
 }
 

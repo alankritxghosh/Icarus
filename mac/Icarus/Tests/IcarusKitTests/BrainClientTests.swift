@@ -6,13 +6,14 @@ import XCTest
 final class _CapturingProtocol: URLProtocol {
     nonisolated(unsafe) static var lastRequest: URLRequest?
     nonisolated(unsafe) static var body = Data("{}".utf8)
+    nonisolated(unsafe) static var statusCode = 200
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         Self.lastRequest = request
-        let resp = HTTPURLResponse(url: request.url!, statusCode: 200,
+        let resp = HTTPURLResponse(url: request.url!, statusCode: Self.statusCode,
                                    httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Self.body)
@@ -156,6 +157,117 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(_CapturingProtocol.lastRequest?.url?.path, "/status")
         XCTAssertEqual(_CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer tok-123")
         XCTAssertEqual(s.repo, "o/repo")
+    }
+
+    func testMemoryGapsRequestsTheServerOwnedLifecycleAndIncludesResolved() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(
+            #"{"repo":"o/repo","gaps":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","question":"Why auth?","unknown_count":2,"last_asked":10,"status":"open","kind":"undocumented","actionable":true,"resolution_citations":[]}]}"#.utf8
+        )
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        let response = try await client.memoryGaps(includeResolved: true)
+
+        let request = _CapturingProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/ledger")
+        XCTAssertEqual(
+            URLComponents(url: request!.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .reduce(into: [String: String]()) { $0[$1.name] = $1.value },
+            ["gaps": "1", "resolved": "1"]
+        )
+        XCTAssertEqual(
+            request?.value(forHTTPHeaderField: "Authorization"),
+            "Bearer tok-123"
+        )
+        XCTAssertEqual(response.open.first?.question, "Why auth?")
+    }
+
+    func testRecordEngineeringMemorySendsTheExactGapAndReturnsObservedPullRequest() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(
+            #"{"repo":"o/repo","question":"Why auth?","branch":"icarus/memory-auth","path":"docs/engineering-memory/auth.md","file_url":"https://github.com/o/repo/blob/icarus/memory-auth/auth.md","pull_request_url":"https://github.com/o/repo/pull/42"}"#.utf8
+        )
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        let result = try await client.recordEngineeringMemory(
+            gapID: "a" + String(repeating: "0", count: 63),
+            rationale: "Retries duplicated invoices.",
+            tradeoffs: "Higher latency.",
+            references: ["PR #418"]
+        )
+
+        let request = _CapturingProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/memory-gaps/record")
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(
+            request?.value(forHTTPHeaderField: "Authorization"),
+            "Bearer tok-123"
+        )
+        let body = try connectBody()
+        XCTAssertEqual(
+            body["gap_id"] as? String,
+            "a" + String(repeating: "0", count: 63)
+        )
+        XCTAssertNil(body["question"])
+        XCTAssertEqual(body["rationale"] as? String, "Retries duplicated invoices.")
+        XCTAssertEqual(body["tradeoffs"] as? String, "Higher latency.")
+        XCTAssertEqual(body["references"] as? [String], ["PR #418"])
+        XCTAssertEqual(result.pullRequestURL.absoluteString, "https://github.com/o/repo/pull/42")
+    }
+
+    func testRecordEngineeringMemoryPreservesARecoverablePartialWriteURL() async {
+        _CapturingProtocol.statusCode = 502
+        defer { _CapturingProtocol.statusCode = 200 }
+        _CapturingProtocol.body = Data(
+            #"{"error":"GitHub could not open the pull request","recovery_url":"https://github.com/o/repo/tree/icarus/memory-auth"}"#.utf8
+        )
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        do {
+            _ = try await client.recordEngineeringMemory(
+                gapID: String(repeating: "a", count: 64),
+                rationale: "Retries duplicated invoices."
+            )
+            XCTFail("expected a partial GitHub failure")
+        } catch let error as MemoryRecordFailure {
+            XCTAssertEqual(error.status, 502)
+            XCTAssertEqual(error.message, "GitHub could not open the pull request")
+            XCTAssertEqual(
+                error.recoveryURL?.absoluteString,
+                "https://github.com/o/repo/tree/icarus/memory-auth"
+            )
+        } catch {
+            XCTFail("expected MemoryRecordFailure, got \(error)")
+        }
+    }
+
+    func testExplainSendsTheSelectionForTheNativeExtensionBridge() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(
+            #"{"verdict":"unknown","answer":"","citations":[],"searched":["code:src/auth.ts#L1-L20"],"anchored":[],"indexing":false}"#.utf8
+        )
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        let response = try await client.explain(
+            repo: "o/repo", path: "src/auth.ts", start: 4, end: 8,
+            question: "Why is this synchronous?"
+        )
+
+        let request = _CapturingProtocol.lastRequest
+        XCTAssertEqual(request?.url?.path, "/explain")
+        XCTAssertEqual(request?.httpMethod, "POST")
+        XCTAssertEqual(
+            request?.value(forHTTPHeaderField: "Authorization"),
+            "Bearer tok-123"
+        )
+        let body = try connectBody()
+        XCTAssertEqual(body["repo"] as? String, "o/repo")
+        XCTAssertEqual(body["path"] as? String, "src/auth.ts")
+        XCTAssertEqual(body["start"] as? Int, 4)
+        XCTAssertEqual(body["end"] as? Int, 8)
+        XCTAssertEqual(body["question"] as? String, "Why is this synchronous?")
+        XCTAssertEqual(response.verdict.rawValue, "unknown")
     }
 
     func testDisconnectPostsWithBearerAndReturnsSnapshot() async throws {

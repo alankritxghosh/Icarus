@@ -24,7 +24,8 @@ function parseLineHash(hash) {
   if (!m) return null;
   const start = parseInt(m[1], 10);
   const end = m[2] !== undefined ? parseInt(m[2], 10) : start;
-  if (end < start) return null;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+      || start < 1 || end < start) return null;
   return { start, end };
 }
 
@@ -40,7 +41,14 @@ function parseLineHash(hash) {
 function parseBlobPath(pathname) {
   const m = /^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/.exec(pathname || "");
   if (!m) return null;
-  return { owner: m[1], repo: m[2], ref: m[3], path: m[4] };
+  try {
+    const ref = decodeURIComponent(m[3]);
+    const path = decodeURIComponent(m[4]);
+    if (!ref || !path || ref.includes("\0") || path.includes("\0")) return null;
+    return { owner: m[1], repo: m[2], ref, path };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -59,6 +67,25 @@ function isConnectedRepo(pageOwner, pageRepo, connectedRepo) {
   return `${pageOwner}/${pageRepo}`.toLowerCase() === connectedRepo.toLowerCase();
 }
 
+/// A tiny generation gate for async UI work. Starting newer work invalidates
+/// every older response, so a slow request cannot repaint a GitHub page the
+/// user has already navigated away from.
+function createLatestOnly() {
+  let generation = 0;
+  return {
+    begin() {
+      generation += 1;
+      return generation;
+    },
+    invalidate() {
+      generation += 1;
+    },
+    isCurrent(candidate) {
+      return candidate === generation;
+    },
+  };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { parseLineHash, parseBlobPath, isConnectedRepo };
+  module.exports = { parseLineHash, parseBlobPath, isConnectedRepo, createLatestOnly };
 }

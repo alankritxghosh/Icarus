@@ -5,7 +5,7 @@ actually does (read off `extension/`, not imagined). **Nothing here is
 submitted.** The account, the fee, the upload and the answers to the privacy
 form are yours — they need your Google identity and payment.
 
-Prepared 2026-08-06 for extension version **0.1.2**.
+Updated 2026-08-07 for extension version **0.2.0**.
 
 ---
 
@@ -15,8 +15,8 @@ Prepared 2026-08-06 for extension version **0.1.2**.
    one-time **$5** fee via Google Payments. Tied to a Google account; pick the
    one you want to own this listing permanently, because moving a published
    listing between accounts is a support request, not a setting.
-2. **Upload** `extension/dist/icarus-extension-0.1.2.zip` (built by
-   `extension/package.sh`; sha256 `29b1f64d3d1fedd23728b911d3a5a941259087a0049b62ab6765534cea34a525`).
+2. **Upload** the `extension/dist/icarus-extension-0.2.0.zip` produced by
+   `extension/package.sh` after final verification.
 3. **Take one real screenshot** — see "Screenshots" below. This is the one asset
    I could not produce, and it must not be faked.
 4. **Publish a privacy policy at a public URL** — draft below; it is a statement
@@ -63,7 +63,7 @@ citation resolves to evidence that was genuinely retrieved.
 
 Requirements
 • A repository you have already connected in Icarus.
-• A free GitHub sign-in, from the extension's toolbar button.
+• The Icarus Mac app bridge, or a GitHub sign-in from the extension as fallback.
 
 The extension is one of several ways to reach Icarus, alongside a macOS app and
 an editor integration.
@@ -90,7 +90,16 @@ resulting access token.
 **`storage`**
 ```
 Stores the user's GitHub access token in chrome.storage.local so they are not
-asked to sign in on every page. Nothing else is stored.
+asked to sign in on every page when the Mac bridge is unavailable. Nothing else
+is stored.
+```
+
+**`nativeMessaging`**
+```
+Connects to the installed Icarus Mac app for bounded repository-status and
+selected-line explanation requests. The app keeps the GitHub credential in
+macOS Keychain and never returns it to the extension. The per-user native host
+allowlists this extension's exact Chrome origin.
 ```
 
 **Host permission — `https://github.com/*`**
@@ -117,8 +126,9 @@ repository's own recorded history.
 
 ## Data-use form — recommended answers
 
-Verify each against `extension/background.js` and `extension/content.js` before
-submitting; these are the honest answers as the code stands at 0.1.2.
+Verify each against `extension/background.js`, `extension/background_bridge.js`,
+and `extension/content.js` before submitting; these are the honest answers as
+the code stands at 0.2.0.
 
 | Question | Answer |
 |---|---|
@@ -158,16 +168,21 @@ What the extension sends
 
 When you select lines in a file on GitHub and ask about them, the extension
 sends the repository name, the file path, the line range, and your typed
-question (if any) to the Icarus backend. It also sends your GitHub access token
-so the backend can confirm you have access to that repository.
+question (if any) to the Icarus backend. When the Mac app bridge is connected,
+the app sends the request with the GitHub credential held in macOS Keychain and
+the token never enters the extension. When the bridge is unavailable and you
+explicitly use browser sign-in, the extension sends that fallback GitHub token
+so the backend can confirm access.
 
 The extension does not read pages you have not asked it about. It runs only on
 GitHub file pages, and only acts when you select lines and click Ask.
 
 What is stored
 
-Your GitHub access token is stored locally in your browser (chrome.storage.local)
-so you are not asked to sign in repeatedly. Removing the extension removes it.
+If you use fallback browser sign-in, your GitHub access token is stored locally
+in your browser (chrome.storage.local) so you are not asked to sign in
+repeatedly. With the Mac app bridge, the token stays in macOS Keychain instead.
+Removing the extension removes any browser fallback token.
 
 The Icarus backend keeps an index of repositories you have connected, and a
 record of the questions asked against each repository, together with whether

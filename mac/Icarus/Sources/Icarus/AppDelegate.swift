@@ -46,7 +46,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ShellView(auth: self.auth, connect: self.connect,
                   history: self.history, status: self.status, ledger: self.ledger,
                   briefing: self.briefing,
-                  voiceLatency: self.voiceLatency,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
     /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.
@@ -106,6 +105,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { shell.show() }
         return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first,
+              let origin = try? NativeHostManifest.extensionOrigin(fromInstallURL: url),
+              let executable = Bundle.main.executableURL
+        else { return }
+
+        let extensionID = URL(string: origin)?.host ?? "unknown"
+        let confirmation = NSAlert()
+        confirmation.messageText = "Connect the Icarus Chrome extension?"
+        confirmation.informativeText = (
+            "This allows Chrome extension \(extensionID) to ask the installed "
+            + "Icarus app for repository status and cited explanations. "
+            + "Your GitHub token stays in the Mac Keychain."
+        )
+        confirmation.alertStyle = .informational
+        confirmation.addButton(withTitle: "Connect extension")
+        confirmation.addButton(withTitle: "Cancel")
+        guard confirmation.runModal() == .alertFirstButtonReturn else { return }
+
+        let result = NSAlert()
+        do {
+            try NativeHostManifest.install(
+                extensionOrigin: origin,
+                executableURL: executable
+            )
+            result.messageText = "Chrome extension connected"
+            result.informativeText = "Reload the extension or GitHub tab if it is already open."
+            result.alertStyle = .informational
+        } catch {
+            result.messageText = "Couldn’t connect the Chrome extension"
+            result.informativeText = "Icarus could not install its per-user Chrome bridge."
+            result.alertStyle = .warning
+        }
+        result.runModal()
     }
 
     @objc private func checkForUpdates() { Updater.shared.checkForUpdates() }

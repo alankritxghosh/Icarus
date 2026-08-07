@@ -1718,6 +1718,44 @@ class AskLedgerTests(unittest.TestCase):
         _, body = self._get("/ledger?unknowns=1", "tok-a")
         self.assertEqual([e["question"] for e in body["entries"]], ["undocumented thing"])
 
+    def test_ledger_endpoint_returns_structured_memory_gap_lifecycle(self):
+        self.ledger.record(
+            self.PRIVATE, question="Why is auth synchronous?", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+        self.ledger.record(
+            self.PRIVATE, question="Why is auth synchronous?", verdict="answer",
+            citations=["doc:docs/engineering-memory/auth.md#L1-L12"],
+        )
+
+        status, body = self._get("/ledger?gaps=1&resolved=1", "tok-a")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["repo"], self.PRIVATE)
+        self.assertNotIn("entries", body)
+        self.assertEqual(body["gaps"][0]["status"], "resolved")
+        self.assertEqual(
+            body["gaps"][0]["resolution_citations"],
+            ["doc:docs/engineering-memory/auth.md#L1-L12"],
+        )
+
+    def test_ledger_gap_endpoint_defaults_to_open_gaps_only(self):
+        self.ledger.record(
+            self.PRIVATE, question="resolved", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+        self.ledger.record(
+            self.PRIVATE, question="resolved", verdict="answer", citations=["pr:1"],
+        )
+        self.ledger.record(
+            self.PRIVATE, question="still open", verdict="unknown",
+            reason="no_recorded_reason",
+        )
+
+        _, body = self._get("/ledger?gaps=1", "tok-a")
+
+        self.assertEqual([gap["question"] for gap in body["gaps"]], ["still open"])
+
     def test_the_ledger_is_guarded_by_the_same_entitlement_check(self):
         # It contains the team's questions about their own private code, so it
         # is at least as sensitive as the corpus and must not be more readable.
@@ -1747,6 +1785,179 @@ class AskLedgerTests(unittest.TestCase):
             self.assertIn("verdict", body)
         finally:
             fx.close()
+
+
+class _MemoryWriterStub:
+    def __init__(self, result=None, error=None):
+        self.result = result or {
+            "repo": "acme/secrets",
+            "question": "Why is auth synchronous?",
+            "branch": "icarus/memory-auth",
+            "path": "docs/engineering-memory/auth.md",
+            "file_url": "https://github.com/acme/secrets/blob/icarus/memory-auth/auth.md",
+            "pull_request_url": "https://github.com/acme/secrets/pull/42",
+        }
+        self.error = error
+        self.calls = []
+
+    def record(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.result
+
+
+class RecordEngineeringMemoryEndpointTests(unittest.TestCase):
+    PRIVATE = "acme/secrets"
+
+    def setUp(self):
+        from .auth import StaticTokenVerifier
+        from .ledger import Ledger
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ledger = Ledger(Path(self.tmp.name) / "ledger")
+        self.writer = _MemoryWriterStub()
+        self.fx = _ServerFixture(
+            _RepoLibrary(self.PRIVATE), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001"}),
+            access_verifier=_StubAccess([(self.PRIVATE, "tok-a")]),
+            default_repo=REPO, ledger=self.ledger, memory_writer=self.writer,
+        )
+
+    def tearDown(self):
+        self.fx.close()
+        self.tmp.cleanup()
+
+    def _post(self, body):
+        request = urllib.request.Request(
+            self.fx.base + "/memory-gaps/record",
+            data=json.dumps(body).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer tok-a",
+            },
+        )
+        with urllib.request.urlopen(request) as response:
+            return response.status, json.loads(response.read())
+
+    def _open_gap(self, *, question="Why is auth synchronous?",
+                  reason="no_recorded_reason"):
+        self.ledger.record(
+            self.PRIVATE, question=question, verdict="unknown", reason=reason,
+        )
+        return next(
+            gap["id"] for gap in self.ledger.gaps(
+                self.PRIVATE, include_resolved=True,
+            )
+            if gap["question"] == question
+        )
+
+    def test_records_only_an_observed_actionable_open_gap(self):
+        gap_id = self._open_gap()
+
+        status, body = self._post({
+            "gap_id": gap_id,
+            "rationale": "Retries once duplicated invoices.",
+            "tradeoffs": "Higher latency.",
+            "references": ["PR #418"],
+        })
+
+        self.assertEqual(status, 201)
+        self.assertEqual(body["pull_request_url"], "https://github.com/acme/secrets/pull/42")
+        self.assertEqual(len(self.writer.calls), 1)
+        call = self.writer.calls[0]
+        self.assertEqual(call["repo"], self.PRIVATE)
+        self.assertEqual(call["token"], "tok-a")
+        self.assertEqual(call["gap_id"], gap_id)
+        self.assertEqual(call["question"], "Why is auth synchronous?")
+        proposed = self.ledger.gaps(self.PRIVATE)[0]
+        self.assertEqual(proposed["status"], "proposed")
+        self.assertEqual(
+            proposed["proposal"]["pull_request_url"],
+            "https://github.com/acme/secrets/pull/42",
+        )
+
+    def test_retry_of_a_proposed_gap_returns_the_same_pr_without_github(self):
+        gap_id = self._open_gap()
+        request = {
+            "gap_id": gap_id,
+            "rationale": "Retries once duplicated invoices.",
+        }
+
+        first_status, first = self._post(request)
+        second_status, second = self._post(request)
+
+        self.assertEqual(first_status, 201)
+        self.assertEqual(second_status, 200)
+        self.assertEqual(second, first)
+        self.assertEqual(len(self.writer.calls), 1)
+
+    def test_existing_proposal_is_returned_even_after_write_limit_is_spent(self):
+        gap_id = self._open_gap()
+        request = {
+            "gap_id": gap_id,
+            "rationale": "Retries once duplicated invoices.",
+        }
+
+        first_status, first = self._post(request)
+        retries = [self._post(request) for _ in range(5)]
+
+        self.assertEqual(first_status, 201)
+        self.assertTrue(all(status == 200 for status, _body in retries))
+        self.assertTrue(all(body == first for _status, body in retries))
+        self.assertEqual(len(self.writer.calls), 1)
+
+    def test_non_gap_and_non_actionable_unknown_never_reach_github(self):
+        for gap_id, reason in (
+            ("f" * 64, None),
+            (None, "entity_absent"),
+        ):
+            with self.subTest(reason=reason):
+                if reason:
+                    gap_id = self._open_gap(
+                        question="Typo symbol", reason=reason,
+                    )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    self._post({
+                        "gap_id": gap_id,
+                        "rationale": "A rationale long enough to be meaningful.",
+                    })
+                self.assertEqual(raised.exception.code, 409)
+                raised.exception.close()
+        self.assertEqual(self.writer.calls, [])
+
+    def test_blank_or_oversized_rationale_never_reaches_github(self):
+        gap_id = self._open_gap()
+        for rationale in (" ", "x" * 8001):
+            with self.subTest(length=len(rationale)):
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    self._post({
+                        "gap_id": gap_id,
+                        "rationale": rationale,
+                    })
+                self.assertEqual(raised.exception.code, 400)
+                raised.exception.close()
+        self.assertEqual(self.writer.calls, [])
+
+    def test_partial_failure_returns_the_recoverable_github_url(self):
+        from .memory_writer import MemoryWriteError
+        gap_id = self._open_gap()
+        self.writer.error = MemoryWriteError(
+            "GitHub could not open the pull request",
+            status=502,
+            recovery_url="https://github.com/acme/secrets/tree/icarus/memory-auth",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            self._post({
+                "gap_id": gap_id,
+                "rationale": "Retries once duplicated invoices.",
+            })
+        self.assertEqual(raised.exception.code, 502)
+        body = json.loads(raised.exception.read())
+        raised.exception.close()
+        self.assertEqual(
+            body["recovery_url"],
+            "https://github.com/acme/secrets/tree/icarus/memory-auth",
+        )
 
 
 # --- The repository map -----------------------------------------------------
