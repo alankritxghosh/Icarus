@@ -1,3 +1,200 @@
+# Icarus — Session Handoff (2026-08-07/08: PR #1 merged and deployed, private repos opened to coding agents, first-ever outreach REPLY)
+
+**READ THIS FIRST.** Three things shipped and one thing changed posture.
+Shipped: the engineering-memory loop (PR #1) reached production, Mac build 7
+reached users via Sparkle, and `jarvis_engineering/site` became the single
+deploy source of truth. Changed posture: **private repositories are now
+served over MCP to any coding agent**, which deliberately gives up a
+guarantee — read §4 before you assume the old boundary still holds.
+
+**Live: `icarus-brain--0000049`, image `alpha-20260808-mcp-private-repos-v2`,
+Healthy. `main` @ `e53a84d`, pushed. demo 533 OK (2 skipped) · evals 632 OK
+(13 skipped) · IcarusKit 193 OK · extension 53 OK · Playwright live 2/2 ·
+secrets scan clean.**
+
+**Published: Icarus 0.1.4, CFBundleVersion 7, sha256
+`55cf99d8429018e9d381ae5387b7ddba7a9f111b941cf4b57924d5807c464da9`.
+Website + Homebrew tap + appcast all stamped and pushed; an installed build 6
+auto-updated to 7 during this session, so the update path is verified end to
+end for the first time.**
+
+---
+
+## 1. The finding worth carrying forward: one boundary, three gates
+
+Removing the private-repo restriction from the MCP path took **three
+independent code changes**, and each one only became visible after fixing the
+previous and testing against the DEPLOYED brain:
+
+| # | Where | What it blocked | How it was found |
+|---|---|---|---|
+| 1 | `demo/mcp_server.py` `_checked_public_repo` | client-side refusal | reading the code |
+| 2 | `demo/server.py` `/auth/agent/session` | would not mint a session at all | grepping after 1 didn't fix it |
+| 3 | `demo/server.py` `_agent_repo_allowed` | per-request entitlement check | **only** because the live test still failed after 2 was deployed |
+
+Unit tests were green after change 1. They were green after change 2. The
+feature was still broken both times. **A green suite proved the code I had
+changed worked; it could not prove I had changed all the code.** If this
+session had stopped at "tests pass," it would have shipped something that
+looked done.
+
+The generalisable rule: when removing a *policy* (not fixing a bug), grep for
+the policy's concept — not just its error string — across every layer that
+could enforce it, and prove it live before believing it.
+
+## 2. Outreach: the method produced its first reply
+
+Batch 3 sent three repo-proof emails (mockoon, letta-code, paseo), each built
+on a real Icarus answer about the recipient's own repo. Results so far:
+
+- **Cap (Richie McIlroy) REPLIED** — "very interesting!" — via X DM, from the
+  batch-2 send. First reply this method has produced against 0/23 for the
+  batch-1 speculation copy. A reply to a follow-up asking him to actually use
+  it is sent, not yet answered.
+- **Letta (Charles Packer) hard-bounced** (`contact@charlespacker.com`,
+  "remote server misconfigured"; the domain's MX is Namecheap forwarding, so
+  this is a forwarding/SPF failure, not a dead domain). Rerouted to X DM per
+  the skill's fallback rather than to a role inbox.
+- mockoon, paseo: sent, silent so far.
+
+`site/for/outreach_log.jsonl` has the full rows. **A bounce, a reply and
+silence are three different diagnoses** — the log now distinguishes them.
+
+Answer quality per lead, for calibration: paseo 9/10 HISTORY-cited, mockoon
+8/10, letta-code 8/10 + 1 doc-only. Every architecture "why" that got an
+honest unknown got it correctly.
+
+## 3. PR #1 reviewed, merged, deployed
+
+Reviewed the engineering-memory-loop + Chrome-bridge PR by reading the
+GitHub writer, gap lifecycle, new endpoint and native bridge directly — the
+bots contributed nothing actionable (CodeRabbit free tier gave a summary;
+Codex found nothing). It held up: deterministic branch/path from a SHA-256
+gap id makes retries converge instead of duplicating, a proposed gap replays
+its cached PR before the rate limiter is touched, the origin allowlist is
+exactly anchored, and the GitHub token never enters a bridge response.
+
+Merged, pulled, deployed as `alpha-20260807-engineering-memory-loop`
+(revision 47). **Its disclosed gap is still open: the Chrome native-host
+handshake has never been exercised against a real installed, signed-in
+Chrome profile.** Argued-correct, not observed-correct.
+
+## 4. Private repos over MCP — what was deliberately given up
+
+`docs/decisions/2026-08-07-mcp-private-repository-access.md` is the record.
+Read it before reasoning about this boundary.
+
+Short version: Icarus's trust interlock (`evals/trust.py`) governs Icarus's
+OWN writer calls and always did. It has never been able to reach past the MCP
+boundary — an MCP client forwards tool output into whatever coding model it
+is configured with, and the protocol offers no way for that client to attest
+its training or retention posture. Previously Icarus resolved that
+uncertainty by failing closed. **Now it does not.** Private source, PR
+discussion and internal rationale can reach a provider Icarus has not
+verified, chosen by whoever configured the client.
+
+That exposure is **transferred, not eliminated**, and both tool descriptions
+say so rather than implying a guarantee. Alankrit accepted this explicitly
+with the tradeoff stated first; the restriction had made the coding-agent
+surface useless for its actual audience (engineers work in private repos).
+
+Revisit when MCP grows client attestation. What did NOT change: repo-mismatch
+refusal, caller authorization (GitHub must still confirm read access), the
+interlock over Icarus's own writers, per-tenant isolation, cite-or-abstain.
+
+Proven live on revision 49: a real cited answer from the private
+`alankritxghosh/Icarus` over an agent session, citing
+`doc:docs/decisions/2026-08-03-short-lived-agent-sessions.md`.
+
+## 5. Two real defects found while deploying
+
+**The production image was shipping 1.1G of prospect research.**
+`.dockerignore` was missing `outputs/`, `sales/` and `site/`. Build context
+623MB → 26.7kB once fixed. Not a security hole (public-repo research, in a
+container only we control) but bloat in production and data somewhere it has
+no business being. **The image deployed earlier the same day (revision 47)
+does contain it**; revision 48 is the first clean one.
+
+**The documented MCP config never worked outside this checkout.** `.mcp.json`,
+`.cursor/mcp.json` and `.codex/config.toml` all used a cwd-relative
+interpreter plus `python -m demo.mcp_server`, which only resolves when the
+agent's working directory IS this repo. Copying the documented config into
+any other project failed with `ModuleNotFoundError: No module named 'demo'`.
+Now absolute paths with an explicit `PYTHONPATH`. Found by actually running
+the full dev workflow (clone honojs/hono → VS Code → MCP) rather than
+assuming the config was fine.
+
+## 6. Deploy source of truth consolidated
+
+`jarvis_engineering/site` and a separate `Icarus-Website` repo had silently
+diverged: this repo held the sales pipeline (`build_page.py`, the proof
+pages, the outreach log), the other held the current release
+(`index.html`, `install.sh`, `appcast.xml`, the DMG). `Icarus-Website` was
+wired to Vercel's git integration, so **pushing it would have wiped the
+prospect pages off production.** Caught before pushing.
+
+Resolution: synced the release files into `site/`, ran `vercel git
+disconnect` on `Icarus-Website` so it can no longer auto-deploy, moved
+`release-dmg.sh` here with its tap path adjusted. **`site/` now deploys by
+`vercel --prod` from that directory, NOT by git push.** `site/Icarus.dmg`
+stays gitignored (binary bloat); everything else describing a release is
+tracked.
+
+## 7. Gotchas that will bite the next session
+
+**Azure storage is ephemeral — every deploy drops every connected session.**
+Three deploys this session, three reconnects. The Mac app's lost-connection
+banner handles it correctly (explicit Reconnect, never a silent fallback to
+the public default), which is now verified rather than assumed. Budget for it
+when deploying mid-demo.
+
+**The MCP client caches its agent session for ~10 minutes**, bound to the repo
+that was active when it was minted. After a repo switch, `mcp__icarus__*`
+calls keep failing with a repo mismatch until that cache expires — the server
+is correct, the client is stale. Restart the MCP client or wait it out.
+Testing the server directly with a freshly minted session
+(`/Applications/Icarus.app/Contents/MacOS/Icarus --agent-session`) sidesteps
+this and is the faster diagnostic.
+
+**`icarus.alankrit.dev` 404s and is NOT owned by this Vercel account.** DNS is
+on Vercel's nameservers, but `vercel domains add` returns 403 and
+`domains ls` shows only `leadflow-lab.com` — so `alankrit.dev` lives under a
+different Vercel login. **The tldraw and Builder.io emails already sent point
+at `icarus.alankrit.dev` links that are dead.** Batch 3 used the working
+`icarus-website-kappa.vercel.app` URLs instead. Fixing this needs whichever
+account actually owns the domain.
+
+**The disk filled completely mid-deploy** (127Mi free), which corrupted
+Docker's content store — `docker images` errored on a missing blob and no
+build could run. Fixed by resetting Docker's disk image (~18G reclaimed) and
+deleting `outputs/leads/corpora` (1.1G). Now ~19Gi free. The corpora are
+regenerable but not cheap — re-indexing paseo alone is ~70 minutes of
+embedding. The answers, questions and proof pages all survived.
+
+## 8. Verified live this session (not assumed)
+
+- **Extension**: Playwright live suite 2/2 against real github.com + the
+  deployed brain, plus a manual run in the real daily Chrome profile — line
+  selection → "Ask Icarus" → grounded cited answer.
+- **Mac app**: both the dev build and the installed `/Applications` copy
+  (auto-updated to build 7 by Sparkle) — real ask, correct honest-unknown
+  with 21 searched sources.
+- **MCP**: `get_change_context` and `explain_code_context` against a freshly
+  cloned `honojs/hono` (2,610 PRs indexed), and against the private
+  `alankritxghosh/Icarus`.
+- **Sparkle update path**: end to end for the first time — an installed build
+  6 became build 7 without a manual re-download.
+
+## 9. What is NOT done
+
+- The Chrome native-host handshake against a real signed-in Chrome profile
+  (carried from PR #1, still unobserved).
+- Citation/answer-correctness eval gates remain RED. Pre-existing, untouched
+  by this session, disclosed rather than hidden.
+- `icarus.alankrit.dev` (see §7).
+- Follow-ups on batch 3 — the skill allows exactly ONE, 5–7 days out, and it
+  must add new information.
+
 # Icarus — Session Handoff (2026-07-30, latest: the three bricks finally have pixels — web DEPLOYED, DMG BUILT but NOT PUBLISHED)
 
 **READ THIS FIRST.** Bricks 1–3 shipped working data paths over this session
