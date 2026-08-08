@@ -4,7 +4,8 @@ import XCTest
 final class ShellNavTests: XCTestCase {
     func testSurfaceOrderAndTitles() {
         XCTAssertEqual(ShellSurface.allCases.map(\.title),
-            ["Home", "Start here", "Decision history", "Engineering memory"])
+            ["Home", "Start here", "Investigate", "Decision history",
+             "Engineering memory"])
     }
 
     /// The tour sits directly under Home: it is the first experience a new

@@ -78,7 +78,11 @@ _LINES = re.compile(r"#L(\d+)(?:-L(\d+))?$")
 # prefix -- so a path that itself contains a ':' (legal in a git path, e.g.
 # `dir/a:b.py`) is NOT mistaken for a source, which would false-reject a
 # citation to it. Keep in sync if ingest gains a new source.
-_KNOWN_SOURCES = frozenset({"code", "doc", "config", "pr", "issue", "commit"})
+# `diff:400` is a pull request's actual before/after hunks, fetched on demand
+# (evals/ingest.fetch_pr_diff). Registered here so a citation to one resolves
+# like any other ref -- and deliberately NOT added to the rationale sources
+# below, because a diff shows what changed and never why it was chosen.
+_KNOWN_SOURCES = frozenset({"code", "doc", "config", "pr", "issue", "commit", "diff"})
 
 
 def _source(ref: str):

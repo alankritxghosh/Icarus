@@ -602,6 +602,19 @@ def _pr_or_issue_text(data, source):
     if body:
         parts.append(body)
 
+    # GitHub's OWN answer to "what does this close?", which the ingest has always
+    # fetched (it decides which issues to pull) and then thrown away. Recording
+    # it makes the link exact rather than inferred from a `#N` the author
+    # happened to type -- an issue linked only through GitHub's interface was
+    # invisible to every reader and to evals/entities.py alike.
+    #
+    # Written as an ordinary `#N` line so nothing downstream needs to learn a new
+    # shape: the entity index's existing mention regex picks it up unchanged.
+    linked = [ref.get("number") for ref in (data.get("closingIssuesReferences") or [])
+              if ref.get("number")]
+    if linked:
+        parts.append("Linked issues: " + ", ".join(f"#{n}" for n in sorted(set(linked))))
+
     files = data.get("files") or []
     if files:
         shown = files[:_MAX_FILES_LISTED]
@@ -776,6 +789,60 @@ def fetch_ref_detail(repo, number, token=None) -> Optional[Chunk]:
         return Chunk(ref=f"{source}:{data['number']}", source=source,
                      text=_pr_or_issue_text(data, source))
     return None
+
+
+def _gh_text(args, token=None, timeout=None):
+    """A `gh` call whose output is TEXT, not JSON (`gh pr diff` is the only one).
+    Same leak-safe env-based auth as `_gh_json` -- the token never reaches argv."""
+    return subprocess.run(
+        ["gh", *args], check=True, capture_output=True, text=True,
+        timeout=timeout or _SUBPROCESS_TIMEOUT, env=_gh_env(token),
+    ).stdout
+
+
+# A diff is the largest single piece of evidence Icarus will ever hold for one
+# ref, and a sweeping pull request's is enormous. Bounded to the same budget as
+# every other on-demand ref so one `compare()` cannot swallow an investigation's
+# entire evidence allowance.
+_DIFF_MAX_CHARS = _REF_DETAIL_MAX_CHARS
+
+
+def fetch_pr_diff(repo, number, token=None) -> Optional[Chunk]:
+    """Live-fetch ONE pull request's actual diff -- the real before/after hunks.
+
+    Why this exists: a `pr:` chunk lists the files a change touched with their
+    +/- counts, and an indexed `commit:` chunk holds only its MESSAGE (ingest
+    excludes per-commit diffs deliberately -- computing them measured 27s
+    against 2s). So nothing indexed says what the code actually BECAME.
+    `compare()` could reconstruct it from a pull request's commits, but only in
+    a repository that squash-merges with the `(#400)` subject convention; where
+    that convention is absent it could read nothing at all. This asks GitHub
+    directly and depends on no convention.
+
+    Deliberately NOT indexed, for the same reason commits are not: a repository
+    has thousands of pull requests, and their diffs would dwarf every other kind
+    of evidence in the corpus and swamp BM25's IDF for zero benefit on ordinary
+    questions. It is an exact-identifier LOOKUP, the same shape as
+    `fetch_ref_detail` and `fetch_commit_detail`.
+
+    Fail-safe: None on not-found, network, auth, timeout or a huge-but-empty
+    response, so a caller reports that it could not read the change rather than
+    inventing one. Leak-safe token via `_gh_env` -- never argv, never logged.
+    """
+    try:
+        raw = _gh_text(["pr", "diff", str(number), "-R", repo], token=token)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if len(text) > _DIFF_MAX_CHARS:
+        # Marked, always. An unmarked clip would let a reader take a partial
+        # diff for the whole change -- the same misrepresentation of evidence
+        # that demo/payload.excerpt marks for the identical reason.
+        text = text[:_DIFF_MAX_CHARS] + "\n…[diff truncated]"
+    return Chunk(ref=f"diff:{number}", source="diff",
+                 text=f"DIFF of PR #{number}\n\n{text}")
 
 
 def fetch_commit_detail(repo, sha, token=None) -> Optional[Chunk]:

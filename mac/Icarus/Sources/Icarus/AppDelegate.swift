@@ -32,6 +32,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// "What changed since you were last here" -- fetched once per connected
     /// repo, never polled (see BriefingModel).
     private lazy var briefing = BriefingModel(client: AppConfig.client())
+    /// Multi-step investigations. Holds no conversational state of its own --
+    /// the server owns what "it" refers to (demo/investigations.py).
+    private lazy var investigation = InvestigationModel(client: AppConfig.client())
     private lazy var overlay = OverlayController(
         auth: auth,
         connect: connect,
@@ -45,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var shell = MainWindowController {
         ShellView(auth: self.auth, connect: self.connect,
                   history: self.history, status: self.status, ledger: self.ledger,
-                  briefing: self.briefing,
+                  briefing: self.briefing, investigation: self.investigation,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
     /// Hold Right Option (⌥) to talk. Held here so the monitors live for the app's life.

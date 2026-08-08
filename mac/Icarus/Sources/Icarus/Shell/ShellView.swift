@@ -13,6 +13,7 @@ struct ShellView: View {
     /// which is this session's in-memory record only.
     let ledger: LedgerModel
     let briefing: BriefingModel
+    let investigation: InvestigationModel
     let onTryQuestion: () -> Void
 
     @State private var selected: ShellSurface = .home
@@ -40,6 +41,7 @@ struct ShellView: View {
         case .home: HomeView(auth: auth, connect: connect, history: history, status: status,
                              briefing: briefing, onTryQuestion: onTryQuestion)
         case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
+        case .investigate: InvestigationView(model: investigation)
         case .decisionHistory: DecisionHistoryView(history: history)
         case .engineeringMemory: UnknownsView(ledger: ledger)
         }

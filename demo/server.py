@@ -38,7 +38,12 @@ from evals.env_file import load_env_file
 from .freshness import FreshnessChecker
 from .ledger import Ledger
 from .memory_writer import GitHubMemoryWriter, MemoryWriteError
-from .payload import build_payload
+from evals.entities import build_entity_index
+from evals.ingest import fetch_pr_diff
+from evals import investigator as _investigator
+from .investigations import ConversationStore, refers_back
+from .structure import build_structure
+from .payload import build_investigation_payload, build_payload
 from .repo_map import build_map
 from .visits import VisitStore
 from . import onboarding
@@ -136,7 +141,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  refresh_limiter=None, freshness=None, visits=None,
                  commits_since=None, agent_sessions=None, agent_repo_info=None,
                  agent_session_limiter=None, memory_writer=None,
-                 memory_limiter=None):
+                 memory_limiter=None, conversations=None, entity_index=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -207,6 +212,29 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     agent_session_limiter = agent_session_limiter or RateLimiter(10, 60)
     memory_limiter = memory_limiter or RateLimiter(5, 3600)
     commits_since = commits_since or github_access.commits_between
+    conversations = conversations if conversations is not None else ConversationStore()
+
+    if entity_index is None:
+        # The relationship index an investigation traverses. Derived from the
+        # chunks already in memory (evals/entities.py), so it needs no ingest and
+        # no store -- but it IS pure work over the whole corpus, so it is cached
+        # per (repo, commit) rather than rebuilt for every follow-up question.
+        # A refresh changes the commit, which invalidates it for free.
+        _entity_cache = {}
+        _entity_lock = threading.Lock()
+
+        def entity_index(lib):
+            key = lib.provenance()
+            with _entity_lock:
+                hit = _entity_cache.get(key)
+            if hit is not None:
+                return hit
+            chunks = lib.current_pipeline().indexed_chunks()
+            built = build_entity_index(chunks, structure=build_structure(chunks))
+            with _entity_lock:
+                _entity_cache.clear()   # one repo is active at a time per caller
+                _entity_cache[key] = built
+            return built
 
     class Handler(BaseHTTPRequestHandler):
         _MAX_BODY = 64 * 1024
@@ -634,6 +662,18 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 return
             if self.path == "/disconnect":
                 try:
+                    # Read the repo BEFORE the disconnect, then forget any
+                    # conversation about it: a subject must not outlive the
+                    # caller's access to the thing it names. Best-effort, and
+                    # ahead of the delete, so a store failure cannot leave the
+                    # caller's on-disk data undeleted.
+                    if conversations is not None:
+                        try:
+                            conversations.forget(
+                                identity, registry.library_for(identity).provenance()[0])
+                        except Exception as e:
+                            print(f"conversation forget failed: {type(e).__name__}: {e}",
+                                  file=sys.stderr)
                     registry.disconnect(identity)
                     self._send_json(200, registry.library_for(identity).status_snapshot())
                 except _RegistryWarming:
@@ -848,6 +888,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._handle_briefing(mutate=True)
             elif self.path == "/explain":
                 self._handle_explain(lib, identity)
+            elif self.path == "/investigate":
+                self._handle_investigate(lib, identity)
             elif self.path == "/connect":
                 # Same reasoning as /ask: check the limiter first, before the body
                 # is even parsed, so a rate-limited caller never reaches the real
@@ -1115,6 +1157,112 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     include_evidence=include_evidence,
                 ),
             )
+
+        def _handle_investigate(self, lib, identity):
+            """POST /investigate {question} -> a cited conclusion, its findings
+            with their support classes, and the trail that produced them.
+
+            Shares `/ask`'s rate limiter and entitlement check. Sharing the
+            limiter is deliberate and conservative: one investigation makes
+            SEVERAL billed writer calls where an ask makes one, so if anything
+            it should cost more of the same budget, never get a separate
+            allowance that lets a caller spend past the one they have.
+
+            Conversational continuity is opt-in per request in the sense that it
+            requires an identity: an unauthenticated local caller gets a
+            perfectly good standalone investigation, exactly as `/ask` behaves
+            today. Nothing degrades without it.
+            """
+            if not ask_limiter.allow(identity):
+                self._send_json(429, {"error": "slow down -- try again in a minute"})
+                return
+            if not self._entitled(lib):
+                self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                return
+            try:
+                body = self._body()
+                question = body["question"]
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "missing question"})
+                return
+            if not isinstance(question, str) or not question.strip():
+                self._send_json(400, {"error": "missing question"})
+                return
+            question = question.strip()
+            # A caller can start a fresh enquiry without waiting for the old one
+            # to expire -- "forget what we were talking about". Rejected unless
+            # it is a real boolean, like /connect's refresh flag.
+            fresh = body.get("fresh", False)
+            if not isinstance(fresh, bool):
+                self._send_json(400, {"error": "fresh must be true or false"})
+                return
+            repo, commit = lib.provenance()
+
+            # -- inherit the subject, deterministically -----------------------
+            # Only when the question names no refs of its own AND uses a
+            # referring word. A model is never asked what "it" means: a wrongly
+            # inherited subject yields a confident, fully-cited answer about the
+            # wrong change, which the honesty gate cannot detect (groundedness
+            # proves a citation is real, never that it is relevant -- the
+            # 2026-08-06 selection-drift finding).
+            prior = None if fresh else (
+                conversations.resume(identity, repo) if conversations else None)
+            subject = objective = None
+            carried = None
+            if prior is not None and refers_back(question) \
+                    and not _investigator._anchor_refs(question, lib.current_pipeline()):
+                subject, objective = list(prior.subject), prior.objective
+                # Findings from earlier turns, so this one compounds rather than
+                # re-deriving what the conversation already established.
+                carried = prior.claims
+
+            try:
+                # The diff fetcher is bound to the ACTIVE repo here rather than
+                # inside the pipeline: it is the only probe that reaches GitHub
+                # for something never indexed, and binding it per request keeps
+                # the caller's token out of any longer-lived object.
+                diff_fetch = (lambda number, tok=None:
+                              fetch_pr_diff(repo, number, token=tok)) if repo else None
+                # Filled BY the investigation, not rebuilt from the index
+                # afterwards: rebuilding loses every live-fetched piece of
+                # evidence (an unindexed pull request, a commit, a diff), which
+                # blanks its excerpt and leaves the gate checking empty text.
+                texts = {}
+                investigation = _investigator.investigate(
+                    question, lib.current_pipeline(), entity_index(lib),
+                    lib.current_pipeline().provider(), token=self._github_token(),
+                    subject=subject, objective=objective, carried=carried,
+                    diff_fetch=diff_fetch, texts=texts)
+                result = _investigator.conclude(
+                    investigation, lib.current_pipeline().provider(), texts=texts)
+                still_indexing = bool(lib.status_snapshot().get("indexing"))
+            except Exception as e:
+                print(f"/investigate failed: {type(e).__name__}: {e}", file=sys.stderr)
+                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                return
+
+            if conversations is not None:
+                # Continuity is an improvement on a stateless answer, never a
+                # precondition for one: a store failure must not cost the caller
+                # the answer they already paid the writer for.
+                try:
+                    conversations.remember(identity, repo, investigation)
+                except Exception as e:
+                    print(f"conversation write failed: {type(e).__name__}: {e}",
+                          file=sys.stderr)
+            if ledger is not None:
+                # Recorded exactly as /ask records an ask -- against the repo,
+                # never the asker. An investigation that honestly abstains is
+                # documentation debt in the same way an ask is, and excluding it
+                # would under-report what the team never wrote down.
+                try:
+                    ledger.record(repo, question=question,
+                                  reason=result.abstention_reason,
+                                  verdict=result.verdict, citations=result.citations)
+                except Exception as e:
+                    print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
+            self._send_json(200, build_investigation_payload(
+                result, investigation, repo, commit, indexing=still_indexing))
 
     return Handler
 

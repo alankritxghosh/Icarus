@@ -217,6 +217,35 @@ class GatedPipeline(Pipeline):
     def indexed_chunks(self) -> List:
         return list(self._by_ref.values())
 
+    # --- read-only accessors for the investigation layer -------------------
+    # evals/probes.py needs the same retrieval and the same chunk store .answer()
+    # uses, and reaching into privates from another module would make every
+    # future change to this class a guess about who else is holding it. These
+    # three add no logic and no honesty surface: they hand back what is already
+    # in memory, exactly as indexed_chunks() does.
+    def chunk_for(self, ref: str):
+        """The indexed chunk with this ref, or None. Never fetches."""
+        return self._by_ref.get(ref)
+
+    def search_refs(self, query: str, k: int) -> List[str]:
+        """The retriever's own ranking -- the identical hybrid + normalized path
+        /ask uses, so an investigation can never retrieve differently from it."""
+        return self._retriever.search(query, k)
+
+    def fetchers(self):
+        """(live_fetch, live_commit_fetch) -- both may be None offline."""
+        return self._live_fetch, self._live_commit_fetch
+
+    def provider(self):
+        """The writer this pipeline was built with.
+
+        An investigation must use the SAME provider, because that provider went
+        through the trust interlock (evals/trust.py) when the pipeline was built.
+        Constructing a second one for the investigation path would be a second
+        place the interlock has to be remembered -- and the one that gets
+        forgotten is always the one that touches private code."""
+        return self._provider
+
     def answer(self, question: str, token: str = None, audience: str = None) -> Result:
         # `audience` (2026-08-06): None/"developer" is byte-identical to before
         # this parameter existed (see synth.build_prompt). "plain" asks the

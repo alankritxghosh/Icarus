@@ -136,6 +136,31 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(AskResponse.self, from: data)
     }
 
+    /// POST /investigate: a multi-step, evidence-backed investigation rather
+    /// than a single ask.
+    ///
+    /// Conversational continuity is held SERVER-SIDE, keyed on the caller's
+    /// identity and connected repo (demo/investigations.py), so the app sends
+    /// only the question — it never tracks or transmits what "it" refers to.
+    /// That keeps one subject-resolution rule for every client instead of each
+    /// one inventing its own, and it means a follow-up cannot be aimed at a
+    /// subject the server never agreed to.
+    ///
+    /// `fresh` abandons the current conversation and starts a new enquiry.
+    public func investigate(_ question: String,
+                            fresh: Bool = false) async throws -> InvestigationResponse {
+        var request = URLRequest(url: base.appending(path: "investigate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["question": question, "fresh": fresh])
+        authorize(&request)
+
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(InvestigationResponse.self, from: data)
+    }
+
     /// POST /explain for one GitHub line selection. Used by the Mac-owned
     /// native extension bridge so the GitHub credential remains in Keychain.
     public func explain(
