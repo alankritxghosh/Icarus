@@ -19,7 +19,7 @@
 set -eu
 
 DMG_URL="https://icarus-website-kappa.vercel.app/Icarus.dmg"
-EXPECTED_SHA="55cf99d8429018e9d381ae5387b7ddba7a9f111b941cf4b57924d5807c464da9"
+EXPECTED_SHA="ebc447f727ca745bf93ef3f7c3090e5d031d2b5e3406d03c4534c30beb4ad615"
 DEST="${ICARUS_DEST:-/Applications}"
 APP="Icarus.app"
 
