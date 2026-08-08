@@ -330,6 +330,39 @@ class LoopTests(unittest.TestCase):
         self.assertIn("diff:400", inv.evidence)
         self.assertIn("@@", texts["diff:400"])
 
+    def test_the_evidence_character_ceiling_is_enforced_BEFORE_evidence_is_kept(self):
+        # It was charged AFTER a whole parallel batch had been retained: with
+        # max_evidence_chars=1 the run kept 2,000 characters and only then
+        # noticed. A ceiling checked after the spend is a counter, not a bound.
+        big = [Chunk(ref=f"pr:{n}", source="pr", text="x" * 2000)
+               for n in range(400, 410)]
+        texts = {}
+        budget = Budget(max_evidence_chars=500, max_parallel=4)
+        inv = investigate("about PR #400", pipeline(big), entities(big),
+                          ScriptedProvider(read=CITED_READ), budget=budget, texts=texts)
+        self.assertLessEqual(sum(len(t) for t in texts.values()),
+                             budget.max_evidence_chars)
+        self.assertLessEqual(budget.evidence_chars_spent, budget.max_evidence_chars)
+
+    def test_clipped_evidence_is_REPORTED_not_silently_dropped(self):
+        # Truncating evidence and saying nothing would let a conclusion rest on
+        # a partial read while reading as a complete one.
+        big = [Chunk(ref=f"pr:{n}", source="pr", text="x" * 2000)
+               for n in range(400, 410)]
+        inv = investigate("about PR #400", pipeline(big), entities(big),
+                          ScriptedProvider(read=CITED_READ),
+                          budget=Budget(max_evidence_chars=500, max_parallel=4))
+        self.assertTrue(any("evidence" in u.lower() for u in inv.unknowns),
+                        f"nothing disclosed the clip: {inv.unknowns}")
+
+    def test_a_generous_budget_keeps_every_piece_of_evidence(self):
+        # The bound must not bite in ordinary use.
+        texts = {}
+        investigate("about PR #400", pipeline(), entities(),
+                    ScriptedProvider(read=CITED_READ), texts=texts)
+        self.assertIn("pr:400", texts)
+        self.assertEqual(texts["pr:400"], PR.text)
+
     def test_the_budget_is_a_hard_ceiling_on_steps(self):
         provider = ScriptedProvider(read=CITED_READ)
         inv = investigate("about PR #400", pipeline(), entities(), provider,

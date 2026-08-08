@@ -174,6 +174,20 @@ class GenerationTests(unittest.TestCase):
         first = store.begin("u1", "owner/repo", fresh=False)
         self.assertEqual(store.begin("u1", "owner/repo", fresh=False), first)
 
+    def test_disconnect_invalidates_an_inflight_write(self):
+        # An investigation begins, the user disconnects, and the old request
+        # finishes and writes back. Deleting the conversation was not enough:
+        # the generation was still current, so the write was accepted and
+        # RESURRECTED a subject for a repo the caller had just disconnected.
+        store = ConversationStore()
+        gen = store.begin("u1", "owner/repo", fresh=False)
+        store.remember("u1", "owner/repo", finished(), commit=COMMIT, generation=gen)
+        store.forget("u1", "owner/repo")
+        late = store.remember("u1", "owner/repo", finished(), commit=COMMIT,
+                              generation=gen)
+        self.assertIsNone(late, "a write from before the disconnect was accepted")
+        self.assertIsNone(store.resume("u1", "owner/repo", commit=COMMIT))
+
     def test_a_write_with_the_current_generation_is_accepted(self):
         store = ConversationStore()
         gen = store.begin("u1", "owner/repo", fresh=True)

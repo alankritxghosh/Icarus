@@ -229,13 +229,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
         _entity_cache = {}
         _entity_lock = threading.Lock()
 
-        def entity_index(lib):
-            key = lib.provenance()
+        def entity_index(lib, snapshot=None):
+            # Keyed by CORPUS identity, not just HEAD: ingest includes mutable
+            # discussion, so a same-SHA refresh can publish different evidence.
+            key = snapshot.corpus_id if snapshot is not None else lib.provenance()
             with _entity_lock:
                 hit = _entity_cache.get(key)
             if hit is not None:
                 return hit
-            chunks = lib.current_pipeline().indexed_chunks()
+            pipeline = snapshot.pipeline if snapshot is not None else lib.current_pipeline()
+            chunks = pipeline.indexed_chunks()
             built = build_entity_index(chunks, structure=build_structure(chunks))
             with _entity_lock:
                 _entity_cache.clear()   # one repo is active at a time per caller
@@ -1137,7 +1140,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not isinstance(question, str):
                     self._send_json(400, {"error": "question must be a string"})
                     return
-                question = question.strip() or None
+                question = question.strip()
             include_evidence = body.get("include_evidence", False)
             if not isinstance(include_evidence, bool):
                 self._send_json(400, {"error": "include_evidence must be true or false"})
@@ -1168,11 +1171,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             """POST /investigate {question} -> a cited conclusion, its findings
             with their support classes, and the trail that produced them.
 
-            Shares `/ask`'s rate limiter and entitlement check. Sharing the
-            limiter is deliberate and conservative: one investigation makes
-            SEVERAL billed writer calls where an ask makes one, so if anything
-            it should cost more of the same budget, never get a separate
-            allowance that lets a caller spend past the one they have.
+            Has its OWN rate limiter (production default 3/min), not `/ask`'s:
+            one investigation makes several billed writer calls where an ask
+            makes one, so sharing a per-request allowance would let a caller
+            spend roughly ten times the budget `/ask` bounds. Entitlement is the
+            same check `/ask` applies, and both are checked before any provider
+            call.
 
             Conversational continuity is opt-in per request in the sense that it
             requires an identity: an unauthenticated local caller gets a
@@ -1205,7 +1209,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if not isinstance(fresh, bool):
                 self._send_json(400, {"error": "fresh must be true or false"})
                 return
-            repo, commit = lib.provenance()
+            # ONE atomic view of the corpus for the whole request. Reading
+            # provenance and the pipeline separately let a concurrent refresh
+            # tear them apart: answering from one index while returning citation
+            # URLs and conversation provenance from another.
+            snapshot = lib.snapshot()
+            corpus = snapshot.corpus_id
+            repo, commit = snapshot.repo, snapshot.commit
 
             # -- inherit the subject, deterministically -----------------------
             # Only when the question names no refs of its own AND uses a
@@ -1222,11 +1232,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             # findings verified against the old index must not be carried into
             # an answer about the new one.
             prior = None if fresh else (
-                conversations.resume(identity, repo, commit) if conversations else None)
+                conversations.resume(identity, repo, corpus) if conversations else None)
             subject = objective = None
             carried = None
             if prior is not None and refers_back(question) \
-                    and not _investigator._anchor_refs(question, lib.current_pipeline()):
+                    and not _investigator._anchor_refs(question, snapshot.pipeline):
                 subject, objective = list(prior.subject), prior.objective
                 # Findings from earlier turns, so this one compounds rather than
                 # re-deriving what the conversation already established.
@@ -1245,12 +1255,12 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # blanks its excerpt and leaves the gate checking empty text.
                 texts = {}
                 investigation = _investigator.investigate(
-                    question, lib.current_pipeline(), entity_index(lib),
-                    lib.current_pipeline().provider(), token=self._github_token(),
+                    question, snapshot.pipeline, entity_index(lib, snapshot),
+                    snapshot.provider, token=self._github_token(),
                     subject=subject, objective=objective, carried=carried,
                     diff_fetch=diff_fetch, texts=texts)
                 result = _investigator.conclude(
-                    investigation, lib.current_pipeline().provider(), texts=texts)
+                    investigation, snapshot.provider, texts=texts)
                 still_indexing = bool(lib.status_snapshot().get("indexing"))
             except Exception as e:
                 print(f"/investigate failed: {type(e).__name__}: {e}", file=sys.stderr)
@@ -1263,7 +1273,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # the answer they already paid the writer for.
                 try:
                     conversations.remember(identity, repo, investigation,
-                                           commit=commit, generation=generation)
+                                           commit=corpus, generation=generation)
                 except Exception as e:
                     print(f"conversation write failed: {type(e).__name__}: {e}",
                           file=sys.stderr)

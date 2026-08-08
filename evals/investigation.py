@@ -186,6 +186,13 @@ class Budget:
                 and self.allows_gathering_writer()
                 and self.evidence_chars_spent < self.max_evidence_chars)
 
+    def remaining_evidence_chars(self) -> int:
+        """How much evidence may still be RETAINED. Asked before a step's
+        evidence enters the state or a prompt, never after: charging afterwards
+        made this a counter rather than a bound, and one parallel round retained
+        2,000 characters against a 1-character allowance."""
+        return max(0, self.max_evidence_chars - self.evidence_chars_spent)
+
     def spend_step(self, chars: int = 0) -> None:
         self.steps_spent += 1
         self.evidence_chars_spent += max(0, chars)

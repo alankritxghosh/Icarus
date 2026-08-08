@@ -11,6 +11,7 @@ ingest the previous repo stays answerable (status just reads "indexing").
 import logging
 import sys
 import threading
+from dataclasses import dataclass
 import time
 from pathlib import Path
 
@@ -177,6 +178,25 @@ def _build_gated_pipeline(corpus_dir, fast=False, on_progress=None):
     return GatedPipeline(_build_retriever(chunks, corpus_dir, fast=fast, on_progress=on_progress),
                          chunks, provider,
                          live_fetch=live, live_commit_fetch=live_commit)
+
+
+@dataclass(frozen=True)
+class _CorpusSnapshot:
+    """What one request captured about the corpus it is answering from. Frozen:
+    a request must not be able to drift onto a newer index halfway through."""
+
+    pipeline: object
+    provider: object
+    repo: str
+    commit: str
+    generation: int
+
+    @property
+    def corpus_id(self):
+        """The corpus identity a conversation or cache may be keyed by. Includes
+        the generation because a same-SHA refresh republishes different
+        discussion text."""
+        return (self.repo, self.commit, self.generation)
 
 
 def _slug(repo):
@@ -483,6 +503,29 @@ class Library:
                     # The degradation is real and logged above; surfacing a
                     # permanent one needs an error path, not this flag.
                     self._indexing = False
+
+    def snapshot(self):
+        """One ATOMIC view of the active corpus: pipeline, provider, repo,
+        commit, and an opaque corpus generation.
+
+        A request that calls `current_pipeline()` and `provenance()` separately
+        can be torn by a concurrent `/connect refresh`: it can answer from one
+        pipeline while returning citation URLs and conversation provenance from
+        another. Everything a request needs is therefore read once, under the
+        same lock that the swap takes.
+
+        `generation` matters independently of `commit`. Ingest includes MUTABLE
+        pull-request and issue discussion, so a refresh can publish a genuinely
+        different corpus while HEAD is unchanged -- a commit SHA alone is not a
+        corpus identity. The generation is bumped on every connect/refresh, so
+        (repo, commit, generation) distinguishes two ingests of the same SHA.
+        """
+        with self._lock:
+            pipeline = self._pipeline
+            return _CorpusSnapshot(
+                pipeline=pipeline,
+                provider=pipeline.provider() if pipeline is not None else None,
+                repo=self._repo, commit=self._commit, generation=self._generation)
 
     def current_pipeline(self):
         with self._lock:

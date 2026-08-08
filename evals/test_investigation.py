@@ -110,6 +110,36 @@ class EntailmentOverclaimTests(unittest.TestCase):
         self.assertIn("cite", headline)
         self.assertIn("reason", headline)
 
+    def test_the_SYNTHESIS_PROMPT_never_tells_the_writer_to_assert_entailment(self):
+        # The last surface before a reader is the answer prose, and the prompt
+        # that produces it instructed: "explicit: the repository states this.
+        # Say it plainly." Pinning SUPPORT_HEADLINES alone missed it entirely --
+        # the label was corrected while the instruction that writes the sentence
+        # still asked for the overclaim. Asserted against the COMPLETE generated
+        # prompt for that reason.
+        from .synth import build_synthesis_prompt
+
+        class F:
+            text = "It was changed to improve database scalability."
+            support = SUPPORT_EXPLICIT
+            citations = ["pr:400"]
+
+        prompt = build_synthesis_prompt("why?", [F()]).lower()
+        for phrase in ("the repository states this", "say it plainly",
+                       "states this", "proves", "confirms"):
+            self.assertNotIn(phrase, prompt, phrase)
+
+    def test_the_synthesis_prompt_describes_the_evidence_class_instead(self):
+        from .synth import build_synthesis_prompt
+
+        class F:
+            text = "x"
+            support = SUPPORT_EXPLICIT
+            citations = ["pr:400"]
+
+        prompt = build_synthesis_prompt("why?", [F()]).lower()
+        self.assertIn("cites evidence that records a reason", prompt)
+
     def test_every_support_class_has_a_headline(self):
         for support in SUPPORT_ORDER:
             self.assertIn(support, SUPPORT_HEADLINES)

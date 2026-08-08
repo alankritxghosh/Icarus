@@ -98,6 +98,24 @@ _STEP_SCHEMA = {
 }
 
 
+def _clip_to_budget(out, remaining: int) -> int:
+    """Drop whole pieces of a probe's evidence until it fits `remaining`.
+
+    Returns how many were dropped, so the caller can DISCLOSE it. Pieces are
+    dropped entire and in the order the probe returned them (best-first for
+    retrieval), never sliced: a half-read chunk is text nobody wrote, and
+    citing it would misrepresent the evidence rather than merely shorten it.
+    """
+    dropped = 0
+    for ref in list(out.evidence):
+        if out.chars <= remaining:
+            break
+        out.evidence.pop(ref, None)
+        out.texts.pop(ref, None)
+        dropped += 1
+    return dropped
+
+
 def _validate_step(raw, allowed_refs=None) -> Optional[Step]:
     """One planned step, or None. A model's plan is a SUGGESTION and is treated
     as untrusted input: anything not matching the closed vocabulary and its
@@ -329,9 +347,21 @@ def investigate(question: str, pipeline, entities, provider, token: str = None,
         new_refs = 0
         for step, out in zip(batch, results):
             inv.performed.append(step)
+            # The evidence ceiling is applied HERE, before anything is retained,
+            # because a probe cannot know what the rest of its round already
+            # spent. Dropping whole pieces rather than slicing text keeps every
+            # retained chunk complete: half a chunk is evidence nobody wrote.
+            dropped = _clip_to_budget(out, inv.budget.remaining_evidence_chars())
             inv.budget.spend_step(chars=out.chars)
             new_refs += inv.absorb(out.evidence)
             texts.update(out.texts)
+            if dropped:
+                # Disclosed, never silent: a conclusion drawn from a partial
+                # read must not be presentable as one drawn from the whole.
+                note = (f"{dropped} piece{'s' if dropped != 1 else ''} of evidence "
+                        f"went unread -- the investigation reached its evidence limit")
+                if note not in inv.unknowns:
+                    inv.unknowns.append(note)
             for ref in out.discovered:
                 if ref not in known_refs:
                     known_refs.append(ref)

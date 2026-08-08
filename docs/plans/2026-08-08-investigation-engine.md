@@ -16,7 +16,21 @@ CITED ("Cites evidence that records a reason"), the grader metric was renamed
 `support_honesty` -> `explicit_cites_rationale` with its scope documented, and
 `SUPPORT_HEADLINES` now pins wording that no surface may upgrade. What remains
 proven is unchanged: the citation boundary and the explicit deterministic
-guards. Seven other defects were fixed in the same pass -- carried findings
+guards. A SECOND review pass (Codex, on the hardening commit) found four more, each
+reproduced first: the SYNTHESIS PROMPT still instructed "explicit: the
+repository states this. Say it plainly." -- the labels had been corrected while
+the instruction that writes the actual sentence still demanded the entailment,
+so the fix now renders findings through `SUPPORT_HEADLINES` itself and is tested
+against the complete generated prompt; `forget()` deleted a conversation without
+bumping the generation, so an in-flight investigation could resurrect a subject
+after disconnect; the evidence-character cap was charged AFTER a whole parallel
+round was retained (2,000 chars kept against a 1-char allowance); and a commit
+SHA was treated as a corpus identity even though ingest includes mutable
+discussion, while provenance and the pipeline were read separately and could be
+torn by a concurrent refresh -- now one atomic `Library.snapshot()` per request,
+keyed by `(repo, commit, generation)`.
+
+Seven other defects were fixed in the same pass -- carried findings
 surviving a corpus refresh, `refers_back` inheriting a subject for "the
 project"/"the protocol", unbounded planner arguments reaching the retriever,
 `/investigate` billing ~10x its rate-limit weight, a stale investigation

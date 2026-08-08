@@ -230,10 +230,13 @@ _SYNTHESIZE_RULES = (
     "Rules:\n"
     "1. Use only the findings. Do not add a fact, a reason, or a consequence "
     "that no finding states.\n"
-    "2. Respect each finding's strength, and make it audible to the reader:\n"
-    "   - explicit: the repository states this. Say it plainly.\n"
-    "   - strong:   several pieces of evidence imply it. Say the repository "
-    "indicates it.\n"
+    "2. Each finding is tagged with WHAT KIND OF EVIDENCE it cites. Make that "
+    "audible, and never state more than the tag does:\n"
+    "   - explicit: it cites evidence that records a reason. You may report "
+    "that reason as recorded, but do NOT assert that the repository states "
+    "your sentence -- say what was cited.\n"
+    "   - strong:   it cites several independent kinds of evidence. Say the "
+    "repository indicates it.\n"
     "   - weak:     say this is suggested by the implementation rather than "
     "recorded anywhere.\n"
     "3. State what remains unknown, in the answer itself. A conclusion that "
@@ -296,10 +299,19 @@ def build_synthesis_prompt(question: str, findings, unknowns=None,
     told to make that audible but is never asked to judge it -- that is the
     difference between a conclusion whose confidence means something and one
     where a model chose an adjective.
+
+    Each class is rendered with `investigation.SUPPORT_HEADLINES`, the SAME
+    wording the UI shows, so the two cannot drift. They already had: the labels
+    were corrected to describe the evidence cited while this prompt still said
+    "explicit: the repository states this. Say it plainly." -- the last surface
+    before a reader was asking for exactly the entailment the mechanism cannot
+    prove (found in review of 1da5b87).
     """
+    from .investigation import SUPPORT_HEADLINES   # local: avoids a cycle
     lines = [f"{_SYNTHESIZE_RULES}\n", f"QUESTION: {question}\n", "FINDINGS:"]
     for f in findings:
-        lines.append(f"- ({f.support}) {f.text}  [{', '.join(f.citations)}]")
+        label = SUPPORT_HEADLINES.get(f.support, f.support)
+        lines.append(f"- [{f.support}: {label}] {f.text}  [{', '.join(f.citations)}]")
     if unknowns:
         lines.append("\nSTILL UNKNOWN -- the repository does not establish these:")
         lines += [f"- {u}" for u in unknowns]

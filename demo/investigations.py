@@ -198,15 +198,23 @@ class ConversationStore:
         return convo
 
     def forget(self, identity: str, repo: str) -> None:
-        """Drop this caller's conversation about a repo, at EVERY indexed commit
-        -- a disconnect must not leave a subject behind for an earlier index.
-        Their subject must not outlive their access to the thing it names."""
+        """Drop this caller's conversation about a repo, at EVERY indexed commit,
+        and INVALIDATE any request already in flight for it.
+
+        Deleting was not enough. An investigation that began before the
+        disconnect still carried a current generation, so it was accepted when
+        it finished and RESURRECTED a subject for a repo the caller had just
+        disconnected from -- their subject outliving their access to the thing
+        it names, which is the one thing this method exists to prevent.
+
+        The counter is INCREMENTED, never reset: monotonic means no older
+        request can ever match again.
+        """
         with self._lock:
             for key in [k for k in self._live if k[0] == identity and k[1] == repo]:
                 self._live.pop(key, None)
-            # The generation counter survives on purpose: it is monotonic, and
-            # resetting it would let a request that began before the disconnect
-            # write back into a reconnected conversation.
+            gen_key = (identity, repo)
+            self._generations[gen_key] = self._generations.get(gen_key, 0) + 1
 
 
 # Words that refer back to something already under discussion rather than naming

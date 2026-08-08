@@ -89,6 +89,21 @@ class _Library:
     def __init__(self, writer):
         self._pipe = GatedPipeline(_Retriever(), CHUNKS, writer)
         self.commit = COMMIT
+        self.generation = 1
+        self.snapshot_calls = 0
+        # When set, the corpus is swapped the moment a request reads it --
+        # standing in for a /connect refresh landing mid-request.
+        self.swap_on_next_pipeline_read = False
+
+    def snapshot(self):
+        from demo.library import _CorpusSnapshot
+        self.snapshot_calls += 1
+        snap = _CorpusSnapshot(pipeline=self._pipe, provider=self._pipe.provider(),
+                               repo=REPO, commit=self.commit,
+                               generation=self.generation)
+        if self.swap_on_next_pipeline_read:
+            self.commit = "swapped-mid-request"     # the index moves underneath
+        return snap
 
     def current_pipeline(self):
         return self._pipe
@@ -122,7 +137,7 @@ class InvestigateTests(unittest.TestCase):
         handler = make_handler(
             _StubRegistry(cls.lib), str(html), require_auth=True,
             verifier=StaticTokenVerifier({"tok-a": "user-a", "tok-b": "user-b"}), conversations=cls.conversations,
-            entity_index=lambda lib: build_entity_index(CHUNKS),
+            entity_index=lambda lib, snapshot=None: build_entity_index(CHUNKS),
             ask_limiter=RateLimiter(100, 60),
             # Generous here so the shared server can serve a whole test class.
             # The PRODUCTION default is 3/min -- see make_handler, and the
@@ -275,7 +290,7 @@ class InvestigateTests(unittest.TestCase):
             _StubRegistry(self.lib), str(html), require_auth=True,
             verifier=StaticTokenVerifier({"tok-a": "user-a"}),
             conversations=ConversationStore(),
-            entity_index=lambda lib: build_entity_index(CHUNKS),
+            entity_index=lambda lib, snapshot=None: build_entity_index(CHUNKS),
             ask_limiter=RateLimiter(100, 60),
             investigate_limiter=RateLimiter(1, 60))
         server = HTTPServer(("127.0.0.1", 0), handler)
@@ -307,7 +322,7 @@ class InvestigateTests(unittest.TestCase):
             _StubRegistry(_Library(writer)), str(html), require_auth=True,
             verifier=StaticTokenVerifier({"tok-a": "user-a"}),
             conversations=ConversationStore(),
-            entity_index=lambda lib: build_entity_index(CHUNKS),
+            entity_index=lambda lib, snapshot=None: build_entity_index(CHUNKS),
             ask_limiter=RateLimiter(100, 60),
             investigate_limiter=RateLimiter(1, 60))
         server = HTTPServer(("127.0.0.1", 0), handler)
@@ -339,6 +354,36 @@ class InvestigateTests(unittest.TestCase):
             self.assertEqual(payload["investigation"]["subject"], [])
         finally:
             self.lib.commit = COMMIT
+
+    def test_a_SAME_COMMIT_refresh_still_ends_the_conversation(self):
+        # Ingest includes MUTABLE pull-request and issue discussion. A refresh
+        # can publish genuinely different evidence while HEAD is unchanged, so
+        # a commit SHA alone is not a corpus identity. Findings verified against
+        # the previous ingest must not be carried into an answer about the new
+        # one just because the SHA matched.
+        self.ask("talk to me about PR #400")
+        self.lib.generation += 1          # a refresh at the SAME commit
+        try:
+            _, payload = self.ask("why did it change?")
+            self.assertEqual(payload["investigation"]["subject"], [])
+        finally:
+            self.lib.generation -= 1
+
+    def test_one_request_answers_from_ONE_corpus_even_if_it_is_swapped(self):
+        # provenance() and current_pipeline() were read separately, so a
+        # concurrent refresh could answer from one pipeline while returning
+        # citation URLs and conversation provenance from another.
+        self.lib.snapshot_calls = 0        # count THIS request only
+        self.lib.swap_on_next_pipeline_read = True
+        try:
+            _, payload = self.ask("talk to me about PR #400")
+        finally:
+            self.lib.swap_on_next_pipeline_read = False
+            self.lib.commit = COMMIT
+        # The commit reported is the one the answer was actually produced from.
+        self.assertEqual(payload["commit"], COMMIT)
+        self.assertEqual(self.lib.snapshot_calls, 1,
+                         "the request must capture the corpus exactly once")
 
     def test_the_investigation_uses_the_pipelines_own_trust_checked_writer(self):
         # Never a second provider built for this path: the pipeline's writer is

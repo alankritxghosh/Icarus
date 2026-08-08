@@ -341,6 +341,9 @@ removing, or renaming files). For class/function-level detail see
   boolean / absurd `k` is DROPPED, never coerced into something runnable. `k` is
   additionally clamped to `probes.MAX_RETRIEVE_K` in the probe itself, since
   seeds reach it without passing the validator.
+  `_clip_to_budget` drops WHOLE pieces of a round's evidence before any of it
+  enters state, `texts` or a prompt (never sliced — half a chunk is text nobody
+  wrote) and the clip is disclosed as an unknown rather than applied silently.
   `conclude` writes the answer from verified findings and returns an ordinary
   `Result`, so every existing renderer works unchanged; it faces the FULL gate
   with the real question, so nothing reaches a reader having passed a weaker
@@ -980,7 +983,14 @@ removing, or renaming files). For class/function-level detail see
   whether or not anything was carried), a question naming its own subject
   rebinding, an unrelated question inheriting nothing, `fresh: true`, one
   caller's subject never reaching another, and the shared /ask rate limit.
-- `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
+- `demo/library.py` — `Library`: one active repo's state + pipeline. `snapshot()`
+  returns a frozen `_CorpusSnapshot` (pipeline, provider, repo, commit,
+  generation) read under the SAME lock the pipeline swap takes, so one request
+  cannot be torn across a concurrent `/connect refresh` — answering from one
+  index while returning citation URLs and conversation provenance from another.
+  Its `corpus_id` is `(repo, commit, generation)`: a commit SHA alone is NOT a
+  corpus identity, because ingest includes mutable pull-request and issue
+  discussion and a same-SHA refresh republishes different evidence. Builds a
   `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
   `NormalizingRetriever` (Brick Q query normalization, wired into serving
   2026-07-18) so messy/typo'd query phrasing is corrected toward real corpus
