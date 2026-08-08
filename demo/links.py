@@ -19,6 +19,10 @@ def ref_to_url(ref: str, repo: str, commit: str):
         return f"https://github.com/{repo}/issues/{rest}"
     if source == "commit":
         return f"https://github.com/{repo}/commit/{rest}"
+    if source == "diff":
+        # The pull request's own diff view -- where the hunks Icarus read are
+        # shown in full, rather than the conversation tab.
+        return f"https://github.com/{repo}/pull/{rest}/files"
     if source in ("code", "doc", "config"):
         path, hash_sep, line_range = rest.partition("#")
         fragment = f"#{line_range}" if hash_sep else ""

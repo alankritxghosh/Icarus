@@ -13,6 +13,7 @@ struct ShellView: View {
     /// which is this session's in-memory record only.
     let ledger: LedgerModel
     let briefing: BriefingModel
+    let investigation: InvestigationModel
     let onTryQuestion: () -> Void
 
     @State private var selected: ShellSurface = .home
@@ -31,7 +32,13 @@ struct ShellView: View {
         // Feed every /status poll to the connect model so a server-side drop of
         // the session (restart / eviction) is surfaced explicitly, never hidden.
         .onChange(of: status.status) { _, new in
-            if let new { connect.noteStatus(new) }
+            if let new {
+                connect.noteStatus(new)
+                investigation.noteConnectedRepo(new.repo)
+            }
+        }
+        .onChange(of: auth.isSignedIn) { _, signedIn in
+            if !signedIn { investigation.noteConnectedRepo(nil) }
         }
     }
 
@@ -40,6 +47,7 @@ struct ShellView: View {
         case .home: HomeView(auth: auth, connect: connect, history: history, status: status,
                              briefing: briefing, onTryQuestion: onTryQuestion)
         case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
+        case .investigate: InvestigationView(model: investigation)
         case .decisionHistory: DecisionHistoryView(history: history)
         case .engineeringMemory: UnknownsView(ledger: ledger)
         }

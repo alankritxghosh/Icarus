@@ -102,3 +102,46 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
             for ref in result.retrieved
         ]
     return payload
+
+
+def build_investigation_payload(result, investigation, repo: str, commit: str,
+                                indexing: bool = False) -> dict:
+    """An investigation's answer, in the SAME shape `/ask` returns plus the trail
+    that produced it.
+
+    Built on `build_payload` rather than beside it, so every client that can
+    already render a cited answer or an honest unknown renders an investigation
+    with no change at all -- the extra keys are additive and an older client
+    ignores them.
+
+    The additions are the product: a reader can see not only what Icarus
+    concluded but HOW the repository led it there. Each finding carries its own
+    support class (`explicit` / `strong` / `weak` -- computed in code, see
+    evals/investigation.classify_support), so "the repository says this" and "the
+    implementation suggests this" are visibly different claims rather than two
+    sentences in the same confident voice.
+    """
+    payload = build_payload(result, repo, commit, indexing=indexing)
+    summary = investigation.summary()
+    payload["investigation"] = {
+        "objective": summary["objective"],
+        # What "it" refers to, so a reader can see the follow-up was understood.
+        "subject": summary["subject"],
+        "findings": [
+            {"id": c["id"], "text": c["text"], "support": c["support"],
+             "citations": [{"ref": ref, "url": ref_to_url(ref, repo, commit)}
+                           for ref in c["citations"]]}
+            for c in summary["claims"]
+        ],
+        "hypotheses": summary["hypotheses"],
+        # Published even when empty: "nothing here is unresolved" is a claim
+        # worth making explicitly, and a missing key reads as an oversight.
+        "unknowns": summary["unknowns"],
+        "contradictions": summary["contradictions"],
+        "trail": summary["trail"],
+        "stopped_because": summary["stopped_because"],
+        # Non-null only when a ceiling cut the investigation short. A truncated
+        # run must never be presentable as a complete one.
+        "incomplete_because": summary["budget_note"],
+    }
+    return payload

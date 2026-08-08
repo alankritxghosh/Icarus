@@ -194,6 +194,13 @@ Phase 1 eval harness (Python stdlib only, run from repo root):
 - `GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_paid_writer_eval` — prove
   the paid writer holds both honesty gates at 100% on the public board (self-skips
   without the key).
+- `python3 -m unittest evals.test_investigation_grader` — the INVESTIGATION
+  harness's conscience (proves its four gates fire on a bluffer). Always runs.
+- `GEMINI_PAID_API_KEY=… python3 -m unittest evals.test_investigation_eval` — the
+  live investigation board (self-skips without the key; ~4 min, costs money).
+  Measured 2026-08-08: gates 100%/100%/100%/100%, citation correctness 75%, hop
+  recall 87.5%, mean 6 steps, 0 duplicate steps. See
+  [docs/plans/2026-08-08-investigation-engine.md](docs/plans/2026-08-08-investigation-engine.md).
 
 Web demo (the Phase 1 face over the gated brain; stdlib `http.server`, no deps):
 - `GEMINI_PAID_API_KEY=… python3 -m demo.server` — serve the demo at

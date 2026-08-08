@@ -124,4 +124,56 @@ final class BrainContractTests: XCTestCase {
         XCTAssertEqual(step.response.indexing, false)
         XCTAssertNil(step.response.incompleteIndexNote)
     }
+
+    // MARK: an investigation
+
+    /// `investigation.json` was captured on 2026-08-08 from the REAL engine --
+    /// the committed `simonw/llm` corpus, real retrieval, and the production
+    /// `gemini-paid` writer -- by running `Why was PR #1525 introduced?` through
+    /// `investigate()`/`conclude()` and `demo.payload.build_investigation_payload`,
+    /// the exact function `POST /investigate` returns. No human wrote it, which
+    /// is the entire point.
+    func testTheRealInvestigationDecodes() throws {
+        let response = try JSONDecoder().decode(InvestigationResponse.self,
+                                                from: fixture("investigation"))
+        XCTAssertEqual(response.answer.verdict, .answer)
+        XCTAssertFalse(response.answer.answer.isEmpty)
+        XCTAssertEqual(response.trace.subject, ["pr:1525"])
+        XCTAssertFalse(response.trace.findings.isEmpty)
+        XCTAssertFalse(response.trace.trail.isEmpty)
+    }
+
+    /// Every finding the real engine published carries a support class the app
+    /// recognises. An unrecognised one renders in the most cautious voice, so a
+    /// silent drift here would quietly understate real findings forever.
+    func testEveryRealFindingCarriesARecognisedSupportClass() throws {
+        let response = try JSONDecoder().decode(InvestigationResponse.self,
+                                                from: fixture("investigation"))
+        for finding in response.trace.findings {
+            XCTAssertNotEqual(finding.support, .unrecognised, finding.text)
+        }
+    }
+
+    /// The real trail names real primitives from the closed vocabulary. If the
+    /// server ever emitted something else, the summary line would render a bare
+    /// primitive name and nobody would notice.
+    func testTheRealTrailUsesTheClosedPrimitiveVocabulary() throws {
+        let response = try JSONDecoder().decode(InvestigationResponse.self,
+                                                from: fixture("investigation"))
+        let allowed: Set<String> = ["retrieve", "inspect", "trace", "compare", "verify"]
+        for step in response.trace.trail {
+            XCTAssertTrue(allowed.contains(step.primitive), step.primitive)
+            XCTAssertFalse(step.summary.isEmpty)
+        }
+    }
+
+    /// The captured run really did stop on a budget ceiling, and the app must
+    /// surface that -- a truncated investigation presented as a complete one is
+    /// the same class of failure as a bluffed citation.
+    func testARealBudgetTruncationSurvivesIntoTheCaveat() throws {
+        let response = try JSONDecoder().decode(InvestigationResponse.self,
+                                                from: fixture("investigation"))
+        XCTAssertNotNil(response.trace.incompleteBecause)
+        XCTAssertTrue(response.trace.needsCaveat)
+    }
 }

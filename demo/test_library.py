@@ -55,6 +55,36 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(s["repo"], "simonw/llm")
         self.assertEqual(self.lib.current_pipeline(), f"pipeline::{self.default_dir}")
 
+    def test_corpus_identity_is_content_based_across_library_recreation(self):
+        class Pipeline:
+            def provider(self): return object()
+
+        root = Path(self.tmp.name)
+        first = root / "first"
+        second = root / "second"
+        _seed_corpus(first, "same/repo", "samecommit")
+        _seed_corpus(second, "same/repo", "samecommit")
+        chunks = second / "chunks.jsonl"
+        chunks.write_text(json.dumps(
+            {"ref": "pr:1", "source": "pr", "text": "different discussion"}) + "\n")
+        make = lambda directory: Library(
+            directory, root / (directory.name + "-cache"), "same/repo",
+            build_pipeline=lambda *_args, **_kwargs: Pipeline())
+        self.assertNotEqual(make(first).snapshot().corpus_id,
+                            make(second).snapshot().corpus_id)
+
+    def test_snapshot_freezes_the_indexing_state_that_served_the_request(self):
+        class Pipeline:
+            def provider(self): return object()
+
+        root = Path(self.tmp.name)
+        lib = Library(self.default_dir, root / "snapshot-cache", "simonw/llm",
+                      build_pipeline=lambda *_args, **_kwargs: Pipeline())
+        lib._indexing = True
+        snapshot = lib.snapshot()
+        lib._indexing = False
+        self.assertTrue(snapshot.indexing)
+
     def test_status_exposes_truncated_flag(self):
         # Brick 2a: /status carries whether the corpus was partially indexed.
         # A normal (untruncated) default corpus reports False, never omitted.

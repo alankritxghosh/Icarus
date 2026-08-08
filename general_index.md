@@ -138,6 +138,13 @@ removing, or renaming files). For class/function-level detail see
   16GB, verified). Enumerates every real touchpoint (Dockerfile non-root user,
   hardcoded Render URLs in extension/, GitHub OAuth callback, docs) found by
   grep, not guessed; task-ordered smallest-loop-first. Not started.
+- `docs/plans/2026-08-08-investigation-engine.md` — the investigation engine:
+  what the repo does today (read, not assumed), why one-shot retrieve→write→gate
+  blocks multi-step investigation, and the seven-phase plan to add a bounded
+  loop over five primitives (retrieve/inspect/trace/compare/verify) with an
+  explicit state, deterministic confidence and stopping, and per-claim
+  re-verification through the EXISTING gate. Phases 1+3 (`evals/entities.py`,
+  `evals/investigation.py`) are built; 2 and 4–7 are not.
 - `docs/plans/2026-08-07-engineering-memory-loop-extension-bridge.md` — executable
   red→green plan for Memory Gaps, reviewed memory records, removal of two shell
   sections, the Mac-native Chrome bridge, and the adversarial extension matrix.
@@ -182,6 +189,22 @@ removing, or renaming files). For class/function-level detail see
   navigation's `ios/`): 1,624 real chunks, `.mm` files split from 1 whole-file
   chunk to per-method chunks (e.g. `RNNCommandsHandler.mm` 1→19), `.h` stayed
   on `chunk_text` unchanged.
+  `fetch_pr_diff(repo, number)` live-fetches ONE pull request's actual
+  before/after hunks as a `diff:<number>` chunk -- what the code BECAME, which
+  nothing indexed records (a `pr:` chunk lists filenames with +/- counts; a
+  `commit:` chunk holds only its message). Deliberately NOT indexed, for the
+  same reason commits are not: thousands of diffs would dwarf every other kind
+  of evidence and swamp BM25's IDF. An exact-identifier lookup, bounded to
+  `_REF_DETAIL_MAX_CHARS` with a VISIBLE truncation marker, leak-safe token via
+  `_gh_env`, fail-safe to None. `diff` is a known source in `gate.py` (its
+  citations resolve like any other) and deliberately NOT a rationale source --
+  a "why" resting only on a diff still abstains, since a diff never records why
+  anyone chose it. `_pr_or_issue_text` also now records GitHub's own
+  `closingIssuesReferences` as a `Linked issues: #N` line -- fetched since the
+  beginning and thrown away until 2026-08-08, which left an issue linked only
+  through GitHub's interface invisible; written in the shape the entity index's
+  mention regex already reads, so nothing downstream needed changing, and a
+  pull request closing nothing produces byte-identical text to before.
   `fetch_commit_detail(repo, sha)` live-fetches ONE commit (message, author,
   per-file diff) as a `commit:<full-sha>` chunk — commits are deliberately NOT
   indexed (a real repo has 10k-1M; they'd swamp the 50k cap and BM25's IDF), so
@@ -248,6 +271,137 @@ removing, or renaming files). For class/function-level detail see
   onboarding README step's answer-from-this-location-alone guarantee), and an
   unresolvable location stays unknown rather than being answered with a
   repo-wide file listing.
+- `evals/entities.py` — `build_entity_index(chunks, structure=None)`: the
+  relationships between repository entities, DERIVED from chunks already in
+  memory (pure, ~50ms over the 3,051-chunk committed corpus) — the third member
+  of the `repo_map.py`/`structure.py` family and the traversal layer the
+  investigation engine walks. Edges: `linked_issues`/`mentioned_by` (`#N` in a
+  PR's own text, lookbehind-guarded so `owner/repo#372` is never a local link),
+  `changed_files` (ingest's `Files changed (N):` line, anchored to a line start
+  so a comment quoting it yields nothing), `commits` (the `(#400)` squash
+  subject, FIRST line only — a body citing another PR is not membership),
+  `subsequent_prs` (later-numbered PR touching a shared file: co-occurrence,
+  never causation), and `dependents`/`dependencies` delegated to
+  `demo.structure.build_structure` (passed IN — `demo` depends on `evals`, never
+  the reverse). **Every edge names the indexed chunk whose literal text proves
+  it**, and a dependency edge is matched to the importing file's own window that
+  names the import — dropped rather than cited to lines that do not contain it.
+  A relationship with a FILE targets its PATH, not a window: fanning across
+  windows turned 30 real import edges into 56,056 emitted ones on the committed
+  corpus, and picking one window would guess which part of the file the
+  relationship concerns. `chunks_for(path)` expands it. Verified: 250 sampled
+  real edges, 0 unverified. Disclosed ceilings in `limitations`.
+- `evals/test_entities.py` — the index's contract, weighted toward what must NOT
+  be emitted: foreign-repo `#N`, an unindexed number, a PR restating its own
+  number, a commit body quoting a PR, a well-formed `Files changed` line quoted
+  inside a comment (an earlier draft of this one was VACUOUS — `_FILE_ENTRY`
+  rejected it before the anchor was reached, so it passed with the anchor
+  removed), an import no indexed window shows, plus determinism, purity
+  (`open`/`socket` patched to raise) and no score/rank field on any edge.
+- `evals/investigation.py` — the investigation STATE and every rule a model must
+  not make: `classify_support` (explicit/strong/weak/unsupported, computed from
+  `gate._states_reason` and `gate._source` so it cannot drift from the honesty
+  gate), `score_hypothesis` (only VERIFIED claims count; evidence both ways is
+  reported as partial, never silently resolved), `Step` (id derived from the
+  call itself, so duplicate detection is identity not similarity), `Budget`
+  (hard ceilings that name which one stopped a run) and `Investigation`
+  (subject/claims/evidence/contradictions/trail + `should_stop`, whose
+  diminishing-returns rule is measured on whether new REFS appeared, never on a
+  model saying it is satisfied). Holds refs, never chunk text. Per
+  `docs/plans/2026-08-08-investigation-engine.md`; the full loop and probes are
+  built and served by `/investigate`.
+- `evals/probes.py` — the five investigation primitives as THIN adapters over
+  what already exists: `retrieve` (the pipeline's own hybrid retriever — never a
+  second ranking that could disagree with `/ask`), `inspect` (indexed chunk,
+  else the live `fetch_ref_detail`/`fetch_commit_detail` fetchers `.answer()`
+  already uses; a bare path reads that file's windows, bounded and reported),
+  `trace` (evals/entities.py — evidence is the chunk PROVING the edge, targets
+  come back as `discovered` and are deliberately NOT read, so discovery stays
+  cheap and wide while reading stays expensive and narrow), `compare` (real
+  per-file diffs via a live commit fetch on the commits a PR carries; falls back
+  to the indexed message, and honestly finds nothing when a repo records no
+  commit→PR link) and `verified_citations` / `verify` (evals/gate.py verbatim —
+  the reader retains only the gate's canonical refs, never a raw model list).
+  `run_round` runs independent probes on a
+  thread pool (all I/O bound) and returns results in STEP order; a failing probe
+  is a step that found nothing and says so, never an exception into the loop.
+- `evals/test_probes.py` — 33 offline tests: retrieval delegated not
+  reimplemented, a live fetch deciding the KIND (`pr:6952` returning
+  `issue:6952`), the caller's token reaching the fetch, trace discovering
+  without reading, compare refusing a non-PR and disclosing its commit bound,
+  and `verify` proven to be the real gate (self-disclaiming prose refused
+  despite a perfectly resolving citation).
+- `evals/investigator.py` — the loop: subject bound deterministically from the
+  question's own refs (reusing `pipeline`'s regexes, so "PR 400" means the same
+  thing here as in `/ask`), fixed opening seeds, then adaptive rounds of
+  probe → read → verify → classify → score → stop. A model is consulted at
+  exactly three points (plan, read, synthesize) and every step it proposes is
+  validated against a closed vocabulary AND that primitive's exact argument
+  schema (`_STEP_SCHEMA`) — an unknown primitive, an argument belonging to a
+  different primitive, an unknown edge, an invented ref, or a non-positive /
+  boolean / absurd `k` is DROPPED, never coerced into something runnable. `k` is
+  additionally clamped to `probes.MAX_RETRIEVE_K` in the probe itself, since
+  seeds reach it without passing the validator.
+  `_clip_to_budget` drops the lowest-ranked WHOLE pieces of a round's evidence before any of it
+  enters state, `texts` or a prompt (never sliced — half a chunk is text nobody
+  wrote) and the clip is disclosed as an unknown rather than applied silently.
+  `conclude` writes the answer from verified findings and returns an ordinary
+  `Result`, so every existing renderer works unchanged; it faces the FULL gate
+  with the real question, so nothing reaches a reader having passed a weaker
+  check than `/ask` applies.
+- `evals/test_investigator.py` — 34 offline tests with a scripted provider,
+  weighted toward what a model must not be able to do: run a primitive outside
+  the vocabulary, smuggle an argument through, cite evidence nobody retrieved
+  (isolated per layer — gate and classifier each proven to refuse alone), score
+  its own confidence, declare its own hypothesis true, or outlast the budget.
+  Plus the live-found stop bug: a run that ended after one round calling an
+  untested hypothesis "decided".
+- `evals/investigation_grader.py` — grading an INVESTIGATION, not just an
+  answer. Four gates, each a different way of lying: **groundedness** (the
+  answer's citations were retrieved), **claim_groundedness** (every PUBLISHED
+  finding cites evidence the investigation actually holds — a finding is shown
+  as a receipt, and one citing something nobody gathered is a receipt for
+  nothing), **explicit_cites_rationale** (no finding labelled `explicit` unless a
+  chunk it cites is a rationale-bearing source whose text records a reason —
+  RECOMPUTED from the evidence text via `gate._states_reason`/`_source`, never
+  read off the label. Scope is deliberately narrow: it proves the CLASS matches
+  the evidence, NOT that the recorded reason is the reason for that finding.
+  Marker matching cannot tell "changed because logging was noisy" apart from a
+  finding about scalability citing it; arbitrary semantic entailment stays
+  writer-reliant per AGENTS.md, and the published wording says only what was
+  cited), and **abstention_recall**. Quality dials: citation correctness, hop recall (did it
+  reach evidence several relationships away?), abstention precision, step
+  efficiency, duplicate steps. Takes a `run(question)` callable rather than a
+  pipeline, so the harness's own conscience can be tested offline.
+- `evals/investigation_questions.json` — 8 hand-verified questions over the
+  committed `simonw/llm` corpus. Every gold ref was read in `chunks.jsonl`
+  before it was written down. The multi-hop case (`pr:1525` → `issue:1523` →
+  `code:llm/embeddings_migrations.py` → `pr:1572`) is real distributed evidence;
+  the four unanswerable ones are reused verbatim from `phase1_questions.json`,
+  since a proven-unrecorded question beats inventing one and hoping.
+- `evals/test_pr_diff.py` — `fetch_pr_diff` offline (stubbed subprocess): real
+  hunks, the token never reaching argv, a huge diff truncated WITH a marker, an
+  empty diff returning None rather than an empty chunk, every failure mode
+  failing safe; plus the `diff:` source's contract — it resolves through the
+  gate, links to the pull request's files view, and is NOT recorded rationale
+  (a "why" grounded only on a diff abstains). Also the `Linked issues:` line:
+  it makes the entity index see an exact link, and a pull request closing
+  nothing is byte-identical to before.
+- `evals/test_investigation_grader.py` — the harness's conscience, always run,
+  no model or corpus: each gate tested twice, once against an honest
+  investigator and once against a bluffer built to break exactly that gate —
+  including the dangerous one (a real citation, a real finding, and a strength
+  the evidence does not earn, which groundedness passes happily).
+- `evals/test_investigation_eval.py` — the LIVE board (self-skips without
+  `GEMINI_PAID_API_KEY`/fastembed/corpus) plus always-run regression tests that
+  `/ask` is untouched and every gold ref still exists. Measured 2026-08-08 on
+  the real pipeline: **all four gates 100%**, citation correctness 75%, hop
+  recall 87.5%, abstention precision 80%, mean 6 steps, 0 duplicates.
+- `evals/test_investigation.py` — the state's contract: one source cited twice
+  is not corroboration, code alone is never explicit, a citation to unretrieved
+  evidence may only LOWER support, an unverified claim cannot support a
+  hypothesis, budget exhaustion outranks looking finished, and the gate-alignment
+  pins that keep confidence speaking the honesty gate's language.
 - `evals/corpus_meta.py` — `write_meta`/`load_meta` for the self-describing corpus
   provenance the demo reads for citation links. `write_meta` also stamps a
   `"chunking"` field (`"chunk_text"` or `"ast"`, default `"chunk_text"` so
@@ -797,7 +951,47 @@ removing, or renaming files). For class/function-level detail see
   derived, cross-user invisibility, hostile user id and repo name refused,
   survives a new process, and a corrupt file reads as "first visit" rather
   than raising.
-- `demo/library.py` — `Library`: one active repo's state + pipeline. Builds a
+- `demo/investigations.py` — `ConversationStore`: what one caller's
+  investigation remembers between turns, so "why did **it** change?" resolves.
+  Keyed on (identity, repo) — the repo is part of the KEY, not a field checked
+  afterwards, so a subject cannot survive a repo switch or leak between users.
+  Keyed on (identity, repo, **corpus-content fingerprint**) with a request counter: a
+  `/connect refresh` republishes the corpus, so findings verified against the
+  old index cannot be carried into an answer about the new one, and every
+  request advances the counter so an older overlapping investigation cannot
+  finish late and overwrite a newer one (compare-and-set
+  under the store's own lock; no lock is held across a model call).
+  In-memory, TTL'd (20 min) and LRU-capped: losing a conversation on restart is
+  the CORRECT failure, since a stale investigation resumed against a moved index
+  would answer about a repository that has since changed. Carries subject,
+  objective, indexed verified findings **with the support class they were measured
+  with**, hypotheses and steps — never evidence TEXT, because the corpus can be
+  refreshed underneath a live conversation. Plus `refers_back`, the deterministic
+  deictic check ("it", "that change", "afterwards") gating subject inheritance —
+  never a model, because a wrongly inherited subject produces a confident, fully
+  cited answer about the wrong change and groundedness cannot detect it (the
+  2026-08-06 selection-drift finding).
+- `demo/test_investigations.py` — the store's contract: only verified findings
+  carried, support classes carried not recomputed, evidence text never stored,
+  cross-identity and cross-repo invisibility, expiry/renewal/eviction, and
+  `refers_back` refusing a word that merely CONTAINS a referring word ("commit"
+  contains "it") — which would otherwise inherit a subject on almost any
+  question.
+- `demo/test_investigate_endpoint.py` — POST /investigate at the HTTP boundary:
+  the four-turn conversation holding one subject, a follow-up COMPOUNDING on
+  earlier findings rather than restarting (its writer stamps each finding with a
+  turn number — an earlier draft emitted identical text every turn and passed
+  whether or not anything was carried), a question naming its own subject
+  rebinding, an unrelated question inheriting nothing, `fresh: true`, one
+  caller's subject never reaching another, and the shared /ask rate limit.
+- `demo/library.py` — `Library`: one active repo's state + pipeline. `snapshot()`
+  returns a frozen `_CorpusSnapshot` (pipeline, provider, repo, commit,
+  content fingerprint, indexing state) read under the SAME lock the pipeline swap takes, so one request
+  cannot be torn across a concurrent `/connect refresh` — answering from one
+  index while returning citation URLs and conversation provenance from another.
+  Its `corpus_id` is `(repo, commit, generation)`: a commit SHA alone is NOT a
+  corpus identity, because ingest includes mutable pull-request and issue
+  discussion and a same-SHA refresh republishes different evidence. Builds a
   `HybridRetriever` (BM25 + local semantic) via `_build_retriever`, wrapped in a
   `NormalizingRetriever` (Brick Q query normalization, wired into serving
   2026-07-18) so messy/typo'd query phrasing is corrected toward real corpus
@@ -1122,7 +1316,8 @@ removing, or renaming files). For class/function-level detail see
   `unknowns` filter, `citedRate` nil until the first ask); powers the shell.
 - `ShellNav.swift` — `ShellSurface`, the sidebar surfaces + their titles;
   `.startHere` (the guided tour) sits directly under Home, since it is the
-  first experience with a newly connected repo.
+  first experience with a newly connected repo, and `.investigate` follows it —
+  something you DO, ahead of the two history surfaces you look back at.
 - `Onboarding.swift` — the tour client-side: `OnboardingPlan`/`OnboardingStep`
   (`GET /onboarding`), `TourStepAnswer` (`POST /onboarding` -- decodes the FLAT
   `/ask` payload plus `step`/`title`, so one shape is decoded one way
@@ -1148,6 +1343,19 @@ removing, or renaming files). For class/function-level detail see
   changed". The server also returns a `stored` block (the decision doc's
   transparency property); not decoded here since no view surfaces it yet
   (cut in the 2026-07-30 ponytail audit — add back with the view that needs it).
+- `Investigation.swift` — `POST /investigate` decoded: `Support`
+  (explicit/strong/weak/unsupported, each with a `headline` saying what it IS
+  rather than how good it is — "weak" alone reads as a poor answer when it is
+  actually a statement about what the repository RECORDED), `Finding`,
+  `InvestigationStep`, `Contradiction` and `InvestigationTrace`. The answer
+  itself decodes through the EXISTING `AskResponse`, so the trace is additive
+  and there is never a second way to render a verdict. `orderedFindings` /
+  `findingsBySupport` put what the repository states before what was inferred
+  and keep them in separate groups — rendering both in one confident voice is a
+  bluff the honesty gate cannot catch, since every citation under an inference
+  is just as real. An unknown support class decodes to `.unrecognised` and
+  renders in the most cautious voice, never the boldest. `needsCaveat` is true
+  when a run was cut short or the evidence conflicts.
 - `RepoMap.swift` — `GET /map` decoded: `indexed*` counts, documentation
   (`readme: nil` when none was indexed), `EntryPoint`/`EntryPointRule` (every
   entry point carries the RULE that produced it), truncation, exclusion RULES
@@ -1245,6 +1453,20 @@ removing, or renaming files). For class/function-level detail see
   gaps link to the existing pull request and cannot create another. The prior
   Ask-by-voice and Privacy-boundary navigation sections were removed; underlying
   voice and privacy enforcement remain elsewhere.
+- `InvestigationModel.swift` — runs an investigation for the Investigate
+  surface. Holds NO conversational state: the server owns what "it" refers to
+  (`demo/investigations.py`), so every client resolves references the same way
+  and a follow-up cannot be aimed at a subject the server never agreed to.
+  `fresh: true` is sent on the first question of a transcript only — sending it
+  on a follow-up would discard the very subject that follow-up depends on. A
+  transport failure is kept strictly separate from an abstention.
+- `InvestigationView.swift` — the Investigate surface: the answer with its
+  receipts, then findings GROUPED by what the repository records versus what was
+  inferred, what is still unknown, and the step trail ("HOW IT GOT THERE") that
+  is the actual product. The caveat block (cut short / conflicting evidence)
+  renders ABOVE the findings on purpose — after them it reads as a footnote to a
+  conclusion already accepted. A follow-up shows the resolved subject, so a
+  misunderstanding is visible BEFORE a confident answer about the wrong change.
 - `LedgerModel.swift` — loads server-owned Memory Gap lifecycle state and submits
   a human-authored GitHub memory proposal by opaque gap ID, blocks overlapping
   submissions, and surfaces only an observed pull-request URL as success.
@@ -1284,6 +1506,11 @@ removing, or renaming files). For class/function-level detail see
   as-is, question steps fetched once then remembered, map steps never billing
   the writer, the tour not running off either end, and a failed step surfacing
   as an ERROR rather than an abstention.
+- `InvestigationTests.swift` — decoding + display rules: the answer reusing
+  `AskResponse`, each support class's headline, an unrecognised class landing in
+  the most cautious voice, recorded-before-inferred ordering that is stable
+  within a class, caveats for truncation and conflict, and a trail step
+  surviving a numeric argument or a missing reason.
 - `RepoMapTests.swift` — `RepoMap` decoding, a missing README as nil (not an
   empty string), and deterministic biggest-first language/directory ordering.
 - `BrainContractTests.swift` — decodes the brain's REAL captured responses
@@ -1299,6 +1526,11 @@ removing, or renaming files). For class/function-level detail see
   indexing/error/no-save = not lost; case-insensitive repo match).
 
 ### mac/Icarus/Tests/IcarusAppTests
+- `InvestigationModelTests.swift` — failure truthfulness on the Investigate
+  surface: 401/403/429/503 are server REFUSALS and are reported as what the
+  server said (`BrainError.userMessage`), while only a real transport error
+  reads as a connection problem. Collapsing the two told a signed-out user to
+  check their network.
 - `ConnectModelTests.swift` — app-model boundary proof that an accepted
   background repository re-read stays visibly in progress while the index is
   stale and completes only after `/status` confirms freshness.

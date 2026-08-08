@@ -11,6 +11,7 @@ ingest the previous repo stays answerable (status just reads "indexing").
 import logging
 import sys
 import threading
+from dataclasses import dataclass
 import time
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from evals.query_normalize import build_vocabulary
 from evals.provider import make_provider
 from evals.pipeline import GatedPipeline
 from evals.ingest import ingest_repo
+from evals.vector_cache import corpus_fingerprint
 
 _log = logging.getLogger(__name__)
 
@@ -179,6 +181,27 @@ def _build_gated_pipeline(corpus_dir, fast=False, on_progress=None):
                          live_fetch=live, live_commit_fetch=live_commit)
 
 
+@dataclass(frozen=True)
+class _CorpusSnapshot:
+    """What one request captured about the corpus it is answering from. Frozen:
+    a request must not be able to drift onto a newer index halfway through."""
+
+    pipeline: object
+    provider: object
+    repo: str
+    commit: str
+    generation: int
+    fingerprint: str
+    indexing: bool
+
+    @property
+    def corpus_id(self):
+        """The corpus identity a conversation or cache may be keyed by. Includes
+        the content fingerprint because Library instances and process restarts
+        reset their local generation counters."""
+        return (self.repo, self.commit, self.fingerprint)
+
+
 def _slug(repo):
     return repo.replace("/", "__")
 
@@ -240,6 +263,8 @@ class Library:
         # search…" alone cannot be told apart from a hang.
         self._progress = None
         self._clock = clock
+        self._corpus_fingerprint = corpus_fingerprint(
+            load_chunks(self._default_dir / "chunks.jsonl"))
         self._pipeline = self._build_pipeline(self._default_dir)
         self._status = "ready"
 
@@ -380,8 +405,10 @@ class Library:
 
             # STAGE 1 -- fast, lexical-only; publishes "ready" immediately.
             fast_pipeline = self._build_pipeline(corpus_dir, fast=True)
+            fingerprint = corpus_fingerprint(load_chunks(corpus_dir / "chunks.jsonl"))
             with self._lock:
                 self._pipeline = fast_pipeline
+                self._corpus_fingerprint = fingerprint
                 self._repo = connected_repo
                 self._commit = meta.get("commit", "")
                 self._counts = meta.get("counts")
@@ -483,6 +510,31 @@ class Library:
                     # The degradation is real and logged above; surfacing a
                     # permanent one needs an error path, not this flag.
                     self._indexing = False
+
+    def snapshot(self):
+        """One ATOMIC view of the active corpus: pipeline, provider, repo,
+        commit, content fingerprint, and indexing state.
+
+        A request that calls `current_pipeline()` and `provenance()` separately
+        can be torn by a concurrent `/connect refresh`: it can answer from one
+        pipeline while returning citation URLs and conversation provenance from
+        another. Everything a request needs is therefore read once, under the
+        same lock that the swap takes.
+
+        The fingerprint matters independently of `commit`. Ingest includes MUTABLE
+        pull-request and issue discussion, so a refresh can publish a genuinely
+        different corpus while HEAD is unchanged -- a commit SHA alone is not a
+        corpus identity. Unlike the process-local generation counter, content
+        identity survives Library eviction and process restart.
+        """
+        with self._lock:
+            pipeline = self._pipeline
+            return _CorpusSnapshot(
+                pipeline=pipeline,
+                provider=(getattr(pipeline, "provider", lambda: None)()
+                          if pipeline is not None else None),
+                repo=self._repo, commit=self._commit, generation=self._generation,
+                fingerprint=self._corpus_fingerprint, indexing=self._indexing)
 
     def current_pipeline(self):
         with self._lock:

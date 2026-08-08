@@ -34,6 +34,10 @@ class PythonResolutionTests(unittest.TestCase):
         ]
         result = build_structure(chunks)
         self.assertIn(("app/api.py", "app/store.py"), result["file_edges"])
+        self.assertIn(
+            {"source": "app/api.py", "target": "app/store.py",
+             "ref": "code:app/api.py"},
+            result["file_edge_evidence"])
 
     def test_relative_import_resolves_against_the_importing_file(self):
         chunks = [

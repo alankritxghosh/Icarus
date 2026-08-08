@@ -1,0 +1,86 @@
+{
+  "_status": "VERIFIED. Every gold ref below was read in evals/corpus/chunks.jsonl before it was written down, exactly as evals/phase1_questions.json was labelled. Nothing here was inferred from a PR title. The four unanswerable questions are reused verbatim from phase1_questions.json (q07-q10), which were already evidence-verified: reusing a proven-unrecorded question is stronger than inventing a new one and hoping nobody documented it.",
+  "corpus": {
+    "repo": "simonw/llm",
+    "commit": "94769b8b076cde9392059d76bd766453cf900180"
+  },
+  "questions": [
+    {
+      "id": "i01",
+      "dimension": "explicit_motivation",
+      "label": "answerable",
+      "question": "Why was PR #1525 introduced?",
+      "citations": ["pr:1525"],
+      "hops": ["pr:1525", "issue:1523"],
+      "expected_support": "explicit",
+      "reference_answer": "Every embeddings command failed on a fresh install with 'cannot commit - no transaction is active': the m004_store_content_hash migration wrapped its backfill UPDATEs in `with db.conn:`, whose context manager commits on exit and so ended the transaction sqlite-utils' own Migrations.apply() had opened. The fix drops that wrapper and lets the enclosing transaction do its job.",
+      "note": "The PR body states the reason outright and says 'Closes #1523'. This is the case the support classifier must call `explicit` -- if it cannot, nothing else it says about strength is worth reading."
+    },
+    {
+      "id": "i02",
+      "dimension": "multi_hop",
+      "label": "answerable",
+      "question": "What did PR #1525 change, and what happened to that code afterwards?",
+      "citations": ["pr:1525"],
+      "hops": ["pr:1525", "issue:1523", "code:llm/embeddings_migrations.py#L40-L81", "pr:1572"],
+      "note": "The evidence is distributed exactly as the brief describes: PR -> linked issue -> the changed file -> a later PR touching the same area. pr:1572 ('Enable WAL mode and fix TOCTOU race in migrations') is a genuine later change in the same migration machinery. Verified: pr:1525 changed llm/embeddings_migrations.py and tests/test_migrate.py; pr:1536/1557/1562/1572 all touch files pr:1525 touched. NOTE the shared file with pr:1536/1572 is tests/test_migrate.py, which ingest does NOT index (the corpus's code_dir is `llm`) -- the link is proven by the pull request's own text, not by an indexed file."
+    },
+    {
+      "id": "i03",
+      "dimension": "explicit_motivation",
+      "label": "answerable",
+      "question": "Why was PR #1339 introduced?",
+      "citations": ["pr:1339"],
+      "hops": ["pr:1339", "issue:1338"],
+      "expected_support": "explicit",
+      "reference_answer": "To let users attach clipboard contents -- images such as screenshots, falling back to text -- when running one-shot prompts or interactive chats, which issue #1338 had requested as a convenience flag.",
+      "note": "The motivation is recorded in the linked issue rather than only in the PR: #1338 asks for it, #1339 implements it. A single-shot retrieval can answer this from the PR alone; the point of scoring it here is that the investigation should reach the ISSUE too (see hops)."
+    },
+    {
+      "id": "i04",
+      "dimension": "consequences",
+      "label": "answerable",
+      "question": "What files did PR #1562 change?",
+      "citations": ["pr:1562"],
+      "hops": ["pr:1562"],
+      "reference_answer": "A large change touching 30 files, including .github/workflows/test.yml, .gitignore, Justfile, README.md, llm/cli.py, llm/default_plugins/openai_models.py and llm/embeddings.py.",
+      "note": "A directly observable consequence, not an inferred one. Its purpose in the board is the honesty of the TRUNCATION disclosure: the changed-file list ingest records is capped at 30 paths, so an answer that presents it as the complete set is over-claiming even though every path in it is real."
+    },
+    {
+      "id": "i05",
+      "dimension": "missing_information",
+      "label": "unanswerable",
+      "question": "Why is the maximum conversation-name length set to 32 characters specifically (rather than 30 or 50)?",
+      "citations": [],
+      "hops": [],
+      "note": "Reused from phase1_questions.json q07. The constant is in the code; no PR, issue, commit or doc records why that number. An investigation has MORE ways to talk itself into an answer here than a single retrieval does, which is exactly why it is on this board."
+    },
+    {
+      "id": "i06",
+      "dimension": "missing_information",
+      "label": "unanswerable",
+      "question": "Why is a schema ID computed as a 16-byte blake2b digest specifically (rather than another hash or length)?",
+      "citations": [],
+      "hops": [],
+      "note": "Reused from phase1_questions.json q08."
+    },
+    {
+      "id": "i07",
+      "dimension": "inference_honesty",
+      "label": "unanswerable",
+      "question": "Why is the loop counter in _human_readable_size named `i` rather than something more descriptive?",
+      "citations": [],
+      "hops": [],
+      "note": "Reused from phase1_questions.json q09. A question whose answer is obvious to any engineer from general knowledge ('it's a conventional loop index') and recorded NOWHERE in this repository. Generic knowledge must not become evidence about this codebase, so the only honest answer is that nobody wrote it down."
+    },
+    {
+      "id": "i08",
+      "dimension": "inference_honesty",
+      "label": "unanswerable",
+      "question": "Why is _human_readable_size defined immediately before logs_on in cli.py?",
+      "citations": [],
+      "hops": [],
+      "note": "Reused from phase1_questions.json q10. Physical ordering in a file is real and observable, but the REASON for it is not recorded anywhere -- the strongest temptation on this board to dress an observation up as an explanation."
+    }
+  ]
+}
