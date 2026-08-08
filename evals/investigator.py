@@ -35,12 +35,12 @@ from typing import List, Optional
 
 from .gate import extract_json, gate
 from .investigation import (
-    Budget, Claim, Hypothesis, Investigation, Step, SUPPORT_UNSUPPORTED,
+    Budget, Claim, Hypothesis, Investigation, Step, STOP_EXHAUSTED, SUPPORT_UNSUPPORTED,
     classify_support,
 )
 from .pipeline import Result, _ISSUE_OR_PR_REF, _COMMIT_SHA, _preferred_sources
 from .entities import EDGE_KINDS
-from .probes import MAX_RETRIEVE_K, ProbeContext, run_round, verify
+from .probes import MAX_RETRIEVE_K, ProbeContext, run_round, verified_citations
 from .synth import build_plan_prompt, build_read_prompt, build_synthesis_prompt
 
 # Relationships worth following from a pull request before anything is known.
@@ -102,12 +102,12 @@ def _clip_to_budget(out, remaining: int) -> int:
     """Drop whole pieces of a probe's evidence until it fits `remaining`.
 
     Returns how many were dropped, so the caller can DISCLOSE it. Pieces are
-    dropped entire and in the order the probe returned them (best-first for
-    retrieval), never sliced: a half-read chunk is text nobody wrote, and
+    dropped entire from the probe's tail (lowest-ranked first for retrieval),
+    never sliced: a half-read chunk is text nobody wrote, and
     citing it would misrepresent the evidence rather than merely shorten it.
     """
     dropped = 0
-    for ref in list(out.evidence):
+    for ref in reversed(list(out.evidence)):
         if out.chars <= remaining:
             break
         out.evidence.pop(ref, None)
@@ -175,9 +175,8 @@ def _anchor_refs(question: str, pipeline) -> List[str]:
                 break
         else:
             # Not indexed. It may still be live-fetchable, which inspect() will
-            # discover -- name it as a pull request, the commoner case, and let
-            # the fetch correct the kind if it is an issue.
-            refs.append(f"pr:{n}")
+            # discover -- preserve the kind the question explicitly preferred.
+            refs.append(f"{_preferred_sources(question, n)[0]}:{n}")
     for prefix, sha in _COMMIT_SHA.findall(question or ""):
         if prefix or any(c.isdigit() for c in sha):
             refs.append(f"commit:{sha}")
@@ -229,7 +228,13 @@ def _plan(inv: Investigation, provider, known_refs) -> int:
         build_plan_prompt(inv.objective, _state_summary(inv), known_refs)))
     if not isinstance(data, dict):
         return 0
-    for statement in (data.get("hypotheses") or [])[:5]:
+    hypotheses = data.get("hypotheses")
+    steps = data.get("steps")
+    if not isinstance(hypotheses, list):
+        hypotheses = []
+    if not isinstance(steps, list):
+        steps = []
+    for statement in hypotheses[:5]:
         if not isinstance(statement, str) or not statement.strip():
             continue
         if any(h.statement == statement.strip() for h in inv.hypotheses):
@@ -237,7 +242,7 @@ def _plan(inv: Investigation, provider, known_refs) -> int:
         inv.hypotheses.append(
             Hypothesis(id=f"h{len(inv.hypotheses) + 1}", statement=statement.strip()))
     queued = 0
-    for raw in (data.get("steps") or [])[:_MAX_PLANNED_STEPS]:
+    for raw in steps[:_MAX_PLANNED_STEPS]:
         step = _validate_step(raw, allowed_refs=set(known_refs or ()))
         if step is not None and inv.queue(step):
             queued += 1
@@ -252,7 +257,13 @@ def _read(inv: Investigation, provider, texts, note, counter) -> None:
         build_read_prompt(inv.objective, inv.hypotheses, texts, note)))
     if not isinstance(data, dict):
         return
-    for raw in (data.get("claims") or []):
+    claims = data.get("claims")
+    unknowns = data.get("unknowns")
+    if not isinstance(claims, list):
+        claims = []
+    if not isinstance(unknowns, list):
+        unknowns = []
+    for raw in claims[:5]:
         if not isinstance(raw, dict):
             continue
         text = raw.get("text")
@@ -264,21 +275,24 @@ def _read(inv: Investigation, provider, texts, note, counter) -> None:
         if not isinstance(citations, list):
             continue
         # Groundedness only at this stage -- see the module docstring.
-        if not verify(text.strip(), citations, texts):
+        cites = verified_citations(text.strip(), citations, texts)
+        if not cites:
             continue
-        cites = [c for c in citations if isinstance(c, str)]
         # Classified BEFORE it is admitted: a claim citing nothing the
         # investigation retained cannot be shown to anyone, so it never enters
         # the state (and never leaves a dangling id on a hypothesis).
         if classify_support(cites, inv.evidence) == SUPPORT_UNSUPPORTED:
             continue
+        supports = raw.get("supports")
+        if not isinstance(supports, bool):
+            continue
         hid = raw.get("hypothesis")
         counter[0] += 1
         inv.add_claim(Claim(id=f"c{counter[0]}", text=text.strip(), citations=cites,
                             hypothesis_id=hid if inv.hypothesis(hid) else None,
-                            polarity=raw.get("supports") is not False,
+                            polarity=supports,
                             verified=True))
-    for unknown in (data.get("unknowns") or [])[:5]:
+    for unknown in unknowns[:5]:
         if isinstance(unknown, str) and unknown.strip() \
                 and unknown.strip() not in inv.unknowns:
             inv.unknowns.append(unknown.strip())
@@ -365,6 +379,9 @@ def investigate(question: str, pipeline, entities, provider, token: str = None,
             for ref in out.discovered:
                 if ref not in known_refs:
                     known_refs.append(ref)
+            for ref in out.evidence:
+                if ref not in known_refs:
+                    known_refs.append(ref)
             # Read what the trace found. Deterministic on purpose: following a
             # relationship and then not looking at the other end is the whole
             # failure mode (see _MAX_FOLLOW), and it must not depend on a model
@@ -384,7 +401,11 @@ def investigate(question: str, pipeline, entities, provider, token: str = None,
         inv.rescore()
         inv.detect_contradictions()
         inv.note_round(new_refs)
-        if inv.should_stop() is None and inv.budget.allows_gathering_writer():
+        # An empty queue after a retrieval is the moment adaptive planning is
+        # most valuable, not proof that the investigation is over. Permit the
+        # planner to turn newly known refs into the next bounded step.
+        stop = inv.should_stop()
+        if stop in (None, STOP_EXHAUSTED) and inv.budget.allows_gathering_writer():
             _plan(inv, provider, known_refs[:60])
 
     inv.stopped_because = inv.should_stop()

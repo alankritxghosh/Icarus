@@ -339,16 +339,10 @@ struct OnboardingView: View {
                 // "no one wrote this down" is a claim about the REPOSITORY.
                 // Rendering the first as the second is the bug that shipped on
                 // facebook/react (2026-07-29) and it must not come back here.
-                if let note = response.incompleteIndexNote {
-                    MonoLabel("STILL INDEXING", Theme.unknown)
-                    Text(note).font(.system(size: 14)).foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    MonoLabel("NO ONE WROTE THIS DOWN", Theme.unknown)
-                    Text("Icarus found nothing recorded that answers this. That is the honest answer, not a failure to search — it looked at \(response.searched.count) source\(response.searched.count == 1 ? "" : "s").")
-                        .font(.system(size: 14)).foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                MonoLabel(response.unknownHeadline, Theme.unknown)
+                Text(response.unknownMessage)
+                    .font(.system(size: 14)).foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.unknownBg)

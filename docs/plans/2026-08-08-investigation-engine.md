@@ -28,7 +28,17 @@ round was retained (2,000 chars kept against a 1-char allowance); and a commit
 SHA was treated as a corpus identity even though ingest includes mutable
 discussion, while provenance and the pipeline were read separately and could be
 torn by a concurrent refresh -- now one atomic `Library.snapshot()` per request,
-keyed by `(repo, commit, generation)`.
+keyed by `(repo, commit, corpus-content fingerprint)` so eviction or process
+restart cannot make two different ingests collide.
+
+A final adversarial pass (2026-08-09) closed the remaining cross-boundary gaps:
+the reader now retains only the gate's canonical citations; malformed planner
+containers fail closed; a subjectless retrieval can feed later trace steps;
+budget clipping drops the lowest-ranked tail; overlapping follow-ups are
+latest-started-wins; live-only evidence is not carried as immutable conversation
+state; exact import windows are preserved as relationship proof; request
+snapshots freeze the indexing caveat; and the Mac clears investigation text on
+repo switch/sign-out while rendering the server's actual abstention reason.
 
 Seven other defects were fixed in the same pass -- carried findings
 surviving a corpus refresh, `refers_back` inheriting a subject for "the

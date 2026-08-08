@@ -122,16 +122,16 @@ class ConversationStore:
     def begin(self, identity: str, repo: str, fresh: bool = False) -> int:
         """The generation this request is running under.
 
-        `fresh` (the user pressing Start over) bumps it, which is what makes an
-        abandoned in-flight investigation unable to overwrite its replacement.
+        Every request bumps it. This makes the most recently STARTED request the
+        only one allowed to publish continuity, so two ordinary overlapping
+        follow-ups cannot land in completion order and rewind the conversation.
         """
         if not identity or not repo:
             return 0
         with self._lock:
             key = (identity, repo)
-            if fresh:
-                self._generations[key] = self._generations.get(key, 0) + 1
-            return self._generations.get(key, 0)
+            self._generations[key] = self._generations.get(key, 0) + 1
+            return self._generations[key]
 
     def resume(self, identity: str, repo: str, commit: str = None) -> Optional[Conversation]:
         """The live conversation for this identity, repo AND indexed commit.
@@ -154,7 +154,7 @@ class ConversationStore:
             return entry[0]
 
     def remember(self, identity: str, repo: str, investigation, commit: str = None,
-                 generation: int = None) -> Optional[Conversation]:
+                 generation: int = None, is_indexed=None) -> Optional[Conversation]:
         """Fold a finished investigation into this caller's conversation.
 
         `generation` is what this request began under (see `begin`). A write
@@ -176,7 +176,11 @@ class ConversationStore:
             objective=investigation.objective,
             claims=[CarriedClaim(text=c.text, citations=list(c.citations),
                                  support=c.support)
-                    for c in investigation.claims if c.verified][-_MAX_CARRIED_CLAIMS:],
+                    for c in investigation.claims
+                    if c.verified and c.citations
+                    and (is_indexed is None
+                         or all(is_indexed(ref) for ref in c.citations))
+                    ][-_MAX_CARRIED_CLAIMS:],
             hypotheses=[{"statement": h.statement, "status": h.status}
                         for h in investigation.hypotheses],
             performed=[{"primitive": s.primitive, "args": dict(s.args)}

@@ -96,7 +96,8 @@ test("renderAnswerHtml: does not make paid-writer or training claims", () => {
 });
 
 test("renderUnknownHtml: the honest-unknown headline, matching the web demo's voice", () => {
-  const html = renderUnknownHtml({ searched: ["code:a", "code:b"] });
+  const html = renderUnknownHtml({ searched: ["code:a", "code:b"],
+    reason: "no_recorded_reason" });
   assert.match(html, /No one wrote this down\./);
   assert.match(html, /searched 2 sources/);
 });
@@ -107,6 +108,20 @@ test("renderUnknownHtml: singular 'source' for exactly one", () => {
 
 test("renderUnknownHtml: zero searched still renders cleanly, no crash", () => {
   assert.match(renderUnknownHtml({ searched: [] }), /searched 0 sources/);
+});
+
+test("renderUnknownHtml: a missing entity is not mislabeled undocumented", () => {
+  const html = renderUnknownHtml({ verdict: "unknown", reason: "entity_absent",
+    searched: [], citations: [] });
+  assert.match(html, /not found/i);
+  assert.doesNotMatch(html, /No one wrote this down/i);
+});
+
+test("renderUnknownHtml: no evidence does not claim nobody documented it", () => {
+  const html = renderUnknownHtml({ verdict: "unknown", reason: "no_evidence",
+    searched: [], citations: [] });
+  assert.match(html, /enough evidence/i);
+  assert.doesNotMatch(html, /No one wrote this down/i);
 });
 
 test("renderUnknownHtml: a named ref is called out, and not double-counted", () => {

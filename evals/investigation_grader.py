@@ -90,7 +90,8 @@ def grade_investigations(questions: List[dict], run, judge=None) -> Dict:
     # --- gates ---------------------------------------------------------
     answered = [q for q in questions if runs[q["id"]][1].verdict == "answer"]
     groundedness = _pct(
-        [all(c in runs[q["id"]][1].retrieved for c in runs[q["id"]][1].citations)
+        [bool(runs[q["id"]][1].citations)
+         and all(c in runs[q["id"]][1].retrieved for c in runs[q["id"]][1].citations)
          for q in answered],
         empty_value=100.0)
 
@@ -100,7 +101,8 @@ def grade_investigations(questions: List[dict], run, judge=None) -> Dict:
         for finding in inv.claims:
             if not finding.verified or finding.support == SUPPORT_UNSUPPORTED:
                 continue      # not published -- see Investigation.summary
-            claim_flags.append(all(ref in inv.evidence for ref in finding.citations))
+            claim_flags.append(bool(finding.citations)
+                               and all(ref in inv.evidence for ref in finding.citations))
             if finding.support == SUPPORT_EXPLICIT:
                 support_flags.append(_explicit_cites_rationale(finding, texts))
 

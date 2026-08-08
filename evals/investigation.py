@@ -407,7 +407,7 @@ class Investigation:
             "subject": list(self.subject),
             "hypotheses": [{"statement": h.statement, "status": h.status}
                            for h in self.hypotheses],
-            "claims": [{"text": c.text, "support": c.support,
+            "claims": [{"id": c.id, "text": c.text, "support": c.support,
                         "citations": list(c.citations), "verified": c.verified}
                        for c in self.claims if c.verified],
             "unknowns": list(self.unknowns),

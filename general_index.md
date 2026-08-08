@@ -308,8 +308,8 @@ removing, or renaming files). For class/function-level detail see
   (subject/claims/evidence/contradictions/trail + `should_stop`, whose
   diminishing-returns rule is measured on whether new REFS appeared, never on a
   model saying it is satisfied). Holds refs, never chunk text. Per
-  `docs/plans/2026-08-08-investigation-engine.md`; the loop and probes are not
-  built yet.
+  `docs/plans/2026-08-08-investigation-engine.md`; the full loop and probes are
+  built and served by `/investigate`.
 - `evals/probes.py` — the five investigation primitives as THIN adapters over
   what already exists: `retrieve` (the pipeline's own hybrid retriever — never a
   second ranking that could disagree with `/ask`), `inspect` (indexed chunk,
@@ -320,8 +320,9 @@ removing, or renaming files). For class/function-level detail see
   cheap and wide while reading stays expensive and narrow), `compare` (real
   per-file diffs via a live commit fetch on the commits a PR carries; falls back
   to the indexed message, and honestly finds nothing when a repo records no
-  commit→PR link) and `verify` (evals/gate.py verbatim — no second
-  implementation of groundedness). `run_round` runs independent probes on a
+  commit→PR link) and `verified_citations` / `verify` (evals/gate.py verbatim —
+  the reader retains only the gate's canonical refs, never a raw model list).
+  `run_round` runs independent probes on a
   thread pool (all I/O bound) and returns results in STEP order; a failing probe
   is a step that found nothing and says so, never an exception into the loop.
 - `evals/test_probes.py` — 33 offline tests: retrieval delegated not
@@ -341,7 +342,7 @@ removing, or renaming files). For class/function-level detail see
   boolean / absurd `k` is DROPPED, never coerced into something runnable. `k` is
   additionally clamped to `probes.MAX_RETRIEVE_K` in the probe itself, since
   seeds reach it without passing the validator.
-  `_clip_to_budget` drops WHOLE pieces of a round's evidence before any of it
+  `_clip_to_budget` drops the lowest-ranked WHOLE pieces of a round's evidence before any of it
   enters state, `texts` or a prompt (never sliced — half a chunk is text nobody
   wrote) and the clip is disclosed as an unknown rather than applied silently.
   `conclude` writes the answer from verified findings and returns an ordinary
@@ -954,16 +955,16 @@ removing, or renaming files). For class/function-level detail see
   investigation remembers between turns, so "why did **it** change?" resolves.
   Keyed on (identity, repo) — the repo is part of the KEY, not a field checked
   afterwards, so a subject cannot survive a repo switch or leak between users.
-  Keyed on (identity, repo, **indexed commit**) with a generation counter: a
+  Keyed on (identity, repo, **corpus-content fingerprint**) with a request counter: a
   `/connect refresh` republishes the corpus, so findings verified against the
-  old index cannot be carried into an answer about the new one, and "start
-  over" bumps the generation so an abandoned in-flight investigation cannot
-  finish late and overwrite the conversation that replaced it (compare-and-set
+  old index cannot be carried into an answer about the new one, and every
+  request advances the counter so an older overlapping investigation cannot
+  finish late and overwrite a newer one (compare-and-set
   under the store's own lock; no lock is held across a model call).
   In-memory, TTL'd (20 min) and LRU-capped: losing a conversation on restart is
   the CORRECT failure, since a stale investigation resumed against a moved index
   would answer about a repository that has since changed. Carries subject,
-  objective, verified findings **with the support class they were measured
+  objective, indexed verified findings **with the support class they were measured
   with**, hypotheses and steps — never evidence TEXT, because the corpus can be
   refreshed underneath a live conversation. Plus `refers_back`, the deterministic
   deictic check ("it", "that change", "afterwards") gating subject inheritance —
@@ -985,7 +986,7 @@ removing, or renaming files). For class/function-level detail see
   caller's subject never reaching another, and the shared /ask rate limit.
 - `demo/library.py` — `Library`: one active repo's state + pipeline. `snapshot()`
   returns a frozen `_CorpusSnapshot` (pipeline, provider, repo, commit,
-  generation) read under the SAME lock the pipeline swap takes, so one request
+  content fingerprint, indexing state) read under the SAME lock the pipeline swap takes, so one request
   cannot be torn across a concurrent `/connect refresh` — answering from one
   index while returning citation URLs and conversation provenance from another.
   Its `corpus_id` is `(repo, commit, generation)`: a commit SHA alone is NOT a

@@ -44,6 +44,7 @@ final class InvestigationModel {
 
     private(set) var state: State = .idle
     private(set) var turns: [Turn] = []
+    private var connectedRepo: String?
 
     private let client: BrainClient
     private var task: Task<Void, Never>?
@@ -70,6 +71,7 @@ final class InvestigationModel {
             do {
                 let response = try await client.investigate(trimmed, fresh: fresh)
                 guard !Task.isCancelled else { return }
+                connectedRepo = response.repo
                 turns.append(Turn(question: trimmed, response: response))
                 state = .idle
             } catch let error as BrainError {
@@ -96,5 +98,18 @@ final class InvestigationModel {
         task?.cancel()
         turns.removeAll()
         state = .idle
+    }
+
+    func noteConnectedRepo(_ repo: String?) {
+        guard let repo else {
+            connectedRepo = nil
+            startOver()
+            return
+        }
+        if let connectedRepo,
+           connectedRepo.caseInsensitiveCompare(repo) != .orderedSame {
+            startOver()
+        }
+        connectedRepo = repo
     }
 }

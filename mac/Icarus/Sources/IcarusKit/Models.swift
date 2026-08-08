@@ -70,16 +70,18 @@ public struct AskResponse: Decodable, Sendable {
     /// without the field still decodes; absent reads as "index complete",
     /// which is the pre-existing behaviour.
     public let indexing: Bool?
+    public let reason: String?
 
     public init(verdict: Verdict, answer: String, citations: [Citation],
                 searched: [String], anchored: [String]? = nil,
-                indexing: Bool? = nil) {
+                indexing: Bool? = nil, reason: String? = nil) {
         self.verdict = verdict
         self.answer = answer
         self.citations = citations
         self.searched = searched
         self.anchored = anchored
         self.indexing = indexing
+        self.reason = reason
     }
 }
 
@@ -99,6 +101,28 @@ public extension AskResponse {
     var incompleteIndexNote: String? {
         guard indexing == true, verdict == .unknown else { return nil }
         return "Still reading this repository — ask again once indexing finishes."
+    }
+
+    var unknownHeadline: String {
+        if incompleteIndexNote != nil { return "STILL INDEXING" }
+        if reason == "entity_absent" { return "NOT FOUND" }
+        return "HONEST UNKNOWN"
+    }
+
+    var unknownMessage: String {
+        if let incompleteIndexNote { return incompleteIndexNote }
+        switch reason {
+        case "entity_absent":
+            return "I couldn't find the named pull request, issue, or commit in the evidence available."
+        case "no_recorded_reason":
+            return "The evidence Icarus searched did not record a reason."
+        case "writer_found_no_reason":
+            return "Icarus searched the available evidence but did not find a recorded reason."
+        case "no_evidence":
+            return "Icarus did not find enough evidence to answer this."
+        default:
+            return "The available evidence was not sufficient for a grounded answer."
+        }
     }
 }
 

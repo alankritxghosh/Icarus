@@ -208,13 +208,24 @@ function renderUnknown(p){
   // While the index is still building, an abstention means "I haven't finished
   // reading" — a different claim from "no one wrote this down", and only the
   // second one is a statement about the repo. Never show the hero for the first.
-  const head = p.indexing
+  let head = p.indexing
     ? `<p class="label">still indexing</p>
        <h2>I haven’t finished reading this repo.</h2>
        <p>Search is running on keywords only until indexing finishes — ask again shortly.</p>`
-    : `<p class="label">honest answer</p>
+    : null;
+  if(!head && p.reason==="entity_absent"){
+    head=`<p class="label">not found</p>
+       <h2>That entity wasn’t found.</h2>
+       <p>Icarus could not find the named pull request, issue, or commit.</p>`;
+  }else if(!head && ["no_recorded_reason","writer_found_no_reason"].includes(p.reason)){
+    head=`<p class="label">honest answer</p>
        <h2>No one wrote this down.</h2>
        <p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>`;
+  }else if(!head){
+    head=`<p class="label">honest unknown</p>
+       <h2>Not enough evidence.</h2>
+       <p>Icarus could not produce a grounded answer from what it found.</p>`;
+  }
   result.innerHTML=
     `<div class="unknown">
        ${head}

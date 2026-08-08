@@ -62,6 +62,16 @@ class _StubLibrary:
     def provenance(self):
         return (REPO, COMMIT)
 
+    def snapshot(self):
+        from demo.library import _CorpusSnapshot
+        pipeline = self.current_pipeline()
+        repo, commit = self.provenance()
+        status = self.status_snapshot()
+        provider = pipeline.provider() if hasattr(pipeline, "provider") else None
+        return _CorpusSnapshot(pipeline, provider, repo, commit, 0,
+                               f"stub-{repo}-{commit}",
+                               bool(status.get("indexing")))
+
     def status_snapshot(self):
         return {"state": "ready", "repo": REPO, "commit": COMMIT,
                 "counts": None, "error": None, "phase": None, "private": False}

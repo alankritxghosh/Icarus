@@ -169,10 +169,19 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(convo.subject, ["pr:999"])
         self.assertEqual(convo.objective, "the fresh one")
 
-    def test_an_ordinary_follow_up_does_not_bump_the_generation(self):
+    def test_two_overlapping_follow_ups_are_ordered_by_request_start(self):
         store = ConversationStore()
         first = store.begin("u1", "owner/repo", fresh=False)
-        self.assertEqual(store.begin("u1", "owner/repo", fresh=False), first)
+        second = store.begin("u1", "owner/repo", fresh=False)
+        self.assertNotEqual(second, first)
+
+        store.remember("u1", "owner/repo", finished(subject=("pr:999",)),
+                       commit=COMMIT, generation=second)
+        late = store.remember("u1", "owner/repo", finished(subject=("pr:400",)),
+                              commit=COMMIT, generation=first)
+        self.assertIsNone(late)
+        self.assertEqual(store.resume("u1", "owner/repo", commit=COMMIT).subject,
+                         ["pr:999"])
 
     def test_disconnect_invalidates_an_inflight_write(self):
         # An investigation begins, the user disconnects, and the old request
@@ -193,6 +202,14 @@ class GenerationTests(unittest.TestCase):
         gen = store.begin("u1", "owner/repo", fresh=True)
         store.remember("u1", "owner/repo", finished(), commit="aaa111", generation=gen)
         self.assertIsNotNone(store.resume("u1", "owner/repo", commit="aaa111"))
+
+    def test_live_fetched_claims_are_not_carried_as_if_the_index_froze_them(self):
+        store = ConversationStore()
+        inv = finished()
+        inv.claims[0].citations = ["diff:400"]
+        store.remember("u1", "owner/repo", inv, commit=COMMIT,
+                       is_indexed=lambda ref: ref == "pr:400")
+        self.assertEqual(store.resume("u1", "owner/repo", commit=COMMIT).claims, [])
 
 
 class ExpiryTests(unittest.TestCase):

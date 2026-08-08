@@ -224,8 +224,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
         # The relationship index an investigation traverses. Derived from the
         # chunks already in memory (evals/entities.py), so it needs no ingest and
         # no store -- but it IS pure work over the whole corpus, so it is cached
-        # per (repo, commit) rather than rebuilt for every follow-up question.
-        # A refresh changes the commit, which invalidates it for free.
+        # per content-addressed corpus rather than rebuilt for every follow-up
+        # question. A same-SHA discussion refresh changes that fingerprint.
         _entity_cache = {}
         _entity_lock = threading.Lock()
 
@@ -843,19 +843,17 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not isinstance(include_evidence, bool):
                     self._send_json(400, {"error": "include_evidence must be true or false"})
                     return
-                repo, commit = lib.provenance()
+                snapshot = lib.snapshot()
+                repo, commit = snapshot.repo, snapshot.commit
                 try:
                     # The caller's own token, so an exact "#N" they named in a
                     # PRIVATE repo can be live-fetched AS THEM. Never stored --
                     # it is read from this request's header and passed straight
                     # through (see GatedPipeline.answer). Without it a private
                     # repo's live fetch fails safe to None, as it always did.
-                    result = lib.current_pipeline().answer(
+                    result = snapshot.pipeline.answer(
                         question, token=self._github_token())
-                    # Read AFTER answering: the flag must describe the index
-                    # that actually served this question, not the one that
-                    # existed when the request arrived.
-                    still_indexing = bool(lib.status_snapshot().get("indexing"))
+                    still_indexing = snapshot.indexing
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
                     # outage, or exhausted retries. Return an honest JSON error
@@ -1145,13 +1143,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if not isinstance(include_evidence, bool):
                 self._send_json(400, {"error": "include_evidence must be true or false"})
                 return
-            active_repo, commit = lib.provenance()
+            snapshot = lib.snapshot()
+            active_repo, commit = snapshot.repo, snapshot.commit
             if repo.strip() != active_repo:
                 self._send_json(409, {"error": "that repo isn't your currently connected repo"})
                 return
             try:
-                result = lib.current_pipeline().explain(path.strip(), start, end, question=question)
-                still_indexing = bool(lib.status_snapshot().get("indexing"))
+                result = snapshot.pipeline.explain(
+                    path.strip(), start, end, question=question)
+                still_indexing = snapshot.indexing
             except Exception as e:
                 print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
@@ -1224,9 +1224,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             # wrong change, which the honesty gate cannot detect (groundedness
             # proves a citation is real, never that it is relevant -- the
             # 2026-08-06 selection-drift finding).
-            # The generation this request runs under. "Start over" bumps it, so
-            # an investigation the user abandoned cannot finish later and
-            # overwrite the fresh conversation that replaced it.
+            # The request sequence this run owns. Every request advances it, so
+            # an older overlapping follow-up cannot finish later and overwrite
+            # the newer conversation state.
             generation = conversations.begin(identity, repo, fresh) if conversations else None
             # Resumed at THIS commit: a refresh republishes the corpus, and
             # findings verified against the old index must not be carried into
@@ -1261,7 +1261,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     diff_fetch=diff_fetch, texts=texts)
                 result = _investigator.conclude(
                     investigation, snapshot.provider, texts=texts)
-                still_indexing = bool(lib.status_snapshot().get("indexing"))
+                still_indexing = snapshot.indexing
             except Exception as e:
                 print(f"/investigate failed: {type(e).__name__}: {e}", file=sys.stderr)
                 self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
@@ -1273,7 +1273,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # the answer they already paid the writer for.
                 try:
                     conversations.remember(identity, repo, investigation,
-                                           commit=corpus, generation=generation)
+                                           commit=corpus, generation=generation,
+                                           is_indexed=lambda ref: snapshot.pipeline.chunk_for(ref)
+                                           is not None)
                 except Exception as e:
                     print(f"conversation write failed: {type(e).__name__}: {e}",
                           file=sys.stderr)

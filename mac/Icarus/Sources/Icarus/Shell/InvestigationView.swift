@@ -51,6 +51,7 @@ struct InvestigationView: View {
                 TextField("Why was PR #400 introduced?", text: $question)
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))
+                    .disabled(model.isBusy)
                     .onSubmit(submit)
                 HStack(spacing: 10) {
                     Button(model.turns.isEmpty ? "Investigate" : "Ask a follow-up",
@@ -133,8 +134,8 @@ struct InvestigationView: View {
             } else {
                 ShellCard {
                     VStack(alignment: .leading, spacing: 6) {
-                        MonoLabel("HONEST UNKNOWN", Theme.unknown)
-                        Text("No one wrote this down.")
+                        MonoLabel(answer.unknownHeadline, Theme.unknown)
+                        Text(answer.unknownMessage)
                             .font(.system(size: 15)).foregroundStyle(Theme.ink)
                     }
                 }
@@ -231,6 +232,7 @@ struct InvestigationView: View {
     }
 
     private func submit() {
+        guard !model.isBusy else { return }
         model.investigate(question)
         question = ""
     }

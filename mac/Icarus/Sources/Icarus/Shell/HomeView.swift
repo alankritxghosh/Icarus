@@ -302,15 +302,10 @@ struct ProofDrawerView: View {
                             // render paths was fixed. Two surfaces stating
                             // different things about one answer is worse than
                             // either being wrong alone.
-                            if entry.response.incompleteIndexNote != nil {
-                                MonoLabel("STILL INDEXING", Theme.unknown)
-                                Text("I haven't finished reading this repo.")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Theme.ink).padding(.top, 5)
-                            } else {
-                                MonoLabel("HONEST UNKNOWN", Theme.unknown)
-                                Text("No one wrote this down.").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink).padding(.top, 5)
-                            }
+                            MonoLabel(entry.response.unknownHeadline, Theme.unknown)
+                            Text(entry.response.unknownMessage)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Theme.ink).padding(.top, 5)
                             Text(entry.response.compactTrail).font(Theme.mono(11)).foregroundStyle(Theme.unknown).padding(.top, 5)
                         }
                     }

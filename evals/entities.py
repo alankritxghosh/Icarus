@@ -296,6 +296,11 @@ def build_entity_index(chunks, structure=None) -> EntityIndex:
     ]
 
     if structure:
+        exact_proofs = {
+            (record.get("source"), record.get("target")): record.get("ref")
+            for record in structure.get("file_edge_evidence", ())
+            if isinstance(record, dict)
+        }
         for importer, imported in structure.get("file_edges", ()):
             # structure.py only ever emits edges between files it INDEXED, but
             # this must not assume that: an edge naming a path with no chunk
@@ -308,8 +313,15 @@ def build_entity_index(chunks, structure=None) -> EntityIndex:
             # at all. Locate the window whose text actually names the imported
             # module; if none does (the import fell outside every indexed
             # window), drop the edge rather than cite the wrong lines.
-            stem = imported.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-            proof = next((r for r in paths[importer] if stem in by_ref[r].text), None)
+            proof = exact_proofs.get((importer, imported))
+            if proof is None and "file_edge_evidence" not in structure:
+                # Compatibility with older pre-proof structure payloads. New
+                # build_structure output always carries the exact window.
+                stem = imported.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                proof = next((r for r in paths[importer]
+                              if stem in by_ref[r].text), None)
+            if proof not in paths[importer]:
+                proof = None
             if proof is None:
                 continue
             edges.append(Edge(EDGE_DEPENDENCIES, importer, imported, proof))

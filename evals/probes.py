@@ -264,7 +264,8 @@ def compare(ctx: ProbeContext, step: Step) -> ProbeResult:
     return out
 
 
-def verify(claim_text: str, citations, texts: Dict[str, str], question=None) -> bool:
+def verified_citations(claim_text: str, citations, texts: Dict[str, str],
+                       question=None) -> List[str]:
     """Is this claim supported by the evidence it cites?
 
     Delegates ENTIRELY to evals/gate.py by handing it exactly the shape a writer
@@ -284,7 +285,16 @@ def verify(claim_text: str, citations, texts: Dict[str, str], question=None) -> 
     payload = json.dumps({"verdict": "answer", "answer": claim_text,
                           "citations": list(citations or ())})
     result = gate(payload, list(texts), question=question, evidence=texts)
-    return result.verdict == "answer" and bool(result.citations)
+    if result.verdict != "answer":
+        return []
+    # Return the gate's canonical list, never the model's raw one. A valid ref
+    # must not launder an invented sibling into a reader-visible finding.
+    return list(result.citations)
+
+
+def verify(claim_text: str, citations, texts: Dict[str, str], question=None) -> bool:
+    """Compatibility boolean for callers that do not need canonical refs."""
+    return bool(verified_citations(claim_text, citations, texts, question=question))
 
 
 _PROBES = {"retrieve": retrieve, "inspect": inspect, "trace": trace,

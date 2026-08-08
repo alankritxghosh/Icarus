@@ -93,13 +93,24 @@ function renderUnknownHtml(payload) {
   // An abstention while the index is still building is "I haven't finished
   // reading", not "no one wrote this down" -- only the latter is a claim about
   // the repository, and conflating them is what this product must never do.
-  const head = payload.indexing
+  let head = payload.indexing
     ? '<p class="icarus-label">still indexing</p>' +
       "<h2>I haven’t finished reading this repo.</h2>" +
       "<p>Search is keyword-only until indexing finishes — ask again shortly.</p>"
-    : '<p class="icarus-label">honest answer</p>' +
+    : null;
+  if (!head && payload.reason === "entity_absent") {
+    head = '<p class="icarus-label">not found</p>' +
+      "<h2>That entity wasn’t found.</h2>" +
+      "<p>Icarus could not find the named pull request, issue, or commit.</p>";
+  } else if (!head && ["no_recorded_reason", "writer_found_no_reason"].includes(payload.reason)) {
+    head = '<p class="icarus-label">honest answer</p>' +
       "<h2>No one wrote this down.</h2>" +
       "<p>The evidence doesn’t record a reason, so Icarus won’t invent one.</p>";
+  } else if (!head) {
+    head = '<p class="icarus-label">honest unknown</p>' +
+      "<h2>Not enough evidence.</h2>" +
+      "<p>Icarus could not produce a grounded answer from what it found.</p>";
+  }
   return (
     '<div class="icarus-unknown">' +
     head +

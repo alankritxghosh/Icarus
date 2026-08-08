@@ -119,7 +119,7 @@ test("an honest unknown renders as an unknown, not an empty panel", async ({ con
   await stubBrain(context, {
     explain: {
       verdict: "unknown", answer: "", citations: [],
-      searched: ["pr:1", "pr:2"], anchored: [],
+      searched: ["pr:1", "pr:2"], anchored: [], reason: "no_recorded_reason",
     },
   });
   await page.goto(blobUrl("simonw/llm", FILE, "#L149-L153"), { waitUntil: "domcontentloaded" });
@@ -193,7 +193,7 @@ test("double-submit produces exactly one explain request", async ({ context, wor
     onExplain: () => { explainCalls += 1; },
     explain: {
       verdict: "unknown", answer: "", citations: [],
-      searched: ["code:llm/utils.py#L1-L3"], anchored: [],
+      searched: ["code:llm/utils.py#L1-L3"], anchored: [], reason: "no_recorded_reason",
     },
   });
   await page.goto(blobUrl("simonw/llm", FILE, "#L1-L3"), {

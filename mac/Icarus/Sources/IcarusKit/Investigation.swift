@@ -68,10 +68,21 @@ public enum Support: String, Decodable, Sendable {
 
 /// One evidence-backed finding, with the citations that support it.
 public struct Finding: Decodable, Identifiable, Sendable {
+    public let id: String
     public let text: String
     public let support: Support
     public let citations: [Citation]
-    public var id: String { text }
+
+    private enum CodingKeys: String, CodingKey { case id, text, support, citations }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        support = try c.decode(Support.self, forKey: .support)
+        citations = try c.decode([Citation].self, forKey: .citations)
+        id = (try? c.decode(String.self, forKey: .id))
+            ?? "legacy:\(text):\(citations.map(\.ref).joined(separator: ","))"
+    }
 }
 
 /// One hypothesis the investigation weighed, and where it landed.
@@ -197,14 +208,16 @@ public struct Contradiction: Decodable, Identifiable, Sendable {
 /// honest-unknown rendering the app already has works unchanged — the trace is
 /// additive, never a second way of presenting a verdict.
 public struct InvestigationResponse: Decodable, Sendable {
+    public let repo: String
     public let answer: AskResponse
     public let trace: InvestigationTrace
 
-    private enum CodingKeys: String, CodingKey { case investigation }
+    private enum CodingKeys: String, CodingKey { case repo, investigation }
 
     public init(from decoder: Decoder) throws {
         answer = try AskResponse(from: decoder)
-        trace = try decoder.container(keyedBy: CodingKeys.self)
-            .decode(InvestigationTrace.self, forKey: .investigation)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        repo = try c.decode(String.self, forKey: .repo)
+        trace = try c.decode(InvestigationTrace.self, forKey: .investigation)
     }
 }

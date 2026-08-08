@@ -155,6 +155,13 @@ depth). Module constants: `INSTRUCTION`, `_MAX_CHUNK_CHARS`.
 - `build_prompt(question: str, chunks: List[Chunk]) -> str` — assemble the
   instruction, the question, and the numbered evidence (each chunk truncated to
   `_MAX_CHUNK_CHARS`) into one prompt asking for JSON answer-with-refs or unknown.
+- `build_plan_prompt(objective, state_summary, known_refs=None) -> str` — ask for
+  bounded hypotheses and closed-vocabulary next steps.
+- `build_read_prompt(objective, hypotheses, texts, step_note="") -> str` — ask
+  for cited intermediate claims and unresolved questions from one probe result.
+- `build_synthesis_prompt(question, findings, unknowns=None,
+  contradictions=None, budget_note=None) -> str` — render verified findings and
+  caveats for the final writer pass.
 
 ## evals/gate.py
 The deterministic honesty gate: turns the writer's raw reply into a `Result` and
@@ -332,6 +339,65 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
   any prompt is sent (zero prompts); `demo/library.py`/`demo/server.py` never
   import the judge; and the per-user private tree is git-ignored while the
   tracked tree stays clean of secrets.
+
+## evals/entities.py
+Deterministic, evidence-bearing relationship graph over indexed repository
+entities; no network, ranking, or model inference.
+
+- `class Edge` — one typed source→target relationship plus the exact indexed
+  ref that proves it.
+- `class EntityIndex` — immutable traversal facade with `edges`, `targets`,
+  `chunks_for`, truncation disclosure, and limitations.
+- `build_entity_index(chunks, structure=None) -> EntityIndex` — derive PR,
+  issue, commit, file, subsequent-PR, and exact import/dependency edges.
+
+## evals/investigation.py
+Bounded investigation state and deterministic support/scoring/stopping rules.
+
+- `class EvidenceRef`, `Claim`, `Hypothesis`, `Step`, `Budget` — evidence,
+  reader-visible claims, candidate explanations, deduplicated primitive calls,
+  and hard cost ceilings.
+- `classify_support(citations, evidence) -> str` — classify cited evidence as
+  explicit/strong/weak/unsupported without making an entailment claim.
+- `score_hypothesis(hypothesis, claims) -> str` — score only from individually
+  gate-verified claims, preserving contradictions.
+- `class Investigation` — queue, evidence, findings, contradictions, round
+  progress, deterministic stop reason, and renderer summary.
+
+## evals/probes.py
+Thin bounded adapters over the existing retriever, entity graph, live exact-ref
+fetchers, diff fetcher, and honesty gate.
+
+- `class ProbeResult`, `ProbeContext` — one primitive's evidence/discovery/note
+  and the complete capability set available to probes.
+- `retrieve`, `inspect`, `trace`, `compare` — bounded evidence-gathering
+  primitives; traversal discovery is separate from reading.
+- `verified_citations(claim_text, citations, texts, question=None) -> List[str]`
+  — run the canonical gate and return only citations it accepted.
+- `verify(...) -> bool` — compatibility boolean over `verified_citations`.
+- `run_step(...)`, `run_round(...)` — fail-safe primitive dispatch and ordered
+  parallel execution.
+
+## evals/investigator.py
+The adaptive probe→read→verify→classify→score→stop loop.
+
+- `_clip_to_budget`, `_validate_step`, `_anchor_refs`, `_seed_steps` — preserve
+  highest-ranked complete evidence, reject malformed/model-invented steps, bind
+  named entities deterministically, and create fixed opening moves.
+- `investigate(...) -> Investigation` — run bounded adaptive rounds, including
+  live evidence and caller-owned text storage.
+- `conclude(inv, provider, texts=None) -> Result` — synthesize only verified
+  findings and pass the result through the full honesty gate.
+
+## evals/investigation_grader.py
+Offline conscience board for an investigation's final answer and intermediate
+reader-visible findings.
+
+- `hop_refs(question) -> List[str]` — labelled multi-hop refs.
+- `grade_investigations(questions, run, judge=None) -> Dict` — compute four
+  honesty gates plus citation, hop, abstention, and efficiency quality dials.
+- `gates_hold(board) -> bool`, `format_board(board, title=...) -> str` — gate
+  predicate and human-readable board.
 
 ## demo/links.py
 Map a `source:ref` citation to its GitHub URL. No classes.

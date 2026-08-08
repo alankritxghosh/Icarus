@@ -90,6 +90,7 @@ class _Library:
         self._pipe = GatedPipeline(_Retriever(), CHUNKS, writer)
         self.commit = COMMIT
         self.generation = 1
+        self.indexing = False
         self.snapshot_calls = 0
         # When set, the corpus is swapped the moment a request reads it --
         # standing in for a /connect refresh landing mid-request.
@@ -100,7 +101,9 @@ class _Library:
         self.snapshot_calls += 1
         snap = _CorpusSnapshot(pipeline=self._pipe, provider=self._pipe.provider(),
                                repo=REPO, commit=self.commit,
-                               generation=self.generation)
+                               generation=self.generation,
+                               fingerprint=f"fp-{self.generation}",
+                               indexing=self.indexing)
         if self.swap_on_next_pipeline_read:
             self.commit = "swapped-mid-request"     # the index moves underneath
         return snap
@@ -113,7 +116,8 @@ class _Library:
 
     def status_snapshot(self):
         return {"state": "ready", "repo": REPO, "commit": COMMIT,
-                "counts": None, "error": None, "phase": None, "private": False}
+                "counts": None, "error": None, "phase": None, "private": False,
+                "indexing": False}
 
 
 def _post(url, obj, token=None):
@@ -173,11 +177,20 @@ class InvestigateTests(unittest.TestCase):
         self.assertEqual(payload["citations"][0]["url"],
                          "https://github.com/simonw/llm/pull/400")
 
+    def test_indexing_caveat_describes_the_snapshot_not_later_status(self):
+        self.lib.indexing = True
+        try:
+            _, payload = self.ask("talk to me about PR #400")
+        finally:
+            self.lib.indexing = False
+        self.assertTrue(payload["indexing"])
+
     def test_the_trail_shows_how_the_repository_led_to_the_conclusion(self):
         _, payload = self.ask("talk to me about PR #400")
         inv = payload["investigation"]
         self.assertEqual(inv["subject"], ["pr:400"])
         self.assertTrue(inv["trail"])
+        self.assertTrue(all(finding["id"] for finding in inv["findings"]))
         self.assertIn("inspect", [s["primitive"] for s in inv["trail"]])
         self.assertTrue(inv["findings"])
 

@@ -50,6 +50,37 @@ final class InvestigationTests: XCTestCase {
         XCTAssertEqual(try decode(payload(findings: oneExplicit)).trace.subject, ["pr:1525"])
     }
 
+    func testTheResponseIdentifiesTheRepositoryThatActuallyAnswered() throws {
+        XCTAssertEqual(try decode(payload()).repo, "simonw/llm")
+    }
+
+    func testDuplicateFindingTextStillHasStableDistinctIdentity() throws {
+        let findings = """
+            [{"id":"c1","text":"same","support":"weak","citations":[]},
+             {"id":"c2","text":"same","support":"weak","citations":[]}]
+            """
+        XCTAssertEqual(try decode(payload(findings: findings)).trace.findings.map(\.id),
+                       ["c1", "c2"])
+    }
+
+    func testUnknownWordingReflectsIndexingAndTheActualReason() throws {
+        let indexing = AskResponse(verdict: .unknown, answer: "", citations: [],
+                                   searched: [], indexing: true,
+                                   reason: "no_evidence")
+        XCTAssertEqual(indexing.unknownHeadline, "STILL INDEXING")
+        XCTAssertEqual(indexing.unknownMessage,
+                       "Still reading this repository — ask again once indexing finishes.")
+
+        let absent = AskResponse(verdict: .unknown, answer: "", citations: [],
+                                 searched: [], reason: "entity_absent")
+        XCTAssertEqual(absent.unknownHeadline, "NOT FOUND")
+        XCTAssertFalse(absent.unknownMessage.contains("No one wrote"))
+
+        let writerGap = AskResponse(verdict: .unknown, answer: "", citations: [],
+                                    searched: [], reason: "writer_found_no_reason")
+        XCTAssertTrue(writerGap.unknownMessage.contains("did not find a recorded reason"))
+    }
+
     // MARK: - support classes
 
     func testEachSupportClassDescribesTheEVIDENCECited() {

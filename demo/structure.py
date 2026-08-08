@@ -356,6 +356,14 @@ def build_structure(chunks):
 
     return {
         "file_edges": sorted(file_edges),
+        # Exact indexed window that contained the import. Path pairs alone are
+        # insufficient evidence when a file spans overlapping chunks: a module
+        # name may appear in an earlier comment while the import is later.
+        "file_edge_evidence": [
+            {"source": source, "target": target,
+             "ref": evidence[(source, target)]}
+            for source, target in sorted(file_edges)
+        ],
         "package_edges": sorted(package_edges),
         "components": components,
         "most_depended_on_files": most_depended_on_files,

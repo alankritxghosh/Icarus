@@ -18,10 +18,10 @@ from .investigation import (
     SUPPORT_EXPLICIT, SUPPORT_WEAK,
 )
 from .investigator import (
-    _anchor_refs, _seed_steps, _validate_step, conclude, investigate,
+    _anchor_refs, _clip_to_budget, _seed_steps, _validate_step, conclude, investigate,
 )
 from .investigation import Step
-from .probes import MAX_RETRIEVE_K, ProbeContext, retrieve
+from .probes import MAX_RETRIEVE_K, ProbeContext, ProbeResult, retrieve
 from .test_probes import FakePipeline
 
 PR = Chunk(ref="pr:400", source="pr",
@@ -83,6 +83,10 @@ class SubjectBindingTests(unittest.TestCase):
                          ["pr:400"])
         self.assertEqual(_anchor_refs("what is issue 400 about?", pipeline(chunks)),
                          ["issue:400"])
+
+    def test_an_unindexed_explicit_issue_keeps_the_kind_the_user_named(self):
+        self.assertEqual(_anchor_refs("what is issue #999 about?", pipeline()),
+                         ["issue:999"])
 
     def test_a_hex_shaped_english_word_is_not_a_commit(self):
         self.assertEqual(_anchor_refs("why was this defaced?", pipeline()), [])
@@ -176,6 +180,13 @@ class StepArgumentBoundsTests(unittest.TestCase):
 
 
 class LoopTests(unittest.TestCase):
+    def test_evidence_clipping_discards_the_lowest_ranked_tail(self):
+        out = ProbeResult()
+        for ref in ("pr:best", "pr:second", "pr:worst"):
+            out.add(ref, "x" * 60, "s1")
+        self.assertEqual(_clip_to_budget(out, 120), 1)
+        self.assertEqual(list(out.evidence), ["pr:best", "pr:second"])
+
     def test_a_scripted_investigation_gathers_evidence_and_verified_claims(self):
         provider = ScriptedProvider(read=CITED_READ)
         inv = investigate("why was PR #400 introduced?", pipeline(), entities(), provider)
@@ -201,6 +212,36 @@ class LoopTests(unittest.TestCase):
              "hypothesis": None, "supports": True}]})
         inv = investigate("why was PR #400 introduced?", pipeline(), entities(), provider)
         self.assertEqual(inv.claims, [])
+
+    def test_a_valid_citation_cannot_launder_an_invented_one_into_a_finding(self):
+        provider = ScriptedProvider(read={"claims": [
+            {"text": "PR #400 introduced a new chunking strategy.",
+             "citations": ["pr:400", "pr:999"], "supports": True}]})
+        inv = investigate("why was PR #400 introduced?", pipeline(), entities(), provider)
+        self.assertEqual(inv.claims[0].citations, ["pr:400"])
+
+    def test_malformed_json_container_shapes_end_safely(self):
+        provider = ScriptedProvider(
+            plan={"hypotheses": {}, "steps": 7},
+            read={"claims": {}, "unknowns": 7})
+        inv = investigate("why was PR #400 introduced?", pipeline(), entities(), provider)
+        self.assertEqual(inv.hypotheses, [])
+        self.assertEqual(inv.claims, [])
+
+    def test_a_non_boolean_support_direction_is_rejected_not_coerced(self):
+        provider = ScriptedProvider(read={"claims": [
+            {"text": "PR #400 introduced a new chunking strategy.",
+             "citations": ["pr:400"], "supports": "false"}]})
+        inv = investigate("why was PR #400 introduced?", pipeline(), entities(), provider)
+        self.assertEqual(inv.claims, [])
+
+    def test_retrieved_refs_become_available_to_the_next_plan(self):
+        provider = ScriptedProvider(plan={"hypotheses": [], "steps": [
+            {"primitive": "trace",
+             "args": {"ref": "pr:400", "edge": "linked_issues"},
+             "reason": "follow the retrieved change"}]})
+        inv = investigate("chunking strategy", pipeline(), entities(), provider)
+        self.assertIn("trace", [step.primitive for step in inv.performed])
 
     def test_a_claim_with_no_citation_at_all_never_enters_the_state(self):
         provider = ScriptedProvider(read={"claims": [

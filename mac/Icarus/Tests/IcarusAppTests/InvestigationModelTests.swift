@@ -12,8 +12,9 @@ import IcarusKit
 @MainActor
 final class InvestigationModelTests: XCTestCase {
 
-    private func model(status: Int) -> InvestigationModel {
+    private func model(status: Int, data: String = "{}") -> InvestigationModel {
         _StatusProtocol.status = status
+        _StatusProtocol.data = Data(data.utf8)
         _StatusProtocol.failWithTransportError = false
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [_StatusProtocol.self]
@@ -57,6 +58,27 @@ final class InvestigationModelTests: XCTestCase {
         XCTAssertTrue(text.contains("connection"), text)
     }
 
+    func testRepositorySwitchAndSignOutClearTheVisibleTranscript() async throws {
+        let payload = """
+        {"repo":"first/repo","commit":"abc","verdict":"unknown","answer":"",
+         "citations":[],"searched":[],"reason":"no_evidence","indexing":false,
+         "investigation":{"objective":"why","subject":[],"findings":[],
+          "hypotheses":[],"unknowns":[],"contradictions":[],"trail":[],
+          "stopped_because":"nothing left","incomplete_because":null}}
+        """
+        let model = model(status: 200, data: payload)
+        model.investigate("why?")
+        try await waitUntil { model.turns.count == 1 }
+
+        model.noteConnectedRepo("second/repo")
+        XCTAssertTrue(model.turns.isEmpty)
+
+        model.investigate("why again?")
+        try await waitUntil { model.turns.count == 1 }
+        model.noteConnectedRepo(nil)
+        XCTAssertTrue(model.turns.isEmpty)
+    }
+
     private func waitUntil(timeout: Duration = .seconds(5),
                            _ condition: @escaping @MainActor () -> Bool) async throws {
         let clock = ContinuousClock()
@@ -71,6 +93,7 @@ final class InvestigationModelTests: XCTestCase {
 private final class _StatusProtocol: URLProtocol {
     nonisolated(unsafe) static var status = 200
     nonisolated(unsafe) static var failWithTransportError = false
+    nonisolated(unsafe) static var data = Data("{}".utf8)
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -82,7 +105,7 @@ private final class _StatusProtocol: URLProtocol {
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status,
                                        httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocol(self, didLoad: Self.data)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

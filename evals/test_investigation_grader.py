@@ -119,6 +119,19 @@ class GateFiringTests(unittest.TestCase):
         self.assertEqual(board["gates"]["claim_groundedness"], 50.0)
         self.assertFalse(gates_hold(board))
 
+    def test_empty_citations_do_not_pass_groundedness_vacuously(self):
+        def bluffer(question):
+            inv, result, texts = honest(question)
+            if question["label"] == "answerable":
+                result.citations = []
+                inv.claims.append(Claim(id="empty", text="Unsupported receipt.",
+                                        citations=[], support=SUPPORT_STRONG,
+                                        verified=True))
+            return inv, result, texts
+        board = self._board(bluffer)
+        self.assertEqual(board["gates"]["groundedness"], 0.0)
+        self.assertLess(board["gates"]["claim_groundedness"], 100.0)
+
     def test_explicit_cites_rationale_fires_when_a_bare_constant_is_labelled_explicit(self):
         # A real citation, a real finding, and an evidence class the cited text
         # does not support. Groundedness cannot see this at all.

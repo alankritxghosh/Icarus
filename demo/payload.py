@@ -128,7 +128,7 @@ def build_investigation_payload(result, investigation, repo: str, commit: str,
         # What "it" refers to, so a reader can see the follow-up was understood.
         "subject": summary["subject"],
         "findings": [
-            {"text": c["text"], "support": c["support"],
+            {"id": c["id"], "text": c["text"], "support": c["support"],
              "citations": [{"ref": ref, "url": ref_to_url(ref, repo, commit)}
                            for ref in c["citations"]]}
             for c in summary["claims"]

@@ -193,13 +193,15 @@ class StructureDelegationTests(unittest.TestCase):
         self.assertEqual(idx.targets("code:a.py#L1-L300", EDGE_DEPENDENCIES), ["b.py"])
 
     def test_the_proof_is_the_window_that_actually_names_the_import(self):
-        # structure.py resolves the edge but returns path pairs with no chunk.
-        # Citing the file's FIRST window would point a reader at lines holding
-        # no import at all.
+        # A mere module-name substring is not proof: an earlier window may
+        # mention "b" in a comment while a later one contains the actual import.
         idx = build_entity_index(
-            [code("a.py", text="x = 1", window="#L1-L300"),
+            [code("a.py", text="b is discussed here but not imported", window="#L1-L300"),
              code("a.py", text="import b", window="#L261-L560"), code("b.py")],
-            structure={"file_edges": [("a.py", "b.py")]})
+            structure={"file_edges": [("a.py", "b.py")],
+                       "file_edge_evidence": [
+                           {"source": "a.py", "target": "b.py",
+                            "ref": "code:a.py#L261-L560"}]})
         self.assertEqual(idx.edges("a.py", EDGE_DEPENDENCIES)[0].evidence_ref,
                          "code:a.py#L261-L560")
 
