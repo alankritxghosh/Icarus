@@ -42,6 +42,11 @@ from .investigation import EvidenceRef, Step
 PRIMITIVES = ("retrieve", "inspect", "trace", "compare", "verify")
 
 _RETRIEVE_K = 6
+# The most chunks one retrieve step may ever hold, whatever asked for it. The
+# validator bounds a PLANNED step, but retrieve is reachable from seeds too, so
+# the ceiling lives here as well -- an unbounded k retains the whole corpus and
+# builds a prompt from it.
+MAX_RETRIEVE_K = 12
 # How many of a file's overlapping windows one inspect may read. A big file is
 # indexed as dozens; reading all of them spends the whole evidence budget on one
 # file. Bounded and REPORTED (ProbeResult.note), never silently clipped.
@@ -104,7 +109,10 @@ def retrieve(ctx: ProbeContext, step: Step) -> ProbeResult:
     if not query:
         out.note = "no query given"
         return out
-    for ref in ctx.pipeline.search_refs(query, step.args.get("k") or _RETRIEVE_K):
+    k = step.args.get("k") or _RETRIEVE_K
+    if not isinstance(k, int) or isinstance(k, bool) or k < 1:
+        k = _RETRIEVE_K
+    for ref in ctx.pipeline.search_refs(query, min(k, MAX_RETRIEVE_K)):
         chunk = ctx.pipeline.chunk_for(ref)
         if chunk is not None:
             out.add(ref, chunk.text, step.id)

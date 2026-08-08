@@ -141,7 +141,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  refresh_limiter=None, freshness=None, visits=None,
                  commits_since=None, agent_sessions=None, agent_repo_info=None,
                  agent_session_limiter=None, memory_writer=None,
-                 memory_limiter=None, conversations=None, entity_index=None):
+                 memory_limiter=None, conversations=None, entity_index=None,
+                 investigate_limiter=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -213,6 +214,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     memory_limiter = memory_limiter or RateLimiter(5, 3600)
     commits_since = commits_since or github_access.commits_between
     conversations = conversations if conversations is not None else ConversationStore()
+    # One investigation makes SEVERAL billed calls where an ask makes one, so it
+    # cannot share /ask's per-request allowance and still bound spend honestly:
+    # 30 investigations a minute is ~300 provider calls, not 30. Its own, much
+    # smaller allowance keeps the billed rate in the same place /ask puts it.
+    investigate_limiter = investigate_limiter or RateLimiter(3, 60)   # 3/min
 
     if entity_index is None:
         # The relationship index an investigation traverses. Derived from the
@@ -1173,8 +1179,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             perfectly good standalone investigation, exactly as `/ask` behaves
             today. Nothing degrades without it.
             """
-            if not ask_limiter.allow(identity):
-                self._send_json(429, {"error": "slow down -- try again in a minute"})
+            # Checked BEFORE the body is parsed and long before any provider
+            # call, so a refused caller costs nothing at the model provider.
+            if not investigate_limiter.allow(identity):
+                self._send_json(429, {"error": "an investigation makes several model "
+                                               "calls -- try again in a minute"})
                 return
             if not self._entitled(lib):
                 self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
@@ -1205,8 +1214,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             # wrong change, which the honesty gate cannot detect (groundedness
             # proves a citation is real, never that it is relevant -- the
             # 2026-08-06 selection-drift finding).
+            # The generation this request runs under. "Start over" bumps it, so
+            # an investigation the user abandoned cannot finish later and
+            # overwrite the fresh conversation that replaced it.
+            generation = conversations.begin(identity, repo, fresh) if conversations else None
+            # Resumed at THIS commit: a refresh republishes the corpus, and
+            # findings verified against the old index must not be carried into
+            # an answer about the new one.
             prior = None if fresh else (
-                conversations.resume(identity, repo) if conversations else None)
+                conversations.resume(identity, repo, commit) if conversations else None)
             subject = objective = None
             carried = None
             if prior is not None and refers_back(question) \
@@ -1246,7 +1262,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # precondition for one: a store failure must not cost the caller
                 # the answer they already paid the writer for.
                 try:
-                    conversations.remember(identity, repo, investigation)
+                    conversations.remember(identity, repo, investigation,
+                                           commit=commit, generation=generation)
                 except Exception as e:
                     print(f"conversation write failed: {type(e).__name__}: {e}",
                           file=sys.stderr)

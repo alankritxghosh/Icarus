@@ -88,12 +88,13 @@ class _Retriever:
 class _Library:
     def __init__(self, writer):
         self._pipe = GatedPipeline(_Retriever(), CHUNKS, writer)
+        self.commit = COMMIT
 
     def current_pipeline(self):
         return self._pipe
 
     def provenance(self):
-        return (REPO, COMMIT)
+        return (REPO, self.commit)
 
     def status_snapshot(self):
         return {"state": "ready", "repo": REPO, "commit": COMMIT,
@@ -122,7 +123,11 @@ class InvestigateTests(unittest.TestCase):
             _StubRegistry(cls.lib), str(html), require_auth=True,
             verifier=StaticTokenVerifier({"tok-a": "user-a", "tok-b": "user-b"}), conversations=cls.conversations,
             entity_index=lambda lib: build_entity_index(CHUNKS),
-            ask_limiter=RateLimiter(100, 60))
+            ask_limiter=RateLimiter(100, 60),
+            # Generous here so the shared server can serve a whole test class.
+            # The PRODUCTION default is 3/min -- see make_handler, and the
+            # billed-call test below, which injects its own tight limiter.
+            investigate_limiter=RateLimiter(100, 60))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -258,31 +263,82 @@ class InvestigateTests(unittest.TestCase):
             self.assertEqual(cm.exception.code, 400, body)
             cm.exception.close()
 
-    def test_it_shares_asks_rate_limit_rather_than_getting_its_own(self):
-        # An investigation makes SEVERAL billed writer calls where an ask makes
-        # one. A separate allowance would let a caller spend past the budget
-        # they have.
+    def test_it_has_its_OWN_allowance_because_it_costs_far_more_than_an_ask(self):
+        # This replaces an earlier test that asserted /investigate shares /ask's
+        # limiter. Sharing was not conservative, it was the defect: one HTTP
+        # request makes several billed calls, so 30 investigations a minute is
+        # ~300 provider calls where /ask's own budget allows 30.
         tmp = tempfile.TemporaryDirectory()
         html = Path(tmp.name) / "index.html"
         html.write_text("<html></html>")
         handler = make_handler(
             _StubRegistry(self.lib), str(html), require_auth=True,
-            verifier=StaticTokenVerifier({"tok-a": "user-a", "tok-b": "user-b"}), conversations=ConversationStore(),
+            verifier=StaticTokenVerifier({"tok-a": "user-a"}),
+            conversations=ConversationStore(),
             entity_index=lambda lib: build_entity_index(CHUNKS),
-            ask_limiter=RateLimiter(1, 60))
+            ask_limiter=RateLimiter(100, 60),
+            investigate_limiter=RateLimiter(1, 60))
         server = HTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{server.server_port}"
         try:
             _post(base + "/investigate", {"question": "about PR #400"}, token="tok-a")
             with self.assertRaises(urllib.error.HTTPError) as cm:
-                _post(base + "/ask", {"question": "anything"}, token="tok-a")
+                _post(base + "/investigate", {"question": "again"}, token="tok-a")
             self.assertEqual(cm.exception.code, 429)
             cm.exception.close()
+            # ...and a plain ask is unaffected: it has its own, separate budget.
+            status, _ = _post(base + "/ask", {"question": "anything"}, token="tok-a")
+            self.assertEqual(status, 200)
         finally:
             server.shutdown()
             server.server_close()
             tmp.cleanup()
+
+    def test_billed_provider_calls_are_bounded_per_identity_not_just_requests(self):
+        # One HTTP request is many billed calls. Bounding requests alone let one
+        # identity spend ~10x the /ask budget per minute -- the limiter has to
+        # bound what is actually billed, and refuse BEFORE any provider call.
+        tmp = tempfile.TemporaryDirectory()
+        html = Path(tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        writer = ScriptedWriter()
+        handler = make_handler(
+            _StubRegistry(_Library(writer)), str(html), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "user-a"}),
+            conversations=ConversationStore(),
+            entity_index=lambda lib: build_entity_index(CHUNKS),
+            ask_limiter=RateLimiter(100, 60),
+            investigate_limiter=RateLimiter(1, 60))
+        server = HTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            _post(base + "/investigate", {"question": "about PR #400"}, token="tok-a")
+            spent = len(writer.prompts)
+            self.assertGreater(spent, 1, "one investigation should bill several calls")
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(base + "/investigate", {"question": "again"}, token="tok-a")
+            self.assertEqual(cm.exception.code, 429)
+            cm.exception.close()
+            # Refused BEFORE the writer: not one extra billed call.
+            self.assertEqual(len(writer.prompts), spent)
+        finally:
+            server.shutdown()
+            server.server_close()
+            tmp.cleanup()
+
+    def test_a_refreshed_index_ends_the_conversation_rather_than_carrying_findings(self):
+        # /connect refresh republishes the corpus under a live conversation.
+        # A follow-up must not inherit findings verified against evidence that
+        # may no longer exist.
+        self.ask("talk to me about PR #400")
+        self.lib.commit = "moved-to-a-new-commit"
+        try:
+            _, payload = self.ask("why did it change?")
+            self.assertEqual(payload["investigation"]["subject"], [])
+        finally:
+            self.lib.commit = COMMIT
 
     def test_the_investigation_uses_the_pipelines_own_trust_checked_writer(self):
         # Never a second provider built for this path: the pipeline's writer is

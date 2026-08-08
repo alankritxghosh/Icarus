@@ -15,6 +15,10 @@ import IcarusKit
 /// brain" and "no one wrote this down" look identical on screen if a transport
 /// error is folded into an unknown, and they mean opposite things — the same
 /// distinction `TourModel` and `LedgerModel` already keep.
+///
+/// The same rule applies one level down: a server REFUSAL (401/403/429/5xx) is
+/// not a transport failure. The server answered, and what it said is
+/// actionable, so it is reported as itself rather than as a connection problem.
 @MainActor
 @Observable
 final class InvestigationModel {
@@ -68,6 +72,15 @@ final class InvestigationModel {
                 guard !Task.isCancelled else { return }
                 turns.append(Turn(question: trimmed, response: response))
                 state = .idle
+            } catch let error as BrainError {
+                // The server ANSWERED and refused. Reporting that as a
+                // connection problem tells the user to check their network when
+                // the real fix is to sign in, wait, or pick a repo they can
+                // read -- a confident claim about a state the client does not
+                // know to hold. BrainError.userMessage already carries the
+                // accurate recovery text for each case.
+                guard !Task.isCancelled else { return }
+                state = .failed(error.userMessage)
             } catch {
                 guard !Task.isCancelled else { return }
                 state = .failed("Couldn't reach the brain. This is a connection "

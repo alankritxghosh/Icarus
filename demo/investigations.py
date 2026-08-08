@@ -33,13 +33,28 @@ about a repository that has since changed. `demo/visits.py` persists the four
 facts that genuinely survive a restart; this holds the working state that
 should not.
 
-## Isolation
+## Isolation and provenance
 
-Keyed on (identity, repo) and never enumerable across identities, the same
-boundary `LibraryRegistry` draws. A follow-up can only ever continue an
-investigation the SAME GitHub identity started about the repo they are
-currently connected to -- so a subject cannot leak between users, and cannot
-survive a repo switch (see `resume`).
+Keyed on (identity, repo, INDEXED COMMIT) and never enumerable across
+identities, the same boundary `LibraryRegistry` draws. A follow-up can only ever
+continue an investigation the SAME GitHub identity started about the repo they
+are currently connected to -- so a subject cannot leak between users, and cannot
+survive a repo switch.
+
+The commit is in the key because `/connect refresh` republishes the corpus under
+a live conversation. Carried findings were marked verified against evidence that
+may no longer exist, and would still publish their previous strength label; a
+key that cannot match is a stronger guarantee than a comparison someone can
+forget to write. The cost is that a refresh ends the conversation, which is the
+honest outcome: those findings were about a different index.
+
+## Ordering
+
+Every write carries the GENERATION it started under. "Start over" bumps it, so
+an investigation the user abandoned cannot finish later and overwrite the fresh
+conversation that replaced it -- resurrecting a subject they explicitly
+discarded. Compare-and-set under the existing lock; no lock is ever held across
+a model or network call.
 """
 
 import threading
@@ -94,34 +109,58 @@ class ConversationStore:
         self._clock = clock
         self._max = int(max_conversations)
         self._live: Dict[tuple, tuple] = {}
+        # (identity, repo) -> generation. Deliberately NOT keyed by commit: a
+        # "start over" must invalidate in-flight writes for that repo whatever
+        # index they were reading.
+        self._generations: Dict[tuple, int] = {}
         self._lock = threading.Lock()
 
     def _purge(self, now):
         for key in [k for k, (_c, expiry) in self._live.items() if expiry <= now]:
             self._live.pop(key, None)
 
-    def resume(self, identity: str, repo: str) -> Optional[Conversation]:
-        """The live conversation for this identity AND this repo, or None.
+    def begin(self, identity: str, repo: str, fresh: bool = False) -> int:
+        """The generation this request is running under.
 
-        The repo is part of the key, not a field to check afterwards: a caller
-        who switches repos mid-session must not inherit a subject from the
-        previous one, and a key that cannot match is a stronger guarantee than a
-        comparison someone can forget to write.
+        `fresh` (the user pressing Start over) bumps it, which is what makes an
+        abandoned in-flight investigation unable to overwrite its replacement.
+        """
+        if not identity or not repo:
+            return 0
+        with self._lock:
+            key = (identity, repo)
+            if fresh:
+                self._generations[key] = self._generations.get(key, 0) + 1
+            return self._generations.get(key, 0)
+
+    def resume(self, identity: str, repo: str, commit: str = None) -> Optional[Conversation]:
+        """The live conversation for this identity, repo AND indexed commit.
+
+        All three are part of the key, not fields to check afterwards: a caller
+        who switches repos -- or whose index was refreshed underneath them --
+        must not inherit a subject built from evidence that is no longer there.
         """
         if not identity or not repo:
             return None
         now = self._clock()
         with self._lock:
             self._purge(now)
-            entry = self._live.get((identity, repo))
+            key = (identity, repo, commit)
+            entry = self._live.get(key)
             if entry is None:
                 return None
             # Reading is activity: a conversation being followed up stays alive.
-            self._live[(identity, repo)] = (entry[0], now + self._ttl)
+            self._live[key] = (entry[0], now + self._ttl)
             return entry[0]
 
-    def remember(self, identity: str, repo: str, investigation) -> Optional[Conversation]:
+    def remember(self, identity: str, repo: str, investigation, commit: str = None,
+                 generation: int = None) -> Optional[Conversation]:
         """Fold a finished investigation into this caller's conversation.
+
+        `generation` is what this request began under (see `begin`). A write
+        carrying a stale one is DISCARDED: it belongs to an investigation the
+        user abandoned, and letting it land would resurrect the subject they
+        explicitly started over from.
 
         Never raises into a request: continuity is an improvement on a stateless
         answer, never a precondition for one. A caller with no identity (the
@@ -144,21 +183,30 @@ class ConversationStore:
                        for s in investigation.performed],
             unknowns=list(investigation.unknowns),
         )
+        key = (identity, repo, commit)
         with self._lock:
+            if generation is not None \
+                    and generation != self._generations.get((identity, repo), 0):
+                return None          # a superseded investigation finishing late
             self._purge(now)
-            existing = self._live.get((identity, repo))
+            existing = self._live.get(key)
             convo.turns = (existing[0].turns + 1) if existing else 1
-            while len(self._live) >= self._max and (identity, repo) not in self._live:
+            while len(self._live) >= self._max and key not in self._live:
                 oldest = min(self._live, key=lambda k: self._live[k][1])
                 self._live.pop(oldest, None)
-            self._live[(identity, repo)] = (convo, now + self._ttl)
+            self._live[key] = (convo, now + self._ttl)
         return convo
 
     def forget(self, identity: str, repo: str) -> None:
-        """Drop a conversation. Called when a caller disconnects a repo -- their
-        subject must not outlive their access to the thing it names."""
+        """Drop this caller's conversation about a repo, at EVERY indexed commit
+        -- a disconnect must not leave a subject behind for an earlier index.
+        Their subject must not outlive their access to the thing it names."""
         with self._lock:
-            self._live.pop((identity, repo), None)
+            for key in [k for k in self._live if k[0] == identity and k[1] == repo]:
+                self._live.pop(key, None)
+            # The generation counter survives on purpose: it is monotonic, and
+            # resetting it would let a request that began before the disconnect
+            # write back into a reconnected conversation.
 
 
 # Words that refer back to something already under discussion rather than naming
@@ -190,6 +238,18 @@ def refers_back(question: str) -> bool:
                     for ch in question).split()
     if not words:
         return False
-    joined = " ".join(words)
-    return any(w in _REFERRING for w in words) or \
-        any(phrase in joined for phrase in _REFERRING if " " in phrase)
+    if any(w in _REFERRING for w in words):
+        return True
+    # Multi-word entries match a complete TOKEN SEQUENCE, never a substring.
+    # "the pr" is a prefix of "the project", "the protocol" and "the primary",
+    # so substring matching made every one of those inherit the previous
+    # investigation's subject -- producing a fully cited answer about the wrong
+    # change, which groundedness cannot detect.
+    for phrase in _REFERRING:
+        parts = phrase.split()
+        if len(parts) < 2:
+            continue
+        if any(words[i:i + len(parts)] == parts
+               for i in range(len(words) - len(parts) + 1)):
+            return True
+    return False

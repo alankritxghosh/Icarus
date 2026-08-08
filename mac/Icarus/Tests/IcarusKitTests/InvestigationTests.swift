@@ -52,15 +52,44 @@ final class InvestigationTests: XCTestCase {
 
     // MARK: - support classes
 
-    func testEachSupportClassSaysWhatItISNotHowGoodItIs() {
-        // "weak" alone reads as a poor answer. It is not: it is a statement
-        // about what the repository recorded.
-        XCTAssertEqual(Support.explicit.headline, "The repository states this")
+    func testEachSupportClassDescribesTheEVIDENCECited() {
+        // These describe what was CITED, never what the repository asserts.
+        XCTAssertEqual(Support.explicit.headline, "Cites evidence that records a reason")
         XCTAssertEqual(Support.weak.headline,
-                       "Suggested by the implementation, not recorded")
-        XCTAssertTrue(Support.explicit.isRecorded)
-        XCTAssertFalse(Support.strong.isRecorded)
-        XCTAssertFalse(Support.weak.isRecorded)
+                       "Cites one piece of evidence, or code alone")
+        XCTAssertTrue(Support.explicit.citesRecordedReason)
+        XCTAssertFalse(Support.strong.citesRecordedReason)
+        XCTAssertFalse(Support.weak.citesRecordedReason)
+    }
+
+    /// The conscience test for the UI's half of the honesty boundary.
+    ///
+    /// Marker matching proves a cited chunk records SOME reason. It cannot
+    /// prove that reason is the reason for this finding -- evidence reading
+    /// "changed because logging was noisy" under a finding about database
+    /// scalability is indistinguishable to it. AGENTS.md places that entailment
+    /// outside what the deterministic path proves, so no wording here may
+    /// assert the repository states the finding.
+    func testNoSupportWordingClaimsTheRepositoryASSERTSTheFinding() {
+        let banned = ["states this", "proves", "confirms", "guarantees",
+                      "establishes this", "verified by the repository"]
+        for support: Support in [.explicit, .strong, .weak, .unsupported, .unrecognised] {
+            let headline = support.headline.lowercased()
+            for phrase in banned {
+                XCTAssertFalse(headline.contains(phrase),
+                               "\(support.rawValue): \(support.headline)")
+            }
+        }
+    }
+
+    /// The wording must MIRROR evals/investigation.py's SUPPORT_HEADLINES.
+    /// Two surfaces describing the same class differently is how one of them
+    /// quietly starts claiming more than the other.
+    func testTheWordingMirrorsTheServersCanonicalHeadlines() {
+        XCTAssertEqual(Support.explicit.headline, "Cites evidence that records a reason")
+        XCTAssertEqual(Support.strong.headline, "Cites several independent kinds of evidence")
+        XCTAssertEqual(Support.weak.headline, "Cites one piece of evidence, or code alone")
+        XCTAssertEqual(Support.unsupported.headline, "Not backed by evidence Icarus retrieved")
     }
 
     func testAnUnrecognisedSupportClassDecodesToTheMostCautiousVoice() throws {
@@ -71,7 +100,7 @@ final class InvestigationTests: XCTestCase {
             """
         let trace = try decode(payload(findings: findings)).trace
         XCTAssertEqual(trace.findings.first?.support, .unrecognised)
-        XCTAssertFalse(trace.findings.first!.support.isRecorded)
+        XCTAssertFalse(trace.findings.first!.support.citesRecordedReason)
     }
 
     func testWhatTheRepositoryRECORDSIsOrderedBeforeWhatWasInferred() throws {

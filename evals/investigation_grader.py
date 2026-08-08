@@ -17,11 +17,14 @@ Three, and each is a different way of lying:
 - **claim groundedness** -- every PUBLISHED finding cites evidence the
   investigation actually holds. A finding is shown to the reader as a receipt;
   one that cites something nobody gathered is a receipt for nothing.
-- **support honesty** -- no finding is labelled `explicit` unless its own
-  evidence really does record a reason. This is the gate that matters most and
-  did not exist before: "the repository states this" and "the implementation
-  suggests this" are different claims, and a system that blurs them is bluffing
-  in a way groundedness cannot detect, because every citation is real.
+- **explicit cites rationale** -- no finding is labelled `explicit` unless at
+  least one chunk it cites is a rationale-bearing source whose text records a
+  reason. Read the scope precisely: this proves the CLASS matches the evidence,
+  and it does NOT prove the recorded reason is the reason for that finding.
+  Marker matching cannot tell "changed because logging was noisy" apart from a
+  finding about database scalability that cites it. Arbitrary semantic
+  entailment stays writer-reliant, per AGENTS.md; what this gate buys is that a
+  finding presented as resting on recorded rationale really does cite some.
 
 - **abstention recall** -- an unrecorded reason is still answered with "no one
   wrote this down", however much machinery is now pointed at it. An
@@ -48,12 +51,19 @@ def hop_refs(question: dict) -> List[str]:
     return list(question.get("hops") or ())
 
 
-def _explicit_is_earned(finding, texts: Dict[str, str]) -> bool:
-    """Does a finding labelled `explicit` actually rest on recorded rationale?
+def _explicit_cites_rationale(finding, texts: Dict[str, str]) -> bool:
+    """Does a finding labelled `explicit` cite at least one chunk that records a
+    reason?
 
     Recomputed from the evidence TEXT rather than trusting the label, using the
-    honesty gate's own `_states_reason` and `_source`. That is the whole point:
-    a label the system assigned cannot be checked by reading the label back.
+    honesty gate's own `_states_reason` and `_source` -- a label the system
+    assigned cannot be checked by reading the label back.
+
+    Deliberately NOT named "earned": it checks the evidence class, not whether
+    the recorded reason supports this particular sentence. That second question
+    is arbitrary semantic entailment, which AGENTS.md places outside what the
+    deterministic path can prove, and answering it here would need a second
+    model call nobody approved.
     """
     for ref in finding.citations:
         if _source(ref) in _RATIONALE_SOURCES and _states_reason(texts.get(ref, "")):
@@ -92,7 +102,7 @@ def grade_investigations(questions: List[dict], run, judge=None) -> Dict:
                 continue      # not published -- see Investigation.summary
             claim_flags.append(all(ref in inv.evidence for ref in finding.citations))
             if finding.support == SUPPORT_EXPLICIT:
-                support_flags.append(_explicit_is_earned(finding, texts))
+                support_flags.append(_explicit_cites_rationale(finding, texts))
 
     abstention_recall = _pct(
         [runs[q["id"]][1].verdict == "unknown" for q in unanswerable],
@@ -140,7 +150,7 @@ def grade_investigations(questions: List[dict], run, judge=None) -> Dict:
         "gates": {
             "groundedness": groundedness,
             "claim_groundedness": _pct(claim_flags, empty_value=100.0),
-            "support_honesty": _pct(support_flags, empty_value=100.0),
+            "explicit_cites_rationale": _pct(support_flags, empty_value=100.0),
             "abstention_recall": abstention_recall,
         },
         "quality": {

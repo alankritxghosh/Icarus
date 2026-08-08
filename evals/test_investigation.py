@@ -14,8 +14,9 @@ from .investigation import (
     HYPOTHESIS_OPEN, HYPOTHESIS_PARTIAL, HYPOTHESIS_REFUTED, HYPOTHESIS_SUPPORTED,
     HYPOTHESIS_UNSUPPORTED, STOP_BUDGET, STOP_DECIDED, STOP_DIMINISHING,
     STOP_EXHAUSTED, SUPPORT_EXPLICIT, SUPPORT_STRONG, SUPPORT_UNSUPPORTED,
-    SUPPORT_WEAK, Budget, Claim, EvidenceRef, Hypothesis, Investigation, Step,
-    _RATIONALE_SOURCES, classify_support, score_hypothesis,
+    SUPPORT_WEAK, SUPPORT_HEADLINES, SUPPORT_ORDER, Budget, Claim, EvidenceRef,
+    Hypothesis, Investigation, Step, _RATIONALE_SOURCES, classify_support,
+    score_hypothesis,
 )
 
 REASON_TEXT = "We chose 300 lines because larger windows broke retrieval."
@@ -68,6 +69,50 @@ class SupportClassificationTests(unittest.TestCase):
         # the same restriction the gate's (b) guard applies.
         e = {"code:a.py": ev("code:a.py", REASON_TEXT)}
         self.assertEqual(classify_support(["code:a.py"], e), SUPPORT_WEAK)
+
+
+class EntailmentOverclaimTests(unittest.TestCase):
+    """The conscience test for what `explicit` may be presented as.
+
+    AGENTS.md draws the boundary precisely: groundedness is deterministic, while
+    arbitrary semantic entailment is writer-reliant and CANNOT be proven in code
+    without another model. Marker matching proves that a cited chunk records SOME
+    reason. It cannot prove that reason is the reason for THIS finding.
+
+    So the label is a statement about the EVIDENCE, and no wording anywhere may
+    upgrade it into a statement that the repository asserts the finding.
+    """
+
+    MISMATCHED = "This was changed because logging was noisy."
+    FINDING = "It was changed to improve database scalability."
+
+    def test_marker_matching_cannot_tell_a_matched_reason_from_a_mismatched_one(self):
+        # Both reach the same class. That is the honest limit of the mechanism,
+        # stated here so nobody later mistakes the class for entailment.
+        matched = {"pr:1": ev("pr:1", "Changed because retrieval degraded.")}
+        mismatched = {"pr:1": ev("pr:1", self.MISMATCHED)}
+        self.assertEqual(classify_support(["pr:1"], matched),
+                         classify_support(["pr:1"], mismatched))
+
+    def test_no_support_headline_claims_the_repository_ASSERTS_the_finding(self):
+        # The wording is the whole exposure: "The repository states this" over a
+        # finding the repository does not state is a bluff that groundedness
+        # cannot catch, because the citation underneath it is real.
+        banned = ("states this", "proves", "confirms", "guarantees",
+                  "establishes this", "verified by the repository")
+        for support, headline in SUPPORT_HEADLINES.items():
+            low = headline.lower()
+            for phrase in banned:
+                self.assertNotIn(phrase, low, f"{support}: {headline!r}")
+
+    def test_the_explicit_headline_describes_the_EVIDENCE_not_the_entailment(self):
+        headline = SUPPORT_HEADLINES[SUPPORT_EXPLICIT].lower()
+        self.assertIn("cite", headline)
+        self.assertIn("reason", headline)
+
+    def test_every_support_class_has_a_headline(self):
+        for support in SUPPORT_ORDER:
+            self.assertIn(support, SUPPORT_HEADLINES)
 
 
 class GateAlignmentTests(unittest.TestCase):

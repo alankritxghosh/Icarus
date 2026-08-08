@@ -335,8 +335,12 @@ removing, or renaming files). For class/function-level detail see
   thing here as in `/ask`), fixed opening seeds, then adaptive rounds of
   probe → read → verify → classify → score → stop. A model is consulted at
   exactly three points (plan, read, synthesize) and every step it proposes is
-  validated against a closed vocabulary — an unknown primitive or an
-  out-of-shape argument is DROPPED, never coerced into something runnable.
+  validated against a closed vocabulary AND that primitive's exact argument
+  schema (`_STEP_SCHEMA`) — an unknown primitive, an argument belonging to a
+  different primitive, an unknown edge, an invented ref, or a non-positive /
+  boolean / absurd `k` is DROPPED, never coerced into something runnable. `k` is
+  additionally clamped to `probes.MAX_RETRIEVE_K` in the probe itself, since
+  seeds reach it without passing the validator.
   `conclude` writes the answer from verified findings and returns an ordinary
   `Result`, so every existing renderer works unchanged; it faces the FULL gate
   with the real question, so nothing reaches a reader having passed a weaker
@@ -353,12 +357,15 @@ removing, or renaming files). For class/function-level detail see
   answer's citations were retrieved), **claim_groundedness** (every PUBLISHED
   finding cites evidence the investigation actually holds — a finding is shown
   as a receipt, and one citing something nobody gathered is a receipt for
-  nothing), **support_honesty** (no finding labelled `explicit` unless its own
-  evidence really records a reason — RECOMPUTED from the evidence text via
-  `gate._states_reason`/`_source`, never read off the label, because "the
-  repository states this" and "the implementation suggests this" are different
-  claims and blurring them is a bluff groundedness cannot detect), and
-  **abstention_recall**. Quality dials: citation correctness, hop recall (did it
+  nothing), **explicit_cites_rationale** (no finding labelled `explicit` unless a
+  chunk it cites is a rationale-bearing source whose text records a reason —
+  RECOMPUTED from the evidence text via `gate._states_reason`/`_source`, never
+  read off the label. Scope is deliberately narrow: it proves the CLASS matches
+  the evidence, NOT that the recorded reason is the reason for that finding.
+  Marker matching cannot tell "changed because logging was noisy" apart from a
+  finding about scalability citing it; arbitrary semantic entailment stays
+  writer-reliant per AGENTS.md, and the published wording says only what was
+  cited), and **abstention_recall**. Quality dials: citation correctness, hop recall (did it
   reach evidence several relationships away?), abstention precision, step
   efficiency, duplicate steps. Takes a `run(question)` callable rather than a
   pipeline, so the harness's own conscience can be tested offline.
@@ -944,6 +951,12 @@ removing, or renaming files). For class/function-level detail see
   investigation remembers between turns, so "why did **it** change?" resolves.
   Keyed on (identity, repo) — the repo is part of the KEY, not a field checked
   afterwards, so a subject cannot survive a repo switch or leak between users.
+  Keyed on (identity, repo, **indexed commit**) with a generation counter: a
+  `/connect refresh` republishes the corpus, so findings verified against the
+  old index cannot be carried into an answer about the new one, and "start
+  over" bumps the generation so an abandoned in-flight investigation cannot
+  finish late and overwrite the conversation that replaced it (compare-and-set
+  under the store's own lock; no lock is held across a model call).
   In-memory, TTL'd (20 min) and LRU-capped: losing a conversation on restart is
   the CORRECT failure, since a stale investigation resumed against a moved index
   would answer about a repository that has since changed. Carries subject,
@@ -1502,6 +1515,11 @@ removing, or renaming files). For class/function-level detail see
   indexing/error/no-save = not lost; case-insensitive repo match).
 
 ### mac/Icarus/Tests/IcarusAppTests
+- `InvestigationModelTests.swift` — failure truthfulness on the Investigate
+  surface: 401/403/429/503 are server REFUSALS and are reported as what the
+  server said (`BrainError.userMessage`), while only a real transport error
+  reads as a connection problem. Collapsing the two told a signed-out user to
+  check their network.
 - `ConnectModelTests.swift` — app-model boundary proof that an accepted
   background repository re-read stays visibly in progress while the index is
   stale and completes only after `/status` confirms freshness.

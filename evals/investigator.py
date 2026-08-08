@@ -39,7 +39,8 @@ from .investigation import (
     classify_support,
 )
 from .pipeline import Result, _ISSUE_OR_PR_REF, _COMMIT_SHA, _preferred_sources
-from .probes import PRIMITIVES, ProbeContext, run_round, verify
+from .entities import EDGE_KINDS
+from .probes import MAX_RETRIEVE_K, ProbeContext, run_round, verify
 from .synth import build_plan_prompt, build_read_prompt, build_synthesis_prompt
 
 # Relationships worth following from a pull request before anything is known.
@@ -84,23 +85,58 @@ def _is_entity(target: str) -> bool:
     return target.split(":", 1)[0] in ("pr", "issue", "commit") and ":" in target
 
 
-def _validate_step(raw) -> Optional[Step]:
+# The exact argument shape of each gathering primitive. A whitelist of KEY NAMES
+# was not enough: it accepted `retrieve` with trace's arguments and no query at
+# all, and it let `k` through as a boolean, a negative, or 1,000,000,000 --
+# which reached the production retriever unchanged and retained every chunk it
+# returned before the evidence budget was ever consulted.
+_STEP_SCHEMA = {
+    "retrieve": {"required": ("query",), "optional": ("k",)},
+    "inspect": {"required": ("ref",), "optional": ()},
+    "trace": {"required": ("ref", "edge"), "optional": ()},
+    "compare": {"required": ("pr",), "optional": ()},
+}
+
+
+def _validate_step(raw, allowed_refs=None) -> Optional[Step]:
     """One planned step, or None. A model's plan is a SUGGESTION and is treated
-    as untrusted input: anything not matching the closed vocabulary is dropped
-    rather than coerced into something runnable, because a coerced step is a
-    lookup nobody asked for."""
+    as untrusted input: anything not matching the closed vocabulary and its
+    exact argument schema is dropped rather than coerced into something
+    runnable, because a coerced step is a lookup nobody asked for.
+
+    `allowed_refs`, when given, is the set of refs the planner was actually
+    shown. A step naming anything else is refused: an invented ref cannot
+    resolve, so running it spends a step of a bounded budget to learn nothing.
+    Seeds bypass this entirely -- they are built in code, from refs the
+    deterministic subject binding already resolved.
+    """
     if not isinstance(raw, dict):
         return None
     primitive = raw.get("primitive")
     args = raw.get("args")
-    if primitive not in PRIMITIVES or primitive == "verify":
-        return None                       # verify is not a gathering step
-    if not isinstance(args, dict):
-        return None
-    clean = {k: v for k, v in args.items()
-             if k in ("query", "ref", "edge", "pr", "k") and isinstance(v, (str, int))}
-    if not clean:
-        return None
+    schema = _STEP_SCHEMA.get(primitive)
+    if schema is None or not isinstance(args, dict):
+        return None                       # unknown primitive, or verify
+    if set(args) - set(schema["required"]) - set(schema["optional"]):
+        return None                       # an argument this primitive cannot take
+    clean = {}
+    for key in schema["required"]:
+        value = args.get(key)
+        if not isinstance(value, str) or not value.strip():
+            return None
+        clean[key] = value.strip()
+    if "edge" in clean and clean["edge"] not in EDGE_KINDS:
+        return None                       # not a relationship that exists
+    for ref_key in ("ref", "pr"):
+        if ref_key in clean and allowed_refs is not None \
+                and clean[ref_key] not in allowed_refs:
+            return None
+    if "k" in args:
+        k = args["k"]
+        # bool is an int in Python, so True would otherwise pass as k=1.
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            return None
+        clean["k"] = min(k, MAX_RETRIEVE_K)
     reason = raw.get("reason")
     return Step(primitive=primitive, args=clean,
                 reason=reason if isinstance(reason, str) else "")
@@ -184,7 +220,7 @@ def _plan(inv: Investigation, provider, known_refs) -> int:
             Hypothesis(id=f"h{len(inv.hypotheses) + 1}", statement=statement.strip()))
     queued = 0
     for raw in (data.get("steps") or [])[:_MAX_PLANNED_STEPS]:
-        step = _validate_step(raw)
+        step = _validate_step(raw, allowed_refs=set(known_refs or ()))
         if step is not None and inv.queue(step):
             queued += 1
     return queued
@@ -282,7 +318,8 @@ def investigate(question: str, pipeline, entities, provider, token: str = None,
         inv.queue(step)
 
     known_refs = list(inv.subject)
-    _plan(inv, provider, known_refs)
+    if inv.budget.allows_gathering_writer():
+        _plan(inv, provider, known_refs)
 
     while inv.should_stop() is None:
         batch = inv.take_round()
@@ -312,12 +349,12 @@ def investigate(question: str, pipeline, entities, provider, token: str = None,
                 # does not record this. Kept as an unknown so it reaches the
                 # answer instead of vanishing.
                 inv.unknowns.append(out.note)
-            if out.evidence and inv.budget.allows_writer():
+            if out.evidence and inv.budget.allows_gathering_writer():
                 _read(inv, provider, out.texts, out.note, counter)
         inv.rescore()
         inv.detect_contradictions()
         inv.note_round(new_refs)
-        if inv.should_stop() is None and inv.budget.allows_writer():
+        if inv.should_stop() is None and inv.budget.allows_gathering_writer():
             _plan(inv, provider, known_refs[:60])
 
     inv.stopped_because = inv.should_stop()
@@ -337,6 +374,14 @@ def conclude(inv: Investigation, provider, texts=None) -> Result:
     if not findings:
         from .gate import ABSTAIN_NO_EVIDENCE
         return Result(verdict="unknown", retrieved=retrieved, anchored=list(inv.subject),
+                      abstention_reason=ABSTAIN_NO_EVIDENCE)
+    if not inv.budget.allows_writer():
+        # The gathering half overspent its share, so there is no capacity to
+        # write a conclusion. Say so as an honest unknown rather than making an
+        # eleventh call on a ten-call budget.
+        from .gate import ABSTAIN_NO_EVIDENCE
+        return Result(verdict="unknown", retrieved=retrieved,
+                      anchored=list(inv.subject),
                       abstention_reason=ABSTAIN_NO_EVIDENCE)
     inv.budget.spend_writer()
     raw = provider.complete(build_synthesis_prompt(

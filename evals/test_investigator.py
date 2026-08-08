@@ -20,6 +20,8 @@ from .investigation import (
 from .investigator import (
     _anchor_refs, _seed_steps, _validate_step, conclude, investigate,
 )
+from .investigation import Step
+from .probes import MAX_RETRIEVE_K, ProbeContext, retrieve
 from .test_probes import FakePipeline
 
 PR = Chunk(ref="pr:400", source="pr",
@@ -111,16 +113,66 @@ class StepValidationTests(unittest.TestCase):
             self.assertIsNone(_validate_step({"primitive": primitive,
                                               "args": {"ref": "pr:400"}}), primitive)
 
-    def test_arguments_outside_the_shape_are_stripped_not_forwarded(self):
-        step = _validate_step({"primitive": "inspect",
-                               "args": {"ref": "pr:400", "cmd": "rm -rf /",
-                                        "url": "http://x"}})
-        self.assertEqual(step.args, {"ref": "pr:400"})
+    def test_a_smuggled_argument_REJECTS_the_step_rather_than_being_stripped(self):
+        # Stripping ran the step anyway. Rejecting is stronger: an argument the
+        # primitive cannot take means the planner mis-specified the call, and a
+        # bounded budget should not be spent on a guess at what it meant.
+        self.assertIsNone(_validate_step({"primitive": "inspect",
+                                          "args": {"ref": "pr:400", "cmd": "rm -rf /",
+                                                   "url": "http://x"}}))
+        # ...and the well-formed call it was trying to smuggle into still works.
+        self.assertEqual(_validate_step({"primitive": "inspect",
+                                         "args": {"ref": "pr:400"}}).args,
+                         {"ref": "pr:400"})
 
     def test_a_step_with_no_usable_argument_is_refused(self):
         self.assertIsNone(_validate_step({"primitive": "inspect", "args": {}}))
         self.assertIsNone(_validate_step({"primitive": "inspect", "args": "pr:400"}))
         self.assertIsNone(_validate_step("inspect"))
+
+
+class StepArgumentBoundsTests(unittest.TestCase):
+    """A planned step is UNTRUSTED model output. Its arguments reach the
+    production retriever, so they are bounded here or nowhere."""
+
+    def test_an_absurd_k_is_bounded_not_forwarded(self):
+        # k=1e9 reached search_refs unchanged and every returned chunk was
+        # retained before the evidence budget was consulted.
+        step = _validate_step({"primitive": "retrieve",
+                               "args": {"query": "x", "k": 1_000_000_000}})
+        self.assertIsNotNone(step)
+        self.assertLessEqual(step.args["k"], MAX_RETRIEVE_K)
+
+    def test_a_boolean_k_is_refused_because_bool_is_an_int_in_python(self):
+        step = _validate_step({"primitive": "retrieve",
+                               "args": {"query": "x", "k": True}})
+        self.assertNotIn("k", (step.args if step else {}))
+
+    def test_a_zero_or_negative_k_is_refused(self):
+        for bad in (0, -5):
+            step = _validate_step({"primitive": "retrieve",
+                                   "args": {"query": "x", "k": bad}})
+            self.assertNotIn("k", (step.args if step else {}), bad)
+
+    def test_arguments_belonging_to_a_DIFFERENT_primitive_are_refused(self):
+        # retrieve takes a query. `ref`/`edge` are trace's, and accepting them
+        # produced a step with no query at all.
+        self.assertIsNone(_validate_step({"primitive": "retrieve",
+                                          "args": {"ref": "pr:9", "edge": "commits"}}))
+        self.assertIsNone(_validate_step({"primitive": "trace",
+                                          "args": {"ref": "pr:9"}}))
+        self.assertIsNone(_validate_step({"primitive": "compare",
+                                          "args": {"ref": "pr:9"}}))
+
+    def test_an_unknown_relationship_is_refused_at_validation(self):
+        self.assertIsNone(_validate_step({"primitive": "trace",
+                                          "args": {"ref": "pr:9", "edge": "caused_by"}}))
+
+    def test_retrieve_bounds_k_even_if_a_step_arrives_unvalidated(self):
+        # Defence in depth: the probe is reachable from seeds too.
+        c = ProbeContext(pipeline=pipeline(), entities=entities())
+        retrieve(c, Step("retrieve", {"query": "chunking", "k": 10_000}))
+        self.assertLessEqual(c.pipeline.searched[-1][1], MAX_RETRIEVE_K)
 
 
 class LoopTests(unittest.TestCase):
@@ -290,6 +342,33 @@ class LoopTests(unittest.TestCase):
         investigate("about PR #400", pipeline(), entities(), provider,
                     budget=Budget(max_writer_calls=2, max_parallel=1))
         self.assertLessEqual(len(provider.prompts), 2)
+
+    def test_the_writer_budget_covers_SYNTHESIS_too(self):
+        # conclude() spent a writer call unconditionally, so a run capped at 2
+        # made 3. The ceiling has to cover the whole request, not just the
+        # gathering half -- synthesis is the one call a user always pays for.
+        provider = ScriptedProvider(
+            read=CITED_READ,
+            synthesis={"verdict": "answer", "answer": "x", "citations": ["pr:400"]})
+        budget = Budget(max_writer_calls=2, max_parallel=1)
+        inv = investigate("about PR #400", pipeline(), entities(), provider, budget=budget)
+        conclude(inv, provider, texts={"pr:400": PR.text})
+        self.assertLessEqual(budget.writer_calls_spent, budget.max_writer_calls)
+        self.assertLessEqual(len(provider.prompts), 2)
+
+    def test_a_synthesis_slot_is_RESERVED_so_a_conclusion_is_still_possible(self):
+        # Reserving beats refusing: an investigation that gathered evidence and
+        # then had no budget left to say anything would be a worse product than
+        # one that gathered slightly less.
+        provider = ScriptedProvider(
+            read=CITED_READ,
+            synthesis={"verdict": "answer", "answer": "x", "citations": ["pr:400"]})
+        budget = Budget(max_writer_calls=3, max_parallel=1)
+        inv = investigate("about PR #400", pipeline(), entities(), provider, budget=budget)
+        self.assertTrue(inv.claims, "nothing was gathered at all")
+        result = conclude(inv, provider, texts={"pr:400": PR.text})
+        self.assertEqual(result.verdict, "answer")
+        self.assertLessEqual(budget.writer_calls_spent, budget.max_writer_calls)
 
     def test_a_planner_returning_nonsense_ends_the_run_rather_than_improvising(self):
         provider = ScriptedProvider(plan={"steps": [{"primitive": "curl"}]})

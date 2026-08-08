@@ -4,12 +4,16 @@ import IcarusKit
 /// The Investigate surface: a multi-step, evidence-backed answer, and the trail
 /// that produced it.
 ///
-/// The layout follows one rule the rest of the shell does not need: **what the
-/// repository RECORDS is shown apart from what Icarus INFERRED**, under headings
-/// that say which is which. Presenting both in the same voice is a bluff that
-/// the honesty gate structurally cannot catch, because the citations under an
-/// inference are just as real as the ones under a quoted reason. The support
-/// class is computed server-side; nothing here upgrades it.
+/// The layout follows one rule the rest of the shell does not need: findings are
+/// grouped by **what kind of evidence they cite**, under headings that say so.
+/// Presenting a finding that cites recorded rationale and one drawn from code
+/// alone in the same voice is a bluff the honesty gate structurally cannot
+/// catch, because the citations under both are just as real.
+///
+/// The headings describe the EVIDENCE, never entailment: marker matching proves
+/// a cited chunk records some reason, not that it is the reason for this
+/// finding (see IcarusKit.Support). The class is computed server-side; nothing
+/// here upgrades it.
 ///
 /// Two things are shown even when it would be tidier not to: what is still
 /// unknown, and the fact that an investigation stopped early. A conclusion that
@@ -170,7 +174,7 @@ struct InvestigationView: View {
                 ShellCard {
                     VStack(alignment: .leading, spacing: 10) {
                         MonoLabel(group.support.headline.uppercased(),
-                                  group.support.isRecorded ? Theme.cited : Theme.muted)
+                                  group.support.citesRecordedReason ? Theme.cited : Theme.muted)
                         ForEach(group.findings) { finding in
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(finding.text).font(.system(size: 14))

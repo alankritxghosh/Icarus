@@ -34,15 +34,41 @@ from typing import Dict, List, Optional, Tuple
 
 from .gate import _source, _states_reason
 
-# How strongly the repository supports a claim. These four values are the
-# vocabulary the final answer speaks in -- "what we know" versus "what we infer"
-# is exactly this distinction, made in code.
-SUPPORT_EXPLICIT = "explicit"        # the repository states it, in prose meant to explain
-SUPPORT_STRONG = "strong"            # several independent kinds of evidence imply it
+# What KIND OF EVIDENCE a claim rests on. Read the boundary carefully, because
+# it is the one AGENTS.md draws and the one this vocabulary must not cross.
+#
+# What is proven deterministically: the citations resolve to evidence that was
+# actually retrieved, and (for `explicit`) at least one cited chunk is a
+# rationale-bearing source whose text records SOME reason.
+#
+# What is NOT proven, and cannot be without a second model: that the recorded
+# reason is the reason for THIS finding. Evidence reading "changed because
+# logging was noisy" and a finding reading "changed to improve database
+# scalability" are indistinguishable to marker matching. That linkage is the
+# WRITER's reading, exactly as arbitrary semantic entailment is writer-reliant
+# everywhere else in Icarus.
+#
+# So these classify the EVIDENCE, never the entailment, and `SUPPORT_HEADLINES`
+# is the wording every surface must use so no UI upgrades a class into a claim
+# that the repository asserts the finding.
+SUPPORT_EXPLICIT = "explicit"        # cites evidence that records a reason
+SUPPORT_STRONG = "strong"            # several independent kinds of evidence
 SUPPORT_WEAK = "weak"                # one piece of evidence, or code alone
 SUPPORT_UNSUPPORTED = "unsupported"  # nothing retrieved backs it
 
 SUPPORT_ORDER = (SUPPORT_UNSUPPORTED, SUPPORT_WEAK, SUPPORT_STRONG, SUPPORT_EXPLICIT)
+
+# The canonical wording for each class. Deliberately describes what was CITED,
+# never what the repository asserts: "The repository states this" over a finding
+# the repository does not state is a bluff groundedness cannot catch, because
+# the citation underneath it is genuinely real. The Mac UI mirrors these strings
+# and pins the same no-entailment property in its own tests.
+SUPPORT_HEADLINES = {
+    SUPPORT_EXPLICIT: "Cites evidence that records a reason",
+    SUPPORT_STRONG: "Cites several independent kinds of evidence",
+    SUPPORT_WEAK: "Cites one piece of evidence, or code alone",
+    SUPPORT_UNSUPPORTED: "Not backed by evidence Icarus retrieved",
+}
 
 # Sources that can carry a WRITTEN reason: someone explaining a change in prose.
 # Identical to gate._records_reason's list, and pinned to it by test.
@@ -130,6 +156,13 @@ class Budget:
     max_rounds: int = 4
     max_evidence_chars: int = 120_000
     max_parallel: int = 4
+    # Writer calls held back for the final synthesis. Without it, `conclude()`
+    # spent an eleventh call on a ten-call budget -- the ceiling covered the
+    # gathering half of a request and not the half a user always pays for.
+    # Reserving beats refusing at the end: an investigation that gathered
+    # evidence and then had no budget left to say anything would be a worse
+    # product than one that gathered slightly less.
+    synthesis_reserve: int = 1
 
     steps_spent: int = 0
     writer_calls_spent: int = 0
@@ -140,12 +173,17 @@ class Budget:
         return self.steps_spent < self.max_steps
 
     def allows_writer(self) -> bool:
+        """Any writer call at all -- what `conclude()` asks before synthesising."""
         return self.writer_calls_spent < self.max_writer_calls
+
+    def allows_gathering_writer(self) -> bool:
+        """A planning or reading call, which must leave the synthesis slot free."""
+        return self.writer_calls_spent < self.max_writer_calls - self.synthesis_reserve
 
     def allows_round(self) -> bool:
         return (self.rounds_spent < self.max_rounds
                 and self.allows_step()
-                and self.allows_writer()
+                and self.allows_gathering_writer()
                 and self.evidence_chars_spent < self.max_evidence_chars)
 
     def spend_step(self, chars: int = 0) -> None:
@@ -165,7 +203,7 @@ class Budget:
             return "reached the maximum number of investigation rounds"
         if not self.allows_step():
             return "reached the maximum number of investigation steps"
-        if not self.allows_writer():
+        if not self.allows_gathering_writer():
             return "reached the maximum number of reasoning calls"
         if self.evidence_chars_spent >= self.max_evidence_chars:
             return "reached the maximum amount of evidence it can hold"
@@ -173,13 +211,14 @@ class Budget:
 
 
 def classify_support(citations, evidence: Dict[str, EvidenceRef]) -> str:
-    """How strongly the repository backs a claim resting on `citations`.
+    """What KIND of evidence a claim rests on. NOT a claim about entailment.
 
     Deterministic and deliberately conservative:
 
     - EXPLICIT needs prose written to explain -- a pr/issue/doc/commit chunk
-      whose text trips the gate's own rationale markers. This is the only class
-      that may be presented to a reader as something the repository SAYS.
+      whose text trips the gate's own rationale markers. It proves the cited
+      evidence records A reason; it cannot prove that reason is the reason for
+      this finding, which stays writer-reliant (see SUPPORT_HEADLINES).
     - STRONG needs at least two pieces of evidence of at least two different
       kinds. One PR quoted twice is one source's account of itself; a PR plus the
       code it changed is two independent things agreeing.

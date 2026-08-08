@@ -1,16 +1,23 @@
 import Foundation
 
-/// How strongly the repository backs one finding.
+/// What KIND OF EVIDENCE one finding cites.
 ///
-/// This is the whole reason the investigation surface exists. A conclusion that
-/// says "the repository states X" and one that says "the implementation suggests
-/// X" are different claims, and rendering them in the same confident voice is a
-/// bluff the honesty gate structurally cannot catch — every citation underneath
-/// both is real.
+/// Read the boundary carefully, because this wording is where it reaches a
+/// person. What is proven server-side is that the citations resolve to
+/// retrieved evidence and — for `explicit` — that at least one cited chunk is a
+/// rationale-bearing source whose text records SOME reason.
 ///
-/// The value is COMPUTED server-side (evals/investigation.classify_support) from
-/// the evidence's own source kind and rationale markers. The app renders it and
-/// never recomputes or upgrades it, exactly as it renders `Verdict` verbatim.
+/// What is NOT proven, and cannot be without a second model, is that the
+/// recorded reason is the reason for THIS finding. Evidence reading "changed
+/// because logging was noisy" under a finding about database scalability is
+/// indistinguishable to marker matching. AGENTS.md places that entailment
+/// outside the deterministic path, so every headline below describes the
+/// EVIDENCE CITED and never asserts that the repository states the finding.
+///
+/// The value is COMPUTED server-side (evals/investigation.classify_support).
+/// The app renders it and never recomputes or upgrades it, exactly as it
+/// renders `Verdict` verbatim. The strings mirror that module's
+/// SUPPORT_HEADLINES, pinned by test on both sides.
 ///
 /// An unrecognised value decodes to `.unrecognised` rather than failing: a newer
 /// brain that adds a class must not make an older app unable to show the answer
@@ -27,15 +34,15 @@ public enum Support: String, Decodable, Sendable {
         self = Support(rawValue: raw) ?? .unrecognised
     }
 
-    /// What a reader should be told this finding IS. Deliberately prose rather
-    /// than a bare label: "weak" alone reads as a quality score of the answer
-    /// when it is actually a statement about what the repository recorded.
+    /// What a reader should be told this finding CITES. Deliberately prose
+    /// rather than a bare label: "weak" alone reads as a quality score of the
+    /// answer when it is actually a statement about the evidence behind it.
     public var headline: String {
         switch self {
-        case .explicit: return "The repository states this"
-        case .strong: return "Several pieces of evidence indicate this"
-        case .weak: return "Suggested by the implementation, not recorded"
-        case .unsupported, .unrecognised: return "Not established by the repository"
+        case .explicit: return "Cites evidence that records a reason"
+        case .strong: return "Cites several independent kinds of evidence"
+        case .weak: return "Cites one piece of evidence, or code alone"
+        case .unsupported, .unrecognised: return "Not backed by evidence Icarus retrieved"
         }
     }
 
@@ -50,9 +57,13 @@ public enum Support: String, Decodable, Sendable {
         }
     }
 
-    /// Whether this finding may be presented as something the repository RECORDS
-    /// rather than something Icarus concluded. Only one class earns that.
-    public var isRecorded: Bool { self == .explicit }
+    /// Whether this finding cites evidence that records a reason at all.
+    ///
+    /// Named for what it proves. The old name (`isRecorded`) read as "the
+    /// repository recorded this finding", which is the entailment claim the
+    /// mechanism cannot make — a finding can cite a recorded reason that is
+    /// about something else entirely.
+    public var citesRecordedReason: Bool { self == .explicit }
 }
 
 /// One evidence-backed finding, with the citations that support it.
@@ -146,9 +157,9 @@ public struct InvestigationTrace: Decodable, Sendable {
         case incompleteBecause = "incomplete_because"
     }
 
-    /// Findings with what the repository RECORDS first, then what was inferred.
-    /// Stable within a class, so the order the investigation found them in is
-    /// preserved rather than reshuffled on every render.
+    /// Findings that cite recorded rationale first, then those resting on
+    /// weaker evidence. Stable within a class, so the order the investigation
+    /// found them in is preserved rather than reshuffled on every render.
     public var orderedFindings: [Finding] {
         findings.enumerated()
             .sorted { ($0.element.support.rank, $0.offset) < ($1.element.support.rank, $1.offset) }

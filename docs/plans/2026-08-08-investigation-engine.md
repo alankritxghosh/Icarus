@@ -4,7 +4,24 @@ Icarus answers in one shot: retrieve → write → gate. This plan turns that in
 bounded, evidence-first **investigation loop** without replacing a single
 component that works today.
 
-Status: **all seven phases built** (`evals/entities.py`, `investigation.py`,
+Status: **all seven phases built**, then hardened under review (2026-08-08).
+
+**Hardening pass — the honesty correction worth reading first.** `explicit` was
+described, and rendered in the Mac UI, as "The repository states this". Marker
+matching cannot prove that: evidence reading "changed because logging was noisy"
+under a finding about database scalability trips the same markers as a matching
+one. Per AGENTS.md, arbitrary semantic entailment is writer-reliant and cannot be
+proven deterministically, so the CLASS was narrowed to describe the EVIDENCE
+CITED ("Cites evidence that records a reason"), the grader metric was renamed
+`support_honesty` -> `explicit_cites_rationale` with its scope documented, and
+`SUPPORT_HEADLINES` now pins wording that no surface may upgrade. What remains
+proven is unchanged: the citation boundary and the explicit deterministic
+guards. Seven other defects were fixed in the same pass -- carried findings
+surviving a corpus refresh, `refers_back` inheriting a subject for "the
+project"/"the protocol", unbounded planner arguments reaching the retriever,
+`/investigate` billing ~10x its rate-limit weight, a stale investigation
+overwriting a fresh one, `conclude()` exceeding the writer budget, and every
+server refusal being reported to a Mac user as a connection problem. (`evals/entities.py`, `investigation.py`,
 `probes.py`, `investigator.py`, + the three prompt builders in `synth.py`).
  Read §A before §E.
 

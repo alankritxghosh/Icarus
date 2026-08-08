@@ -19,7 +19,8 @@ from .investigation import (
     SUPPORT_STRONG, SUPPORT_UNSUPPORTED, SUPPORT_WEAK,
 )
 from .investigation_grader import (
-    PENDING, format_board, gates_hold, grade_investigations, hop_refs,
+    PENDING, _explicit_cites_rationale, format_board, gates_hold,
+    grade_investigations, hop_refs,
 )
 from .pipeline import Result
 
@@ -118,9 +119,9 @@ class GateFiringTests(unittest.TestCase):
         self.assertEqual(board["gates"]["claim_groundedness"], 50.0)
         self.assertFalse(gates_hold(board))
 
-    def test_support_honesty_fires_when_an_inference_is_labelled_explicit(self):
-        # The dangerous bluff: a real citation, a real finding, and a strength
-        # the evidence does not earn. Groundedness cannot see this at all.
+    def test_explicit_cites_rationale_fires_when_a_bare_constant_is_labelled_explicit(self):
+        # A real citation, a real finding, and an evidence class the cited text
+        # does not support. Groundedness cannot see this at all.
         def bluffer(question):
             inv, result, texts = honest(question)
             if question["label"] == "answerable":
@@ -133,10 +134,10 @@ class GateFiringTests(unittest.TestCase):
         board = self._board(bluffer)
         self.assertEqual(board["gates"]["groundedness"], 100.0)
         self.assertEqual(board["gates"]["claim_groundedness"], 100.0)
-        self.assertEqual(board["gates"]["support_honesty"], 50.0)
+        self.assertEqual(board["gates"]["explicit_cites_rationale"], 50.0)
         self.assertFalse(gates_hold(board))
 
-    def test_support_honesty_is_recomputed_from_TEXT_not_read_off_the_label(self):
+    def test_the_class_is_recomputed_from_TEXT_not_read_off_the_label(self):
         # A finding whose evidence genuinely records a reason keeps `explicit`.
         def truthful(question):
             inv, result, texts = honest(question)
@@ -147,7 +148,7 @@ class GateFiringTests(unittest.TestCase):
                                         citations=["issue:372"],
                                         support=SUPPORT_EXPLICIT, verified=True))
             return inv, result, texts
-        self.assertEqual(self._board(truthful)["gates"]["support_honesty"], 100.0)
+        self.assertEqual(self._board(truthful)["gates"]["explicit_cites_rationale"], 100.0)
 
     def test_abstention_recall_fires_when_an_unrecorded_why_is_answered(self):
         def bluffer(question):
@@ -208,6 +209,27 @@ class QualityDialTests(unittest.TestCase):
         self.assertTrue(gates_hold(board), "over-abstention is a quality miss, not a bluff")
 
 
+class EntailmentScopeTests(unittest.TestCase):
+    """What this gate does NOT prove, pinned so nobody later reads it as more."""
+
+    def test_a_MISMATCHED_recorded_reason_still_passes_the_gate(self):
+        # Evidence: "because logging was noisy". Finding: "database
+        # scalability". The gate passes, because it checks the evidence class
+        # and not entailment -- which is exactly the boundary AGENTS.md draws.
+        # It is recorded here as a known limit, not repaired by pretending
+        # marker matching is a proof of support.
+        finding = Claim(id="c1", text="It was changed to improve database scalability.",
+                        citations=["pr:400"], support=SUPPORT_EXPLICIT, verified=True)
+        self.assertTrue(_explicit_cites_rationale(
+            finding, {"pr:400": "This was changed because logging was noisy."}))
+
+    def test_and_so_the_published_wording_never_claims_the_repository_asserts_it(self):
+        # The mitigation for the limit above is the WORDING, which is pinned in
+        # evals/investigation.py and mirrored by the Mac UI.
+        from .investigation import SUPPORT_HEADLINES
+        self.assertNotIn("states this", SUPPORT_HEADLINES[SUPPORT_EXPLICIT].lower())
+
+
 class BoardShapeTests(unittest.TestCase):
     def test_hop_refs_tolerates_a_question_with_none(self):
         self.assertEqual(hop_refs({"id": "x"}), [])
@@ -215,7 +237,7 @@ class BoardShapeTests(unittest.TestCase):
     def test_the_board_renders_without_a_judge(self):
         text = format_board(grade_investigations(QUESTIONS, honest))
         self.assertIn("GATES", text)
-        self.assertIn("support_honesty", text)
+        self.assertIn("explicit_cites_rationale", text)
         self.assertIn("GATES HOLD", text)
 
     def test_a_broken_gate_is_visible_in_the_rendered_board(self):
