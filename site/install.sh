@@ -77,4 +77,4 @@ echo "Installed: $DEST/$APP"
 echo "Open it from $DEST, or run:  open -a Icarus"
 echo
 echo "First run: sign in with GitHub, connect a repo, then press Cmd-Shift-I"
-echo "anywhere and ask a question. Problems -> ayushghosh2015@gmail.com"
+echo "anywhere and ask a question. Problems -> alankritghosh05@gmail.com"
