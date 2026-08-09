@@ -36,7 +36,7 @@ struct InvestigationView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Investigate").font(.system(size: 26, weight: .semibold))
+            Text("Investigate").font(Theme.display(26, .medium))
                 .foregroundStyle(Theme.ink)
             Text("Icarus follows the evidence — the pull request, its linked "
                  + "issues, the code it changed, and what happened afterwards — "

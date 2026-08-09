@@ -54,19 +54,10 @@ struct OverlayView: View {
         // 430pt, not 560: "cannot occupy much of the screen" is a stated constraint, and
         // the narrower measure also keeps the answer near a readable line length.
         .frame(width: 430, alignment: .leading)
-        // Glass, not a flat card: real behind-window vibrancy, then a translucent wash of
-        // the card colour over it. The wash is not decoration — raw vibrancy alone lets
-        // whatever is behind the panel show through hard enough to hurt legibility, and an
-        // answer you can't read is a failure regardless of how good the blur looks.
-        .background {
-            ZStack {
-                VisualEffectBackground()
-                Theme.card.opacity(0.62)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(Theme.border.opacity(0.8), lineWidth: 1))
+        // CLEAR glass, not frost: the code behind the panel stays in focus and
+        // readable through it. See `GlassPanel` for why the alpha is a measured
+        // value rather than a taste one, and why it cannot adapt to the backdrop.
+        .glassPanel(cornerRadius: cornerRadius)
         .animation(morph, value: isExpanded)
         .animation(morph, value: voice.isRecording)
     }
@@ -204,8 +195,11 @@ struct OverlayView: View {
             // finished reading", NOT "no one wrote this down" — so it must not
             // wear the honest-unknown hero, which is a claim about the repo.
             MonoLabel(r.unknownHeadline, Theme.unknown)
+            // Serif, and only here: this is the sentence the product exists to be
+            // able to say, and it is the one place in the overlay where the site's
+            // voice belongs. Everything around it stays sans and mono.
             Text(r.unknownMessage)
-                .font(.system(size: 21, weight: .bold))
+                .font(Theme.display(23, .medium))
                 .foregroundStyle(Theme.ink)
             // The evidence trail, in two parts. A single flat list made a
             // refusal that HAD looked up the named ref first read as one that

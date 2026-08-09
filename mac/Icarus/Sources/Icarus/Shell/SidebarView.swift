@@ -14,7 +14,7 @@ struct SidebarView: View {
             // float over the sidebar (the window's own title bar is hidden).
             HStack(alignment: .bottom, spacing: 9) {
                 MarkView(height: 26)
-                Text("Icarus").font(.system(size: 19, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text("Icarus").font(Theme.display(20, .medium)).foregroundStyle(Theme.ink)
             }
             .padding(.leading, 4).padding(.top, 30).padding(.bottom, 24)
 
@@ -74,6 +74,8 @@ struct SidebarView: View {
         .padding(16)
         .frame(width: 210)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color(hex: 0xF2F0E9))
+        // A shade off `surface` rather than a token of its own: the rail should
+        // separate from the content area without becoming a second card.
+        .background(Color(hex: 0x121216))
     }
 }

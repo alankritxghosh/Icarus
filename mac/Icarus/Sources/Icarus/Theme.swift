@@ -1,23 +1,48 @@
+import AppKit
 import SwiftUI
 import IcarusKit
 
-/// Honest-Brutalism "Quiet Native Memory v2" tokens, from the Figma wireframe.
-/// Geist / JetBrains Mono aren't installed, so we use the system sans and SF Mono
-/// (.monospaced) as close stand-ins; bundle the real fonts later for a pixel match.
+/// Honest-Brutalism tokens, dark — the same names the light "Quiet Native Memory
+/// v2" palette used, with only the values moved, so every call site flipped
+/// without being touched. Values are the website's (`site/index.html`), so the
+/// app and the marketing page are one product: `--paper`, `--card`, `--hair`,
+/// `--ink`, `--muted`, `--signal`, `--cited`, `--unknown`.
+///
+/// Dark only, deliberately. Following the system appearance would mean deciding
+/// every semantic tone twice and verifying every surface twice, and there is no
+/// second palette to fall back to — the site commits to this one.
 enum Theme {
-    static let ink = Color(hex: 0x26252A)        // primary text
-    static let muted = Color(hex: 0x6F6B65)       // secondary text
-    static let surface = Color(hex: 0xF7F5EF)     // page / window
-    static let card = Color(hex: 0xFBFAF7)        // raised card
-    static let border = Color(hex: 0xE3DCD2)      // hairline border
-    static let accent = Color(hex: 0x2F6BFF)      // citation accent blue
-    static let cited = Color(hex: 0x157A5B)       // cited / receipts green
-    static let citedBg = Color(hex: 0xDDEFE7)
-    static let unknown = Color(hex: 0xB76E00)     // honest-unknown amber
-    static let unknownBg = Color(hex: 0xFFF1CD)
+    static let ink = Color(hex: 0xECEAE3)         // primary text
+    static let muted = Color(hex: 0x948F86)       // secondary text
+    static let surface = Color(hex: 0x0D0D10)     // page / window
+    static let card = Color(hex: 0x15151A)        // raised card
+    static let border = Color(hex: 0x26262C)      // hairline border
+    static let accent = Color(hex: 0x8098FF)      // citation accent blue
+    static let cited = Color(hex: 0x6FD3A8)       // cited / receipts green
+    static let unknown = Color(hex: 0xE0A23C)     // honest-unknown amber
+    /// The two semantic backgrounds are TINTS of their own tone, not separate
+    /// colours. On the light palette they were opaque pastels; a pastel has no
+    /// dark equivalent, and a merely darker pastel reads as mud.
+    static let citedBg = cited.opacity(0.10)
+    static let unknownBg = unknown.opacity(0.09)
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
+    }
+
+    /// The serif display face, resolved once against what the Mac actually has.
+    /// `Font.custom` falls back SILENTLY to the system face when a family is
+    /// missing, so a missing font would look like a styling bug rather than a
+    /// missing font — hence the explicit probe and the explicit `.serif` fallback.
+    private static let displayFamily: String? =
+        ["Hoefler Text", "Iowan Old Style", "Palatino"].first { NSFont(name: $0, size: 12) != nil }
+
+    /// Serif, for hero moments ONLY — the Home headline, "No one wrote this
+    /// down.", surface titles. Body stays sans and evidence stays mono: serif at
+    /// 13pt in a dense list costs scanning speed and buys nothing.
+    static func display(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        if let family = displayFamily { return .custom(family, size: size).weight(weight) }
+        return .system(size: size, weight: weight, design: .serif)
     }
 }
 
@@ -75,30 +100,56 @@ struct CitationChip: View {
     }
 }
 
-/// Frosted "glass" backing for the floating overlay — Option A's vibrancy.
+/// CLEAR glass for the floating overlay — transparent, not frosted.
 ///
-/// `NSVisualEffectView`, not SwiftUI's `.ultraThinMaterial`: the panel's window is
-/// transparent (`backgroundColor = .clear`), so a SwiftUI material would blur nothing and
-/// read as flat translucency. `.behindWindow` blending samples what is actually BEHIND
-/// the panel — the user's editor, browser, desktop — which is what makes it read as glass
-/// floating over their work.
+/// There is deliberately no `NSVisualEffectView` here any more. Vibrancy BLURS
+/// what is behind it; this material does not, so the user's code stays in focus
+/// and readable through the panel. That makes this the simpler implementation of
+/// the two: a fill, a sheen, an edge, a shadow.
 ///
-/// `state = .active` is load-bearing: the default follows the window's active state, and
-/// this is a NON-ACTIVATING panel that is usually not key, so the frost would otherwise
-/// drop out exactly when the overlay is in use.
-struct VisualEffectBackground: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .popover
+/// **The alpha is a measured value, not a taste one.** Judged by eye over a dark
+/// editor, 0.55 looked right; measured against the worst case it is 3.56:1 for
+/// the answer text, under WCAG AA. The worst case is a pure-white window behind
+/// the panel — a browser, a document — because clear glass has nothing but this
+/// tint between the answer and someone else's page. 0.62 is where AA is reached;
+/// 0.65 is used for headroom, and `ThemeContrastTests` pins it so the number
+/// cannot drift back down because a screenshot looked nicer.
+///
+/// It cannot adapt to the backdrop: choosing an alpha from what is behind the
+/// window means sampling the screen, and Icarus never reads the screen without
+/// an explicit, opt-in gesture. One fixed value, picked for the worst case.
+struct GlassPanel: ViewModifier {
+    /// Pinned by `ThemeContrastTests.testAnswerTextSurvivesGlassOverAWhiteBackdrop`.
+    static let alpha: Double = 0.65
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
+    var cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                ZStack {
+                    Theme.surface.opacity(Self.alpha)
+                    // Sheen: brightest at the top, where light would catch a real edge.
+                    LinearGradient(colors: [.white.opacity(0.13), .white.opacity(0.04), .white.opacity(0.06)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.42), .white.opacity(0.13), .white.opacity(0.20)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.5), radius: 25, y: 11)
     }
+}
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
+extension View {
+    /// Clear glass — see `GlassPanel` for why the alpha is what it is.
+    func glassPanel(cornerRadius: CGFloat) -> some View {
+        modifier(GlassPanel(cornerRadius: cornerRadius))
     }
 }
 

@@ -16,6 +16,21 @@ enum IconExport {
         return args[i + 1]
     }
 
+    /// `--render-png <path> <pixels>` — one square PNG of the same mark, for the
+    /// browser extension's `icons/` (Chrome wants real files, not a drawing).
+    /// Same source as the Dock icon, so the two can never drift apart.
+    static func pngArgs() -> (path: String, pixels: Int)? {
+        let args = CommandLine.arguments
+        guard let i = args.firstIndex(of: "--render-png"), i + 2 < args.count,
+              let px = Int(args[i + 2]), px > 0 else { return nil }
+        return (args[i + 1], px)
+    }
+
+    /// Write one square PNG of `IconArt.appIcon` at `pixels`.
+    static func writeIcon(to path: String, pixels: Int) {
+        writePNG(IconArt.appIcon(size: CGFloat(pixels)), pixels: pixels, to: path)
+    }
+
     /// Write every PNG `iconutil` expects into `dir` (an `.iconset` folder).
     static func writeIconset(to dir: String) {
         let fm = FileManager.default

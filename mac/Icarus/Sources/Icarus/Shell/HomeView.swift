@@ -164,7 +164,7 @@ struct HomeView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Welcome back, Alankrit").font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text("Welcome back, Alankrit").font(Theme.display(24, .medium)).foregroundStyle(Theme.ink)
                 Text("Hold the hotkey, ask why, and let the proof sit one glance away.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
@@ -179,26 +179,32 @@ struct HomeView: View {
         }
     }
 
+    /// The hero was a black slab on a light page — `background(Theme.ink)` with
+    /// `Theme.card` text, i.e. deliberately inverted against the palette. Inverting
+    /// a DARK palette the same way produces a glaring white slab, so the emphasis
+    /// moved from a reversed fill to a serif headline on an ordinary card. This is
+    /// the one place the repaint is a redesign rather than a value swap.
     private var heroCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Hold ⌥ (Right Option) to ask Icarus")
-                .font(.system(size: 24, weight: .semibold)).foregroundStyle(Theme.card)
+                .font(Theme.display(25, .medium)).foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Ask in the middle of work. Icarus answers like a teammate, then shows the PRs, issues, and exact files behind the answer. Press ⌘⇧I to type instead.")
-                .font(.system(size: 13)).foregroundStyle(Color(hex: 0xC9C6BE))
+                .font(.system(size: 13)).foregroundStyle(Theme.muted)
                 .padding(.top, 12).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Button(action: onTryQuestion) { Text("Try a question") }.buttonStyle(LightButton())
                 Text("never always-listening")
-                    .font(Theme.mono(11)).foregroundStyle(Color(hex: 0xC9C6BE))
+                    .font(Theme.mono(11)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x55534E), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
             }
             .padding(.top, 22)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.ink)
+        .background(Theme.card)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -244,25 +250,30 @@ struct HomeView: View {
         }
     }
 
+    /// The filled pill used to be ink-on-card. A solid pale block reads as a
+    /// button on a dark page, so the emphasised state is now the accent as a
+    /// tint + border, which says "active" without offering to be clicked.
     private func pill(_ text: String, filled: Bool) -> some View {
         Text(text)
             .font(Theme.mono(11))
-            .foregroundStyle(filled ? Theme.card : Theme.muted)
+            .foregroundStyle(filled ? Theme.accent : Theme.muted)
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(filled ? Theme.ink : Color.clear)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(filled ? Color.clear : Theme.border, lineWidth: 1))
+            .background(filled ? Theme.accent.opacity(0.14) : Color.clear)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(filled ? Theme.accent : Theme.border, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
-/// The light "Try a question" button on the black hero card.
+/// The "Try a question" button on the hero card: ink fill, surface-coloured
+/// label. On the dark palette that is a pale button with dark text — still the
+/// brightest thing in the card, which is the job it was doing before.
 struct LightButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Theme.ink)
+            .foregroundStyle(Theme.surface)
             .padding(.horizontal, 16).padding(.vertical, 9)
-            .background(Theme.card.opacity(configuration.isPressed ? 0.85 : 1))
+            .background(Theme.ink.opacity(configuration.isPressed ? 0.85 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 9))
     }
 }

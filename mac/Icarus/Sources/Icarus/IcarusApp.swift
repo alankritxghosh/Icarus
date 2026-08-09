@@ -23,6 +23,10 @@ struct Main {
             IconExport.writeIconset(to: dir)
             exit(0)
         }
+        if let (path, px) = IconExport.pngArgs() {
+            IconExport.writeIcon(to: path, pixels: px)
+            exit(0)
+        }
         IcarusApp.main()
     }
 }

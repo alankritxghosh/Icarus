@@ -4,6 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Icarus — answers why your codebase is the way it is</title>
+<!-- The mark: spread wings rising from a downward V. Inline as a data URI so the
+     page keeps making ZERO external requests. The same geometry is drawn in Core
+     Graphics by mac/Icarus/Sources/Icarus/IconArt.swift (Dock icon, menu bar,
+     sidebar, and the browser-extension PNGs); one wing is defined and mirrored.
+     If a parameter changes there, regenerate this path — they cannot be diffed. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%2316161B'/><g fill='%233A6FF0' transform='translate(50,48) scale(.82) translate(-50,-48)'><path d='M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z'/><path transform='translate(100,0) scale(-1,1)' d='M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z'/><path d='M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z'/></g></svg>" />
 <meta name="description" content="Icarus answers why your code is the way it is, with the evidence on screen — and says 'no one wrote this down' when the reason was never recorded." />
 <meta property="og:title" content="Icarus — the engineering brain that won't bluff" />
 <meta property="og:description" content="Ask why. Get the reason with its receipts, or an honest 'no one wrote this down'." />
@@ -46,6 +52,11 @@
 
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
            text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  /* The mark sits beside the eyebrow rather than above the h1: the page opens
+     with type, and a mark on its own line would compete with it. */
+  .lockup{display:flex;align-items:center;gap:11px}
+  .lockup .eyebrow{margin:0}
+  .mark{color:var(--signal);flex:none}
   /* The arc marker: where you are in the myth. Decorative, and the only thing
      on the page that is. */
   .arc{font-family:var(--mono);font-size:11px;letter-spacing:.26em;
@@ -294,7 +305,21 @@
 <body>
 
 <div class="hero">
-<header class="wrap" style="padding-top:44px">
+<header class="wrap lockup" style="padding-top:44px">
+  <!-- One wing is defined; the other is the same path mirrored. -->
+  <svg class="mark" viewBox="0 0 100 100" width="34" height="34" aria-hidden="true">
+    <g fill="currentColor">
+      <path id="wing" d="M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z
+        M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z
+        M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z
+        M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z
+        M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z
+        M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z
+        M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z" />
+      <use href="#wing" transform="translate(100,0) scale(-1,1)" />
+      <path d="M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z" />
+    </g>
+  </svg>
   <p class="eyebrow">Icarus · macOS · alpha</p>
 </header>
 

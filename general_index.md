@@ -1411,12 +1411,37 @@ removing, or renaming files). For class/function-level detail see
   cannot verify, which is worse than having no updater, so it refuses rather
   than degrades. `isConfigured` lets the menu hide an item that would do
   nothing.
-- `IconArt.swift` — the Signal Spine app icon + menu-bar glyph in Core Graphics.
-- `IconExport.swift` — headless `--render-iconset` renderer (invoked by `bundle.sh`)
-  that bakes `IconArt.appIcon()` into a static `AppIcon.icns` so the Dock/Finder/DMG
-  aren't a blank tile before first launch; `Main` (in `IcarusApp.swift`) intercepts it.
-- `Theme.swift` — the "Quiet Native Memory v2" tokens + shared views
-  (`MonoLabel`, `CitationChip`, `PrimaryButton`, `FlowLayout`).
+- `IconArt.swift` — the Icarus mark in Core Graphics (no asset pipeline): spread
+  wings rising from a downward V. `markPath` is parametric (feather count, angle/
+  length/width ramps, and `covertsReach` — the solid leading-edge mass, without
+  which the separated feathers read as spikes rather than a wing), and ONE wing is
+  built then mirrored, so the halves cannot drift. It is the single definition of
+  the logo on this platform: `appIcon` (Dock tile), `menuBarGlyph` (monochrome
+  template), `markGlyph` (flat, for the shell sidebar), the `.icns` baked by
+  `IconExport`, and the four `extension/icons/*.png`. The website repeats the same
+  geometry as SVG (`site/index.html` header mark + data-URI favicon) — generated
+  from these numbers, NOT shared with them, so a change here must be regenerated
+  there; nothing will fail if it isn't.
+- `IconExport.swift` — headless renderers invoked by the bundler and by hand:
+  `--render-iconset` (used by `bundle.sh`) bakes `IconArt.appIcon()` into a static
+  `AppIcon.icns` so the Dock/Finder/DMG aren't a blank tile before first launch,
+  and `--render-png <path> <px>` writes one square PNG — how `extension/icons/`
+  is regenerated, so the browser icons come from the app's own drawing code rather
+  than a hand-made asset. `Main` (in `IcarusApp.swift`) intercepts both.
+- `Theme.swift` — the Honest-Brutalism tokens, DARK since 2026-08-10: the same
+  token names the light palette used, carrying the website's values, so ~60
+  call sites flipped without being edited. `citedBg`/`unknownBg` are now
+  TINTS of their own tone (an opaque pastel has no dark equivalent).
+  `display()` is the serif face, resolved once against what the Mac actually
+  has (`Font.custom` falls back SILENTLY, so the family is probed explicitly);
+  spent on hero moments only. Also `GlassPanel` — the overlay's CLEAR glass,
+  which replaced `VisualEffectBackground` (deleted): transparent glass is the
+  absence of vibrancy, so there is no `NSVisualEffectView` any more. Its alpha
+  is 0.65 because 0.55 — chosen by eye and approved in a wireframe — measured
+  3.56:1 against a white backdrop, under WCAG AA; pinned by a test, since the
+  worst case (a white window behind clear glass) is invisible in a screenshot.
+  Plus the shared views (`MonoLabel`, `CitationChip`, `PrimaryButton`,
+  `WaveformView`, `FlowLayout`).
 - `AppleSpeechRecognizer.swift` — `SFSpeechRecognizer` + `AVAudioEngine`; uses
   on-device recognition when available and Apple's service otherwise.
 - `PushToTalkMonitor.swift` — hold Right Option (⌥) to talk via a global
@@ -1471,7 +1496,9 @@ removing, or renaming files). For class/function-level detail see
   a human-authored GitHub memory proposal by opaque gap ID, blocks overlapping
   submissions, and surfaces only an observed pull-request URL as success.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
-  `VerdictPill`, `HistoryRow`, `ShellCard`).
+  `VerdictPill`, `HistoryRow`, `ShellCard`). `MarkView` RENDERS `IconArt` rather
+  than redrawing the logo in SwiftUI, so the sidebar can never disagree with the
+  Dock icon about what the mark is.
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
 - `MainWindowController.swift` — hosts the shell as the primary window with a
   chromeless (transparent, full-size-content) title bar.
@@ -1526,6 +1553,15 @@ removing, or renaming files). For class/function-level detail see
   indexing/error/no-save = not lost; case-insensitive repo match).
 
 ### mac/Icarus/Tests/IcarusAppTests
+- `ThemeContrastTests.swift` — the palette's conscience. Every other test in
+  the app is a logic test: all 219 passed, unchanged, while the entire
+  interface was repainted light → dark, and would pass just as happily with
+  muted text at 1.4:1 on the page. Measures WCAG contrast for every pairing
+  the app renders (body, secondary, the three semantic tones, the hairline
+  tripwire) and composites the overlay tint onto WHITE to prove the answer
+  survives clear glass over someone else's document — the assertion that
+  caught the eyeballed 0.55 alpha. Asserts RATIOS, not hex values, so a
+  retune keeps passing and an unreadable retune fails.
 - `InvestigationModelTests.swift` — failure truthfulness on the Investigate
   surface: 401/403/429/503 are server REFUSALS and are reported as what the
   server said (`BrainError.userMessage`), while only a real transport error

@@ -1,19 +1,15 @@
 import SwiftUI
 import IcarusKit
 
-/// The Icarus signal-spine mark (five bars, accent stem) — reused in the sidebar.
+/// The Icarus mark — spread wings rising from a downward V. Drawn by `IconArt`
+/// rather than redrawn here, so the sidebar can never disagree with the Dock
+/// icon about what the logo is.
 struct MarkView: View {
     var height: CGFloat = 26
-    private let factors: [(CGFloat, Bool)] = [(0.54, false), (0.85, false), (1.0, true), (0.65, false), (0.38, false)]
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<factors.count, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(factors[i].1 ? Theme.accent : Theme.ink)
-                    .frame(width: 3, height: height * factors[i].0)
-            }
-        }
-        .frame(height: height)
+        Image(nsImage: IconArt.markGlyph(size: height * 2, color: NSColor(Theme.accent)))
+            .resizable()
+            .frame(width: height, height: height)   // @2x source, so it stays crisp
     }
 }
 
@@ -27,7 +23,7 @@ struct NavRow: View {
             selected = surface
         } label: {
             HStack(spacing: 11) {
-                Circle().fill(active ? Theme.accent : Color(hex: 0xB4B2A9)).frame(width: 7, height: 7)
+                Circle().fill(active ? Theme.accent : Color(hex: 0x4A4844)).frame(width: 7, height: 7)
                 Text(surface.title)
                     .font(.system(size: 14, weight: active ? .semibold : .regular))
                     .foregroundStyle(active ? Theme.ink : Theme.muted)

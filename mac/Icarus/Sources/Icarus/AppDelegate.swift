@@ -59,7 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌘⇧I ask overlay. (Setup is folded into the shell's Home gate; Q&A stays
         // an overlay.)
         NSApp.setActivationPolicy(.regular)
-        NSApp.applicationIconImage = IconArt.appIcon()   // Signal Spine in the Dock
+        // Theme's palette is dark, and AppKit does NOT take its cue from it: the
+        // traffic lights, ProgressView spinners, the TextField caret, Divider,
+        // and every scroller stay light until the app's appearance says
+        // otherwise. Without this line a fully dark app looks broken rather than
+        // dark, which is worse than either.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        NSApp.applicationIconImage = IconArt.appIcon()   // the wings, in the Dock
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = IconArt.menuBarGlyph()   // monochrome menu-bar mark

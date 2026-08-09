@@ -57,7 +57,7 @@ struct OnboardingView: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Start here").font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.ink)
+                Text("Start here").font(Theme.display(24, .medium)).foregroundStyle(Theme.ink)
                 Text("A short guided introduction to \(status.repo ?? "this repository") — every claim cited, and an honest \u{201C}nobody wrote this down\u{201D} where the answer was never recorded.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)

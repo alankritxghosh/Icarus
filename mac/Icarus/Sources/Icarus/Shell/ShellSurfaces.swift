@@ -273,7 +273,7 @@ private struct MemoryRecordSheet: View {
 @ViewBuilder
 func surfaceTitle(_ title: String, _ subhead: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {
-        Text(title).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.ink)
+        Text(title).font(Theme.display(24, .medium)).foregroundStyle(Theme.ink)
         Text(subhead).font(.system(size: 13)).foregroundStyle(Theme.muted)
     }
 }
