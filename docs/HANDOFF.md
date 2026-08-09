@@ -1,3 +1,111 @@
+# Icarus — Session Handoff (2026-08-09, later: GitLab CI/CD built, the wrong-PR fix DEPLOYED and verified live)
+
+**READ THIS FIRST.** The entry below this one says the wrong-PR fix is not
+live and makes deploying it next session's task 1. **That is now done** — it
+shipped through a new GitLab pipeline and was verified against a real indexed
+corpus. Read that entry for the bug's root cause; ignore its task list.
+
+**State, precisely:**
+- Live: `icarus-brain--0000052`, image
+  `caec8849f1f0acr.azurecr.io/icarus-brain:31e82360`, Healthy, single-revision
+  mode, 100% traffic on latest. `/health` OK.
+- `main` @ `31e8236`, pushed to **both** remotes. `origin` is still GitHub;
+  `gitlab` was added this session.
+- **Both Python suites passed in CI** (846 evals + demo) — a real green run,
+  which the previous entry explicitly could not claim.
+
+---
+
+## 1. The repo now lives on GitLab too, and deploys from there
+
+The project is **`icarus-group4/Icarus`** (id `85247557`), NOT
+`alankritxghosh/icarus` — that path does not exist and 404s. There is also an
+empty `icarus-group4/Icarus-project` beside it; nothing uses it.
+
+`.gitlab-ci.yml` is the whole pipeline, four jobs:
+
+| Job | Image | Notes |
+|---|---|---|
+| `secrets-scan` | `alpine` | runs `scripts/scan_secrets.sh` |
+| `tests` | `python:3.12` | **not `-slim`** — see below |
+| `build` | `docker:27-cli` + dind | builds and pushes to ACR |
+| `deploy` | `azure-cli` | **manual gate**, ends by polling `/health` |
+
+**Deploy is a manual click, deliberately.** Every redeploy drops every
+connected session (Azure storage is ephemeral), so a typo-fix commit must not
+be able to boot every live tester. Flip `when: manual` to `when: on_success`
+only once a staging environment exists.
+
+**ACR Tasks is still disabled**, so the runner does the `docker build` itself
+rather than calling `az acr build`. This supersedes the previous entry's
+task 2 (a GitHub Actions deploy sync) — that need is now met on GitLab. The
+GitHub `security.yml` workflow is untouched and still runs on pushes there.
+
+**The `tests` job must NOT use `python:3.12-slim`.** The first pipeline run
+failed on exactly one of 846 tests:
+`test_egress_invariants.test_gitignore_covers_per_user_private_storage`
+shells out to `git` to prove the per-user private tree is ignored, and slim
+ships no git (`FileNotFoundError: 'git'`). Fixed in `31e8236`. The gating
+worked correctly — a red suite skipped `build` and `deploy`.
+
+## 2. The deploy credential
+
+Service principal **`icarus-gitlab-deploy`**, appId
+`1d282d07-48ba-4ccd-ba2e-8ec954337649`. Two role assignments, both narrowly
+scoped — verified with `az role assignment list`, not assumed:
+- `AcrPush` on the registry `caec8849f1f0acr` (not the resource group)
+- `Contributor` on the container app `icarus-brain` (not the resource group)
+
+GitLab CI/CD variables, all **Protected** (which requires `main` to be a
+protected branch — it is; unprotect it and the pipeline silently receives
+empty credentials): `AZURE_CLIENT_SECRET` (also **Masked**),
+`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`.
+
+The password went `az` → pipe → GitLab without touching disk, a log, or a
+shell history, and **is not recoverable**. If it ever needs replacing, use
+`az ad sp credential reset` and re-pipe into the variable; there is no copy
+to fall back on. Its first real exercise was the `build` job succeeding at
+209s, so the credential is proven, not merely configured.
+
+## 3. The wrong-PR fix, verified live
+
+Asked against the deployed brain over `simonw/llm` — chosen because `pr:400`
+**is** indexed there and `issue:400` is **not**, so a correct anchor has
+exactly one right answer. Checked the corpus before asking rather than
+trusting the result to be meaningful.
+
+| Question | anchored | cited | verdict |
+|---|---|---|---|
+| "Why was the PR of 400 introduced" *(exact reported phrasing)* | `pr:400` | `pr:400` | answer |
+| "Why was PR number 400 introduced" | `pr:400` | `pr:400` | answer |
+| "Why was the PR for 400 introduced" | `pr:400` | `pr:400` | answer |
+| "The PR that reworked retries, we saw 400 errors in the logs" | `[]` | — | unknown |
+
+The fourth row is the one that mattered. A connector-word class that anchored
+any number near the word "PR" would have bought the fix with a false positive;
+it does not — an unrelated 400 anchors nothing and correctly falls through.
+
+**Still not replayed against `Tracer-Cloud/opensre`**, the repo that actually
+surfaced the bug. Same code path and a confirmed-indexed gold ref, so the
+regex is proven — but connecting that repo needs a GitHub bearer and a fresh
+ingest, not the read-only agent session used here.
+
+## 4. What is queued next
+
+- **Scope GitLab as an evidence source** — carried unchanged from the entry
+  below, and note it is a *different* question from this session's work.
+  Hosting the repo on GitLab says nothing about whether `evals/ingest.py` can
+  read merge requests, discussion threads and linked issues with GitHub's
+  provenance. Deliverable is a written go / not-yet / no, not code.
+- Replay the fix against `Tracer-Cloud/opensre` if the reporter is available.
+- Everything in §9 of the 2026-08-07/08 entry is still open: the Chrome
+  native-host handshake against a real signed-in profile, and the RED
+  citation/answer-correctness eval gates.
+
+**Commits:** `80f9ff3` (pipeline), `31e8236` (full python image for tests).
+
+---
+
 # Icarus — Session Handoff (2026-08-09: live wrong-PR bug found and fixed on main, NOT yet deployed; two tasks queued for next session)
 
 **READ THIS FIRST.** A live bug was found via a user screenshot, root-caused,
