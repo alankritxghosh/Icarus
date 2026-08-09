@@ -1,3 +1,110 @@
+# Icarus — Session Handoff (2026-08-10: the marketing site redesigned around the myth and deployed; two design tasks queued for next session)
+
+**READ THIS FIRST.** This session touched **only `site/`** — no brain, no
+evals, no Mac app, no deploy of `icarus-brain`. The Azure state described in
+the entry below is unchanged and still current.
+
+## 1. What shipped
+
+`site/index.html` was rebuilt around the Icarus myth, prompted by
+`https://perseus.computer/` (worth a look — it is also a **direct competitor**:
+YC-backed, "codebase search for coding agents", cited context before an agent
+edits). What was taken from it is structure, not palette: dark page, serif
+display over mono evidence, classical painting as atmosphere, and the product
+demo AS the page rather than a video embed.
+
+- **Dark throughout.** The palette was inverted through the *same* token names
+  (`--paper`, `--ink`, `--hair`…), so every existing rule kept working and only
+  the values moved. Serif (`--display`, system faces only — the page still makes
+  zero external requests) for h1/h2; mono for evidence and captions.
+- **The page is the arc**: I · The ascent → II · Too near the sun → III · The
+  wings → IV · The wax → V · What he carried → VI · The descent → VII · A
+  second pair of wings → The sea. Copy is verbatim from the old page; only the
+  arc markers are new text.
+- **Four public domain paintings, eight bands** (`site/art/`, 696KB total).
+  Plates are reused at different `background-position` details rather than
+  re-downloaded. Stinemolen (Icarus aloft by the sun), Sacchi (the wings being
+  fitted), Gowy after Rubens (the fall), Bruegel (the sea, the ploughman who
+  never looks up). Each is credited in place.
+- **The two app panels are now HTML, not screenshots.** Every string is
+  VERBATIM from `site/shots/panel_cited.png` and `panel_refusal.png` — answer
+  text, both issue excerpts, `issue:6856`/`issue:6752`, all 20 refs in the
+  `searched:` list. The caption no longer says "screenshots", because they are
+  not. **If the product's answers change, re-capture and re-transcribe; do not
+  edit the wording to read better.** The PNGs stay in `shots/` as the
+  provenance for that transcription.
+
+Two mechanisms worth not re-deriving:
+- Plate edges are handled by a **mask on the image**, never by washing over it
+  with an opaque colour. The first attempt hand-matched seven hex values to
+  wherever the body gradient sat at each scroll depth — wrong the moment any
+  section changes height.
+- Every plate is `background-size:cover`. At any other size the bitmap has its
+  own hard left edge inside the band, which a radial mask centred on the
+  artwork does not fade; it showed as a vertical seam through a section.
+
+**Two pre-existing bugs fixed in passing:** the two SHA-256 digests are
+unbreakable 64-char tokens and pushed the document 75px wider than a phone
+viewport (real horizontal scroll on mobile); and `.excerpt` had no
+`white-space:pre-wrap`, so quoted evidence collapsed into a reflowed
+paragraph — in the hero replay too.
+
+**Live:** `https://icarus-website-kappa.vercel.app` (Vercel project
+`icarus-website`, deployed with `vercel deploy --prod` from `site/`).
+Contact address changed to `alankritghosh05@gmail.com` in both mailto links
+and in `site/install.sh`.
+
+**Branch, NOT merged:** `site/icarus-arc-redesign` on `origin`, commits
+`371d9a1`, `a543a2c`, `3f592f4`. Merge with
+`git checkout main && git merge site/icarus-arc-redesign && git push origin main`.
+
+**Two things left open, both needing Alankrit:**
+- `site/install.sh` is also served from the **separate** repo
+  `alankritxghosh/Icarus-Website` (that is the URL the install instructions
+  tell people to curl). That copy still prints the old email.
+- The only Vercel domain on the account is `leadflow-lab.com`, unattached. The
+  site is on a `.vercel.app` alias; a real domain is a purchase + DNS change.
+
+## 2. THE TWO TASKS FOR NEXT SESSION
+
+Both are design work, both were named explicitly by Alankrit on 2026-08-10.
+
+1. **Redo the Icarus logo, and update it everywhere.** "Everywhere" is not one
+   file — grep before designing. Known surfaces: the app icon and menu-bar
+   glyph are drawn in **Core Graphics, not assets**
+   (`mac/Icarus/Sources/Icarus/IconArt.swift`, baked to `AppIcon.icns` by
+   `IconExport.swift` via `bundle.sh`) — so a new mark is **code, not an asset
+   drop**, unless that pipeline changes. The extension ships four real PNGs
+   (`extension/icons/icon{16,32,48,128}.png`, declared in `manifest.json`;
+   `manifest.test.js` asserts their shape, so it will fail if sizes change).
+   The DMG picks up whatever `bundle.sh` produced. **The site has no logo and
+   no favicon at all** — verified, `site/index.html` has neither a mark nor a
+   `<link rel="icon">`; the new design leads with type, so decide deliberately
+   whether it gets one rather than assuming there is something to replace.
+2. **Redo the Mac app's frontend UI/UX.** The site now has a settled visual
+   language — dark, serif display over mono evidence, hairline surfaces, gold
+   accent, painting as atmosphere — and the app does not share it. The app's
+   overlay is currently **light**, which is why this session refused to re-tint
+   the product screenshots: doing so would have shown a product that does not
+   exist. Existing docs to reconcile, not ignore:
+   `docs/DESIGN_VISION.md` ("Honest Brutalism") and `docs/UI_UX_BRIEF.md`.
+   Surfaces: `Theme.swift`, `OverlayView.swift`, and everything under
+   `mac/Icarus/Sources/Icarus/Shell/`.
+
+**Sequencing note, not an instruction:** if the app goes dark, the two panels
+on the site should be re-captured as real screenshots and the HTML
+transcription retired — it exists only because the app is light and the site
+is dark.
+
+## 3. What is still queued from before
+
+Unchanged and still open — see §4 of the entry below: scoping GitLab as an
+evidence source, replaying the wrong-PR fix against `Tracer-Cloud/opensre`,
+and §9 of the 2026-08-07/08 entry (Chrome native-host handshake, the RED
+citation/answer-correctness eval gates).
+
+---
+
 # Icarus — Session Handoff (2026-08-09, later: GitLab CI/CD built, the wrong-PR fix DEPLOYED and verified live)
 
 **READ THIS FIRST.** The entry below this one says the wrong-PR fix is not
