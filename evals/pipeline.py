@@ -16,13 +16,25 @@ from typing import Dict, List
 
 from .corpus import chunk_covers_lines
 
+# Words that sit between the kind and its number in ordinary speech: "the PR OF
+# 400", "the PR FOR 400", "PR NUMBER 400", "pr NO 400". Bounded to this closed
+# list and to ONE of them, so the kind word stays adjacent to the number: a
+# sentence mentioning a PR at one end and an unrelated number at the other
+# ("the PR reworked retries ... we saw 400 errors") must not read as a
+# reference to "PR 400". Found live 2026-08-09 on Tracer-Cloud/opensre, where
+# "Why was the PR of 400 introduced" anchored NOTHING, fell through to ordinary
+# search, and produced a confident, fully cited answer about an unrelated pull
+# request -- groundedness cannot catch that, because the citation was real.
+_REF_CONNECTOR = r"(?:\s+(?:of|for|number|no|num|#)\b)?"
+
 # An explicit "issue #N" / "PR #N" / bare "#N" mention names a specific ref by
 # identifier, not a concept -- BM25/semantic search treats the number as one
 # ordinary keyword with no exact-match guarantee, and a chunk whose own text
 # never happens to repeat that number can score 0 and never be retrieved at
 # all, even though the exact ref exists in the corpus (a live-found bug).
 _ISSUE_OR_PR_REF = re.compile(
-    r"(?:\b(?:issue|pr|pull\s*request)s?\s*#?|#)\s*(\d+)\b", re.IGNORECASE
+    r"(?:\b(?:issue|pr|pull\s*request)s?" + _REF_CONNECTOR + r"\s*#?|#)\s*(\d+)\b",
+    re.IGNORECASE,
 )
 
 # The KIND the question named, when it named one. GitHub shares a single number
@@ -33,7 +45,8 @@ _ISSUE_OR_PR_REF = re.compile(
 # root-causing a live report). Capturing the word lets the named kind win, and a
 # bare "#N" that names no kind keeps the previous precedence unchanged.
 _NAMED_REF_KIND = re.compile(
-    r"\b(issues?|prs?|pull\s*requests?)\s*#?\s*(\d+)\b", re.IGNORECASE
+    r"\b(issues?|prs?|pull\s*requests?)" + _REF_CONNECTOR + r"\s*#?\s*(\d+)\b",
+    re.IGNORECASE,
 )
 
 

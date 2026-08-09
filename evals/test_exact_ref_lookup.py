@@ -284,6 +284,76 @@ class NamedSourceTypeWinsTests(unittest.TestCase):
         # than silently changed.
         self.assertEqual(self._anchor_for("Tell me about #1481")[0], "issue:1481")
 
+    def _unreachable(self, number):
+        """A corpus where the gold ref shares NO vocabulary with the question,
+        so plain search scores it 0. Anything that reaches `retrieved` got there
+        via the ANCHOR path -- otherwise the test measures search, not the fix."""
+        fillers = [Chunk(ref=f"pr:{i}", source="pr",
+                         text="introduced a change to why things were done here")
+                   for i in range(9001, 9006)]
+        # Deliberately zero token overlap with any question below -- even "the"
+        # or "for" would score these above zero on a tiny corpus and the test
+        # would silently measure search instead of the anchor.
+        gold_pr = Chunk(ref=f"pr:{number}", source="pr",
+                        text="zzq bespoke telemetry shim vendored serializer")
+        gold_issue = Chunk(ref=f"issue:{number}", source="issue",
+                           text="qqz intermittent flake nightly cron")
+        return fillers + [gold_pr, gold_issue]
+
+    def _retrieved(self, question, number=400):
+        chunks = self._unreachable(number)
+        p = GatedPipeline(LexicalRetriever(chunks), chunks,
+                          StaticProvider(['{"verdict": "unknown"}'] * 4))
+        return p.answer(question).retrieved
+
+    def test_search_alone_cannot_reach_the_gold_ref(self):
+        # Proves the fixture is honest: without the anchor there is nothing.
+        chunks = self._unreachable(400)
+        found = LexicalRetriever(chunks).search("Why was the PR of 400 introduced", k=20)
+        self.assertNotIn("pr:400", found)
+
+    def test_a_connecting_word_between_the_kind_and_the_number_still_anchors(self):
+        """Found live 2026-08-09 on Tracer-Cloud/opensre.
+
+        "Why was the PR of 400 introduced" anchored NOTHING: the regex required
+        the number to sit immediately after the kind word, so "of" broke it, the
+        question fell through to ordinary search, and the writer answered about
+        an unrelated pull request (#3649) that merely ranked well. Every citation
+        resolved, so groundedness passed it -- the reader got a confident, fully
+        cited answer about the wrong change, which is exactly what the anchor
+        path exists to prevent.
+
+        Phrasings a person actually types, not a contrived set.
+        """
+        for question in ("Why was the PR of 400 introduced",
+                         "Why was the PR for 400 introduced",
+                         "What did the PR number 400 change?",
+                         "why was pr no 400 introduced",
+                         "What did the pull request for 400 do?"):
+            with self.subTest(question=question):
+                retrieved = self._retrieved(question)
+                self.assertTrue(retrieved, f"anchored nothing: {question!r}")
+                self.assertEqual(retrieved[0], "pr:400",
+                                 f"{question!r} anchored {retrieved[:1]}")
+
+    def test_the_issue_spelling_still_wins_for_issues(self):
+        # The tolerance must not quietly turn every phrasing into a PR.
+        self.assertEqual(self._retrieved("what is the issue of 400 about")[0],
+                         "issue:400")
+
+    def test_the_kind_word_must_still_be_NEAR_the_number(self):
+        # The tolerance must not swallow a sentence: a PR mentioned at one end
+        # and an unrelated number at the other is not "PR <that number>".
+        # Checked on BOTH refs -- an unbounded gap anchors issue:400 (the
+        # default precedence when no kind is adjacent), so asserting only on
+        # pr:400 passes while the bug is present. Proven by widening the regex
+        # to an unbounded gap and watching this fail.
+        far = ("the PR reworked how retries and backoff and timeouts and the "
+               "queue and the scheduler all behave, and we later saw 400 errors")
+        retrieved = self._retrieved(far)
+        for ref in ("pr:400", "issue:400"):
+            self.assertNotIn(ref, retrieved,
+                             f"a distant number was read as a reference to {ref}")
 
 class PremiseNoteTests(unittest.TestCase):
     """A question can be wrong about its own subject, and the pipeline can know.
