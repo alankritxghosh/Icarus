@@ -10,43 +10,74 @@
 <meta property="og:type" content="website" />
 <style>
   :root{
-    --paper:#F7F6F2; --ink:#16181D; --muted:#6B6B66; --hair:#DED9CE;
-    --signal:#2F6BFF; --cited:#157A5B; --cited-bg:#DDEFE7;
-    --unknown:#B76E00; --unknown-bg:#FFF1CD; --card:#FCFBF8;
+    /* Dark throughout: the page is one descent, from the flight at the top to
+       the sea at the bottom. Same token names as the old paper palette, so
+       every rule below kept working — only the values moved. */
+    --paper:#0D0D10; --ink:#ECEAE3; --muted:#948F86; --hair:#26262C;
+    --signal:#8098FF; --cited:#6FD3A8; --cited-bg:rgba(111,211,168,.10);
+    --unknown:#E0A23C; --unknown-bg:rgba(224,162,60,.09); --card:#15151A;
     --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    /* Display serif for the hero only. No webfont: every face here ships with
+       macOS/Windows, so the hero costs zero network requests like the rest of
+       the page. Hoefler Text is what Mac readers — the whole audience, this is
+       a Mac app — will actually see. */
+    --display:"Hoefler Text","Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    /* Hero (dark) tokens */
+    --night:#0B0B0D; --night-100:#17171B; --dawn:#F2EFE8; --dawn-500:#A6A29A;
+    --sun:#E0A23C;
   }
   *{box-sizing:border-box}
   html{-webkit-text-size-adjust:100%}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
-       line-height:1.6;-webkit-font-smoothing:antialiased}
+  /* One gradient across the whole document, not per-section: the descent is a
+     single fall, so the sky should darken continuously as you scroll rather
+     than step at each rule. Scrolls with the content, so it spans the real
+     document height. */
+  body{margin:0;color:var(--ink);font-family:var(--sans);overflow-x:hidden;
+       line-height:1.6;-webkit-font-smoothing:antialiased;
+       background:var(--paper) linear-gradient(180deg,
+         #0D0D10 0%, #101017 30%, #15120F 58%, #0E0F13 82%, #07080B 100%) no-repeat;
+       background-size:100% 100%}
   .wrap{max-width:960px;margin:0 auto;padding:0 24px}
   /* section.wrap, not `section` alone: `.wrap` (0,1,0) outranks `section` (0,0,1),
      so a bare `section{padding:64px 0}` was silently losing all vertical padding. */
-  section.wrap{padding:64px 24px;border-bottom:2px solid var(--ink)}
+  section.wrap{padding:64px 24px;border-bottom:1px solid var(--hair)}
   section.wrap:last-of-type{border-bottom:none}
 
   .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
            text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  /* The arc marker: where you are in the myth. Decorative, and the only thing
+     on the page that is. */
+  .arc{font-family:var(--mono);font-size:11px;letter-spacing:.26em;
+       text-transform:uppercase;color:var(--sun);opacity:.75;margin:0 0 20px;
+       display:flex;align-items:center;gap:14px}
+  .arc::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,
+       rgba(224,162,60,.35),transparent)}
   h1{font-family:var(--mono);font-size:clamp(30px,5.4vw,52px);font-weight:700;
      letter-spacing:-.035em;line-height:1.06;margin:0 0 20px;text-wrap:balance}
-  h2{font-family:var(--mono);font-size:clamp(21px,3vw,28px);font-weight:700;
-     letter-spacing:-.025em;margin:0 0 16px;text-wrap:balance}
+  /* Serif headings below the hero too, so the page is one voice rather than a
+     serif poster bolted onto a mono page. */
+  h2{font-family:var(--display);font-size:clamp(28px,4.2vw,44px);font-weight:400;
+     letter-spacing:-.02em;line-height:1.06;margin:0 0 18px;text-wrap:balance}
   h3{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:-.01em;margin:0 0 6px}
   p{margin:0 0 16px;max-width:64ch}
   .lede{font-size:19px;color:var(--muted)}
   .lede strong{color:var(--ink);font-weight:600}
   a{color:var(--signal)}
 
-  /* brutalist block: hard offset shadow, no blur — the signature motif */
-  .block{background:var(--card);border:2px solid var(--ink);box-shadow:7px 7px 0 var(--ink);padding:22px}
-  .block.amber{border-color:var(--unknown);box-shadow:7px 7px 0 var(--unknown);background:var(--unknown-bg)}
+  /* The hard 7px offset slab is gone everywhere except the download button,
+     where it still reads as a control rather than as a leftover from a
+     different design. Surfaces are hairline + depth instead. */
+  .block{background:rgba(21,21,26,.62);border:1px solid var(--hair);
+    box-shadow:0 20px 48px rgba(0,0,0,.5);padding:22px}
+  .block.amber{border-color:rgba(224,162,60,.4);box-shadow:0 20px 48px rgba(0,0,0,.5);
+    background:var(--unknown-bg)}
 
   .cta{display:inline-flex;align-items:center;gap:10px;background:var(--ink);color:var(--paper);
        font-family:var(--mono);font-size:15px;font-weight:700;text-decoration:none;
-       padding:15px 22px;border:2px solid var(--ink);box-shadow:6px 6px 0 var(--signal)}
-  .cta:hover{box-shadow:3px 3px 0 var(--signal);transform:translate(3px,3px)}
-  .cta:focus-visible{outline:3px solid var(--signal);outline-offset:3px}
+       padding:15px 22px;border:2px solid var(--ink);box-shadow:6px 6px 0 var(--sun)}
+  .cta:hover{box-shadow:3px 3px 0 var(--sun);transform:translate(3px,3px)}
+  .cta:focus-visible{outline:3px solid var(--sun);outline-offset:3px}
   .ctarow{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:26px}
   .meta{font-family:var(--mono);font-size:12px;color:var(--muted)}
 
@@ -54,36 +85,64 @@
   .shot{max-width:470px;font-family:var(--sans)}
   .shot .q{font-size:16px;font-weight:600;margin-bottom:10px}
   .shot .a{font-size:15px;margin-bottom:12px}
-  .excerpt{font-family:var(--mono);font-size:11px;line-height:1.55;color:#2C3A34;
-           border-left:3px solid var(--cited);padding:8px 10px;background:rgba(21,122,91,.06);
-           margin-bottom:8px;overflow-x:auto}
+  /* pre-wrap: the quoted evidence is line-broken as the source had it, which is
+     how the app shows it. Without this every excerpt collapsed into one
+     reflowed paragraph — true in the hero replay too, so this fixes both. */
+  .excerpt{font-family:var(--mono);font-size:11px;line-height:1.55;color:#BFD9CD;
+           border-left:3px solid var(--cited);padding:8px 10px;background:rgba(111,211,168,.07);
+           margin-bottom:8px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
   .chip{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 8px;
         color:var(--cited);border:1.5px solid var(--cited);background:var(--cited-bg);margin-right:6px}
   .refuse{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:-.02em;margin:6px 0 10px}
 
-  /* real product screenshots: framed like a brutalist block, no recreation */
+  /* The two exchanges, typeset by the page in its own dark palette rather than
+     dropped in as light screenshots. Every string inside them is VERBATIM from
+     the real captures (kept in shots/) — the site chooses the typography, it
+     does not choose the words. Same rule as the hero replay above. */
   .specimen{margin:0}
-  .specimen img{display:block;width:100%;height:auto;
-    border:2px solid var(--ink);box-shadow:7px 7px 0 var(--ink)}
+  .frame{border:1px solid var(--hair);background:rgba(21,21,26,.62);
+    box-shadow:0 20px 48px rgba(0,0,0,.55);overflow:hidden}
+  .chrome{display:flex;align-items:center;gap:7px;padding:10px 13px;
+    border-bottom:1px solid var(--hair);font-family:var(--mono);font-size:11px;
+    color:var(--muted);letter-spacing:.05em}
+  .chrome i{width:8px;height:8px;border-radius:50%;background:rgba(236,234,227,.16);flex:none}
+  .chrome span{margin-left:8px}
+  .panel{padding:20px 18px 18px}
+  .panel .q{font-size:18px;font-weight:600;letter-spacing:-.01em;line-height:1.3;
+    margin:0 0 14px;color:var(--ink)}
+  .panel .a{font-size:15px;line-height:1.55;margin:0 0 16px;color:var(--ink)}
+  .panel .chip{margin-bottom:14px}
+  /* break-word, not anywhere: `anywhere` shrinks min-content width and made the
+     list wrap after "searched:" on a line of its own. */
+  .panel .searched{font-family:var(--mono);font-size:11px;line-height:1.7;
+    color:var(--muted);margin:0;overflow-wrap:break-word}
+  .panel .block.amber{padding:16px 16px 14px;box-shadow:none}
+  .panel .block.amber .eyebrow{color:var(--unknown);margin-bottom:8px}
+  .panel .refuse{color:var(--unknown);font-size:21px;margin:0 0 12px}
   .specimens{align-items:start}
 
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:26px;margin-top:8px}
   .steps{counter-reset:s;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:26px}
-  .step{border-top:2px solid var(--ink);padding-top:12px}
-  .step .n{font-family:var(--mono);font-size:11px;color:var(--signal);letter-spacing:.1em}
+  .step{border-top:1px solid var(--hair);padding-top:12px}
+  .step .n{font-family:var(--mono);font-size:11px;color:var(--sun);letter-spacing:.1em}
 
   ul.plain{margin:0;padding-left:18px}
   ul.plain li{margin-bottom:8px}
-  code{font-family:var(--mono);font-size:.9em;background:rgba(22,24,29,.06);padding:1px 5px}
-  pre{font-family:var(--mono);font-size:12px;background:var(--card);border:1.5px solid var(--hair);
+  /* overflow-wrap: the two 64-char SHA-256 digests are one unbreakable token
+     and pushed the document 75px wider than a phone viewport. Pre-existing;
+     fixed here rather than left because it was already the widest thing on the
+     page. */
+  code{font-family:var(--mono);font-size:.9em;background:rgba(236,234,227,.08);
+       padding:1px 5px;overflow-wrap:anywhere}
+  pre{font-family:var(--mono);font-size:12px;background:var(--card);border:1px solid var(--hair);
       padding:12px 14px;overflow-x:auto;margin:0 0 14px}
   footer{padding:40px 0 64px;font-family:var(--mono);font-size:12px;color:var(--muted)}
 
   /* --- live replay --------------------------------------------------------- */
-  .stage{margin-top:44px;padding:28px 24px;border:1.5px solid var(--hair);
-         background:linear-gradient(150deg,#EDEAE2 0%,#E6E9E7 50%,#EEE7E2 100%)}
-  .pill{max-width:470px;background:var(--card);border:2px solid var(--ink);
-        box-shadow:7px 7px 0 var(--ink);padding:14px 16px}
+  .stage{margin-top:44px;padding:28px 24px;border:1px solid var(--hair);
+         background:linear-gradient(150deg,rgba(21,21,26,.72) 0%,rgba(16,16,23,.62) 50%,rgba(21,18,15,.72) 100%)}
+  .pill{max-width:470px;background:rgba(21,21,26,.78);border:1px solid rgba(236,234,227,.16);
+        box-shadow:0 22px 52px rgba(0,0,0,.6);padding:14px 16px}
   .pillhead{display:flex;align-items:center;gap:10px;min-height:22px}
   .dot{width:9px;height:9px;border-radius:50%;background:var(--unknown);flex:none;opacity:.35}
   .dot.live{opacity:1}
@@ -94,10 +153,127 @@
   .pillbody{margin-top:12px;border-top:1.5px solid var(--hair);padding-top:12px}
   .pillbody .a{font-size:15px;margin-bottom:10px}
   .pillbody .a.refuse{font-family:var(--mono);font-size:20px;font-weight:700;
-                      letter-spacing:-.02em;color:#8A5200}
+                      letter-spacing:-.02em;color:var(--unknown)}
   .reveal{opacity:0;transform:translateY(10px);
           transition:opacity .5s ease,transform .5s ease}
   .reveal.in{opacity:1;transform:none}
+  /* --- hero: Icarus in flight ---------------------------------------------
+     Jan van Stinemolen's rocky landscape (c.1560s): Icarus a speck up near the
+     sun, Daedalus below him, and a whole valley of people not looking up.
+     Chosen over the usual Gowy/Rubens because that one is the *fall* — two
+     large nudes head-down — and this one is the flight.
+     The panel is bright, so it is graded down rather than merely dimmed:
+     opacity alone left it milky grey instead of night. */
+  .hero{position:relative;background:var(--night);color:var(--dawn);isolation:isolate;overflow:hidden}
+  /* `100% auto`, not `cover`: the hero is tall (the replay stage lives in it),
+     and cover would zoom a 1.8-wide plate until only flat sky was left — the
+     flying figure cropped straight out. Full width at natural height keeps the
+     whole composition visible at every viewport, and the band simply fades
+     into night below it. */
+  /* The pseudo-element IS the band — `aspect-ratio` instead of `inset:0` — so
+     the mask below fades exactly where the painting ends at every width. Tying
+     the fade to the hero's height instead left a hard horizontal cut across
+     the headline on a phone, where the hero is tall and the band is short. */
+  .hero::before{content:"";position:absolute;top:0;left:0;right:0;bottom:auto;
+    aspect-ratio:1400/775;z-index:-2;
+    background:url("art/icarus-flight.jpg") top center / 100% auto no-repeat;
+    filter:brightness(.74) contrast(1.12) saturate(.32) sepia(.24);
+    -webkit-mask-image:linear-gradient(180deg,#000 0 38%,rgba(0,0,0,.55) 74%,transparent 100%);
+    mask-image:linear-gradient(180deg,#000 0 38%,rgba(0,0,0,.55) 74%,transparent 100%)}
+  /* One wash left: hold the text column dark enough for the headline whatever
+     the sky is doing behind it. The vertical fade is the mask's job now. */
+  .hero::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+    background:linear-gradient(90deg,rgba(11,11,13,.72) 0%,rgba(11,11,13,.40) 48%,rgba(11,11,13,.08) 100%)}
+  .hero section.wrap{border-bottom:none;padding-bottom:0}
+  .hero h1{font-family:var(--display);font-weight:400;
+    font-size:clamp(42px,7.4vw,88px);letter-spacing:-.022em;line-height:.98;
+    margin:0 0 24px}
+  .hero .lede{font-size:20px;max-width:56ch}
+  .hero .stage{backdrop-filter:blur(2px)}
+  /* credit strip: mono, quiet, under each painting that appears */
+  .credit{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    color:rgba(236,234,227,.38);padding:30px 24px 24px;max-width:960px;margin:0 auto}
+  .credit a{color:rgba(236,234,227,.58)}
+
+  /* --- the descent: a plate behind every section ---------------------------
+     Four public domain works, each shown at a different detail per section, so
+     seven bands cost four downloads. Every one sits BEHIND body copy, so it
+     stays texture, and every one is credited where it appears.
+
+     Full-bleed inside a 960px column: the section is centred, the painting is
+     not. `left:50% / width:100vw / translateX(-50%)` rather than new wrapper
+     markup — hence body{overflow-x:hidden} above, since 100vw counts the
+     scrollbar.
+
+     The edges are handled by a MASK on the image, not by washing over it with
+     an opaque colour. That was the first approach and it meant hand-matching
+     seven hex values to wherever the body gradient happened to be at that
+     scroll depth — wrong the moment any section changes height. Masked, the
+     plate simply dissolves and whatever the page is doing shows through. */
+  .art{position:relative;isolation:isolate}
+  .art::before,.art::after{content:"";position:absolute;top:0;bottom:0;
+    left:50%;width:100vw;transform:translateX(-50%)}
+  /* `cover` on every plate, always: at any other size the bitmap has its own
+     hard left edge inside the band, which the radial mask (centred on the
+     artwork, not on that edge) does not fade — it showed up as a straight
+     vertical seam through the middle of a section. Covered, there are no image
+     edges at all and the mask is the only thing deciding what is visible. */
+  .art::before{z-index:-2;background-repeat:no-repeat;background-size:cover;
+    filter:brightness(.44) contrast(1.06) saturate(.3) sepia(.2);
+    -webkit-mask-image:radial-gradient(115% 115% at var(--fx) var(--fy),
+      #000 0%,rgba(0,0,0,.8) 40%,transparent 74%);
+    mask-image:radial-gradient(115% 115% at var(--fx) var(--fy),
+      #000 0%,rgba(0,0,0,.8) 40%,transparent 74%)}
+  /* Colour-agnostic dimming: transparent black works over any background, so
+     this rule never needs to know where in the gradient it landed. */
+  .art::after{z-index:-1;pointer-events:none;
+    background:linear-gradient(90deg,rgba(0,0,0,.74) 0%,rgba(0,0,0,.52) 46%,rgba(0,0,0,.22) 100%)}
+
+  /* --fx/--fy are the mask's focal point: where the plate is densest, which is
+     always the side the artwork is on, never the side the text is on.
+     background-position picks WHICH detail of the plate you get, so four files
+     carry seven bands. */
+  .sun::before     {--fx:82%;--fy:22%;background-image:url("art/icarus-flight.jpg");
+                    background-position:46% 4%}
+  .wings::before   {--fx:86%;--fy:38%;background-image:url("art/icarus-wings.jpg");
+                    background-position:32% 12%}
+  .wax::before     {--fx:82%;--fy:24%;background-image:url("art/icarus-fall.jpg");
+                    background-position:64% 12%}
+  .carried::before {--fx:86%;--fy:62%;background-image:url("art/icarus-sea.jpg");
+                    background-position:22% 74%}
+  .descent::before {--fx:84%;--fy:14%;background-image:url("art/icarus-fall.jpg");
+                    background-position:38% 78%}
+  /* Bruegel's ship under full sail rather than another crop of the Sacchi:
+     `cover` frames by section height, so on this tall section every position
+     that reads as "Daedalus's hands" at one height reads as a bare torso at
+     another. A landscape detail has no such failure mode — and a ship in full
+     sail is a second pair of wings anyway. */
+  .second::before  {--fx:84%;--fy:46%;background-image:url("art/icarus-sea.jpg");
+                    background-position:80% 56%}
+
+  /* the sea — Bruegel, full width rather than a detail. It closes the page
+     because it IS the product's point: the thing nobody recorded, happening
+     while everyone got on with the work. */
+  footer.sea{padding:200px 24px 96px;position:relative}
+  .sea::before{--fx:50%;--fy:80%;background-image:url("art/icarus-sea.jpg");
+    background-position:center bottom;
+    filter:brightness(.62) contrast(1.04) saturate(.46) sepia(.14);
+    -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 30%);
+    mask-image:linear-gradient(180deg,transparent 0,#000 30%)}
+  .sea::after{background:linear-gradient(180deg,rgba(0,0,0,.72) 0%,rgba(0,0,0,.34) 34%,rgba(0,0,0,.42) 100%)}
+  @media (max-width:820px){
+    /* Phone: the copy runs full width, so a plate beside it has nowhere to go.
+       Each one moves to the top of its section and fades out above the text. */
+    .art::before{
+      -webkit-mask-image:linear-gradient(180deg,#000 0 22%,transparent 56%);
+      mask-image:linear-gradient(180deg,#000 0 22%,transparent 56%)}
+    .art::after{background:linear-gradient(180deg,rgba(0,0,0,.42) 0%,rgba(0,0,0,.18) 60%)}
+    .sea::before{
+      -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 34%);
+      mask-image:linear-gradient(180deg,transparent 0,#000 34%)}
+    footer.sea{padding-top:130px}
+  }
+
   @media (prefers-reduced-motion:reduce){
     .cta:hover{transform:none}
     .reveal{opacity:1;transform:none;transition:none}
@@ -107,11 +283,13 @@
 </head>
 <body>
 
+<div class="hero">
 <header class="wrap" style="padding-top:44px">
   <p class="eyebrow">Icarus · macOS · alpha</p>
 </header>
 
 <section class="wrap">
+  <p class="arc">I · The ascent</p>
   <h1>Why is the code like this?<br />Ask. Get the receipts.</h1>
   <p class="lede">
     Icarus reads your repository — the code, the pull requests, the issue threads — and answers
@@ -141,7 +319,15 @@
   </div>
 </section>
 
-<section class="wrap">
+<p class="credit">
+  Rocky landscape with the fall of Icarus · Jan van Stinemolen, 16th c. ·
+  <a href="https://commons.wikimedia.org/wiki/File:Jan_van_Stinemolen_-_Rocky_landscape_with_the_fall_of_Icarus.jpg">Wikimedia
+  Commons</a> · public domain
+</p>
+</div><!-- /.hero -->
+
+<section class="wrap art sun">
+  <p class="arc">II · Too near the sun</p>
   <p class="eyebrow">The part nobody else demos</p>
   <h2>It tells you when it doesn't know.</h2>
   <p>
@@ -151,23 +337,63 @@
   </p>
 
   <div class="grid specimens" style="margin-top:30px">
+    <!-- Both panels below are VERBATIM output from Icarus about psf/requests.
+         The wording, the quoted evidence, the citation ids and the searched
+         list are transcribed from shots/panel_cited.png and
+         shots/panel_refusal.png; only the typesetting is the website's. If the
+         product's answers change, re-capture and re-transcribe — do not edit
+         these to read better. -->
     <figure class="specimen">
       <p class="eyebrow">A reason that was recorded</p>
-      <img src="shots/panel_cited.png" width="828" height="872" loading="lazy"
-           alt="The Icarus overlay answering &quot;Why does requests not support HTTP/2?&quot; with a cited answer, quoting issue #6856 and issue #6752." />
+      <div class="frame">
+        <div class="chrome"><i></i><i></i><i></i><span>Icarus · psf/requests</span></div>
+        <div class="panel">
+          <p class="q">Why does requests not support HTTP/2?</p>
+          <p class="a">HTTP/2 is a complex protocol, and it is unlikely that Requests will achieve good
+            support for it in its current form anytime soon. Additionally, support is likely blocked by
+            the lack of HTTP/2 support in the underlying urllib3 library.</p>
+          <div class="excerpt">Issue #6856: HTTP/2
+I am trying to get HTTP/2 with requests, and I found these:
+&gt; It can: http://hyper.readthedocs.org/en/development/quickstart.html#requests-integration
+https://github.com/psf/requests/issues/2082#issuecomment-44869333
+…</div>
+          <span class="chip">issue:6856</span>
+          <div class="excerpt" style="margin-top:14px">Issue #6752: RFC9113 — HTTP/2.0
+I can't find support for HTTP/2.0 in this package, I am also not sure if `urllib3` supports HTTP…
+https://datatracker.ietf.org/doc/html/rfc9113
+It is probably still blocked by the support of HTTP/2.0 in `urllib3` — the tracking issue https:…
+…</div>
+          <span class="chip">issue:6752</span>
+        </div>
+      </div>
     </figure>
     <figure class="specimen">
       <p class="eyebrow">A reason that was never recorded</p>
-      <img src="shots/panel_refusal.png" width="828" height="488" loading="lazy"
-           alt="The Icarus overlay answering &quot;Why is the redirect limit 30?&quot; with an amber &quot;No one wrote this down.&quot; and the list of sources it searched." />
+      <div class="frame">
+        <div class="chrome"><i></i><i></i><i></i><span>Icarus · psf/requests</span></div>
+        <div class="panel">
+          <p class="q">Why is the redirect limit 30?</p>
+          <div class="block amber">
+            <p class="eyebrow">Honest unknown</p>
+            <p class="refuse">No one wrote this down.</p>
+            <p class="searched">searched: doc:docs/user/quickstart.rst#L496–L573,
+              code:tests/test_requests.py#L262–L275, code:src/requests/exceptions.py#L106–L107,
+              issue:7209, code:tests/test_requests.py#L251–L260, issue:6942, issue:7248, issue:6481,
+              issue:6946, issue:6981, pr:7501, code:src/requests/sessions.py#L186–L307, issue:6758,
+              issue:6407, issue:6784, issue:6471, pr:7487, issue:7020, issue:6546, issue:6723</p>
+          </div>
+        </div>
+      </div>
     </figure>
   </div>
   <p class="meta" style="margin-top:22px">
-    Real screenshots of Icarus answering about <code>psf/requests</code>, a repository it had not seen before.
+    Two real exchanges with Icarus about <code>psf/requests</code>, a repository it had not seen
+    before — quoted word for word, set in the type of this page.
   </p>
 </section>
 
-<section class="wrap">
+<section class="wrap art wings">
+  <p class="arc">III · The wings</p>
   <h2>How it works</h2>
   <div class="steps">
     <div class="step"><div class="n">01</div><h3>Connect a repository</h3>
@@ -180,9 +406,15 @@
       <p>Icarus speaks a one-line summary and puts the quoted evidence on screen, linked to the exact
       lines on GitHub. Or it tells you nobody recorded a reason.</p></div>
   </div>
+  <p class="credit" style="padding:30px 0 0">
+    Daedalus and Icarus · Andrea Sacchi, c. 1645 ·
+    <a href="https://commons.wikimedia.org/wiki/File:Andrea_Sacchi_-_Daedalus_and_Icarus_-_Google_Art_Project.jpg">Musei
+    di Strada Nuova, Genoa</a> · public domain
+  </p>
 </section>
 
-<section class="wrap">
+<section class="wrap art wax">
+  <p class="arc">IV · The wax</p>
   <h2>What it will not do</h2>
   <p>Stated plainly, because a tool that hides its limits is asking to be trusted rather than checked.</p>
   <ul class="plain">
@@ -195,9 +427,14 @@
     <li><strong>It is an alpha.</strong> Large repositories index slowly, and the app is not yet notarized
       by Apple — see the install note below.</li>
   </ul>
+  <p class="credit" style="padding:26px 0 0">
+    The Fall of Icarus · Jacob Peter Gowy, after Rubens, c. 1636–1638 ·
+    <a href="https://commons.wikimedia.org/wiki/File:Gowy-icaro-prado.jpg">Museo del Prado</a> · public domain
+  </p>
 </section>
 
-<section class="wrap">
+<section class="wrap art carried">
+  <p class="arc">V · What he carried</p>
   <h2>Your code</h2>
   <ul class="plain">
     <li>Your code is <strong>never used to train any model</strong>, and is discarded after each request.</li>
@@ -225,7 +462,8 @@
   </p>
 </section>
 
-<section class="wrap">
+<section class="wrap art descent">
+  <p class="arc">VI · The descent</p>
   <h2>Install</h2>
   <p>
     Icarus is not notarized by Apple — notarization requires a paid Developer ID this alpha does not
@@ -293,7 +531,8 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
   </div>
 </section>
 
-<section class="wrap">
+<section class="wrap art second">
+  <p class="arc">VII · A second pair of wings</p>
   <h2>The GitHub extension</h2>
   <p>
     Optional, and separate from the app. It puts Icarus on GitHub itself: select lines in a file,
@@ -331,13 +570,21 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
   </div>
 </section>
 
-<footer class="wrap">
+<footer class="wrap art sea">
+  <p class="arc">The sea</p>
   <p style="margin:0 0 12px">
     Beta feedback, bugs, and questions →
     <a href="mailto:ayushghosh2015@gmail.com?subject=Icarus%20beta%20feedback">ayushghosh2015@gmail.com</a>
   </p>
-  Icarus · a conversational engineering brain that answers <em>why</em> — with receipts, and an honest
-  "no one wrote this down" when there isn't one.
+  <p style="margin:0 0 26px">
+    Icarus · a conversational engineering brain that answers <em>why</em> — with receipts, and an honest
+    "no one wrote this down" when there isn't one.
+  </p>
+  <p class="credit" style="padding:0">
+    Landscape with the Fall of Icarus · after Pieter Bruegel the Elder, c. 1560 ·
+    <a href="https://commons.wikimedia.org/wiki/File:Pieter_Bruegel_the_Elder_-_Landscape_with_the_Fall_of_Icarus_-_WGA03322.jpg">Wikimedia
+    Commons</a> · public domain. The ploughman never looks up.
+  </p>
 </footer>
 
 <script>

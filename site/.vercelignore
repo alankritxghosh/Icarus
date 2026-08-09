@@ -1,0 +1,6 @@
+# Unreferenced local recordings — 16MB of .mov published to a public URL for
+# no reason. The .png captures beside them are also no longer referenced by
+# index.html (the two panels are transcribed into the page as HTML now), but
+# they stay deployed on purpose: they are the provenance for that transcription
+# and are 300KB, not 16MB.
+shots/*.mov
