@@ -1,3 +1,138 @@
+# Icarus — Session Handoff (2026-08-09: live wrong-PR bug found and fixed on main, NOT yet deployed; two tasks queued for next session)
+
+**READ THIS FIRST.** A live bug was found via a user screenshot, root-caused,
+fixed, and pushed to `main` — but **the fix is not live**. Azure is still
+serving the revision from before this fix. Start next session by deploying it
+before anything else, unless a reason not to is written down by then.
+
+**State, precisely:**
+- `main` @ `3f323db`, pushed. Fix only — nothing else from the working tree's
+  other in-progress files (`evals/gate.py`, `demo/ledger.py`, the ledger
+  actionability work) was touched or committed.
+- Azure: live revision `icarus-brain--0000051`, image
+  `alpha-20260809-investigation-engine`, created `2026-08-08T22:28:51Z` —
+  **before** `3f323db` existed. Confirmed by timestamp comparison, not
+  assumed. Deploy is manual only (`docs/DISTRIBUTION.md`); nothing
+  auto-deploys on push.
+- Homebrew cask: updated to `0.1.5`, pushed (`de05ac9` in the
+  `homebrew-icarus` tap), verified live via `brew tap` + `brew info` — matches
+  the website/appcast, which were already at `0.1.5`/build 8.
+- **Tests: NOT a full green run this session.** Only the targeted suite for
+  the fix itself ran to completion (96 tests, `evals/test_exact_ref_lookup.py`
+  + `evals/test_pipeline.py` + `evals/test_investigator.py`, all pass) — see
+  §1. The full `evals` suite was started in the background twice and never
+  produced a result before the session ended; do not assume it's green.
+  Re-run it before deploying, not after.
+
+---
+
+## 1. The bug, found live via a screenshot
+
+**Report:** user asked the Mac app "Why was the PR of 400 introduced" against
+`Tracer-Cloud/opensre`. Icarus answered — confidently, fully cited — about
+PR #3649 (a `MAX_MESSAGE_SIZE` refactor), not PR #400.
+
+**Root cause:** `evals/pipeline.py`'s `_ISSUE_OR_PR_REF` required the number
+to sit immediately after the kind word (only whitespace or `#` allowed
+between). "PR **of** 400" has a word in the gap, so it anchored **nothing**,
+fell through to ordinary search, and search's top hit became the confident
+answer. **Groundedness could not catch this**: the citation was genuinely
+real, retrieved, in-window — just for the wrong subject. Same failure class
+as the 2026-08-06 selection-drift finding, different surface.
+
+**Fix:** a bounded connector-word class —
+`_REF_CONNECTOR = r"(?:\s+(?:of|for|number|no|num|#)\b)?"` — spliced into
+both `_ISSUE_OR_PR_REF` and `_NAMED_REF_KIND`. Deliberately a closed list, and
+deliberately kept adjacent to the number, so "the PR reworked retries... we
+saw 400 errors" still does **not** false-positive on the unrelated 400.
+
+**Proof it isn't vacuous:** the regression test was run against the
+*previous* regex and reproduced the exact reported failure mode
+(`pr:9001` — a filler chunk — instead of `pr:400`). New tests in
+`evals/test_exact_ref_lookup.py` build a corpus with **zero vocabulary
+overlap** between the question and the gold ref, so anything reached via
+`retrieved` proves the anchor path fired, not search luck.
+
+**Not done:** the equivalent live board / production repros against
+`Tracer-Cloud/opensre` itself — this was fixed and proven against a
+synthetic corpus, not replayed against the repo that surfaced it.
+
+## 2. Next session, task 1 (do this first): deploy `3f323db`
+
+1. Re-run the full offline suites fresh — `evals` and `demo` — and confirm
+   green before building anything. Don't trust this handoff's numbers; they
+   don't exist for the full suite this session.
+2. `docker build --platform linux/amd64 -t caec8849f1f0acr.azurecr.io/icarus-brain:<new-tag> .`
+   (ACR Tasks is disabled on this registry — build **locally**, cloud build
+   is blocked. See `docs/DISTRIBUTION.md`.)
+3. Push to ACR, `az containerapp update --name icarus-brain --image ...`.
+   **Each redeploy resets active user sessions** — a known, accepted cost,
+   not a bug if it happens.
+4. Verify live: re-ask the exact reported phrasing against a repo where the
+   gold PR is confirmed indexed, confirm it anchors correctly post-deploy.
+
+## 3. Next session, task 2: build the GitHub → Azure deploy sync
+
+Discussed but deliberately **not built** this session — adding a credential
+to GitHub secrets at 6am after no sleep was judged not worth doing awake vs.
+not.
+
+The constraint that shapes this: **ACR Tasks is disabled**, so the simple
+`az acr build`-from-Actions path is blocked. The workaround is a GitHub
+Actions runner doing the `docker build` itself (not Azure's build service),
+then pushing to ACR and calling `az containerapp update` — mechanically the
+same three steps as manual deploy, just running on GitHub's machine.
+
+Three trigger shapes were discussed, in order of preference:
+1. **`workflow_dispatch`** (a manual "Deploy" button in the Actions tab) —
+   the recommended default. Deliberate, but doesn't require this laptop.
+2. Deploy on tag/release — auto, but only on a deliberate release cut.
+3. Deploy on every push to `main` — true auto-sync, but **not recommended**:
+   every redeploy resets sessions, so a typo-fix commit would boot every
+   live tester. Only reasonable once there's a staging environment.
+
+Needs: an Azure service principal or OIDC federated credential, stored as
+GitHub secrets. This is a real credential-hygiene decision — read it
+carefully before pasting anything into GitHub's secrets UI, per AGENTS.md's
+"a credential is a responsibility."
+
+Rough time estimate given honestly at the time: 30–45 minutes end to end
+(YAML ~10 min, Azure SP/RBAC ~10–15 min, first real triggered run
+~10–20 min and unpredictable — a cold `docker build` on a GitHub-hosted
+runner with no warm cache is the part most likely to need a debug loop).
+
+## 4. Next session, task 3 (new): scope GitLab — is there anything there?
+
+**This is a research question, not a build commitment.** Per `AGENTS.md`,
+GitHub is the locked v1 evidence source; widening that is a scope decision
+that needs to be made explicitly, not inferred from a task. Alankrit asked
+to look into whether there's *scope* for Icarus on GitLab — treat this
+session as answering that question, not as authorization to build a GitLab
+adapter.
+
+Things worth actually checking, not assuming, before forming a view:
+- Does GitLab's API expose the equivalent evidence Icarus depends on today —
+  PR (merge request) description + discussion threads, linked issues, commit
+  messages, per-file diffs — with comparable provenance/pinning to a commit
+  SHA the way GitHub's does? `evals/ingest.py`'s whole shape assumes GitHub's
+  `gh` CLI and its JSON fields; a GitLab adapter is not a find-and-replace.
+  Actual API research needed here, not a guess from memory.
+- Is there real customer/design-partner demand for it, or is this
+  speculative? Check `docs/decisions/` and outreach logs
+  (`site/for/outreach_log.jsonl`) for any prior signal before assuming none
+  exists.
+- What's the honest incremental cost — new source-adapter code, a second
+  ingest path to keep honest, a second set of eval fixtures — versus the
+  size of the addressable market it opens. This is exactly the kind of
+  "rent commodities, own the moat" tradeoff `docs/STRATEGY.md` already has a
+  frame for; use it rather than reasoning from scratch.
+
+Deliverable for next session: a short written recommendation (go / not yet /
+no), not code. If the answer is "go," that becomes its own scoped task
+afterward — don't let research-momentum turn into an unauthorized build.
+
+---
+
 # Icarus — Session Handoff (2026-08-07/08: PR #1 merged and deployed, private repos opened to coding agents, first-ever outreach REPLY)
 
 **READ THIS FIRST.** Three things shipped and one thing changed posture.
