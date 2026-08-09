@@ -29,7 +29,9 @@ secrets-scan:
 
 tests:
   stage: test
-  image: python:3.12-slim
+  # Not -slim: test_egress_invariants shells out to `git` to prove the per-user
+  # private tree is ignored, and slim ships no git.
+  image: python:3.12
   script:
     - python3 -m unittest discover -t . -s evals
     - python3 -m unittest discover -t . -s demo
