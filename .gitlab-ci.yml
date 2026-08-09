@@ -1,0 +1,73 @@
+# Icarus brain — build the container and redeploy the Azure Container App.
+#
+# Push to main -> secrets scan + full Python suites -> docker build -> push to
+# ACR -> `az containerapp update`. Deploy runs only if the tests pass, because
+# every redeploy drops every connected session (Azure storage is ephemeral);
+# shipping a red build costs users their session for nothing.
+#
+# ACR Tasks is disabled on this registry, so the runner does the docker build
+# itself rather than calling `az acr build`.
+#
+# Required CI/CD variables (Settings -> CI/CD -> Variables), all Masked +
+# Protected, from one service principal with AcrPush on the registry and
+# Contributor on the container app:
+#   AZURE_CLIENT_ID  AZURE_CLIENT_SECRET  AZURE_TENANT_ID
+
+stages: [test, build, deploy]
+
+variables:
+  ACR: caec8849f1f0acr
+  IMAGE: caec8849f1f0acr.azurecr.io/icarus-brain
+  APP: icarus-brain
+  RESOURCE_GROUP: icarus-rg
+
+secrets-scan:
+  stage: test
+  image: alpine:3.20
+  before_script: [apk add --no-cache bash git grep]
+  script: bash scripts/scan_secrets.sh
+
+tests:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - python3 -m unittest discover -t . -s evals
+    - python3 -m unittest discover -t . -s demo
+
+build:
+  stage: build
+  image: docker:27-cli
+  services: [docker:27-dind]
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  script:
+    # A service principal's appId/password are valid docker credentials for ACR,
+    # so the build stage needs no az CLI.
+    - echo "$AZURE_CLIENT_SECRET" | docker login "$ACR.azurecr.io" -u "$AZURE_CLIENT_ID" --password-stdin
+    - docker build -t "$IMAGE:$CI_COMMIT_SHORT_SHA" -t "$IMAGE:latest" .
+    - docker push "$IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE:latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+deploy:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  script:
+    - az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
+    - az containerapp update --name "$APP" --resource-group "$RESOURCE_GROUP" --image "$IMAGE:$CI_COMMIT_SHORT_SHA"
+    - FQDN=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+    # Deploy is not done until the new revision actually serves.
+    - for i in $(seq 1 30); do curl -fsS "https://$FQDN/health" && exit 0; sleep 10; done; exit 1
+  rules:
+    # Manual gate: a redeploy drops every connected session, so it stays a
+    # deliberate click rather than a side effect of any commit to main. Change
+    # to `when: on_success` once a staging environment exists.
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  environment:
+    name: production
+    url: https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io
