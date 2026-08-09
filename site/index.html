@@ -255,12 +255,22 @@
      because it IS the product's point: the thing nobody recorded, happening
      while everyone got on with the work. */
   footer.sea{padding:200px 24px 96px;position:relative}
+  /* Framed right-of-centre: the brightest passage in this painting is the
+     shepherd and his flock, and centred it landed exactly under the footer
+     copy. Pushed right, the dark trees take the text side and the flock, the
+     ship and the plough stay visible. */
   .sea::before{--fx:50%;--fy:80%;background-image:url("art/icarus-sea.jpg");
-    background-position:center bottom;
-    filter:brightness(.62) contrast(1.04) saturate(.46) sepia(.14);
+    background-position:74% bottom;
+    filter:brightness(.54) contrast(1.04) saturate(.46) sepia(.14);
     -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 30%);
     mask-image:linear-gradient(180deg,transparent 0,#000 30%)}
-  .sea::after{background:linear-gradient(180deg,rgba(0,0,0,.72) 0%,rgba(0,0,0,.34) 34%,rgba(0,0,0,.42) 100%)}
+  /* Heavier below 40% than the other plates: the footer text sits over the
+     brightest part of this painting (the shepherd and the flock), and at the
+     .34 the other bands use, the credit line was not readable. */
+  .sea::after{background:
+    linear-gradient(90deg,rgba(0,0,0,.62) 0%,rgba(0,0,0,.34) 55%,rgba(0,0,0,.10) 100%),
+    linear-gradient(180deg,rgba(0,0,0,.70) 0%,rgba(0,0,0,.24) 26%,
+    rgba(0,0,0,.52) 48%,rgba(0,0,0,.62) 100%)}
   @media (max-width:820px){
     /* Phone: the copy runs full width, so a plate beside it has nowhere to go.
        Each one moves to the top of its section and fades out above the text. */
