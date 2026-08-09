@@ -15,6 +15,18 @@
 
 stages: [test, build, deploy]
 
+# The only paths that can change the shipped image — everything else
+# (docs/, site/, mac/, extension/) is excluded by .dockerignore, so a commit
+# touching just those would rebuild a byte-identical image. Both `build` and
+# `deploy` gate on this: skipping the build but leaving the deploy clickable
+# would offer to deploy a tag that was never pushed.
+.image_sources: &image_sources
+  - Dockerfile
+  - requirements.txt
+  - evals/**/*
+  - demo/**/*
+  - .gitlab-ci.yml
+
 variables:
   ACR: caec8849f1f0acr
   IMAGE: caec8849f1f0acr.azurecr.io/icarus-brain
@@ -54,6 +66,7 @@ build:
     - docker push "$IMAGE:latest"
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+      changes: *image_sources
 
 deploy:
   stage: deploy
@@ -69,6 +82,7 @@ deploy:
     # deliberate click rather than a side effect of any commit to main. Change
     # to `when: on_success` once a staging environment exists.
     - if: $CI_COMMIT_BRANCH == "main"
+      changes: *image_sources
       when: manual
   environment:
     name: production
