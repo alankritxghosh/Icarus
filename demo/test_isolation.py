@@ -117,20 +117,43 @@ def _disconnect(base, token):
         return resp.status, json.loads(resp.read())
 
 
-def _wait_until_ready(base, token, timeout_iters=100):
-    """Bounded poll for /status to leave 'indexing' -- mirrors the polling
-    pattern already used in demo/test_server.py's test_connect_valid_repo_
-    starts_switch (there it polls a stub's `connected` list directly since it
-    has no real Library; here we have a real Library so we poll the real
-    status_snapshot state machine, which is the stronger, real signal)."""
+def _wait_until_ready(base, token, repo=None, timeout_s=20.0):
+    """Poll /status until this caller's library is READY, on `repo` when given.
+
+    Closes two races, both of which produced the SAME confusing failure -- an
+    assertion about answer CONTENT naming the previous repo, rather than
+    anything about readiness (seen live in CI 2026-08-10, `'octo__xrepo' not
+    found in '.../default'`):
+
+    1. FALSE READY. `POST /connect` returns 202 before the worker thread has
+       set state="indexing", so a poll that only waits for state != "indexing"
+       can return on the very first read, while the library is still the
+       PREVIOUS one and legitimately "ready". No timeout increase fixes this;
+       the condition itself was wrong. Waiting for the EXPECTED repo does.
+    2. SILENT TIMEOUT. The old bound was 100 iterations x 20ms = 2s, after
+       which it RETURNED the stale status instead of failing, so a slow runner
+       produced a content mismatch instead of "readiness timed out".
+
+    Now fails loudly on timeout and on a connect error, and `connecting_to`
+    (demo/library.status_snapshot) must be clear, so a publish that has not
+    happened yet can never read as done.
+    """
     import time
-    status = None
-    for _ in range(timeout_iters):
-        _, status = _status(base, token)
-        if status["state"] != "indexing":
-            return status
+    deadline = time.monotonic() + timeout_s
+    last = None
+    while time.monotonic() < deadline:
+        _, last = _status(base, token)
+        if last.get("state") == "error":
+            raise AssertionError(
+                f"connect failed while waiting for {repo or 'ready'}: {last.get('error')!r}")
+        if (last.get("state") == "ready"
+                and not last.get("connecting_to")
+                and (repo is None or last.get("repo") == repo)):
+            return last
         time.sleep(0.02)
-    return status
+    raise AssertionError(
+        f"timed out after {timeout_s}s waiting for "
+        f"{repo or 'ready'}; last status={last!r}")
 
 
 class _IsolationTestBase(unittest.TestCase):
@@ -187,7 +210,7 @@ class ConnectIsolationTests(_IsolationTestBase):
     def test_b_status_shows_default_after_a_connects(self):
         status, _ = _connect(self.base, self.TOK_A, "octo/xrepo")
         self.assertEqual(status, 202)
-        a_status = _wait_until_ready(self.base, self.TOK_A)
+        a_status = _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
         self.assertEqual(a_status["state"], "ready")
         self.assertEqual(a_status["repo"], "octo/xrepo")
 
@@ -203,7 +226,7 @@ class AskIsolationTests(_IsolationTestBase):
 
     def test_a_ask_reveals_xrepo_b_ask_reveals_default_only(self):
         _connect(self.base, self.TOK_A, "octo/xrepo")
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
 
         status, a_payload = _ask(self.base, self.TOK_A, "why?")
         self.assertEqual(status, 200)
@@ -221,7 +244,7 @@ class StorageIsolationTests(_IsolationTestBase):
 
     def test_a_has_storage_b_has_none_until_b_acts(self):
         _connect(self.base, self.TOK_A, "octo/xrepo")
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
 
         # The corpus is shared public data -> it lands in the shared cache, NOT
         # under the connecting user's identity dir.
@@ -238,9 +261,9 @@ class UnauthenticatedIsolationTests(_IsolationTestBase):
 
     def test_unauthenticated_status_shows_shared_default_only(self):
         _connect(self.base, self.TOK_A, "octo/xrepo")
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
         _connect(self.base, self.TOK_B, "octo/yrepo")
-        _wait_until_ready(self.base, self.TOK_B)
+        _wait_until_ready(self.base, self.TOK_B, "octo/yrepo")
 
         status, anon_status = _status(self.base, token=None)
         self.assertEqual(status, 200)
@@ -267,9 +290,9 @@ class DisconnectIsolationTests(_IsolationTestBase):
 
     def test_a_disconnect_never_affects_b(self):
         _connect(self.base, self.TOK_A, "octo/xrepo")
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
         _connect(self.base, self.TOK_B, "octo/yrepo")
-        _wait_until_ready(self.base, self.TOK_B)
+        _wait_until_ready(self.base, self.TOK_B, "octo/yrepo")
 
         b_shared = self.storage / "public.cache" / "octo__yrepo"
         self.assertTrue((self.storage / "public.cache" / "octo__xrepo").exists())
@@ -299,9 +322,9 @@ class ProvenanceIsolationTests(_IsolationTestBase):
 
     def test_two_different_repos_never_leak_into_each_other(self):
         _connect(self.base, self.TOK_A, "octo/xrepo")
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, "octo/xrepo")
         _connect(self.base, self.TOK_B, "octo/yrepo")
-        _wait_until_ready(self.base, self.TOK_B)
+        _wait_until_ready(self.base, self.TOK_B, "octo/yrepo")
 
         status, a_payload = _ask(self.base, self.TOK_A, "why?")
         self.assertEqual(status, 200)
@@ -354,7 +377,7 @@ class SharedPrivateCorpusTests(_IsolationTestBase):
     def test_one_ingest_is_shared_and_lands_in_the_private_root(self):
         status, _ = _connect(self.base, self.TOK_A, self.PRIVATE)
         self.assertIn(status, (200, 202))
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, self.PRIVATE)
         shared = self.storage / "private.cache" / "acme__secret" / "chunks.jsonl"
         self.assertTrue(shared.exists(), "the private corpus lives in the shared private root")
         self.assertFalse((self.storage / self.USER_A / "private").exists())
@@ -366,7 +389,7 @@ class SharedPrivateCorpusTests(_IsolationTestBase):
         # corpus is now on a shared shelf, and only the live GitHub check stops
         # B -- who is a perfectly valid, signed-in user -- from reading it.
         _connect(self.base, self.TOK_A, self.PRIVATE)
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, self.PRIVATE)
 
         # B points at the same private repo. GitHub refuses them at /connect.
         # (urlopen raises on 4xx, so this is assertRaises rather than a status
@@ -421,7 +444,7 @@ class RevokedAccessLosesTheSharedCorpusTests(_IsolationTestBase):
 
     def test_reads_stop_once_github_revokes_access(self):
         _connect(self.base, self.TOK_B, self.PRIVATE)
-        _wait_until_ready(self.base, self.TOK_B)
+        _wait_until_ready(self.base, self.TOK_B, self.PRIVATE)
         status, _ = _ask(self.base, self.TOK_B, "what is here?")
         self.assertEqual(status, 200, "entitled while employed")
 
@@ -434,7 +457,7 @@ class RevokedAccessLosesTheSharedCorpusTests(_IsolationTestBase):
     def test_a_colleague_who_still_has_access_is_unaffected(self):
         # Revoking one person must not lock out the rest of the team.
         _connect(self.base, self.TOK_A, self.PRIVATE)
-        _wait_until_ready(self.base, self.TOK_A)
+        _wait_until_ready(self.base, self.TOK_A, self.PRIVATE)
         self.entitled.discard(self.TOK_B)
         status, _ = _ask(self.base, self.TOK_A, "what is here?")
         self.assertEqual(status, 200)
