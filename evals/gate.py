@@ -161,6 +161,76 @@ def _resolve(cit, retrieved: List[str]):
     return None
 
 
+# --- writer self-report: which refs does each sentence restate? ---------------
+# ADVISORY. Nothing here influences a verdict, and `attribute_claims` is never
+# called by `gate()`. It exists so a caller can verify SELECTIVELY instead of
+# verifying everything.
+#
+# Why: four real Agent Mode tasks (docs/experiments/2026-08-10-*) produced seven
+# substantive answers -- six accurate, one fabricated, one scope-inflated. Every
+# accurate answer restated ONE cited chunk; the fabrication asserted a rule
+# assembled from two real sources that individually stated neither. Detecting
+# that after the fact provably does NOT work: a plausible fabrication is built
+# out of the evidence's own vocabulary, so it scores HIGHER on lexical overlap
+# than an honest paraphrase (measured, see the negative-result doc). The writer,
+# however, knows which blocks it drew on, and that was being discarded.
+#
+# The honest boundary: a self-report is EVIDENCE, not proof. A writer that merged
+# two chunks can still report one. What is proven deterministically here is only
+# that each named ref was genuinely retrieved -- reusing `_resolve`, so a claim
+# citation is held to the exact same standard as an answer citation, and a ref
+# that was never retrieved is DROPPED rather than trusted. Dropping can only ever
+# move a claim toward `unsupported`, never away from it: the same fail-safe
+# direction as the guards above.
+CLAIM_QUOTED = "quoted"            # restates exactly one retrieved chunk
+CLAIM_COMPOSED = "composed"        # needs two or more chunks taken together
+CLAIM_UNSUPPORTED = "unsupported"  # cites nothing that was actually retrieved
+
+
+def attribute_claims(parsed, retrieved: List[str]) -> List[dict]:
+    """Validate a writer's per-sentence self-report against what was retrieved.
+
+    `parsed` is the writer's already-decoded reply (see `extract_json`); a reply
+    with no "claims" key -- every caller that did not set `per_claim` -- yields
+    an empty list, so this is inert unless deliberately switched on.
+
+    Returns one dict per well-formed claim: {text, citations, label}, where
+    `citations` are canonical retrieved refs (unresolvable ones removed) and
+    `label` is CLAIM_QUOTED / CLAIM_COMPOSED / CLAIM_UNSUPPORTED.
+
+    Malformed input is skipped, never raised on: this runs beside a live answer
+    and must not be able to turn a good answer into an error.
+    """
+    if not isinstance(parsed, dict):
+        return []
+    raw_claims = parsed.get("claims")
+    if not isinstance(raw_claims, list):
+        return []
+
+    out = []
+    for claim in raw_claims:
+        if not isinstance(claim, dict):
+            continue
+        text = claim.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        cits = claim.get("citations")
+        cits = cits if isinstance(cits, list) else []
+        resolved = []
+        for c in cits:
+            r = _resolve(c, retrieved)
+            if r and r not in resolved:
+                resolved.append(r)
+        if not resolved:
+            label = CLAIM_UNSUPPORTED
+        elif len(resolved) == 1:
+            label = CLAIM_QUOTED
+        else:
+            label = CLAIM_COMPOSED
+        out.append({"text": text.strip(), "citations": resolved, "label": label})
+    return out
+
+
 # --- (b) rationale-support guard ----------------------------------------------
 # Groundedness (citations subset of retrieved) proves the writer cited real
 # evidence, but NOT that the evidence answers the question. The blind spot is a

@@ -92,6 +92,23 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
         # asked about isn't in this repo". None on an answer.
         "reason": result.abstention_reason if result.verdict == "unknown" else None,
     }
+    # The writer's per-sentence self-report, when the caller asked for it
+    # (`per_claim`). Additive and ABSENT unless present, so every existing
+    # client is byte-identical. Each entry is {text, citations, label} where
+    # label is quoted / composed / unsupported -- `composed` means the sentence
+    # needs two or more chunks TAKEN TOGETHER, which is the one shape that
+    # produced a fabricated answer across four measured Agent Mode tasks and
+    # that cannot be recovered after the fact (docs/experiments/2026-08-10-*).
+    # It marks a sentence as worth checking; it never asserts one is wrong, and
+    # the honesty gate has already passed everything shown here.
+    if result.claims:
+        payload["claims"] = [
+            {"text": c["text"],
+             "citations": [{"ref": ref, "url": ref_to_url(ref, repo, commit)}
+                           for ref in c["citations"]],
+             "label": c["label"]}
+            for c in result.claims
+        ]
     if include_evidence:
         payload["evidence"] = [
             {

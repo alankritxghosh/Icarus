@@ -130,6 +130,16 @@ class Result:
     # existing here -- and the unknowns map cannot tell a team's real
     # documentation debt from a typo without this.
     abstention_reason: str = None
+    # claims: the writer's per-sentence self-report of which refs each sentence
+    # restates, validated against `retrieved` (evals/gate.attribute_claims).
+    # Empty unless the caller asked for it with `per_claim=True`. ADVISORY: it
+    # says whether a sentence quotes one chunk or merges several, which is the
+    # one distinction that separated the accurate answers from the fabricated
+    # one across four measured tasks -- and which provably cannot be recovered
+    # after the fact (docs/experiments/2026-08-10-quotation-vs-composition-
+    # negative-result.md). Never feeds the gate; a verdict is identical with it
+    # on or off.
+    claims: List[Dict] = field(default_factory=list)
 
 
 class Pipeline:
@@ -259,7 +269,12 @@ class GatedPipeline(Pipeline):
         forgotten is always the one that touches private code."""
         return self._provider
 
-    def answer(self, question: str, token: str = None, audience: str = None) -> Result:
+    def answer(self, question: str, token: str = None, audience: str = None,
+               per_claim: bool = False) -> Result:
+        # `per_claim` (2026-08-10) asks the writer to also report which refs each
+        # sentence restates (evals/synth._PER_CLAIM_RULE). Default False keeps the
+        # prompt byte-identical, so /ask and the eval board are untouched.
+        #
         # `audience` (2026-08-06): None/"developer" is byte-identical to before
         # this parameter existed (see synth.build_prompt). "plain" asks the
         # writer for prose a non-technical reader can follow -- same evidence,
@@ -305,10 +320,10 @@ class GatedPipeline(Pipeline):
         top = [lookup[r] for r in retrieved[: self._writer_k] if r in lookup]
         return self._answer_from(question, top, retrieved, audience=audience,
                                  notes=_premise_notes(question, anchor_refs),
-                                 anchored=anchor_refs)
+                                 anchored=anchor_refs, per_claim=per_claim)
 
     def explain(self, path: str, start: int, end: int, question: str = None,
-                neighbors: bool = True) -> Result:
+                neighbors: bool = True, per_claim: bool = False) -> Result:
         """Brick D: explain a GitHub line selection, not a free-text question.
 
         Resolves evidence by LOCATION -- the chunk(s) covering [start, end] in
@@ -371,6 +386,7 @@ class GatedPipeline(Pipeline):
             # is context like any other, so it is withheld there too.
             index_evidence=neighbors,
             index_standalone=False,  # a location that resolved to nothing stays unknown
+            per_claim=per_claim,
         )
 
     def _index_chunk(self):
@@ -385,7 +401,8 @@ class GatedPipeline(Pipeline):
     def _answer_from(self, question: str, top: List, retrieved: List[str],
                      guard_rationale: bool = True, notes=None, anchored=None,
                      selection=None, index_evidence: bool = True,
-                     index_standalone: bool = True, audience: str = None) -> Result:
+                     index_standalone: bool = True, audience: str = None,
+                     per_claim: bool = False) -> Result:
         """The shared writer -> gate() core both .answer() and .explain() go
         through -- one honesty path, two ways of assembling the evidence
         (search vs. location resolution) that feed it.
@@ -410,7 +427,7 @@ class GatedPipeline(Pipeline):
         number in the repo. Only .explain() passes `selection`, because only
         there did the USER point at specific lines."""
         from .synth import build_prompt   # local imports avoid a circular import
-        from .gate import gate
+        from .gate import gate, attribute_claims, extract_json
         anchored = list(dict.fromkeys(anchored or ()))
         # Icarus's own index, offered as ordinary evidence (evals/index_facts).
         #
@@ -441,9 +458,10 @@ class GatedPipeline(Pipeline):
         # Pass the question + the evidence text the writer actually saw so the
         # gate can enforce the (b) rationale-support guard, not just groundedness.
         evidence = {c.ref: c.text for c in top}
-        result = gate(self._provider.complete(
-                          build_prompt(question, top, notes=notes, selection=selection,
-                                       audience=audience)), retrieved,
+        raw = self._provider.complete(
+            build_prompt(question, top, notes=notes, selection=selection,
+                         audience=audience, per_claim=per_claim))
+        result = gate(raw, retrieved,
                       question=question if guard_rationale else None, evidence=evidence)
         result.retrieved = retrieved
         result.anchored = anchored
@@ -452,4 +470,9 @@ class GatedPipeline(Pipeline):
         # the writer and gate saw -- it cannot surface anything that wasn't already
         # grounded, so this adds no new honesty surface.
         result.evidence = {ref: evidence[ref] for ref in result.citations if ref in evidence}
+        # Parsed a second time rather than threading the decode out of gate():
+        # keeping gate()'s signature and return untouched is worth one cheap
+        # re-parse, since every honesty number in the repo is measured through it.
+        if per_claim:
+            result.claims = attribute_claims(extract_json(raw), retrieved)
         return result

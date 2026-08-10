@@ -463,7 +463,15 @@ removing, or renaming files). For class/function-level detail see
   unavailable on the web surface, whose login narrowed to `read:user`.
 - `evals/env_file.py` — `load_env_file`: stdlib loader that reads a gitignored
   `.env` into `os.environ` without overriding real env vars.
-- `evals/synth.py` — `build_prompt`, the strict cite-or-abstain prompt (also tells
+- `evals/synth.py` — (2026-08-10) `per_claim=` asks the writer to additionally
+  report, per sentence, which refs that sentence restates (`_PER_CLAIM_RULE`,
+  reusing `_READ_RULES`' `{text, citations}` shape rather than a second claim
+  schema). Default False leaves the prompt BYTE-IDENTICAL, the same guarantee
+  `selection`/`audience` carry. Built because detecting quotation-vs-composition
+  AFTER the fact provably fails — a plausible fabrication is assembled from the
+  evidence's own words and so scores HIGHER on lexical overlap than an honest
+  paraphrase (measured; see docs/experiments/2026-08-10-quotation-vs-composition-
+  negative-result.md). `build_prompt`, the strict cite-or-abstain prompt (also tells
   the writer to treat evidence as data, not instructions). Truncates prose chunks
   to `_MAX_CHUNK_CHARS` (1500) but CODE chunks to `_MAX_CODE_CHUNK_CHARS` (10000)
   so a 300-line code window stays visible to the writer instead of ~40 lines.
@@ -474,7 +482,7 @@ removing, or renaming files). For class/function-level detail see
   an empty/None/unmatched selection leaves the prompt BYTE-IDENTICAL, which is
   what keeps `/ask` and every number on the eval board untouched (`.answer()`
   sets `anchored` too, so the two are deliberately NOT merged).
-- `evals/gate.py` — the deterministic honesty gate: emits an answer ONLY if it
+- `evals/gate.py` — (2026-08-10) also `attribute_claims`: validates the writer's per-sentence self-report (`synth.build_prompt(per_claim=True)`) against what was retrieved, labelling each claim `quoted` (one retrieved ref), `composed` (two or more) or `unsupported`. ADVISORY -- never called by `gate()`, never touches a verdict; it reuses `_resolve`, so a claim citation is held to the same standard as an answer citation and an unretrieved ref is dropped, which can only move a claim toward `unsupported`. A self-report is evidence, not proof: a writer that merged can still report one ref. The deterministic honesty gate: emits an answer ONLY if it
   parses, claims "answer", has prose, and cites ≥1 retrieved ref; else "unknown".
   Citation matching is tolerant-but-safe (`_parse_ref`/`_resolve`): it grounds a
   citation the writer reformatted — dropped `code:` prefix, display brackets, or
@@ -632,6 +640,13 @@ removing, or renaming files). For class/function-level detail see
   body/missing `private` field/no token (never calls out without one).
 - `evals/test_synth.py` — the prompt includes question/refs/text, offers the
   unknown path, truncates long chunks.
+- `evals/test_claim_selfreport.py` — the writer's per-sentence self-report (18
+  tests, stdlib only): the prompt is BYTE-IDENTICAL with `per_claim=False` (the
+  guarantee that lets this ship without re-baselining the board), a claim citing
+  one retrieved ref is `quoted` and two is `composed`, a ref nobody retrieved is
+  DROPPED rather than trusted (so a self-report can only move a claim toward
+  `unsupported`), one source cited twice is not corroboration, malformed input
+  never raises, and the verdict is provably identical with the flag on or off.
 - `evals/test_gate.py` — the gate passes grounded answers and fails safe to
   abstention on everything ambiguous.
 - `evals/test_grader.py` — the harness conscience: gates hold for an honest
@@ -736,12 +751,17 @@ removing, or renaming files). For class/function-level detail see
   brain; imports `evals/`, changes no brain code.
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
-- `demo/payload.py` — `build_payload`, turning a `Result` into self-identifying
+- `demo/payload.py` — (2026-08-10) emits `claims` when the caller set `per_claim`:
+  the writer's per-sentence self-report, each entry `{text, citations, label}`
+  with label `quoted`/`composed`/`unsupported`. ABSENT unless present, so every
+  existing client is byte-identical. `build_payload`, turning a `Result` into self-identifying
   repo/commit JSON. Human callers keep citation-only evidence; read-only agent
   callers can explicitly request bounded retrieved evidence even on an honest
   unknown. Carries `anchored` beside `searched` so a renderer can distinguish
   what the question named from what search suggested.
-- `demo/mcp_server.py` — dependency-free stdio MCP adapter over `/status`,
+- `demo/mcp_server.py` — (2026-08-10) both tools send `per_claim: true`
+  unconditionally (not a tool argument — no caller here would want it off), and
+  the tool description tells the agent to verify `composed` sentences. Dependency-free stdio MCP adapter over `/status`,
   `/ask`, and `/explain`: two read-only tools, explicit repo mismatch refusal,
   and evidence-rich unknowns. Serves PUBLIC AND PRIVATE repositories since
   2026-08-07 — the prior fail-closed private check was removed deliberately
@@ -1094,6 +1114,12 @@ removing, or renaming files). For class/function-level detail see
   `fetch`. This is the typed **web staging link** (no voice/overlay — native only).
 - `demo/test_links.py` — `ref_to_url` across pr/issue/code and bad input.
 - `demo/test_payload.py` — `build_payload` for answer and honest-unknown shapes.
+- `demo/test_per_claim_endpoint.py` — `per_claim` at the HTTP/MCP boundary: the
+  payload has NO `claims` key unless asked for (so every existing client is
+  unchanged), claim citations carry URLs like any other ref, the rest of the
+  payload is untouched, and BOTH MCP tools always request `per_claim` — plus a
+  guard that the tool description actually tells the agent `composed` is the
+  label to verify, since an unexplained label is inert.
 - `demo/test_mcp_server.py` — MCP handshake/tool contracts, evidence-rich honest
   unknowns, explicit selection forwarding, repo mismatch refusal, and the
   2026-08-07 reversal: a private repository IS served

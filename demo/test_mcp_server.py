@@ -117,6 +117,10 @@ class McpToolTests(unittest.TestCase):
             {
                 "question": "Why is there no retry?",
                 "include_evidence": True,
+                # The agent interface always asks for the per-sentence
+                # self-report: a coding agent acts on this answer and needs to
+                # know which sentences merge several sources.
+                "per_claim": True,
             },
         )
 
@@ -201,6 +205,7 @@ class McpToolTests(unittest.TestCase):
                         "end": 20,
                         "question": "Why UTC?",
                         "include_evidence": True,
+                        "per_claim": True,
                     },
                 ),
                 unittest.mock.call("/status"),

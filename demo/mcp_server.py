@@ -46,6 +46,7 @@ _TOOLS = [
             "whoever configures this client owns that exposure. An unknown "
             "verdict can still include related evidence, but that evidence "
             "must not be presented as a recorded decision."
+            "Each response also carries \"claims\": one entry per sentence of the answer, labelled \"quoted\" (that sentence restates a single cited chunk), \"composed\" (it rests on two or more chunks taken together), or \"unsupported\". Treat \"composed\" sentences as the ones to verify against the repository before relying on them -- every citation shown has already been checked to be real, but a sentence assembled from several sources can still state something no single source states."
         ),
         "inputSchema": {
             "type": "object",
@@ -361,7 +362,13 @@ def _get_change_context(arguments):
 
     payload = _request(
         "/ask",
-        {"question": question, "include_evidence": True},
+        # per_claim: always on for the agent interface. A coding agent acts on
+        # this answer, so it needs to know which sentences rest on ONE piece of
+        # evidence and which merge several -- the latter is the shape that
+        # produced the one fabricated answer across four measured tasks
+        # (docs/experiments/2026-08-10-*). Not a tool argument: there is no
+        # caller here that would want it off.
+        {"question": question, "include_evidence": True, "per_claim": True},
     )
     # The repo can change between the preflight and the answer. The payload is
     # authoritative because the HTTP server stamps the corpus that answered.
@@ -389,6 +396,7 @@ def _explain_code_context(arguments):
         "start": start,
         "end": end,
         "include_evidence": True,
+        "per_claim": True,
     }
     question = arguments.get("question")
     if question is not None:

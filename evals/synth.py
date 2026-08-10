@@ -83,8 +83,36 @@ _MAX_CHUNK_CHARS = 1500
 _MAX_CODE_CHUNK_CHARS = 10000
 
 
+# Appended to the instruction ONLY when `per_claim=True`. Asks the writer to say,
+# per sentence, which refs that sentence restates.
+#
+# Why this exists: measuring four real Agent Mode tasks (docs/experiments/
+# 2026-08-10-*) found the one fabricated answer stated a rule assembled from two
+# real sources that individually stated neither, while every accurate answer
+# restated ONE source. Trying to detect that AFTER the fact failed outright --
+# a plausible fabrication is built from the evidence's own words, so it scores
+# HIGHER on lexical overlap than an honest paraphrase does (see
+# docs/experiments/2026-08-10-quotation-vs-composition-negative-result.md).
+#
+# The writer, unlike a post-hoc checker, KNOWS whether it is restating one block
+# or merging several -- and today that knowledge is thrown away at the interface.
+# This asks for it. It is a self-report, so it is evidence, not proof: a writer
+# that merges can still claim it quoted. What the gate can prove deterministically
+# is only that each named ref was actually retrieved (evals/gate.attribute_claims).
+#
+# Reuses the {"text", "citations"} shape of `_READ_RULES` rather than inventing a
+# second claim schema for the same idea.
+_PER_CLAIM_RULE = (
+    "\n5. Additionally include \"claims\": [{\"text\": \"<one sentence of your "
+    "answer>\", \"citations\": [\"<ref>\", ...]}, ...] -- one entry per sentence "
+    "of your answer, each listing ONLY the refs whose text states that sentence. "
+    "If a sentence follows only from two refs taken together, list both; do not "
+    "list a ref that merely discusses the topic. This does not change rules 1-4."
+)
+
+
 def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
-                  audience=None) -> str:
+                  audience=None, per_claim: bool = False) -> str:
     """`notes` are facts DERIVED IN CODE from the retrieved refs themselves, not
     model output and not outside knowledge -- currently only "#N is an issue, not
     a pull request", which the pipeline can state with certainty because it knows
@@ -117,7 +145,13 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
     "developer" leaves the prompt untouched -- same byte-identical guarantee as
     an empty `selection`. Any other unrecognized value raises rather than
     silently falling back to the developer voice, so a typo'd audience string
-    is a loud bug, not a quietly wrong answer."""
+    is a loud bug, not a quietly wrong answer.
+
+    `per_claim` asks the writer to additionally report, per sentence, which refs
+    that sentence restates (see `_PER_CLAIM_RULE`). Default False leaves the
+    prompt BYTE-IDENTICAL -- the same guarantee `selection` and `audience` carry,
+    and for the same reason: the eval board's every number was measured on the
+    unmodified prompt."""
     if audience not in (None, "developer") and audience not in _AUDIENCE_INSTRUCTIONS:
         raise ValueError(f"unknown audience: {audience!r}")
     selected = set(selection or ())
@@ -139,7 +173,14 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
             blocks.append(f"[{c.ref}]{_SELECTION_MARKER}\n{text}")
         else:
             blocks.append(f"[{c.ref}]\n{text}")
-    prompt = f"{INSTRUCTION}\n\nQUESTION: {question}\n\n"
+    instruction = INSTRUCTION
+    if per_claim:
+        # Inserted BEFORE the trailing "Reply with JSON and nothing else." so the
+        # numbered rules stay contiguous and that closing line stays last.
+        tail = "\nReply with JSON and nothing else."
+        assert instruction.endswith(tail), "INSTRUCTION tail moved; per_claim insert is stale"
+        instruction = instruction[: -len(tail)] + _PER_CLAIM_RULE + tail
+    prompt = f"{instruction}\n\nQUESTION: {question}\n\n"
     if notes:
         prompt += ("ESTABLISHED FACTS about this question (already verified -- "
                    "treat as true, and if one contradicts the question, answer "

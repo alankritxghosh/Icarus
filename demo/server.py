@@ -843,6 +843,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if not isinstance(include_evidence, bool):
                     self._send_json(400, {"error": "include_evidence must be true or false"})
                     return
+                per_claim = body.get("per_claim", False)
+                if not isinstance(per_claim, bool):
+                    self._send_json(400, {"error": "per_claim must be true or false"})
+                    return
                 snapshot = lib.snapshot()
                 repo, commit = snapshot.repo, snapshot.commit
                 try:
@@ -851,8 +855,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # it is read from this request's header and passed straight
                     # through (see GatedPipeline.answer). Without it a private
                     # repo's live fetch fails safe to None, as it always did.
+                    # Passed ONLY when asked for, so the default call is
+                    # byte-identical: `per_claim` is a GatedPipeline capability
+                    # and the base Pipeline interface (plus every stub) does not
+                    # take it. Sending it always would break every non-gated
+                    # pipeline with a TypeError.
+                    extra = {"per_claim": True} if per_claim else {}
                     result = snapshot.pipeline.answer(
-                        question, token=self._github_token())
+                        question, token=self._github_token(), **extra)
                     still_indexing = snapshot.indexing
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
@@ -1143,14 +1153,19 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if not isinstance(include_evidence, bool):
                 self._send_json(400, {"error": "include_evidence must be true or false"})
                 return
+            per_claim = body.get("per_claim", False)
+            if not isinstance(per_claim, bool):
+                self._send_json(400, {"error": "per_claim must be true or false"})
+                return
             snapshot = lib.snapshot()
             active_repo, commit = snapshot.repo, snapshot.commit
             if repo.strip() != active_repo:
                 self._send_json(409, {"error": "that repo isn't your currently connected repo"})
                 return
             try:
+                extra = {"per_claim": True} if per_claim else {}
                 result = snapshot.pipeline.explain(
-                    path.strip(), start, end, question=question)
+                    path.strip(), start, end, question=question, **extra)
                 still_indexing = snapshot.indexing
             except Exception as e:
                 print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
