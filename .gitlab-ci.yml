@@ -13,7 +13,7 @@
 # Contributor on the container app:
 #   AZURE_CLIENT_ID  AZURE_CLIENT_SECRET  AZURE_TENANT_ID
 
-stages: [test, build, deploy]
+stages: [test, build, package, deploy]
 
 # The only paths that can change the shipped image — everything else
 # (docs/, site/, mac/, extension/) is excluded by .dockerignore, so a commit
@@ -67,6 +67,59 @@ build:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
       changes: *image_sources
+
+# The Mac app + Sparkle. Builds Icarus.app, embeds Sparkle.framework, stamps the
+# update feed (SUFeedURL/SUPublicEDKey) and the brain URL, and hands back a
+# ready-to-run Icarus.dmg as an artifact. Ports .github/workflows/dmg.yml rather
+# than inventing a second packaging path — package_dmg.sh is the single source
+# of truth for what a build is, on either CI.
+#
+# WHAT THIS JOB DELIBERATELY DOES NOT DO: sign the appcast. That needs the
+# private EdDSA key, which lives in one login keychain and is the entire
+# security of the update path — putting it in CI variables would make
+# pipeline-edit access equivalent to code execution on every installed Mac.
+# So publishing stays a local `site/release-dmg.sh` step, which accepts this
+# job's artifact directly (see that script's header) and re-signs the feed there.
+#
+# ⚠ THE ARTIFACT IS AD-HOC SIGNED, and is NOT interchangeable with a local
+# build. scripts/bundle.sh looks for the "Icarus Self-Signed" identity and falls
+# back to ad-hoc when it is absent — which it is on a fresh runner. Ad-hoc makes
+# the app's designated requirement its own cdhash, so it changes every build and
+# the login Keychain treats each update as a different app, re-prompting every
+# tester for their GitHub token (the exact problem scripts/make_signing_cert.sh
+# was written to solve). Shipping this artifact to users needs the certificate
+# imported as a CI secret first; until then, treat it as a test build.
+#
+# Manual, and gated on mac/ changing: SaaS macOS runners bill compute minutes at
+# a premium multiplier, and a Swift release build is not cheap. `needs: [tests]`
+# so it starts as soon as the suites pass rather than queueing behind the image.
+package-dmg:
+  stage: package
+  tags: [saas-macos-medium-m1]
+  image: macos-15-xcode-16
+  needs: [tests]
+  variables:
+    ICARUS_BRAIN_URL: https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io
+  script:
+    - swift --version
+    - bash mac/Icarus/scripts/package_dmg.sh
+    - shasum -a 256 mac/Icarus/Icarus.dmg
+    # State the identity in the log, so "why is it re-prompting for my token?"
+    # is answerable from the job rather than by re-deriving it later.
+    - codesign -dv --verbose=2 mac/Icarus/Icarus.app 2>&1 | grep -E "Identifier|Signature|TeamIdentifier" || true
+  artifacts:
+    name: "Icarus-dmg-$CI_COMMIT_SHORT_SHA"
+    paths: [mac/Icarus/Icarus.dmg]
+    expire_in: 30 days
+    when: on_success
+  rules:
+    # A release tag packages automatically — that is the one time it is wanted
+    # without being asked for.
+    - if: $CI_COMMIT_TAG =~ /^alpha-/
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes: [mac/**/*]
+      when: manual
+      allow_failure: true
 
 deploy:
   stage: deploy
