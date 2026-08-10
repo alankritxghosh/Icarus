@@ -130,5 +130,55 @@ class ContextEndpointTests(unittest.TestCase):
             server.server_close()
 
 
+class AgentSessionContextTests(unittest.TestCase):
+    """A coding agent's default auth path (demo/mcp_server.py's docstring: a
+    ten-minute credential minted by the installed app) must actually reach
+    /context. Regression guard for a real bug found deploying this feature:
+    the agent-session route whitelist (server.py's do_POST) was never updated
+    when /context was added, so `get_task_context`'s default auth path was
+    silently 403ing with 'agent sessions are read-only and route-scoped'."""
+
+    @classmethod
+    def setUpClass(cls):
+        from .agent_sessions import AgentSessionStore
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        html = Path(cls._tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        cls.writer = ScriptedWriter()
+        cls.lib = _Library(cls.writer)
+        cls.sessions = AgentSessionStore(ttl=600.0)
+
+        def repo_info(repo, token):
+            return {"private": False} if repo == REPO else None
+
+        handler = make_handler(
+            _StubRegistry(cls.lib), str(html), require_auth=True,
+            verifier=StaticTokenVerifier({"gh-tok": "user-a"}),
+            entity_index=lambda lib, snapshot=None: build_entity_index(CHUNKS),
+            ask_limiter=RateLimiter(100, 60), investigate_limiter=RateLimiter(100, 60),
+            agent_sessions=cls.sessions, agent_repo_info=repo_info)
+        cls.server = HTTPServer(("127.0.0.1", 0), handler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = f"http://127.0.0.1:{cls.server.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls._tmp.cleanup()
+
+    def test_agent_session_can_call_context(self):
+        _, issued = _post(self.base + "/auth/agent/session", {}, token="gh-tok")
+        agent_token = issued["token"]
+
+        status, payload = _post(self.base + "/context",
+                                {"task": "understand PR #400"}, token=agent_token)
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["task"], "understand PR #400")
+        self.assertIn("pr:400", payload["prs"])
+
+
 if __name__ == "__main__":
     unittest.main()

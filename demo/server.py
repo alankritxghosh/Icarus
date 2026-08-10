@@ -668,7 +668,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
-            if self._principal()[1] == "agent" and self.path not in ("/ask", "/explain"):
+            if self._principal()[1] == "agent" and self.path not in ("/ask", "/explain", "/context"):
                 self._send_json(403, {"error": "agent sessions are read-only and route-scoped"})
                 return
             if self.path == "/disconnect":
