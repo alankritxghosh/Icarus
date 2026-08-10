@@ -1004,7 +1004,10 @@ removing, or renaming files). For class/function-level detail see
   whether or not anything was carried), a question naming its own subject
   rebinding, an unrelated question inheriting nothing, `fresh: true`, one
   caller's subject never reaching another, and the shared /ask rate limit.
-- `demo/library.py` — `Library`: one active repo's state + pipeline. `snapshot()`
+- `demo/library.py` — (2026-08-10) `status_snapshot()` also reports
+  `connecting_to`: the repo an in-flight connect is working toward, or None.
+  `_repo` cannot answer that -- it is only reassigned at the stage-1 publish,
+  AFTER the whole ingest. `Library`: one active repo's state + pipeline. `snapshot()`
   returns a frozen `_CorpusSnapshot` (pipeline, provider, repo, commit,
   content fingerprint, indexing state) read under the SAME lock the pipeline swap takes, so one request
   cannot be torn across a concurrent `/connect refresh` — answering from one
@@ -1155,6 +1158,16 @@ removing, or renaming files). For class/function-level detail see
 - `demo/test_registry.py` — the registry: per-user isolation, per-user storage
   paths, the shared default pipeline built once, hostile-id rejection, LRU
   eviction, and disconnect deleting only that user's storage.
+- `demo/test_queued_connect.py` — the queued ingest: `/connect` answers 202
+  immediately and the job is OBSERVABLE. `connecting_to` names the repo an
+  in-flight connect is working toward (`repo` only changes at the stage-1
+  publish, so for the whole slow part status showed the PREVIOUS repo -- a
+  running job and no job were indistinguishable, measured live on
+  astral-sh/uv 2026-08-10), is cleared after failure so it never points at a
+  dead job, and is only cleared by the call that owns it. Plus the red->green
+  guard that the queued path passes `background_upgrade` -- it was dropped,
+  so a queued connect ran stage 2 INLINE while the sync path backgrounded it
+  (proven by reverting the kwarg and watching the test fail).
 - `demo/test_ratelimit.py` — the limiter: allows up to the limit, blocks past
   it, a different key is unaffected, and the window sliding restores access.
 - `demo/test_ledger.py` — the ask ledger: record/read round-trip, per-repo

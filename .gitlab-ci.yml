@@ -126,7 +126,28 @@ deploy:
   image: mcr.microsoft.com/azure-cli:latest
   script:
     - az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
-    - az containerapp update --name "$APP" --resource-group "$RESOURCE_GROUP" --image "$IMAGE:$CI_COMMIT_SHORT_SHA"
+    # Image, scale and env in ONE update: each `az containerapp update` mints a
+    # new revision and every revision drops every connected session, so doing
+    # these separately would cost two drops to land one change.
+    #
+    # --max-replicas 1: a queued ingest runs in ONE replica's memory and writes
+    # to THAT container's ephemeral disk. With several replicas, the caller's
+    # next /connect or /status can land on a replica that knows nothing about
+    # the job and cannot see its corpus. Pinning to one makes a queued job
+    # always visible to its own caller. Horizontal scaling is the deliberate
+    # cost, and it is currently unused. Lift this only once the corpus lives on
+    # shared persistent storage (docs/HANDOFF.md §6 phase 2).
+    #
+    # ICARUS_SYNC_CONNECT removed: it made /connect block on the full Stage 1
+    # ingest, which Azure's fixed 240s ingress timeout then killed -- measured
+    # live on astral-sh/uv 2026-08-10, which never connected at all. It existed
+    # because a background thread was not reliably resourced on request-scoped
+    # CPU; minReplicas=1 keeps a replica warm and the backgrounded Stage 2
+    # embed already completes there, so that premise no longer holds.
+    - az containerapp update --name "$APP" --resource-group "$RESOURCE_GROUP"
+      --image "$IMAGE:$CI_COMMIT_SHORT_SHA"
+      --min-replicas 1 --max-replicas 1
+      --remove-env-vars ICARUS_SYNC_CONNECT
     - FQDN=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
     # Deploy is not done until the new revision actually serves.
     - for i in $(seq 1 30); do curl -fsS "https://$FQDN/health" && exit 0; sleep 10; done; exit 1

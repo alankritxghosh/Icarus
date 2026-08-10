@@ -968,12 +968,32 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         background_upgrade=background_upgrade, refresh=refresh)
                     self._send_json(200, result)
                 else:
+                    # QUEUED: hand the ingest to a worker thread and answer now.
+                    # Stage 1 (clone + the full PR/issue fetch + code walk +
+                    # chunking) runs for minutes on a large repo, and a
+                    # request-bound ingest is killed by Azure's fixed 240s
+                    # ingress timeout long before it finishes -- measured live
+                    # on astral-sh/uv 2026-08-10, which never connected at all.
+                    # The work itself is fine; only the request waiting on it
+                    # was the problem.
+                    #
+                    # `background_upgrade` was previously dropped here, so a
+                    # queued connect silently ran stage 2 INLINE while the sync
+                    # path backgrounded it -- the two routes disagreed about
+                    # when a repo becomes answerable. Passed now, so the queued
+                    # path publishes lexical search as early as the sync one.
                     threading.Thread(
                         target=lib.connect_sync, args=(repo,),
                         kwargs={"token": token if private else None, "private": private,
+                                "background_upgrade": background_upgrade,
                                 "refresh": refresh},
                         daemon=True).start()
-                    self._send_json(202, {"state": "indexing", "repo": repo})
+                    # `state` stays "indexing", NOT a new "queued" value: an
+                    # installed Mac app decodes this field and an unknown state
+                    # would break it. `connecting_to` is the additive part, and
+                    # is what makes a running job distinguishable from none.
+                    self._send_json(202, {"state": "indexing", "repo": repo,
+                                          "connecting_to": repo})
             else:
                 self._send_json(404, {"error": "not found"})
 

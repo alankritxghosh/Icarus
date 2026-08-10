@@ -257,6 +257,15 @@ class Library:
         # FAILURE too, and then lexical-only is the steady state rather than a
         # window that will close.
         self._indexing = False
+        # Which repo an in-flight connect is working toward. `_repo` cannot
+        # answer that: it is only reassigned at the stage-1 publish, AFTER the
+        # whole ingest, so for the entire slow part /status reports
+        # state="indexing" beside the PREVIOUS repo. A caller then cannot tell
+        # a running job from a finished one that simply changed nothing --
+        # measured the hard way on 2026-08-10, where a live astral-sh/uv
+        # connect was indistinguishable from no connect at all for twenty
+        # minutes. Cleared in `finally`, so it never points at a dead job.
+        self._connecting = None
         # How far the semantic embed has got, and roughly how much longer --
         # None until there is something real to report. A connect takes
         # minutes (measured 185s-987s on real repos) and "Building smart
@@ -391,6 +400,7 @@ class Library:
                 with self._lock:
                     self._status, self._error = "indexing", None
                     self._phase = "Reading the repository…"
+                    self._connecting = repo
                 # Switched repos don't share simonw/llm's `llm/` package layout,
                 # so glob the whole repo for code (the CLI keeps `llm` as default).
                 # PRIVATE repos take a distinct, per-user, token-authenticated
@@ -458,6 +468,10 @@ class Library:
             # Backstop for failure before stage 1 released the slot.
             with self._lock:
                 self._inflight.discard(repo)
+                # Only clear if THIS call owns it: a superseded connect must not
+                # erase the target a newer one is working toward.
+                if self._connecting == repo:
+                    self._connecting = None
         return self.status_snapshot()
 
     def _embed_progress(self, generation, started):
@@ -550,4 +564,7 @@ class Library:
                     "counts": self._counts, "error": self._error, "phase": self._phase,
                     "private": self._private, "truncated": self._truncated,
                     "indexing": self._indexing,
-                    "indexing_progress": self._progress}
+                    "indexing_progress": self._progress,
+                    # The repo an in-flight connect is working toward, or None.
+                    # Additive: clients that don't read it are unaffected.
+                    "connecting_to": self._connecting}
