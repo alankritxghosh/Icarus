@@ -50,6 +50,34 @@ class PayloadTests(unittest.TestCase):
                          without)
 
 
+class RejectedAttemptsPayloadTests(unittest.TestCase):
+    """The refused-attempt signal at the payload boundary."""
+
+    def test_absent_when_none(self):
+        self.assertNotIn("rejected_attempts", build_payload(_result(), "o/r", "abc"))
+
+    def test_present_with_url_when_any(self):
+        r = _result(rejected_attempts=[{"ref": "pr:20754", "title": "Clean up temp"}])
+        p = build_payload(r, "astral-sh/uv", "abc123")
+        self.assertEqual(p["rejected_attempts"][0]["ref"], "pr:20754")
+        self.assertEqual(p["rejected_attempts"][0]["title"], "Clean up temp")
+        self.assertIn("astral-sh/uv/pull/20754", p["rejected_attempts"][0]["url"])
+
+    def test_rest_of_payload_untouched(self):
+        without = build_payload(_result(), "o/r", "abc")
+        with_it = build_payload(
+            _result(rejected_attempts=[{"ref": "pr:1", "title": "t"}]), "o/r", "abc")
+        self.assertEqual({k: v for k, v in with_it.items() if k != "rejected_attempts"},
+                         without)
+
+    def test_surfaced_on_an_abstention_too(self):
+        """The case that matters most: the answer did not rest on it, which is
+        exactly when an agent is about to redo the refused work."""
+        r = _result(verdict="unknown", answer="", citations=[],
+                    rejected_attempts=[{"ref": "pr:1", "title": "t"}])
+        self.assertIn("rejected_attempts", build_payload(r, "o/r", "abc"))
+
+
 class McpRequestTests(unittest.TestCase):
     """The agent interface asks for the self-report on every call."""
 
@@ -89,6 +117,14 @@ class McpRequestTests(unittest.TestCase):
         descs = " ".join(t["description"] for t in _TOOLS)
         self.assertIn("composed", descs)
         self.assertIn("verify", descs)
+
+    def test_tool_description_explains_rejected_attempts(self):
+        from demo.mcp_server import _TOOLS
+        descs = " ".join(t["description"] for t in _TOOLS)
+        self.assertIn("rejected_attempts", descs)
+        self.assertIn("CLOSED WITHOUT being merged", descs)
+        # It must NOT promise a reason -- that is the composed-rationale trap.
+        self.assertIn("never why", descs)
 
 
 if __name__ == "__main__":

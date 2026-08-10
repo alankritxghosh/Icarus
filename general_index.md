@@ -640,6 +640,25 @@ removing, or renaming files). For class/function-level detail see
   body/missing `private` field/no token (never calls out without one).
 - `evals/test_synth.py` — the prompt includes question/refs/text, offers the
   unknown path, truncates long chunks.
+- `evals/attempts.py` — `rejected_attempts(evidence)`: the pull requests among
+  retrieved evidence that were CLOSED WITHOUT MERGING. **A merged PR leaves a
+  commit; a refused one leaves nothing**, so `git log`, `git blame` and the
+  working tree are structurally blind to it -- measured twice as the decisive
+  fact an agent could not otherwise reach (docs/experiments/2026-08-10-agent-
+  mode-exp-d*.md): once where a control agent was about to write a patch two
+  people had already had rejected, once where it declared a live bug fixed
+  because only the merge was visible. Deterministic, derived from the header
+  line `evals/ingest._pr_or_issue_text` already writes, so it cannot be bluffed
+  and needs no ingest change, no model and no extra fetch. A closed ISSUE is
+  deliberately NOT an attempt (544 of them vs 129 closed PRs in the committed
+  corpus would bury the signal). Reports WHAT was refused, never WHY -- the
+  reason lives in review comments, and asserting one is the composed rationale
+  these experiments caught twice.
+- `evals/test_attempts.py` — 11 tests weighted toward what must NOT be
+  reported: a MERGED PR, an OPEN one, a closed ISSUE, a non-PR ref, a body
+  merely containing the word (anchored to the header start), plus determinism,
+  hostile input, and a guard that reads the REAL committed corpus so the parser
+  cannot drift from what ingest actually writes.
 - `evals/test_claim_selfreport.py` — the writer's per-sentence self-report (18
   tests, stdlib only): the prompt is BYTE-IDENTICAL with `per_claim=False` (the
   guarantee that lets this ship without re-baselining the board), a claim citing

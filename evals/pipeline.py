@@ -140,6 +140,14 @@ class Result:
     # negative-result.md). Never feeds the gate; a verdict is identical with it
     # on or off.
     claims: List[Dict] = field(default_factory=list)
+    # rejected_attempts: pull requests among the evidence the writer saw that
+    # were CLOSED WITHOUT MERGING (evals/attempts.py). A merged PR leaves a
+    # commit; a refused one leaves nothing, so `git log`, `git blame` and the
+    # working tree cannot show it -- measured twice as the decisive fact an
+    # agent could not otherwise reach (docs/experiments/2026-08-10-agent-mode-
+    # exp-d*.md). Deterministic, derived from indexed text, so it cannot be
+    # bluffed; never feeds the gate.
+    rejected_attempts: List[Dict] = field(default_factory=list)
 
 
 class Pipeline:
@@ -428,6 +436,7 @@ class GatedPipeline(Pipeline):
         there did the USER point at specific lines."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate, attribute_claims, extract_json
+        from .attempts import rejected_attempts
         anchored = list(dict.fromkeys(anchored or ()))
         # Icarus's own index, offered as ordinary evidence (evals/index_facts).
         #
@@ -475,4 +484,9 @@ class GatedPipeline(Pipeline):
         # re-parse, since every honesty number in the repo is measured through it.
         if per_claim:
             result.claims = attribute_claims(extract_json(raw), retrieved)
+        # Computed from the FULL set of chunks the writer saw, not just the
+        # cited ones: a refused attempt is worth surfacing even when the answer
+        # did not rest on it -- that is precisely the case where an agent is
+        # about to redo it. Set on the abstention path too, for the same reason.
+        result.rejected_attempts = rejected_attempts(evidence)
         return result

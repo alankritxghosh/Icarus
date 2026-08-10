@@ -109,6 +109,26 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
              "label": c["label"]}
             for c in result.claims
         ]
+    # Pull requests among the evidence that were CLOSED WITHOUT MERGING. Emitted
+    # only when there are any, so every existing client is byte-identical.
+    #
+    # This is the one thing a full clone cannot supply: a merged PR leaves a
+    # commit, a refused one leaves nothing, so `git log` and `git blame` are
+    # blind to it. Measured twice as the decisive fact (docs/experiments/
+    # 2026-08-10-agent-mode-exp-d*.md) -- once where an agent was about to write
+    # a patch two people had already had rejected, once where it declared a live
+    # bug fixed because only the merge was visible.
+    #
+    # Deliberately says WHAT was refused, never WHY: the reason lives in review
+    # comments, and asserting one is exactly the composed rationale these
+    # experiments caught twice. The caller is pointed at the PR, not told its
+    # verdict.
+    if result.rejected_attempts:
+        payload["rejected_attempts"] = [
+            {"ref": a["ref"], "title": a["title"],
+             "url": ref_to_url(a["ref"], repo, commit)}
+            for a in result.rejected_attempts
+        ]
     if include_evidence:
         payload["evidence"] = [
             {

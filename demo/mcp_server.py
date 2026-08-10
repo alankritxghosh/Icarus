@@ -47,6 +47,7 @@ _TOOLS = [
             "verdict can still include related evidence, but that evidence "
             "must not be presented as a recorded decision."
             "Each response also carries \"claims\": one entry per sentence of the answer, labelled \"quoted\" (that sentence restates a single cited chunk), \"composed\" (it rests on two or more chunks taken together), or \"unsupported\". Treat \"composed\" sentences as the ones to verify against the repository before relying on them -- every citation shown has already been checked to be real, but a sentence assembled from several sources can still state something no single source states."
+            " When present, \"rejected_attempts\" lists pull requests in the retrieved evidence that were CLOSED WITHOUT being merged. Read them before writing a change of your own: a merged pull request leaves a commit that git history shows, but a refused one leaves no trace in the repository at all, so this is the only place an attempt that was tried and rejected becomes visible. Icarus reports only THAT a pull request was closed, never why."
         ),
         "inputSchema": {
             "type": "object",
