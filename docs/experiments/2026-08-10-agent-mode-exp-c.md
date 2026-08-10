@@ -226,12 +226,88 @@ thorough than the human-submitted prior attempt — while having consulted
 Icarus not at all. Whatever produced that quality, it wasn't engineering
 memory.
 
-## Next: stop asking it to volunteer
+## Task 5 — issue #1398, Icarus explicitly instructed
 
-Ambient instruction, at both a soft and a strong strength, failed to produce
-even one Icarus consultation across four real, substantive tasks. The only
-way left to see "what results look like when Icarus is involved" is to stop
-testing whether the model volunteers and instead tell it to, explicitly, as
-part of the task itself — a different question than the one this experiment
-was built to ask, but the only one left that can actually produce the
-comparison Alankrit wants to see.
+Ambient instruction (soft and strong) failed to produce a single Icarus
+consultation across four tasks, so task 5 changed the question: stop testing
+whether the model volunteers, tell it to consult Icarus directly as part of
+the task, and see what a real, directed consultation actually does.
+
+Verified against the pinned commit exactly like task 4 (learning from tasks
+2 and 3's misses): `llm/models.py:1579-1580`, inside `_BaseResponse
+.log_to_db()`, reads `tool.plugin`/`tool.name` from the *earlier*, already-
+finished `for tool in self.prompt.tools:` loop — a classic Python stale-
+loop-variable bug, live and confirmed present.
+
+The task instruction specified an explicit, focused question for
+`get_change_context`: *why does the `tool_instances` insert use the stale
+loop variable instead of the `tool_ids_by_name` dict the surrounding code
+already uses correctly?*
+
+**Verified independently from the raw session transcript, not from any
+summary.** Claude Code CLI persists full JSONL transcripts under
+`~/.claude/projects/<project>/`; the actual `tool_use` blocks were parsed
+directly, confirming exactly one real `mcp__icarus__get_change_context`
+call, with precisely the specified question, and zero calls in the prior
+(task 4) session file — independent confirmation of the "No" already given
+for task 4, and hard confirmation task 5's instruction actually worked.
+
+**What Icarus returned, and what happened next, is the clearest positive
+result of this whole experiment.** The answer restated the bug mechanism and
+cited `pr:1485` — a currently OPEN, unmerged third community attempt at this
+same issue that neither Alankrit's task-picking nor mine had found. Separate
+from the answer, the `rejected_attempts` field (`evals/attempts.py`, shipped
+earlier this session) surfaced `pr:1431` — the same closed-unmerged PR — as
+a distinct rejected prior attempt. Its own words in the transcript,
+immediately after reading the response: *"Icarus flagged something
+important — a prior fix attempt for exactly this was closed without
+merging. Let me check what happened there before I write my own."*
+
+It then went further than what Icarus surfaced: checked `#1431` directly
+(zero review comments — closed with no stated reason), checked issue `#1398`
+itself, which surfaced a *third* independent attempt Icarus never mentioned
+(`#1406`), and only then read `class Tool` from the actual source before
+writing anything.
+
+**The final fix matches none of the three prior designs:**
+
+| | approach |
+|---|---|
+| `#1431` (closed, unmerged) | dict-lookup by name |
+| `#1485` (open, unmerged) | dict-lookup by name, refined |
+| `#1406` (open, unmerged) | dict-lookup, falls back to reading the instance |
+| **task 5's fix** | **reads the instance directly — no lookup at all** |
+
+Simpler than all three, and independently verified correct: traced against
+`Toolbox.tools()` (`tool.plugin = getattr(self, "plugin", None)`,
+`llm/models.py:293`) to confirm `instance.__class__.__name__` and
+`getattr(instance, "plugin", None)` are exactly what the surrounding code
+already establishes as correct — not a guess. New test
+(`test_tool_instances_attributed_to_correct_toolbox`) verified genuinely
+red→green against the real bug; a pre-existing test's fixture data
+(`"Filesystem"` → `"Memory"`), independently also caught by `#1485`'s own
+author, confirms that correction was real, not spurious.
+
+**What this means for the experiment overall:** Icarus's signal was the
+*trigger* for deeper investigation, not the source of the final answer. It
+did not hand over a fix to copy — it handed over a fact (a rejected attempt
+exists) that changed how much verification happened before code was
+written, and the agent's own follow-through (checking the issue itself,
+finding a third attempt Icarus never named) exceeded what Icarus alone
+supplied. That is a materially different, and more interesting, value
+proposition than "Icarus tells you the right answer" — it's "Icarus tells
+you when the obvious answer already failed twice, and lets you go find out
+why yourself."
+
+## Where this leaves the whole experiment
+
+Four tasks with zero MCP calls, one task with exactly one — directed, not
+volunteered — and that one task produced the richest, most positive result
+of the five. The honest reading is not "Icarus doesn't work" or "Icarus
+works great" — it's that **unprompted consultation did not happen at any
+instruction strength tried, but a real, directed consultation demonstrably
+changed the depth of investigation and, through that, the final design.**
+Whether that gap is closeable with a better nudge, a different integration
+point, or isn't meant to be closed at all (some tasks explicitly told to use
+Icarus vs. relying on the model's own judgment) is the open question this
+experiment leaves for whatever comes next.
