@@ -1,4 +1,162 @@
-# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiments A AND D run and measured; three things shipped and deployed — the writer self-report, the queued ingest, and the rejected-attempt signal the experiments actually pointed at)
+# Icarus — Session Handoff (2026-08-11: PRIORITY 1 closed out — Experiments B, C, and a directed D-redo; the whole "does Agent Mode actually help" question now has three-for-three evidence)
+
+**READ THIS FIRST.** This session finished what §13 of the entry below
+queued: Experiment B (shipped), Experiment C (run for real in VS Code, with
+a novel verification method), and — at Alankrit's direction, after seeing
+C's results — a redo of Experiment D using DIRECTED rather than volunteered
+consultation. **Priority 1 (the Agent Mode experiment) is now fully done.**
+Next session should start at Priority 2 (productise the interface) unless
+Alankrit says otherwise — see §5 below.
+
+## 1. Experiment B — `icarus.context(task)`, shipped (`86a72a6`, fix `606193f`)
+
+Built exactly as scoped: `evals/context_package.py`'s `build_context_package`
+is pure reshaping of ALREADY-gated output — an ordinary `evals/investigator.py`
+run through the same gate `/ask`/`/investigate` use, plus
+`demo/structure.build_structure` for the dependency map, plus
+`evals/attempts.rejected_attempts` for risks. No new retrieval, no new model
+call, no new honesty logic. Served over `POST /context`, exposed as the MCP
+tool `get_task_context`. Deliberately drops `symbols` from the original
+brief's schema — nothing extracts symbol-level info cheaply and honestly
+today, and a permanently-empty field would be worse than an honest omission.
+
+**Found and fixed a real bug while deploying it, before anyone hit it in
+production:** the agent-session route whitelist in `demo/server.py`
+(`self._principal()[1] == "agent" and self.path not in (...)`) was never
+updated when `/context` was added, so every agent-session caller got a 403
+"read-only and route-scoped" on the new tool. Fixed to include `/context`,
+proved red→green (a new test, `AgentSessionContextTests`, genuinely fails on
+that line via git-stash-revert and passes after the fix), deployed. Worth
+remembering as a pattern: a hardcoded route whitelist is exactly the kind of
+thing that silently rots the next time a route is added.
+
+## 2. Experiment C — Claude Code in VS Code, run for real, verified independently
+
+Set up a clean clone (`experiment-c-llm`, `simonw/llm` @ `94769b8`) with a
+local, uncommitted `CLAUDE.md` carrying a strong, explicit instruction: call
+`get_change_context` before ANY task, no matter how small or obvious —
+"'this seems like a simple fix' is not a reason to skip it." Ran 5 real
+tasks against real open issues in Claude Code (moved from the desktop app to
+VS Code mid-session, per Alankrit's choice, once it became clear the desktop
+app couldn't be checked this way).
+
+**The verification method matters as much as the result.** Early in this
+experiment I was taking Claude Code's own self-report of "did you use Icarus"
+at face value, until Alankrit pushed back twice — "check it on your own,"
+"check the transcript for the MCP call block." That led to discovering
+Claude Code CLI persists full session transcripts as JSONL at
+`~/.claude/projects/<project-slug>/*.jsonl`, containing real `tool_use`/
+`tool_result` blocks parseable directly with `json.loads` per line. This is
+now the trusted way to check MCP tool usage — self-report is not.
+
+**Result, independently verified via the transcripts for tasks 4 and 5:**
+- **Tasks 1–4: zero unprompted Icarus calls**, despite the CLAUDE.md nudge
+  being about as strong and explicit as an instruction can be written. Claude
+  Code did solid, self-contained work with its normal tools (Bash, Read,
+  Edit, grep, git log) — one task (#224/#1397, a dedup fix) even
+  independently found and fixed a second related issue it stumbled onto —
+  but never reached for Icarus on its own.
+- **Task 5: directed to consult Icarus, made exactly 1 call, and that call
+  changed the outcome materially.** It surfaced prior closed-unmerged PR
+  attempts at the same fix that neither Claude Code nor a human search had
+  found — invisible to `git log`/`git blame` by construction (a merged PR
+  leaves a commit, a refused one leaves nothing). The fix that shipped was
+  scoped differently as a direct result.
+
+Two honest "selection misses" logged in the write-up rather than hidden:
+task 2 was picked to mirror the closed-unmerged-PR pattern but turned out to
+be a reverted-then-recommitted change (git-visible, wrong mechanism); task 3
+was checked against GitHub's LIVE issue tracker instead of the pinned
+commit's actual code, and the bug was already fixed by unrelated work.
+Full write-ups: `docs/experiments/2026-08-10-agent-mode-exp-c.md` (`7491bbf`)
+and its task-5 addendum (`bc5da70`).
+
+**The pivot that mattered:** after seeing task 5, Alankrit's instruction was
+explicit — *"I want to see what the results look like when Icarus is
+involved and I want it involved quite a bit — not for some low tasks or high
+tasks, it needs to be there by default."* That's what motivated the D-redo
+below, using DIRECTED rather than volunteered consultation as the design.
+
+## 3. Experiment D, redone with directed consultation (`d8ce0cd`)
+
+Two fresh, independent clones (`experiment-d2-control`, `experiment-d2-experiment`
+— both since deleted, no changes were made in either, investigation-only by
+design), same task: issue #1340 on `simonw/llm` (`mimetype_from_path`/
+`mimetype_from_string` return `''` instead of `None` on a `puremagic`
+detection failure). Control gets nothing; experiment is explicitly directed
+to call `get_change_context` with one specific question before investigating
+further.
+
+**Prediction, registered before launch, was wrong — instructively.** Expected
+a SMALLER correctness delta than the original D or C's task 5, since this bug
+looked self-diagnosable rather than history-dependent. Instead:
+
+- **Control did genuinely excellent first-principles work** — read the
+  actual installed `puremagic` library source to trace the exact failure
+  mechanism, traced downstream to the precise validation line, even found a
+  real precedent commit via plain `git log`. More thorough on pure code than
+  the experiment arm. **And it would still have shipped an 8th duplicate** —
+  `WOULD_WRITE_CODE: YES`, with zero way to know this fix already exists,
+  unreviewed, in five open PRs and was already submitted and closed twice.
+- **Experiment's one directed call surfaced all seven prior attempts** in a
+  single response and flipped the recommendation to `WOULD_WRITE_CODE: NO`.
+  Both arms independently derived the SAME fix content — the divergence was
+  never about the code, only about whether to submit it.
+- **Efficiency flipped direction from every prior run.** Metadata-verified
+  tool calls: control 14, experiment 7; wall clock: control 123s, experiment
+  47s. The directed arm was faster and cheaper this time, because Icarus's
+  answer collapsed a search that would otherwise take many `gh pr list`
+  calls to reconstruct, rather than triggering extra verification the way it
+  did in C's task 5.
+- **A self-report discrepancy worth remembering as a standing caveat:** the
+  control arm self-reported `TOOL_CALLS: 6`; the harness's own metadata for
+  that same run showed `14`. The experiment arm's self-report matched its
+  metadata exactly. Trust metadata over self-report when both are available
+  — this is the second time this session a self-reported count has proven
+  wrong.
+
+Full write-up: `docs/experiments/2026-08-10-agent-mode-exp-d-directed.md`.
+
+**Cross-run pattern, now n=3:** original D (uv, volunteered), C task 5 (llm,
+directed), this run (llm, directed) — correctness held for Icarus in all
+three; efficiency direction was not consistent (slower, slower, then
+faster). The honest read: an agent working from code and git history alone
+reached a materially worse conclusion every single time; whether directed
+consultation costs more or less depends on whether the answer collapses a
+search or opens a line of follow-up verification.
+
+## 4. Housekeeping
+
+Both `experiment-d2-*` clones deleted (Alankrit's instruction, confirmed
+clean via `git status` in each first). `experiment-c-llm` still exists at
+`/Users/alankritghosh/JARVIS /experiment-c-llm` with its uncommitted CLAUDE.md
+nudge and 5 local commits on task branches — left in place, not cleaned up,
+in case it's useful for a repeat or extension of Experiment C. All commits
+this session verified isolated from the other person's real uncommitted WIP
+(`evals/gate.py`, `evals/test_gate.py`, `demo/ledger.py`, `demo/test_ledger.py`,
+`.gitignore`, `site/for/*`) before every push — check this again next
+session, that WIP is still sitting there unmerged.
+
+## 5. Where to pick up
+
+**Priority 1 is done.** The next session should default to **Priority 2 —
+productise Agent Mode**: decide the actual interface (MCP, CLI, local HTTP
+API, SDK, or a mix) now that real data exists, rather than assuming it.
+Don't re-run any more with/without-Icarus comparisons expecting a new
+result — three real, independently-verified runs already agree on
+correctness; further replication has sharply diminishing value versus
+spending that time on the productisation decision itself.
+
+Still open, unchanged, lower priority than 2 unless Alankrit redirects:
+- **Priority 3 (100 leads):** done, 111 in `outputs/leads/ALL_LEADS.md`.
+- **Priority 4 (50 X accounts):** 45 of 50 in `outputs/leads/x_accounts.md`
+  — close, not yet at target.
+- **Priority 5 (X content, 2 posts):** not started.
+- **Priority 6 (share with engineer friend):** not started.
+
+---
+
+
 
 **READ THIS FIRST.** This session executed PRIORITY 1 of the entry below
 (Agent Mode, Experiment A), then built and deployed the two things that
