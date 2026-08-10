@@ -1,4 +1,935 @@
-# Icarus — Session Handoff (2026-08-10: the marketing site redesigned around the myth and deployed; two design tasks queued for next session)
+# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiment A run and measured, the writer self-report shipped, the queued ingest shipped — a large repo can connect again)
+
+**READ THIS FIRST.** This session executed PRIORITY 1 of the entry below
+(Agent Mode, Experiment A), then built and deployed the two things that
+experiment actually justified. Both are live on revision `0000054`. The
+experiment write-ups are committed under `docs/experiments/`; this entry is
+the summary and, importantly, the list of things I got wrong along the way.
+
+## 1. Experiment A — four measured tasks, 7 answers, 1 fabrication
+
+Protocol, followed strictly on every run: read the issue TITLE + BODY only
+(never the comments, never the named PR), explore the code cold, **freeze
+written priors before any Icarus call**, then ask, then verify every claim
+against GitHub and the clone. Priors-first is what makes the comparison
+honest rather than retrospective.
+
+Repo: `astral-sh/uv` (Alankrit's call — the harder, truncated, genuinely
+unfamiliar case rather than the well-indexed `simonw/llm` board).
+
+| run | issue | result |
+|---|---|---|
+| 1 | #20477 relative paths written absolute | corrected my prior; **also produced the one fabrication** |
+| 2 | #20917 workspace groups no longer additive | both claims accurate, corrected my prior again |
+| 3 | #20981 `uv tool run` ignores installed version | accurate; **told me not to write code at all** |
+
+**The result that repeated three times.** On every run the decisive question
+was *"is the current behaviour intended?"* — and on every run my code-only
+read got it wrong while Icarus got it right:
+
+- #20477: I read the absolute paths as deliberate. They were a regression
+  inside PR #18176, whose title is literally "Preserve absolute/relative
+  paths in lockfiles".
+- #20917: I leaned deliberate. The maintainer had already written "that
+  sounds like a bug?" and "which would explain how I regressed it :)".
+- #20981: I had a correct mechanism diagnosis and would have shipped a fix.
+  The maintainer considers the behaviour intended, won't change it, and
+  regards the reporter's workflow as misuse of the command. **Correct action:
+  write nothing.**
+
+Code shows *what* and never *why*, so an agent reading only code
+systematically over-attributes intent. Twice I'd have mis-scoped a
+regression; once I'd have written an unwanted patch. This is the strongest
+evidence yet for the Agent Mode thesis, and it is n=3 in the same direction.
+
+**The fabrication (run 1, the valuable failure).** Asked what constraints
+exist on relative paths, Icarus answered that absolute paths are preserved
+"when a relative path would require traversing outside the project root
+(e.g. starting with `..`)". **No such rule exists** — `relative_to` uses the
+infallible `normalize_path`, its own doc-comment returns `../../marker.txt`,
+and no `ParentDir` rule exists anywhere in the write path. The reporter's
+paths are exactly `../lib-a`, so taking it at face value would have closed
+the investigation on an invented constraint. Every citation resolved
+(`pr:17122`, `issue:15417` are both real and both on-topic) — it is an
+over-generalisation across two real sources, which is why the honesty gate
+passed it. Groundedness proves evidence is real, never that the answer
+follows from it.
+
+## 2. Abstention: tested properly, and my test design was wrong
+
+Board re-run through the real gated pipeline: **GREEN, all six metrics 100%**
+including abstention recall on the four known-unanswerable questions. But all
+four are one shape ("why this specific value?") — not the shape that failed.
+
+So I wrote four adversarial probes in the failing shape (general *rule*
+questions), plus a control that IS recorded so blanket refusal couldn't pass
+as success. **3 of 4 abstained cleanly; the control answered.** The fourth
+answered faithfully from `issue:335` but at a generality that issue never had
+(it is about extracting OpenAI specifically, not a project rule) — content
+accurate, **scope inflated**.
+
+Separately, run 3 was chosen to test abstention via a `needs-decision` label.
+**That premise was wrong**: `needs-decision` marks an unresolved *decision*,
+not absent *rationale*. The maintainer had stated the reasoning plainly in
+comments, and Icarus quoted it correctly. Icarus drew a distinction I did not.
+
+## 3. Quotation-vs-composition: built, measured, DELETED
+
+Hypothesis: label each sentence quoted/merged/unsupported by lexical overlap
+with cited chunks, so a caller verifies selectively. Built it
+(`evals/attribution.py`), calibrated on the five real recorded cases — and it
+is **anti-correlated with truth**:
+
+    bag-of-words   fabrication 1.00 (best) | accurate 0.65-0.91 | accurate 0.53
+    trigram        fabrication 0.57 (best) | accurate 0.26      | accurate 0.04
+
+A plausible fabrication is *built out of the evidence's own vocabulary*, so it
+scores HIGHER than an honest paraphrase. Structural, not a tuning problem. The
+module was deleted; the negative result is
+`docs/experiments/2026-08-10-quotation-vs-composition-negative-result.md`.
+This re-derives CLAUDE.md's "entailment needs a model" constraint from the
+other side, with numbers.
+
+## 4. SHIPPED: the writer self-report (`0f5a313`)
+
+The writer, unlike a post-hoc checker, KNOWS whether it is restating one block
+or merging several, and that was being discarded at the interface. So ask for it.
+
+- `synth.build_prompt(per_claim=True)` requests `{"claims": [{text, citations}]}`,
+  reusing `_READ_RULES`' existing shape. **Default False leaves the prompt
+  BYTE-IDENTICAL** — the guarantee that let this ship without re-baselining
+  the board (same precedent as `selection=`/`audience=`).
+- `gate.attribute_claims` validates it and labels each claim
+  `quoted`/`composed`/`unsupported`. **ADVISORY** — never called by `gate()`,
+  never touches a verdict, reuses `_resolve` so a claim citation meets the same
+  standard as an answer citation, and an unretrieved ref is DROPPED (can only
+  move a claim toward `unsupported`).
+- `/ask` + `/explain` take a validated `per_claim` bool; payload gains `claims`
+  only when asked, so every existing client is byte-identical.
+- **Both MCP tools send it unconditionally** — the agent interface is exactly
+  the caller that should verify selectively — and the tool description tells
+  the agent that `composed` is the label to check. An unexplained label is inert.
+
+Honest ceiling: a self-report is evidence, not proof (a writer that merged can
+still report one ref), and it **cannot see scope inflation** — the probe Q1
+case reports `quoted`, correctly, because it did restate one chunk.
+
+**Unverified live.** `/ask` is auth-gated (401 before body parsing) and this
+session's MCP adapter predates the change, so `claims` was never observed from
+the deployed brain. Proven locally end-to-end against a real HTTP server.
+**Restart Claude Code and make one `get_change_context` call to close this.**
+
+## 5. SHIPPED: the queued ingest (`74a7d9c`) — and it works
+
+`astral-sh/uv` could not connect at all this morning. Stage 1 ran inside the
+HTTP request and Azure's fixed 240s ingress timeout killed it.
+
+- **`ICARUS_SYNC_CONNECT` removed.** Its premise (a background thread isn't
+  reliably resourced) is void: `minReplicas=1` keeps a replica warm and the
+  backgrounded Stage 2 embed already completes there.
+- **`connecting_to` added to `status_snapshot()`** — the half that actually bit
+  us. `_repo` is only reassigned at the stage-1 publish, AFTER the whole
+  ingest, so for the entire slow part `/status` reported `state: "indexing"`
+  beside the PREVIOUS repo. A running job and no job were indistinguishable;
+  **I misread it as failure twice before reading the code.** Cleared in
+  `finally`, and only by the call that owns it. `state` deliberately stays
+  `"indexing"` — the Mac app decodes that field and a new value would break
+  installed copies.
+- **Bug fixed:** the queued branch dropped `background_upgrade`, so a queued
+  connect ran stage 2 INLINE while the sync path backgrounded it. Red→green,
+  proven by reverting the kwarg.
+- **`--max-replicas 1`**, in the same `az update` as the image so one revision
+  lands both. A queued ingest lives in one replica's memory against that
+  container's ephemeral disk; with several replicas a caller's next request can
+  hit a replica that knows nothing about the job. Lift only once the corpus is
+  on shared storage (§6 phase 2 of the entry below).
+
+**Verified live, not inferred:** after refresh, the corpus flipped to
+`a50af60f` — uv's actual HEAD, a commit that existed in no cached corpus — with
+`indexing: true` behind it. Cold Stage 1 completed on a worker thread on the
+exact repo that failed this morning.
+
+## 6. Corrections — things stated earlier in this doc or by me that are wrong
+
+- **"Every deploy wipes the index" is too strong.** A revision change resets
+  the *session* (signed out, library back to default) but the shared public
+  corpus cache survived: after two deploys, uv's corpus was still pinned to the
+  same commit as before them. Auth/active-library state is lost; the corpus is not.
+- **The 240s attribution for this morning's failure is less certain than I
+  presented it.** If the uv corpus was already cached, the failed connect may
+  not have been doing a full ingest. Server logs would settle it; I don't have them.
+- **`needs-decision` ≠ no recorded rationale** (see §2).
+
+## 7. What is still open
+
+- **The ingest caps are the real coverage gap, untouched.** `PR_LIMIT`/
+  `ISSUE_LIMIT` are 5,000 each; uv has ~11.7k PRs and ~9.2k issues, so the
+  majority of recorded "why" is unindexed and reachable only by exact number.
+  The app discloses it honestly ("Large repo — partial index"). This is now the
+  highest-value remaining ingest work — §6 phase 3 below, and it is no longer
+  blocked by the platform, since Stage 1 is off the request path.
+- **Job state is in memory.** A redeploy kills an in-flight job; a container
+  restart strands status at `indexing`. §6 phase 2.
+- **`per_claim` unconfirmed live** (§4). One call after a restart.
+- **CI's DMG artifact is `Signature=adhoc`** and not shippable to a tester until
+  the signing certificate is a GitLab CI secret. Unchanged from the entry below.
+- **Uncommitted work by someone else**, deliberately left untouched all session:
+  `ABSTAIN_WRITER_NO_REASON` in `evals/gate.py` + `evals/test_gate.py`, and the
+  matching `demo/ledger.py` + `demo/test_ledger.py` changes. My gate.py commit
+  staged ONLY my own hunk via a filtered patch, verified free of theirs.
+  **This handoff entry and the one below are also uncommitted.**
+
+## 8. Where to pick up
+
+Experiment A's remaining steps are B (the `icarus.context(task)` interface),
+C (Claude Code in VS Code), and D (control-vs-experiment measurement). D is the
+one that produces a number worth quoting to a design partner; A gives it a
+protocol that works — priors frozen first, every claim verified after.
+
+The single most useful cheap follow-up: **ask "why was X done?" rather than
+"what is the rule for X?"**. Across all four measured tasks, instance-shaped
+questions were reliable and rule-shaped questions produced both failures. The
+caller controls that, and it costs nothing.
+
+---
+
+# Icarus — Session Handoff (2026-08-10, later: new logo + dark app shipped as an in-app update, GitLab CI/CD now exercises Docker+Azure+Sparkle; direction pivots to Agent Mode next session)
+
+**READ THIS FIRST.** This session did the two design tasks the entry below
+queued (logo, dark app), shipped the result as a real Sparkle update, proved
+out the GitLab pipeline end to end, and — separately — drafted a real pivot:
+**Agent Mode**, positioning Icarus as the context layer coding agents consult
+before writing code, alongside (not instead of) the existing macOS app for
+humans. That draft is reproduced in full in §7 below and is the next
+session's actual work. Everything before it is this session's record.
+
+## 1. The mark: wings, replacing the Signal Spine
+
+Alankrit asked for a mark of "Icarus soaring high in the sky." Iterated
+through several families in a scratch SVG harness — feathered fans, a solid
+swept wing, an open two-stroke V — before landing on his own reference image:
+spread wings rising from a downward V, feathers off a solid leading edge.
+
+`mac/Icarus/Sources/Icarus/IconArt.swift` — `markPath` is parametric (feather
+count, angle/length/width ramps, `covertsReach` — the solid leading-edge mass
+that stops the feathers reading as spikes) and ONE wing is built then
+mirrored, so the halves cannot drift. It is the single definition of the logo
+on this platform: `appIcon`, `menuBarGlyph`, `markGlyph` (new — the flat mark
+`Shell/ShellComponents.swift`'s `MarkView` now RENDERS instead of redrawing in
+SwiftUI), the `.icns` baked by `IconExport`, and the four
+`extension/icons/*.png` — regenerated via a new `IconExport.writeIcon`/
+`--render-png <path> <px>`, so the browser-extension icons come from the app's
+own drawing code rather than a hand-made asset that could drift.
+`site/index.html` repeats the same geometry as inline SVG (header lockup +
+data-URI favicon, keeping the page's zero-external-requests property) —
+**generated from these numbers, not shared with them**; a control-point change
+in `IconArt.swift` has to be regenerated into the site by hand, nothing
+enforces the two staying in sync.
+
+Two things in the geometry were found by rendering at 512px, not reasoned:
+wingtips have to hook upward (level, it reads as a mountain peak) and the
+apex needs a short arc, not a point (two feathers meeting at one point makes
+an angle too acute for a round join to soften — invisible at 32px, an
+unmissable thorn at 512px).
+
+## 2. The app went dark — a token repaint, plus five places that weren't just tokens
+
+`Theme.swift`'s ten colours were already fully centralized (only 5 stray
+hardcoded hexes existed outside it, all fixed), so the light→dark move was
+mostly a values change carrying the website's palette through the *same*
+token names. What wasn't free, because a straight swap would have gotten it
+wrong:
+
+- **The overlay went from frosted to CLEAR glass** — `VisualEffectBackground`
+  (`NSVisualEffectView`) is DELETED, not reconfigured; transparent glass is
+  the *absence* of vibrancy. New `GlassPanel` in `Theme.swift`: a fill, a
+  sheen gradient, a specular-edge stroke, a shadow. `FloatingPanel.swift`'s
+  light-appearance pin turned over to `.darkAqua` rather than being removed —
+  the reason (one fixed palette, so the panel must not follow the system
+  theme) is unchanged, only which theme it's pinned to.
+- **The alpha is measured, not eyeballed — and the eyeballed number was
+  wrong.** Approved at 0.55 in a Figma wireframe; a new `ThemeContrastTests`
+  (below) composited that tint onto a pure-white backdrop — clear glass's
+  actual worst case, a browser or document window behind the panel — and
+  measured **3.56:1, under WCAG AA**. Solved for the real floor (0.62) and
+  set **0.65** for headroom, pinned as `GlassPanel.alpha` so it can't drift
+  back down because a screenshot looked nicer.
+- **`NSApp.appearance = .darkAqua`** is now set explicitly in
+  `AppDelegate.applicationDidFinishLaunching` — without it the traffic
+  lights, `ProgressView`, the `TextField` caret, `Divider`, and every
+  scroller stay light regardless of the palette.
+- **The Home hero was a deliberate light-on-dark inversion**
+  (`background(Theme.ink)`, `Theme.card` text) — inverting a dark palette the
+  same way produces a glaring white slab, so it's redesigned as an ordinary
+  card with a hairline border, serif headline, and the emphasis moved to the
+  accent-tinted pill instead of a reversed fill. `LightButton` and the
+  `pill()` helper got the same rethink, not a value swap.
+- **`citedBg`/`unknownBg`** were opaque pastels with no dark equivalent; now
+  10%/9% `opacity()` tints of their own tone, matching the site.
+- **Serif spent only on hero moments** — new `Theme.display()`, which probes
+  `NSFont` for Hoefler Text → Iowan Old Style → Palatino before falling back
+  to `.serif`, rather than trusting `Font.custom`'s SILENT fallback to hide a
+  missing family. Applied to the Home headline, "No one wrote this down.",
+  and four surface titles; body stays sans, evidence stays mono.
+
+**`ThemeContrastTests.swift`** (new, `Tests/IcarusAppTests/`) is the reason
+any of the above is provable rather than asserted: it measures WCAG contrast
+ratios for every pairing the app renders (never hex values, so a future
+retune keeps passing and an unreadable one fails), and is what caught the
+0.55 alpha bug above — every one of the 219 pre-existing tests passed,
+unchanged, through the entire light→dark repaint, because they are all logic
+tests and would have passed just as happily with unreadable text. 225 Swift
+tests total, 55 extension tests, `.icns` pipeline reverified intact.
+Built, launched, and visually checked against a local brain before shipping.
+
+Figma wireframe (private, Alankrit's drafts):
+`https://www.figma.com/design/GhlC9o0U202xGn88pszTrK` — **stale on the
+overlay alpha** (still shows 0.55); the code and the test are the source of
+truth now, not the frame.
+
+## 3. Shipped as a real Sparkle update, not a drag-and-drop
+
+Installed testers were on 0.1.5/build 8, and the appcast was already serving
+that exact version — so publishing under the same number would have shipped
+something nobody could ever be offered. Bumped to **0.1.6 / build 9**.
+
+`site/release-dmg.sh` stamped the DMG's SHA-256 into all four pinned copies
+(`install.sh`, `index.html`, the Homebrew cask's `sha256`+`version`) from the
+image itself, and `generate_appcast` re-signed `appcast.xml` with the EdDSA
+key in the login keychain. Deployed via `vercel --prod`, then **verified
+against the live site, not assumed**: the DMG the site actually serves
+hashes to `c6cdc32b886a81e2…`, matching exactly what the appcast is signed
+for. An installed 0.1.5 now offers **Check for Updates… → 0.1.6** and
+self-installs the new mark and dark UI.
+
+Homebrew tap (`alankritxghosh/homebrew-icarus`, checked out at
+`../../homebrew-icarus` relative to this repo) updated to 0.1.6 and pushed —
+commit `6562a62` on GitHub.
+
+## 4. GitLab CI/CD now demonstrably runs all three of its jobs, not just tests
+
+The 2026-08-09 entry below built the pipeline and verified `tests` +`build`+
+`deploy` existed; this session actually **exercised** Docker and Azure, and
+**added and exercised a fourth stage (Sparkle packaging)**.
+
+- **Docker/ACR — proven.** Triggered a pipeline via the API on `main` with no
+  diff (`rules:changes` evaluates true regardless), confirming `build` runs
+  correctly off any push. Pipeline
+  [#2745831880](https://gitlab.com/icarus-group4/Icarus/-/pipelines/2745831880):
+  `build` succeeded in 228.7s, image `caec8849f1f0acr.azurecr.io/icarus-brain:14f8f1c4`
+  pushed, `latest` digest `sha256:fbe04ac9b9bba19465c29c286c43a30f4391bf7086e2becd279486a4758c8a74`.
+- **Azure/`deploy` — deliberately NOT clicked.** It's a manual gate for a
+  reason (every redeploy drops every connected session) and this image is
+  built from a commit that changed no image sources, so clicking it would
+  exercise the path without changing the running brain's behavior. **Two
+  pipelines currently sit with an unclicked `deploy` job** —
+  [#2745831880](https://gitlab.com/icarus-group4/Icarus/-/pipelines/2745831880)
+  and #2745852824 (the one Alankrit screenshotted, shows "Blocked") — both
+  safe to leave, click, or cancel; neither is urgent.
+- **Sparkle — added to CI as a new `package-dmg` job**
+  (`.gitlab-ci.yml`, stage `package`), porting `.github/workflows/dmg.yml`
+  rather than inventing a second definition of "what a build is" —
+  `scripts/package_dmg.sh` is now the shared source for local, GitHub
+  Actions, AND GitLab. Runs on `saas-macos-medium-m1`
+  (`macos-15-xcode-16`), manual + gated on `mac/**` changing on `main`
+  (SaaS macOS minutes bill at a premium), automatic on an `alpha-*` tag.
+  **Exercised via a new `alpha-6` tag**, pipeline
+  [#2745854214](https://gitlab.com/icarus-group4/Icarus/-/pipelines/2745854214):
+  `package-dmg` succeeded in 77s, artifact `Icarus-dmg-e8a32905.zip`
+  (2,295,951 bytes). Confirmed from the job log, not the green tick — Swift
+  6.1.2, `swift build -c release` in 35s, Sparkle embedded, the new mark
+  baked into `AppIcon.icns` on the runner itself.
+  - **The signing key stays in Alankrit's keychain, on purpose — this was a
+    deliberate scope decision, not an oversight.** Putting the EdDSA private
+    key in GitLab CI variables would make pipeline-edit access equivalent to
+    code execution on every installed Mac. So `package-dmg` builds and
+    uploads an artifact only; signing and publishing stay
+    `site/release-dmg.sh`, run locally (§3).
+  - **The CI artifact is `Signature=adhoc` and is NOT a shippable build** —
+    confirmed from the job log. `bundle.sh` falls back to ad-hoc without the
+    "Icarus Self-Signed" identity, which isn't on a fresh runner; ad-hoc
+    makes the designated requirement a per-build cdhash, so every tester
+    would be re-prompted for their GitHub token on update — the exact
+    failure `scripts/make_signing_cert.sh` exists to prevent. **Open,
+    real work for whoever picks this up:** import that certificate as a
+    GitLab CI secret before this artifact is ever handed to a tester.
+
+## 5. Gotchas — read before touching git or the pipeline
+
+- **`origin` (GitHub) is 6 commits behind `main` on GitLab.** Every commit
+  since `371d9a1` (the whole site redesign, the logo, the dark repaint, the
+  release, the CI change) only exists on `gitlab`, by explicit choice this
+  session ("push to gitlab, I want to review the CI/CD"). `git push origin
+  main` is a deliberate action for next session, not done automatically.
+- **A local, repo-scoped git config change**: `credential.https://gitlab.com.helper`
+  is set to `!glab auth git-credential`, because the keychain's stored
+  GitLab credential was stale and blocked the push. Reversible with
+  `git config --local --unset credential.https://gitlab.com.helper`; the
+  token itself lives in `glab`'s keyring, never seen or copied.
+- **Current shipped version is 0.1.6 / build 9**, confirmed live in
+  `appcast.xml`, matching the installed-app plist and the Homebrew cask.
+  Bump again before the next release for the same reason as above.
+
+## 6. `astral-sh/uv` connected — and a real, load-bearing finding about ingest caps
+
+Connected as the "complex repo" to index. It surfaced a genuine defect, not a
+UI bug: `evals/ingest.py`'s `PR_LIMIT`/`ISSUE_LIMIT` are 5,000 each; `uv` has
+**11,711 PRs and 9,197 issues** (confirmed via `gh api search/issues`), so
+**6,711 PRs and 4,197 issues — the majority of recorded "why" — are not
+indexed**, reachable only by naming an exact number. The onboarding banner
+disclosed this correctly (`stats["truncated"]` → `meta.json` → `/status` →
+the app's amber banner) — the honesty mechanism worked as designed; the
+ingest coverage did not.
+
+**Traced the real reason this is hard, not assumed:** only Stage 2
+(embedding, `_upgrade_to_semantic`) is backgrounded today.
+`Library.connect_sync`'s Stage 1 — clone, the full `gh pr/issue list` fetch,
+the code walk, chunking, the lexical BM25 build — runs **synchronously
+inside the HTTP request**, which is exactly what Azure Container Apps' fixed,
+non-configurable **240-second Envoy ingress timeout** kills (confirmed
+against Microsoft's own docs in an earlier session, re-surfaced here as
+directly relevant). Measured extrapolation: ~1,900–2,000 chunks is the
+ceiling for a sync connect on this ingress tier, full stop, regardless of
+`PR_LIMIT`/`ISSUE_LIMIT`. Raising the caps alone would make a `uv`-sized
+ingest fail LOUDER (mid-flight, killed by the platform) rather than fix it.
+
+**A five-phase scaling architecture was proposed, not started** (explicit
+per Alankrit's own "don't build ahead of a decision" rule):
+
+1. Decouple Stage 1 ingest itself from the HTTP request — `/connect` returns
+   `queued` immediately, a background worker does the real work. Highest
+   leverage; this is the thing actually killing large repos today.
+2. Persistent storage (Azure Blob/Files) instead of the container's local
+   ephemeral disk — the precondition for #1 meaning anything: a
+   multi-hour job that a redeploy wipes is worse than today's honest
+   timeout failure. Also fixes "every deploy logs testers out."
+3. Raise `PR_LIMIT`/`ISSUE_LIMIT` (now a product choice, not a platform
+   necessity), move the bulk fetch to GraphQL for fewer round trips, fetch
+   incrementally on refresh, and respect GitHub's own ~5,000 req/hr
+   per-token rate limit with resumable state — durable jobs (#1+#2) are
+   what make resuming across that limit possible at all.
+4. A persisted search index instead of rebuilding BM25 in memory on every
+   connect — `_MAX_TOTAL_CHUNKS = 50,000` exists to stop that rebuild from
+   OOMing a small container, and is a real ceiling independent of #1–3.
+5. Separate ingest-worker capacity from the request-serving API tier, so
+   many companies' repos can be indexed in parallel without competing with
+   live `/ask` latency.
+
+**A related, deliberately unresolved question, flagged for whoever picks
+this up:** all five phases are scale *within GitHub*. "Index most codebases
+on earth" may also mean source coverage (GitHub Enterprise Server, GitLab
+self-managed, Bitbucket, Azure DevOps) — a different, larger axis than
+repo-size scaling, and the two should not be conflated when scoping work.
+
+**Also surfaced, directly relevant to §7 below:** coding agents (Claude
+Code, Cursor, Codex) don't hit any of this because they don't pre-index at
+all — they retrieve lazily, per-question (`grep`, `git log`, one `gh pr
+view` call for the one PR that matters), so there's no eager whole-repo
+ingest step for an HTTP proxy to time out. Icarus's eager, provably-gated
+model is the harder path *because* the product's honesty guarantee
+("cite-or-abstain, deterministic, provable in code" — CLAUDE.md) needs
+evidence retrieved and gated before an answer is shown, which is easiest to
+prove against a corpus that already exists. Whether Agent Mode should borrow
+the lazy model for some cases (Icarus already resolves a *named* PR/issue
+on demand via `fetch_pr_diff`/`fetch_ref_detail` without pre-ingesting it)
+is an open design question for §7's experiments, not answered here.
+
+## 7. NEXT SESSION'S ACTUAL WORK — Agent Mode (Alankrit's direction, verbatim)
+
+This is a real pivot in emphasis, not a replacement: the macOS app for
+human engineers stays a first-class product. What's new is treating Icarus
+as a context layer coding agents consult *before* writing code — orthogonal
+to Claude Code / Codex / Cursor, not a competitor to them. Recorded here in
+full because it is the literal plan for next session, not a summary of one.
+
+---
+
+### Mission
+
+Icarus is an engineering intelligence system.
+
+The current macOS application remains a first-class product for human
+engineers. The new direction to explore is **Agent Mode**: Icarus becomes
+the context and engineering-knowledge layer that coding agents use *before*
+they write a line of code.
+
+This does not mean turning Icarus into another coding agent. Icarus should
+remain orthogonal to Claude Code, Codex, Cursor, etc. The model is:
+
+```text
+                         ICARUS
+                 Engineering Intelligence
+                           │
+              ┌────────────┴────────────┐
+              │                         │
+        Human Interface            Agent Interface
+              │                         │
+          macOS App              MCP / CLI / API
+              │                         │
+          Engineer                 Coding Agent
+```
+
+Both interfaces use the same underlying Icarus brain.
+
+The human can ask: *Why was this architecture chosen? What changed here?
+What do we know about this subsystem?*
+
+The coding agent can ask: *What do I need to know before modifying this
+subsystem? What files, symbols, decisions, PRs, issues and constraints are
+relevant to this task? What should I understand before writing code?*
+
+The goal is not to maximize retrieved context. The goal is: **give the
+coding agent the minimum high-value engineering context required to make a
+correct change.**
+
+### PRIORITY 1 — Agent Mode Experiment
+
+**Objective.** Experiment with Icarus as a context layer between a coding
+agent and a real codebase. Do not begin by building a giant new agent
+infrastructure. First prove the workflow manually using the existing Icarus
+capabilities.
+
+The experiment should answer:
+
+1. Does Icarus provide materially better context to Claude Code?
+2. Does Claude Code make fewer incorrect assumptions?
+3. Does Claude Code spend less time searching the repository?
+4. Does Claude Code touch fewer irrelevant files?
+5. Does Claude Code require fewer implementation iterations?
+6. Does Icarus surface historical decisions/rationale that Claude Code would
+   otherwise miss?
+7. Can Icarus identify important unknowns before implementation?
+8. Can we create a repeatable "context before code" workflow?
+
+#### Experiment A — Icarus → Claude Code
+
+Use real repositories, not toy repositories. For each task:
+
+**Step 1 — Give Claude Code a real engineering task.** Choose tasks where
+repository history and architecture matter. Prefer: non-trivial bugs,
+architectural changes, changes touching unfamiliar subsystems, issues with
+historical context, changes where multiple files/symbols are involved. Avoid
+trivial CRUD changes initially.
+
+**Step 2 — Have Icarus investigate the task first.** Before Claude Code
+writes code, use Icarus to answer: What part of the system is involved?
+Which files are relevant? Which symbols are relevant? What dependencies
+matter? Which PRs introduced the relevant code? Which issues discuss the
+problem? What architectural decisions are relevant? What constraints exist?
+What previous attempts were made? What is unknown or undocumented? What
+could Claude Code easily get wrong?
+
+Create an evidence-backed context package. Suggested format:
+
+```text
+TASK
+RELEVANT ARCHITECTURE
+RELEVANT FILES
+RELEVANT SYMBOLS
+DEPENDENCIES
+HISTORICAL CONTEXT
+RELEVANT PRs
+RELEVANT ISSUES
+ARCHITECTURAL DECISIONS
+CONSTRAINTS
+KNOWN RISKS
+UNKNOWNs
+RECOMMENDED INVESTIGATION
+SOURCES / CITATIONS
+```
+
+**Step 3 — Give the Icarus context to Claude Code.** Claude Code should
+independently verify the context against the repository. It should: (1)
+read the supplied context, (2) inspect the relevant repository areas, (3)
+identify disagreements or missing information, (4) produce an
+implementation plan, (5) only then modify code.
+
+**Step 4 — Implement.** Claude Code implements the smallest correct change.
+Tests must be included where appropriate.
+
+**Step 5 — Evaluate.** After implementation, compare: what Claude Code
+initially believed, what Icarus told it, what Claude discovered
+independently, what Icarus missed, what Claude would have had to discover
+through normal repository exploration, whether the implementation changed
+because of Icarus, whether Icarus prevented an incorrect approach.
+
+**Record failures. Failures are more valuable than confirmation.**
+
+#### Experiment B — Icarus as a Native Agent Interface
+
+Once Experiment A proves useful, prototype the smallest possible machine
+interface. Potential interfaces:
+
+```text
+icarus context
+icarus investigate
+icarus search
+icarus explain
+icarus decisions
+icarus dependencies
+icarus unknowns
+```
+
+The most important primitive to investigate is conceptually:
+
+```text
+icarus.context(task)
+```
+
+Example:
+
+```text
+icarus.context(
+    task="Implement OAuth callback handling"
+)
+```
+
+The result should be structured context rather than a conversational
+answer. Potential output:
+
+```json
+{
+  "task": "...",
+  "architecture": [],
+  "files": [],
+  "symbols": [],
+  "dependencies": [],
+  "decisions": [],
+  "prs": [],
+  "issues": [],
+  "constraints": [],
+  "risks": [],
+  "unknowns": [],
+  "citations": []
+}
+```
+
+Do not over-engineer this initially. Find the smallest interface that makes
+Claude Code meaningfully better.
+
+#### Experiment C — Claude Code in VS Code
+
+The next goal is to use Icarus with Claude Code CLI inside VS Code. The
+desired workflow:
+
+```text
+VS Code
+   │
+   ▼
+Claude Code CLI
+   │
+   │ asks for engineering context
+   ▼
+Icarus
+   │
+   ▼
+Context
+   │
+   ▼
+Claude Code
+   │
+   ▼
+Implementation
+```
+
+Guide Alankrit through actually using this workflow. The experiment should
+be performed on real repositories. Document:
+
+1. How Claude Code is invoked inside VS Code.
+2. How Icarus is exposed to Claude Code.
+3. How context is requested.
+4. How context is passed back to Claude.
+5. What the developer experience feels like.
+6. Where the workflow is awkward.
+7. What should be automated.
+8. What should remain explicitly controlled by the engineer.
+
+The end goal is not merely "Claude can access Icarus." The goal is: **Claude
+naturally consults Icarus before making consequential changes.**
+
+#### Experiment D — Compare Agent With and Without Icarus
+
+This is critical. Run comparable tasks in two conditions:
+
+```text
+CONTROL
+Claude Code → Repository
+
+EXPERIMENT
+Claude Code → Icarus → Repository
+```
+
+Measure wherever practical: time to implementation, number of repository
+searches, files inspected, irrelevant files inspected, implementation
+iterations, test failures, incorrect assumptions, final diff size,
+architectural violations, historical mistakes, context-window usage, number
+of times Claude has to stop and investigate something it could have known
+beforehand.
+
+The purpose is to establish whether Icarus creates measurable value. **Do
+not manufacture positive results.** If Icarus makes the workflow worse,
+document why.
+
+### PRIORITY 2 — Productise the Agent Mode
+
+Only after the experiments should implementation decisions be made.
+Investigate whether the best interface is: MCP, CLI, local HTTP API, SDK, or
+a combination of these. Do not assume the answer beforehand.
+
+The macOS application should remain intact. The architecture should become:
+
+```text
+                    Icarus Brain
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+       macOS Application       Agent Interface
+             │                       │
+         Engineers             Claude Code
+                              Codex
+                              Cursor
+                              Other agents
+```
+
+The agent interface should expose Icarus's engineering intelligence without
+requiring agents to understand Icarus's internal implementation.
+
+### PRIORITY 3 — 100 Icarus Leads
+
+Find 100 highly qualified potential Icarus users. Quality is more important
+than simply reaching 100 names. Ideal leads should be engineers, technical
+founders, engineering leaders, developer-tool builders, or people who
+actively work with coding agents and large/complex repositories. Prioritize
+people who are likely to personally experience the problem Icarus solves.
+
+For each lead collect:
+
+```text
+Name
+Role
+Company / Project
+Why they are a strong Icarus fit
+Relevant technical context
+Public professional email
+X account
+LinkedIn / other relevant profile
+Personalisation angle
+Evidence supporting the personalisation
+Outreach status
+```
+
+**Email requirement.** Emails should be highly personalised. Do not send
+generic "Hey, I built an AI tool..." Each email should demonstrate that we
+understand something specific about the recipient's work. The email should
+connect:
+
+```text
+their work
+      ↓
+their likely engineering-context problem
+      ↓
+Icarus
+      ↓
+specific reason they should try it
+```
+
+Only use publicly available professional/personal inboxes that are clearly
+intended for contact. Do not use guessed, leaked, private, or scraped
+personal addresses. Do not send anything without Alankrit's review/approval.
+
+The objective is not volume spam. The objective is: **100 unusually good
+conversations.**
+
+### PRIORITY 4 — 50 X Accounts
+
+Identify 50 strong-fit X accounts for Icarus. Prioritize people who: build
+software, use coding agents, discuss Claude Code / Codex / Cursor / agentic
+coding, build developer tools, run engineering teams, work on AI
+infrastructure, openly discuss software engineering workflows, have
+technically sophisticated audiences.
+
+For each:
+
+```text
+Name
+X handle
+Role
+Company / Project
+Why they are a fit
+Relevant recent topic/post
+Potential conversation angle
+Icarus relevance
+```
+
+Do not treat this as a follower-growth exercise. The goal is to identify
+people who could: (1) try Icarus, (2) give technically meaningful feedback,
+(3) become users, (4) become advocates, (5) introduce Icarus to other
+engineers.
+
+### PRIORITY 5 — Icarus X Content
+
+Create a small initial content set around the new positioning.
+
+**Post 1 — Icarus Demo.** Prepare an X post to accompany a demo video
+showing Icarus being used against real repositories. The post should
+communicate: what Icarus does, why engineering memory/context matters, what
+the demo actually demonstrates, why this is different from generic code
+search/RAG. Do not oversell. The demo should be allowed to carry much of the
+argument.
+
+**Post 2 — Agent Mode.** Prepare an X post introducing the Agent Mode
+direction. Core idea: coding agents are extremely good at writing code. The
+problem is that they don't inherently know why the codebase is the way it
+is. Icarus gives them that context before they write the code. Position it
+as:
+
+```text
+Coding Agent
+      +
+Icarus Engineering Context
+      =
+Better-informed implementation
+```
+
+The post should make the distinction clear: Icarus is not competing with
+coding agents. It gives them the engineering knowledge they lack.
+
+### PRIORITY 6 — Share Icarus With Engineer Friend
+
+Reminder: share Icarus with Alankrit's engineer friend and ask them to
+actually use it against a real repository. The objective is feedback from
+someone who thinks like an engineer rather than someone who is simply being
+supportive. Ask them to be brutally honest about: usefulness,
+trustworthiness, relevance of retrieved context, missing context, UX,
+whether they would actually use it, whether Agent Mode would be useful, what
+they would expect an agent integration to do.
+
+Do not treat compliments as validation. The useful feedback is: "This is
+wrong." "I don't trust this." "I'd never use this." "I wish it did X."
+
+### Operating Principle
+
+Do not build based on assumptions. Run experiments. Observe behaviour.
+Measure. Then build.
+
+The central hypothesis currently being tested is: **Icarus can become the
+engineering-context layer between software projects and coding agents,
+while remaining a standalone engineering intelligence application for
+humans.**
+
+The product should eventually support:
+
+```text
+                    ┌─────────────────────┐
+                    │       ICARUS        │
+                    │ Engineering Memory  │
+                    │ + Context Engine    │
+                    └──────────┬──────────┘
+                               │
+                 ┌─────────────┴─────────────┐
+                 │                           │
+              HUMANS                       AGENTS
+                 │                           │
+             macOS App              MCP / CLI / API
+                 │                           │
+                 ▼                           ▼
+             Engineer                  Claude Code
+                                       Codex
+                                       Cursor
+                                       etc.
+```
+
+The long-term thesis: **before an engineer or coding agent changes a
+codebase, Icarus should be able to tell them what they need to know.**
+
+### Immediate Execution Order
+
+1. Run the Icarus → Claude Code experiment.
+2. Test the workflow on multiple real repositories/tasks.
+3. Record failures and missing capabilities.
+4. Test Claude Code + Icarus inside VS Code via Claude Code CLI.
+5. Run controlled with-Icarus vs without-Icarus comparisons.
+6. Define the minimum viable Agent Interface.
+7. Only then implement the necessary Agent Mode infrastructure.
+8. Build the 100-lead list.
+9. Write 100 personalised emails for review.
+10. Build the 50-account X target list.
+11. Draft the Icarus demo X post.
+12. Draft the Agent Mode X post.
+13. Share Icarus with the engineer friend and collect feedback.
+14. Update this handoff with experiment results and change priorities based
+    on evidence.
+
+### Important
+
+Do not let the Agent Mode idea become an excuse to abandon the existing
+Icarus product. Do not rebuild the entire architecture before validating the
+workflow. Do not optimise retrieval metrics in isolation.
+
+The question is not: "Can Icarus retrieve relevant information?"
+
+The question is: **"Does Icarus make an engineer or coding agent materially
+better at changing a real codebase?"**
+
+## 8. Also queued: study the methodology behind `kage` (site polish reference)
+
+Alankrit asked to add studying the build methodology behind
+[mengto.github.io/kage](https://mengto.github.io/kage/) — Meng To's
+"Hidden Realms of Kyoto" experience — as a next-session task. **Actually
+opened and inspected it this session** (page + network + globals), rather
+than queuing it blind:
+
+- **What it is, factually:** a single-page, five-chapter scroll narrative
+  ("The Hidden Gate" → "Still Gardens" → "Sacred Craft" → "Afterlight"),
+  gated behind a preloader ("Raising the mountain temple…") that boots a
+  **live three.js WebGL scene** — confirmed via `window.THREE` and a
+  self-hosted `secret-pathways-assets/three.min.js`, the only external
+  script on the page. Not a video, not a canned animation loop.
+- **The technique**, confirmed via network requests: a WebGL scene layered
+  under **flat foreground cutout images** (`foreground/png/temple-wall.webp`,
+  `pine-tree.webp`, `tall-grass.webp`) plus separate wide "backdrop" plates
+  named under a `generated/` path (`kage-approach.webp`,
+  `kage-lantern-court.webp`, `kage-moonwater.webp` — the naming strongly
+  suggests AI-generated scene art, not photography or painting scans).
+  Fonts are self-hosted and base64-inlined via `fonts.css`. All of this
+  sits behind one large inline script (~173KB) — no visible framework
+  (no React/Vue/Alpine globals), so this reads as hand-authored, not
+  generated by a site builder.
+- **Why this is relevant, not just aesthetically interesting:**
+  `site/index.html` already does a lighter version of the same idea —
+  painting plates as backgrounds, masked band transitions, layered
+  parallax — for the Icarus marketing page's "arc" narrative. `kage` is
+  the same technique family pushed further: real-time 3D instead of a
+  static plate, and what looks like AI-generated backdrop art instead of
+  sourced public-domain paintings (which `site/index.html` uses
+  deliberately, per its Bruegel/Stinemolen credits — a licensing choice
+  worth keeping in mind if this technique gets borrowed).
+
+**Not started beyond this inspection** — no code written, no build
+attempted. Next session's actual study should go past the network tab:
+read the ~173KB inline script for the scroll-to-3D-camera binding and the
+foreground-parallax math, and decide whether any of it belongs in a v2 of
+`site/index.html`'s existing painting-band mechanism, or is a separate,
+heavier experiment (WebGL is a real weight/complexity trade-off against
+the current page's zero-external-requests property, worth naming
+explicitly before adopting any of it).
+
+---
+
+**Commits (this session, all on `gitlab/main` — see §5, `origin` not yet
+pushed):** `14f8f1c` (mark + dark UI), `342c19b` (release 0.1.6 stamps),
+`e8a3290` (ci: package-dmg job). Tag `alpha-6`. Tap: `6562a62` on
+`alankritxghosh/homebrew-icarus` (GitHub).
+
+## 9. Personal reminder (Alankrit, not an engineering task)
+
+Read the queued Substack articles. Not specified which ones here — this is
+a note-to-self carried into the handoff so it isn't forgotten, not a task
+for whoever picks this file up next.
+
+---
+
+
 
 **READ THIS FIRST.** This session touched **only `site/`** — no brain, no
 evals, no Mac app, no deploy of `icarus-brain`. The Azure state described in
