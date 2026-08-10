@@ -125,6 +125,10 @@ class McpRequestTests(unittest.TestCase):
         self.assertIn("CLOSED WITHOUT being merged", descs)
         # It must NOT promise a reason -- that is the composed-rationale trap.
         self.assertIn("never why", descs)
+        # ...nor imply relevance, which is retrieval's behaviour and degrades
+        # measurably on a lexical-only index (docs/experiments/2026-08-10-
+        # rejected-attempt-false-positive-rate.md).
+        self.assertIn("Judge each entry", descs)
 
 
 if __name__ == "__main__":
