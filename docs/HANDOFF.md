@@ -1,4 +1,4 @@
-# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiment A run and measured, the writer self-report shipped, the queued ingest shipped — a large repo can connect again)
+# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiments A AND D run and measured, the writer self-report shipped, the queued ingest shipped — a large repo can connect again)
 
 **READ THIS FIRST.** This session executed PRIORITY 1 of the entry below
 (Agent Mode, Experiment A), then built and deployed the two things that
@@ -179,17 +179,96 @@ exact repo that failed this morning.
   staged ONLY my own hunk via a filtered patch, verified free of theirs.
   **This handoff entry and the one below are also uncommitted.**
 
-## 8. Where to pick up
+## 8. Experiment D — run after the sections above were written
 
-Experiment A's remaining steps are B (the `icarus.context(task)` interface),
-C (Claude Code in VS Code), and D (control-vs-experiment measurement). D is the
-one that produces a number worth quoting to a design partner; A gives it a
-protocol that works — priors frozen first, every claim verified after.
+Both halves are done. Write-ups:
+`docs/experiments/2026-08-10-agent-mode-exp-d.md` and
+`…-exp-d-efficiency.md`. **This supersedes the claim in §7/§9 below that D is
+"the one that produces a number worth quoting"** — it produced no such number
+by design, and the numbers it did produce argue against the speed framing.
+
+### 8a. Correctness half — two fresh tasks, paired within-task
+
+Control arm (code only, cold, searches counted) frozen in writing first, then
+the Icarus arm on the same task, then every claim verified against GitHub.
+Predictions registered before asking, chosen to DISCONFIRM.
+
+- **#20744 was the negative control** — a mechanical parser bug with no intent
+  question, predicted to be where Icarus adds little. **The prediction was
+  wrong, and that is the finding.** Icarus surfaced PR #20787, CLOSED, whose
+  stated fix is verbatim the one the control had just written, closed by a
+  maintainer with "This is the same as #20751. We need to understand the actual
+  supported behavior of pip before we can make any changes here." Two prior
+  attempts; the control's fix would have been the third rejected PR.
+- **#20818** split cleanly: the verdict ("intentional") is correct and is the
+  maintainer's own word, and it stops the control's wrong fix — but the REASON
+  Icarus gave is composed, no source states it, and it missed the PR
+  maintainers named as the actual fix (#20837).
+
+New category the A runs never touched: the decisive history was not *intent*
+but **prior attempts**. A mechanical bug with an obvious fix is exactly where
+an agent is most confident and most likely to duplicate rejected work.
+
+### 8b. Efficiency half — two uncontaminated subagents, one task
+
+The uncontaminated design A could not provide: two subagents on issue #20675,
+neither able to see the other's work, identical prompts/task/clone/model,
+differing only in Icarus access.
+
+| | control | experiment |
+|---|---|---|
+| tool calls | **15** | 19 (2 Icarus) |
+| files opened | 12 | **10** |
+| wall clock | **164s** | 300s |
+| would write code? | **NO** | **YES** |
+
+**On raw efficiency Icarus LOST**, against a prediction registered beforehand
+saying it would win. Do not soften this: +4 calls, +136s.
+
+The arms disagreed on the ANSWER, which is the result. Both found the merged
+fix (`8d09b838` / PR #20752). The control stopped there and **would have closed
+a live bug as already fixed**. The experiment kept going because Icarus
+surfaced that PR #20754 — a second attempt at the same issue — was tried and
+**CLOSED unmerged while the issue stayed open**. It then found the residual
+cause (`.temp` relies on `Drop`, which never runs under SIGKILL) and proposed a
+fix at a chokepoint, explicitly avoiding the rejected design.
+
+**A design flaw that is mine:** I barred `gh` and the web but allowed `git`, so
+the control reached commit messages including one naming the issue. The real
+comparison is therefore **indexed PR/issue discussion vs. what `git log`
+records** — and the divergence falls exactly on that boundary, because a
+closed, unmerged PR leaves no trace in the commit graph. Narrower than the
+framing implied, and more precise about where the value sits: **not knowing
+what happened, but knowing what was tried and refused.**
+
+### 8c. The running result, all six tasks
+
+**6 of 6 tasks: the unaided reading produced the wrong action** — five times by
+acting when it should not have, once by stopping too early. Against that,
+Icarus's own error rate is **2 fabricated rationales + 1 scope inflation in 9
+substantive answers**, always a composed REASON, never a wrong VERDICT.
+
+The defensible claim, and the one to give a design partner: **Icarus does not
+make an agent faster; it changes what the agent concludes.** Reliable about
+*whether* to act, unreliable about *why*. Anyone selling it on speed is
+contradicted by 8b's own numbers.
+
+## 9. Where to pick up
+
+Experiment A's remaining steps are B (the `icarus.context(task)` interface) and
+C (Claude Code in VS Code). D is done (§8) — do not re-run it expecting a speed
+number; if it is re-run, the design must bar `git log` from the control too, or
+be honest that it compares indexed discussion against commit messages.
 
 The single most useful cheap follow-up: **ask "why was X done?" rather than
-"what is the rule for X?"**. Across all four measured tasks, instance-shaped
-questions were reliable and rule-shaped questions produced both failures. The
+"what is the rule for X?"**. Across all six measured tasks, instance-shaped
+questions were reliable and rule-shaped questions produced every failure. The
 caller controls that, and it costs nothing.
+
+Worth building next, now that §8b names the mechanism: the value concentrated
+in **closed/rejected PRs**, which `git log` cannot see. Nothing in the product
+surfaces "this was tried and refused" as a first-class signal, and it is the
+one thing the experiments show an agent cannot get elsewhere.
 
 ---
 
