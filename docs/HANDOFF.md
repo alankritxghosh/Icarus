@@ -290,10 +290,10 @@ Verified live on revision `0000055`: asking about tool-call ids returns
 CLOSED and unmerged, an earlier attempt refused before tool calling landed
 another way — while an unrelated question returns none.
 
-**Open honesty gap:** it lists closed PRs among *retrieved* evidence, so
-relevance is retrieval's job, not this function's. An unrelated closed PR that
-ranks well will still be listed. Observed on three questions only; watch the
-false-positive rate before trusting the count.
+**Open honesty gap, now MEASURED (§12), not just flagged.** It lists closed
+PRs among *retrieved* evidence, so relevance is retrieval's job, not this
+function's. False-positive rate ranges 0%-33% depending on corpus size and
+retrieval quality — see §12 before trusting any count this returns.
 
 ## 10. Gotcha: `demo.test_isolation` was flaky, and the cause was not the timeout
 
@@ -314,7 +314,37 @@ call sites pass the repo they connected. Pre-existing race, not a regression
 from the queued ingest — but backgrounding Stage 1 makes it the normal path,
 so it would have recurred.
 
-## 11. Where to pick up
+## 12. Measured the false-positive rate, tried a filter, killed the filter
+
+Full write-up: `docs/experiments/2026-08-10-rejected-attempt-false-positive-rate.md`.
+
+Three runs. `simonw/llm` on lexical retrieval: 42% false positive (but this
+measured the WRONG retriever — not what serving uses; drafted as the result,
+then caught by closing my own disclosed limitation before shipping it).
+`simonw/llm` on the real serving retriever: 4/4 relevant, 0% FP — but only 4
+hits, too small to trust. **`astral-sh/uv` on the real serving retriever, 697
+closed PRs (5.4x the `simonw/llm` pool), 40 frozen questions: 5/9 relevant,
+3/9 false positive, 1 borderline — 33% clean false-positive rate.** This is
+the number to use. All 9 hits verified genuinely CLOSED directly against
+GitHub; the parser holds at 5.4x scale with zero drift — the noise is entirely
+retrieval ranking a topically-ADJACENT PR (resolution errors beside constraint
+application, lockfile metadata beside path-dependency serialization), not the
+parser misreading anything.
+
+Then tried to fix it. Two deterministic candidates tested against the 13
+labelled hits across all runs — question/PR-title token overlap, and retrieval
+rank position — **neither separates RELEVANT from FALSE POSITIVE.** A true hit
+can share zero tokens with the question (`"tool_call_id"` vs. `"Support tool
+calling."`); a false positive can share a word that just recurs across the
+corpus (`"resolution"`, `"lockfile"`). Rank doesn't separate either — a false
+positive and a true hit both sat at rank 1 in the same corpus. **No filter
+shipped.** The honest position: the current MCP tool description already
+tells agents to judge each entry on its title and states the measured rate;
+closing the gap further needs semantic judgement (a model call), which is a
+real latency/cost tradeoff to decide on deliberately, not a "cheap fix" to
+sneak in.
+
+## 13. Where to pick up
 
 Experiment A's remaining steps are B (the `icarus.context(task)` interface) and
 C (Claude Code in VS Code). D is done (§8) — do not re-run it expecting a speed
@@ -328,10 +358,9 @@ caller controls that, and it costs nothing.
 
 Next bricks, in the order the evidence supports them:
 
-1. **Measure the rejected-attempt signal's false-positive rate** (§9's open
-   gap). It is cheap — ask N questions, count how many listed PRs a reader
-   would call relevant — and it decides whether the count can be trusted or
-   needs a relevance filter.
+1. **If the rejected-attempt false-positive rate needs to come down**, it needs
+   a model-based relevance judgement, not another deterministic filter — two
+   have now been tried and killed (§12).
 2. **The ingest caps**, still the largest coverage gap: 5,000 PRs/issues each
    against uv's ~11.7k and ~9.2k. No longer blocked by the platform now that
    Stage 1 is off the request path, so it is a product choice about coverage.

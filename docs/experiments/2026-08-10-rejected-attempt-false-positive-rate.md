@@ -136,12 +136,26 @@ because the retrieval genuinely isn't wrong to rank them nearby.
 
 1. **Run 1's "no filter needed" does not hold.** It was one clean result on a
    small, simple corpus, stated as if it generalized. It didn't.
-2. **A relevance filter is worth prototyping**, contrary to what this doc said
-   before Run 3. Candidate: raise the acceptance bar for a listed PR (closer
-   rank cutoff, or a lexical-overlap check between the QUESTION and the PR
-   title/body specifically, not just general retrieval rank) — cheap, and
-   this doc's own near-miss (Run 1 vs the corrected version) shows overlap
-   checks are exactly the kind of thing that needs measuring, not assuming.
+2. **A relevance filter was prototyped and killed.** Two deterministic
+   candidates tested against the 13 labelled hits across Runs 1 and 3
+   (question vs. PR-title shared content tokens; retrieval rank position),
+   neither separates RELEVANT from FALSE POSITIVE:
+   - **Token overlap**: several genuine RELEVANT hits share ZERO tokens with
+     the question (`"tool_call_id"` vs. `"Support tool calling."`; `"schema"`
+     vs. `"schemas"` — a stemming gap), while FALSE POSITIVE hits share a
+     generic word that recurs across the corpus (`"resolution"`, `"lockfile"`)
+     and would pass any threshold ≥1.
+   - **Rank position**: `pr:14003` (FALSE POSITIVE) sits at rank 1, the same
+     rank as a genuine RELEVANT hit (`pr:18080`); no cutoff isolates the noise
+     without also cutting true hits.
+
+   No code shipped from this. Same shape as the quotation/composition
+   negative result (`2026-08-10-quotation-vs-composition-negative-result.md`):
+   a cheap deterministic signal was the right thing to TRY, and the honest
+   result is that this particular relevance judgement needs something with
+   more semantic understanding than token overlap or rank — likely a model
+   call, which is a real cost/latency tradeoff to weigh deliberately, not
+   something to sneak in via a "cheap" filter that doesn't actually work.
 3. **Do not treat the count as a signal.** Unchanged: "3 attempts" is not more
    prior work than "1"; it reflects how many closed PRs ranked, now further
    supported by the false positives above ranking for reasons unrelated to
