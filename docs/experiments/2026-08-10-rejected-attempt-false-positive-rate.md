@@ -1,9 +1,10 @@
 # Rejected-attempt signal — false-positive rate
 
 Date: 2026-08-10
-Corpus: committed `simonw/llm` @ `94769b8` (3,051 chunks)
-N = 30 questions: the 10 board questions plus 20 realistic developer questions
-across the repo.
+Three runs: `simonw/llm` on lexical retrieval, `simonw/llm` on the serving
+(hybrid) retriever, and `astral-sh/uv` on the serving retriever at 5.4× the
+closed-PR pool. **The third run is the one to trust**, and it contradicts the
+"no filter needed" conclusion the first two supported. Read to the bottom.
 
 **No writer calls.** The signal is computed from retrieved evidence, not from
 the answer, so the measurement needs only retrieval — which made N=30 free and,
@@ -15,7 +16,11 @@ Criterion registered BEFORE any hit was seen:
 - **FALSE POSITIVE** — unrelated area; knowing it would not change how they proceed.
 - **BORDERLINE** — same file or module, different concern.
 
-## Headline: on the serving path, 4/4 relevant. 0 false positives.
+## Run 1: `simonw/llm` on the serving path — 4/4 relevant. 0 false positives.
+
+N = 30 questions (the 10 board questions plus 20 realistic developer
+questions). Superseded as "the" result by Run 3 below; kept because the
+lexical-vs-hybrid contrast in this section is still real and instructive.
 
 Measured through the retriever the product actually uses
 (`demo.library._build_retriever` → hybrid BM25 + local semantic, wrapped in
@@ -83,27 +88,81 @@ The parser itself never misjudged: every PR it listed genuinely was closed and
 unmerged, in both runs. What varied was whether the evidence handed to it was
 about the question.
 
-## Consequences
+## Run 3: `astral-sh/uv` on the serving path — 5/9 relevant. 33% false positive.
 
-1. **No relevance filter is warranted.** Precision on the serving path is
-   already 4/4, and a filter would trade recall on the one case that justified
-   the feature.
-2. **Do not treat the count as a signal.** "3 attempts" is not more prior work
-   than "1"; it reflects how many closed PRs ranked. Nothing should aggregate
-   or score on it.
-3. **Tell agents to judge each entry on its title** rather than assume
-   relevance. Not because precision is bad — it is good on N=4 — but because
-   N=4 is far too small to promise anything, and the lexical run shows what
-   degraded retrieval does to it.
+Local ingest of `astral-sh/uv` into a temp corpus (never touching the
+committed `simonw/llm` one): 23,194 chunks, **697 closed-unmerged PRs** — 5.4×
+`simonw/llm`'s pool of 129 — against 3,248 closed issues. N = 40 questions,
+frozen and written from uv's actual subsystems (resolver, lockfile, Python
+installs, workspaces, indexes, caching, build backend, tools, pip
+compatibility, publishing) BEFORE any hit was seen, so they could not be
+selected to flatter the result. No writer calls. Same serving retriever as
+Run 1 (`_build_retriever` → hybrid BM25 + local semantic, normalized).
+
+    questions asked      : 40
+    questions that fired : 8  (20%)
+    total listed PRs     : 9
+
+Every one of the 9 verified genuinely `CLOSED` (not merged) directly against
+GitHub — the parser holds at 5.4× the scale with zero drift.
+
+| question | listed PR | verdict |
+|---|---|---|
+| how does uv handle dependency overrides | pr:18743 `Respect dependency-metadata overrides in uv pip check` | **RELEVANT** |
+| how are constraints applied during resolution | pr:20158 `Preserve context in resolution errors` | **FALSE POSITIVE** — error formatting, not constraint application |
+| how are path dependencies represented in the lockfile | pr:14003 `…take account of indexes defined as sources…` | **FALSE POSITIVE** — index validation, not path deps |
+| how are path dependencies represented in the lockfile | pr:20625 `Support lockfiles without package.metadata` | **FALSE POSITIVE** — metadata field, not path deps |
+| how does uv use keyring for index credentials | pr:14559 `Enable system keyring integration via --keyring-provider native` | **RELEVANT** — exact match |
+| how does uv handle HTTP retries and timeouts | pr:16953 `Clarify UV_HTTP_TIMEOUT format…` | **RELEVANT** — exact env var |
+| how does uv pip compile differ from pip-tools | pr:17219 `Make uv pip compile always attempt to honour --python` | **BORDERLINE** — same subsystem, doesn't address the comparison asked |
+| how does uv publish upload distributions | pr:14307 `Transition "Uploading" to "Uploaded" in uv publish` | **RELEVANT** — exact match |
+| how does uv handle the PATH when installing tools | pr:18080 `Add uv tool dir to PATH in uv docker images` | **RELEVANT** — exact match |
+
+**5/9 relevant, 3/9 false positive, 1/9 borderline — 33% clean false-positive
+rate.** Materially worse than Run 1's 0%, and this is the run that should
+carry more weight: more than twice the hits, 5.4× the closed-PR pool to draw
+noise from, and real subsystem breadth instead of one small, tightly-scoped
+repo where "hybrid retrieval got it right" may just mean there was little room
+to get it wrong.
+
+The false positives share a shape worth naming: each is topically ADJACENT —
+resolution errors sit beside constraint application, lockfile metadata sits
+beside path-dependency serialization — close enough to rank in the top-5 on a
+semantic-plus-lexical index, not close enough to be what the question asked.
+That is a harder failure mode to filter than Run 1's lexical keyword collision,
+because the retrieval genuinely isn't wrong to rank them nearby.
+
+## Consequences (revised after Run 3)
+
+1. **Run 1's "no filter needed" does not hold.** It was one clean result on a
+   small, simple corpus, stated as if it generalized. It didn't.
+2. **A relevance filter is worth prototyping**, contrary to what this doc said
+   before Run 3. Candidate: raise the acceptance bar for a listed PR (closer
+   rank cutoff, or a lexical-overlap check between the QUESTION and the PR
+   title/body specifically, not just general retrieval rank) — cheap, and
+   this doc's own near-miss (Run 1 vs the corrected version) shows overlap
+   checks are exactly the kind of thing that needs measuring, not assuming.
+3. **Do not treat the count as a signal.** Unchanged: "3 attempts" is not more
+   prior work than "1"; it reflects how many closed PRs ranked, now further
+   supported by the false positives above ranking for reasons unrelated to
+   actual prior-attempt count.
+4. **Tell agents to judge each entry on its title.** Already shipped in the
+   MCP description (this commit). At 33% false positive on the larger,
+   harder corpus, that instruction is now load-bearing, not a hedge.
 
 ## Limits
 
-- **4 hits.** That is the real caveat. 4/4 is consistent with high precision and
-  also consistent with luck; it is not a rate.
-- One corpus, one repo, and my own relevance judgements — the per-hit tables
-  exist so each call can be disputed individually.
-- The lexical run is retained deliberately: if retrieval ever degrades (a
-  cold corpus served lexical-only during Stage 2, which is a real state this
-  product enters on every connect), precision degrades with it. A question
-  asked during the indexing window is exactly when this signal is least
-  trustworthy.
+- **Run 3 has 9 hits.** Better than Run 1's 4, still small for a rate. The
+  honest range this session supports is "0% to 33% false positive depending on
+  corpus and retrieval quality" — not a single number.
+- Three corpora tested, all Python-ecosystem repos with GitHub-native PR
+  workflows. Untested: a repo with a different review culture, or one whose
+  closed PRs are dominated by bot/dependency-bump noise.
+- My own relevance judgements throughout — every per-hit table exists so each
+  call can be individually disputed, and Run 3's borderline call (pr:17219) is
+  the one most worth someone else re-checking.
+- The lexical-only failure mode (Run 1's first measurement) is retained
+  deliberately: a cold corpus is served lexical-only during Stage 2 embedding,
+  which is a real state this product enters on every connect. A question asked
+  during that window is exactly when this signal is least trustworthy, and
+  Run 3 didn't test that window at all — it measured the fully-embedded state.
