@@ -137,15 +137,60 @@ this session verified isolated from the other person's real uncommitted WIP
 `.gitignore`, `site/for/*`) before every push — check this again next
 session, that WIP is still sitting there unmerged.
 
-## 5. Where to pick up
+## 5. Known negatives — which are fixed, which are open, and why
 
-**Priority 1 is done.** The next session should default to **Priority 2 —
-productise Agent Mode**: decide the actual interface (MCP, CLI, local HTTP
-API, SDK, or a mix) now that real data exists, rather than assuming it.
-Don't re-run any more with/without-Icarus comparisons expecting a new
-result — three real, independently-verified runs already agree on
-correctness; further replication has sharply diminishing value versus
-spending that time on the productisation decision itself.
+Two were real bugs and are fixed. The rest are structural findings from the
+experiments, not defects — there was nothing broken to patch, but they are
+real open work and belong in next session's queue, not swept under "Priority
+1 is done."
+
+**Fixed (real bugs, both proved red→green):**
+- Agent-session route whitelist missing `/context` (`606193f`).
+- `demo.test_isolation`'s false-ready race (`a875131`).
+
+**Not fixed — three genuine open items, in priority order:**
+
+1. **No automatic use.** Claude Code does not call Icarus unless directed,
+   even under the strongest nudge tried (a CLAUDE.md instruction saying to
+   call it before ANY change, "not a judgment call"). This is not a bug to
+   patch — it IS what Priority 2 has to answer: what interface makes
+   consultation happen without hand-holding a prompt into place. Nothing
+   built on it yet.
+
+2. **The Experiment A fabrication class is still unverified against the
+   defense already shipped.** The gate proves citations are real, not that
+   the answer follows from them (disclosed, structural — CLAUDE.md is
+   explicit that entailment stays writer-reliant beyond the (b)/(c) guards).
+   The fabrication happened BEFORE the writer self-report
+   (`per_claim`/`attribute_claims`, shipped later the same day, `0f5a313`)
+   existed. **Nobody has gone back and checked whether that already-shipped
+   mechanism would flag it** — re-run the exact uv #20477 question with
+   `per_claim=True` and see whether the fabricated sentence about paths
+   "requiring traversal outside the project root" gets labelled `composed`
+   (self-reported multi-source synthesis, i.e. worth a second look) or
+   `quoted` (silently trusted). Cheap, concrete, un-run — do this before
+   assuming the gap is covered. If it's NOT flagged, that's a real finding
+   about a real gap in a real shipped feature, not a hypothetical.
+
+3. **Efficiency direction isn't predictable.** Observed, not a defect —
+   whether a directed Icarus call costs more or less depends on whether the
+   answer collapses a search or opens a follow-up one. Nothing to fix; just
+   don't represent it as "always faster" or "always slower" in any
+   productisation pitch.
+
+## 6. Where to pick up
+
+**Priority 1 is done, but item 2 above (the fabrication-class recheck) is
+cheap enough it should happen FIRST, before Priority 2 work starts** — it's
+a five-minute check against infrastructure that already exists, not a new
+build. After that, default to **Priority 2 — productise Agent Mode**: decide
+the actual interface (MCP, CLI, local HTTP API, SDK, or a mix) now that real
+data exists, rather than assuming it, and let item 1 above (nothing makes
+consultation automatic yet) shape that decision directly. Don't re-run any
+more with/without-Icarus comparisons expecting a new correctness result —
+three real, independently-verified runs already agree; further replication
+has sharply diminishing value versus spending that time on the
+productisation decision itself.
 
 Still open, unchanged, lower priority than 2 unless Alankrit redirects:
 - **Priority 3 (100 leads):** done, 111 in `outputs/leads/ALL_LEADS.md`.
