@@ -1,4 +1,4 @@
-# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiments A AND D run and measured, the writer self-report shipped, the queued ingest shipped — a large repo can connect again)
+# Icarus — Session Handoff (2026-08-10, later still: Agent Mode Experiments A AND D run and measured; three things shipped and deployed — the writer self-report, the queued ingest, and the rejected-attempt signal the experiments actually pointed at)
 
 **READ THIS FIRST.** This session executed PRIORITY 1 of the entry below
 (Agent Mode, Experiment A), then built and deployed the two things that
@@ -253,7 +253,68 @@ make an agent faster; it changes what the agent concludes.** Reliable about
 *whether* to act, unreliable about *why*. Anyone selling it on speed is
 contradicted by 8b's own numbers.
 
-## 9. Where to pick up
+## 9. SHIPPED: the rejected-attempt signal (`eca8f99`, live on `0000055`)
+
+The brick §8b pointed at, built and deployed the same session.
+
+**A merged pull request leaves a commit; a refused one leaves nothing.** So
+`git log`, `git blame` and the working tree are all downstream of merges, and
+an agent with a full clone still cannot see that its change was already tried
+and rejected. That asymmetry is exactly where the two subagent arms diverged.
+
+`evals/attempts.rejected_attempts(evidence)` reports the pull requests among
+retrieved evidence that were **CLOSED without merging**. The data was already
+in the corpus and nothing read it: GitHub's `state` distinguishes MERGED from
+CLOSED and `ingest._pr_or_issue_text` has always written it into each chunk's
+header. So this is ~76 lines of deterministic parsing — no model, no extra
+fetch, no ingest change, and no path by which it reports an attempt the
+indexed text does not state.
+
+Deliberately narrow, each limit a decision:
+
+- **A closed ISSUE is not an attempt.** It is usually a question answered by
+  the merge you can already see; 544 closed issues against 129 closed PRs in
+  the committed corpus would bury the signal. Test-pinned as the decoy.
+- **Says WHAT was refused, never WHY.** The reason lives in review comments,
+  and asserting one is precisely the composed rationale these experiments
+  caught Icarus inventing twice (§8a, run 1). The MCP tool description says
+  "never why" and a test enforces that wording.
+- **Computed from the FULL evidence set and set on the abstention path too** —
+  an answer that did not rest on the refused attempt is exactly when an agent
+  is about to redo it.
+- Payload key emitted only when non-empty, so every existing client is
+  byte-identical.
+
+Verified live on revision `0000055`: asking about tool-call ids returns
+`pr:581 "Support tool calling."` — confirmed against GitHub as genuinely
+CLOSED and unmerged, an earlier attempt refused before tool calling landed
+another way — while an unrelated question returns none.
+
+**Open honesty gap:** it lists closed PRs among *retrieved* evidence, so
+relevance is retrieval's job, not this function's. An unrelated closed PR that
+ranks well will still be listed. Observed on three questions only; watch the
+false-positive rate before trusting the count.
+
+## 10. Gotcha: `demo.test_isolation` was flaky, and the cause was not the timeout
+
+CI failed once on `'octo__xrepo' not found in '.../default'` and passed on
+retry of the same commit. Fixed in `a875131`, and worth knowing because the
+diagnosis was counter-intuitive:
+
+`_wait_until_ready` waited for `state != "indexing"`, but `POST /connect`
+returns 202 **before** the worker sets that state — so the first poll could see
+the PREVIOUS library sitting legitimately "ready" and return at once. The test
+then asserted against the old repo and failed with a message about answer
+CONTENT, pointing away from the real problem. No increase to the old 2s bound
+would have fixed it; the condition was wrong.
+
+The wait now requires `state == "ready"` AND the expected repo AND
+`connecting_to` clear, fails loudly on timeout or connect error, and all 13
+call sites pass the repo they connected. Pre-existing race, not a regression
+from the queued ingest — but backgrounding Stage 1 makes it the normal path,
+so it would have recurred.
+
+## 11. Where to pick up
 
 Experiment A's remaining steps are B (the `icarus.context(task)` interface) and
 C (Claude Code in VS Code). D is done (§8) — do not re-run it expecting a speed
@@ -265,10 +326,18 @@ The single most useful cheap follow-up: **ask "why was X done?" rather than
 questions were reliable and rule-shaped questions produced every failure. The
 caller controls that, and it costs nothing.
 
-Worth building next, now that §8b names the mechanism: the value concentrated
-in **closed/rejected PRs**, which `git log` cannot see. Nothing in the product
-surfaces "this was tried and refused" as a first-class signal, and it is the
-one thing the experiments show an agent cannot get elsewhere.
+Next bricks, in the order the evidence supports them:
+
+1. **Measure the rejected-attempt signal's false-positive rate** (§9's open
+   gap). It is cheap — ask N questions, count how many listed PRs a reader
+   would call relevant — and it decides whether the count can be trusted or
+   needs a relevance filter.
+2. **The ingest caps**, still the largest coverage gap: 5,000 PRs/issues each
+   against uv's ~11.7k and ~9.2k. No longer blocked by the platform now that
+   Stage 1 is off the request path, so it is a product choice about coverage.
+3. **Persistent storage** (§6 phase 2 of the entry below) — a redeploy still
+   kills an in-flight job and resets every session, and job state is in memory
+   so a container restart strands status at `indexing`.
 
 ---
 
