@@ -126,6 +126,55 @@ _TOOLS = [
             "openWorldHint": True,
         },
     },
+    {
+        "name": "get_task_context",
+        "title": "Get structured task context",
+        "description": (
+            "Before starting a non-trivial engineering task, retrieve STRUCTURED "
+            "context rather than a conversational answer: architecture, "
+            "dependencies, files gathered, decisions (with their support class "
+            "-- see get_change_context's \"composed\" note, the same distinction "
+            "applies here), pull requests and issues gathered, RISKS (pull "
+            "requests already tried and refused for related work -- see "
+            "get_change_context's rejected_attempts note; the same discipline "
+            "applies: WHAT was refused, never WHY), disclosed constraints on "
+            "this context itself, unknowns, and the citations the summary "
+            "actually rests on. Read-only; never edits code or switches the "
+            "connected repository. This spends several model calls (like an "
+            "investigation), so use it for a real task, not a quick lookup -- "
+            "get_change_context is cheaper for a single focused question."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "Expected GitHub owner/name. The call refuses if Icarus "
+                        "is connected to a different repository."
+                    ),
+                },
+                "task": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": (
+                        "The task about to be undertaken, e.g. \"Implement OAuth "
+                        "callback handling\". Not a yes/no question -- describe "
+                        "the change being made."
+                    ),
+                },
+            },
+            "required": ["repo", "task"],
+            "additionalProperties": False,
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    },
 ]
 
 
@@ -382,6 +431,19 @@ def _get_change_context(arguments):
     return payload
 
 
+def _get_task_context(arguments):
+    task = _required_string(arguments, "task")
+    expected_repo = _required_string(arguments, "repo")
+    active_repo = _checked_repo(expected_repo)
+
+    payload = _request("/context", {"task": task})
+    if payload.get("repo") != active_repo:
+        raise _ToolError(
+            "Icarus changed repositories while answering; retry the request")
+    _checked_repo(active_repo)
+    return payload
+
+
 def _explain_code_context(arguments):
     repo = _required_string(arguments, "repo")
     path = _required_string(arguments, "path")
@@ -483,6 +545,8 @@ def handle_message(message):
                 payload = _get_change_context(arguments)
             elif name == "explain_code_context":
                 payload = _explain_code_context(arguments)
+            elif name == "get_task_context":
+                payload = _get_task_context(arguments)
             else:
                 return _response(
                     request_id, _tool_error(f"unknown tool: {name}"))

@@ -331,6 +331,8 @@ removing, or renaming files). For class/function-level detail see
   without reading, compare refusing a non-PR and disclosing its commit bound,
   and `verify` proven to be the real gate (self-disclaiming prose refused
   despite a perfectly resolving citation).
+- `evals/context_package.py` — `build_context_package`: Experiment B's `icarus.context(task)` (docs/HANDOFF.md's Agent Mode entry). Pure reshaping of ALREADY-gated outputs into structured pre-implementation context -- NO new retrieval, NO new model call, NO new honesty logic. `architecture`/`dependencies` come straight from `demo/structure.build_structure` (pure, deterministic); `decisions`/`unknowns`/`citations` come from an ordinary `evals/investigator.py` run through the SAME gate `/ask` and `/investigate` use; `risks` are pull requests already tried and refused for related work (`evals/attempts.rejected_attempts`, computed over EVERYTHING the investigation gathered, not just what the final answer cited); `constraints` are disclosed limits on the context itself (budget exhaustion, unanalysed languages, unresolved imports), never invented engineering constraints about the target codebase. Deliberately DROPS `symbols` from the original brief's schema -- nothing extracts symbol-level information cheaply and honestly today, and a permanently-empty field would be worse than a documented omission.
+- `evals/test_context_package.py` — 18 tests weighted toward what must NOT leak in: a WEAK claim (code alone) is not a `decision`, an unverified claim is not a `decision`, a gathered-but-uncited rejected PR still appears as a `risk`, `citations` (from the gated result) stays narrower than `prs`/`issues` (everything gathered), and `symbols` never appears as a key.
 - `evals/investigator.py` — the loop: subject bound deterministically from the
   question's own refs (reusing `pipeline`'s regexes, so "PR 400" means the same
   thing here as in `/ask`), fixed opening seeds, then adaptive rounds of
@@ -770,7 +772,7 @@ removing, or renaming files). For class/function-level detail see
   brain; imports `evals/`, changes no brain code.
 - `demo/links.py` — `ref_to_url`, mapping a `source:ref` citation to its GitHub
   URL; unknown/malformed → None.
-- `demo/payload.py` — (2026-08-10) emits `claims` when the caller set `per_claim`:
+- `demo/payload.py` — (2026-08-10) also `build_context_payload`: wraps `evals.context_package`'s output with the same self-identifying `repo`/`commit`/`indexing` fields every payload carries. Deliberately NOT built on `build_payload` -- a context package has no single verdict (it can hold decisions AND risks AND unknowns at once), so forcing it through the answer/unknown shape would invent a field that means nothing here. `build_payload` emits `claims` when the caller set `per_claim`:
   the writer's per-sentence self-report, each entry `{text, citations, label}`
   with label `quoted`/`composed`/`unsupported`. ABSENT unless present, so every
   existing client is byte-identical. `build_payload`, turning a `Result` into self-identifying
@@ -778,7 +780,7 @@ removing, or renaming files). For class/function-level detail see
   callers can explicitly request bounded retrieved evidence even on an honest
   unknown. Carries `anchored` beside `searched` so a renderer can distinguish
   what the question named from what search suggested.
-- `demo/mcp_server.py` — (2026-08-10) both tools send `per_claim: true`
+- `demo/mcp_server.py` — (2026-08-10) a third tool, `get_task_context` (Experiment B): structured pre-implementation context rather than a conversational answer, over `POST /context`. Costs several model calls like an investigation, so its description tells the agent when to reach for it over the cheaper `get_change_context`. Both existing tools send `per_claim: true`
   unconditionally (not a tool argument — no caller here would want it off), and
   the tool description tells the agent to verify `composed` sentences. Dependency-free stdio MCP adapter over `/status`,
   `/ask`, and `/explain`: two read-only tools, explicit repo mismatch refusal,
@@ -1085,7 +1087,7 @@ removing, or renaming files). For class/function-level detail see
   private repo is what they actually do. Only NEW logins narrow -- GitHub keeps
   the union of scopes already granted to an OAuth App. The
   secret lives only here, never in the app or extension.
-- `demo/server.py` — stdlib `http.server` over a `LibraryRegistry`: `make_handler`
+- `demo/server.py` — (2026-08-10) `POST /context` (`_handle_context`, Experiment B): the exact `/investigate` engine (same investigate()/conclude() call, same honesty gate, same `investigate_limiter` budget -- an investigation spends several billed writer calls, same as /investigate) reshaped through `evals.context_package.build_context_package` plus `demo.structure.build_structure` for the dependency map. Deliberately STATELESS unlike /investigate: no conversation continuity, no `fresh` flag, no subject inheritance -- a caller asking what to know before doing X is not a follow-up about a prior "it". stdlib `http.server` over a `LibraryRegistry`: `make_handler`
   (loopback Host/Origin guard, 64KB body cap, per-request identity resolution,
   optional GitHub bearer on `/ask`+`/connect`+`/disconnect`, per-identity rate
   limits via `demo/ratelimit.py` — including a SEPARATE, much tighter
@@ -1142,6 +1144,7 @@ removing, or renaming files). For class/function-level detail see
   payload is untouched, and BOTH MCP tools always request `per_claim` — plus a
   guard that the tool description actually tells the agent `composed` is the
   label to verify, since an unexplained label is inert.
+- `demo/test_context_endpoint.py` — `POST /context` at the real HTTP boundary, reusing `test_investigate_endpoint`'s exact harness (same engine, so the same fixture proves both). Pins what's specific to the new shape: no `investigation`/`verdict`/`answer` wrapper keys, a gathered PR reported even outside any conversation, `citations` narrower than `prs` (gate-verified vs. everything gathered), and the SAME tight rate-limit category `/investigate` uses (not the cheap `/ask` budget).
 - `demo/test_mcp_server.py` — MCP handshake/tool contracts, evidence-rich honest
   unknowns, explicit selection forwarding, repo mismatch refusal, and the
   2026-08-07 reversal: a private repository IS served

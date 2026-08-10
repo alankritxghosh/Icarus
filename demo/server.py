@@ -43,7 +43,9 @@ from evals.ingest import fetch_pr_diff
 from evals import investigator as _investigator
 from .investigations import ConversationStore, refers_back
 from .structure import build_structure
-from .payload import build_investigation_payload, build_payload
+from evals.context_package import build_context_package
+from .payload import (build_context_payload, build_investigation_payload,
+                     build_payload)
 from .repo_map import build_map
 from .visits import VisitStore
 from . import onboarding
@@ -907,6 +909,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._handle_explain(lib, identity)
             elif self.path == "/investigate":
                 self._handle_investigate(lib, identity)
+            elif self.path == "/context":
+                self._handle_context(lib, identity)
             elif self.path == "/connect":
                 # Same reasoning as /ask: check the limiter first, before the body
                 # is even parsed, so a rate-limited caller never reaches the real
@@ -1327,6 +1331,68 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
             self._send_json(200, build_investigation_payload(
                 result, investigation, repo, commit, indexing=still_indexing))
+
+        def _handle_context(self, lib, identity):
+            """POST /context {task} -> structured pre-implementation context:
+            architecture, dependencies, files touched, decisions (with support
+            class), PRs/issues gathered, RISKS (pull requests already tried and
+            refused -- evals/attempts.py), disclosed constraints, unknowns, and
+            the citations the answer actually rests on. NOT a conversational
+            answer -- Experiment B's `icarus.context(task)` (docs/HANDOFF.md).
+
+            Reuses the exact `/investigate` engine -- same investigate()/
+            conclude() call, same honesty gate, same entitlement check, same
+            rate budget (`investigate_limiter`: an investigation spends several
+            billed writer calls, same as /investigate). This endpoint adds NO
+            new retrieval and NO new model call; it only reshapes an
+            investigation's already-gated output (evals/context_package) and
+            adds demo/structure.py's already-deterministic dependency map.
+
+            Deliberately STATELESS, unlike /investigate: no conversation
+            continuity, no `fresh` flag, no subject inheritance. A caller
+            asking "what do I need to know before doing X" is not a follow-up
+            question about a prior "it" -- keeping this smaller than
+            /investigate is the point (see the module's own "do not
+            over-engineer" brief).
+            """
+            if not investigate_limiter.allow(identity):
+                self._send_json(429, {"error": "an investigation makes several model "
+                                               "calls -- try again in a minute"})
+                return
+            if not self._entitled(lib):
+                self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                return
+            try:
+                body = self._body()
+                task = body["task"]
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "missing task"})
+                return
+            if not isinstance(task, str) or not task.strip():
+                self._send_json(400, {"error": "missing task"})
+                return
+            task = task.strip()
+            snapshot = lib.snapshot()
+            repo, commit = snapshot.repo, snapshot.commit
+            try:
+                diff_fetch = (lambda number, tok=None:
+                              fetch_pr_diff(repo, number, token=tok)) if repo else None
+                texts = {}
+                investigation = _investigator.investigate(
+                    task, snapshot.pipeline, entity_index(lib, snapshot),
+                    snapshot.provider, token=self._github_token(), diff_fetch=diff_fetch,
+                    texts=texts)
+                result = _investigator.conclude(
+                    investigation, snapshot.provider, texts=texts)
+                structure = build_structure(snapshot.pipeline.indexed_chunks())
+                package = build_context_package(investigation, result, structure, texts)
+                still_indexing = snapshot.indexing
+            except Exception as e:
+                print(f"/context failed: {type(e).__name__}: {e}", file=sys.stderr)
+                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                return
+            self._send_json(200, build_context_payload(
+                package, repo, commit, indexing=still_indexing))
 
     return Handler
 

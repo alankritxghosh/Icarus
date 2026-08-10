@@ -36,9 +36,10 @@ class McpProtocolTests(unittest.TestCase):
 
         self.assertEqual(
             set(tools),
-            {"get_change_context", "explain_code_context"},
+            {"get_change_context", "explain_code_context", "get_task_context"},
         )
         self.assertTrue(tools["get_change_context"]["annotations"]["readOnlyHint"])
+        self.assertTrue(tools["get_task_context"]["annotations"]["readOnlyHint"])
         self.assertIn(
             "repo",
             tools["get_change_context"]["inputSchema"]["required"],
@@ -46,6 +47,10 @@ class McpProtocolTests(unittest.TestCase):
         self.assertIn(
             "repo",
             tools["explain_code_context"]["inputSchema"]["required"],
+        )
+        self.assertIn(
+            "repo",
+            tools["get_task_context"]["inputSchema"]["required"],
         )
 
     def test_notifications_do_not_receive_a_json_rpc_response(self):
@@ -123,6 +128,39 @@ class McpToolTests(unittest.TestCase):
                 "per_claim": True,
             },
         )
+
+    @patch("demo.mcp_server._request")
+    def test_task_context_returns_the_structured_shape(self, request):
+        request.side_effect = [
+            {"repo": REPO, "commit": COMMIT, "state": "ready", "private": False},
+            {
+                "repo": REPO, "commit": COMMIT, "indexing": False,
+                "task": "implement rate limiting",
+                "architecture": [], "dependencies": {"file_edges": [], "package_edges": []},
+                "files": ["llm/cli.py"], "decisions": [], "prs": ["pr:400"],
+                "issues": [], "risks": [], "constraints": [], "unknowns": [],
+                "citations": ["pr:400"],
+            },
+            {"repo": REPO, "commit": COMMIT, "state": "ready", "private": False},
+        ]
+
+        response = mcp_server.handle_message({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "get_task_context",
+                "arguments": {"repo": REPO, "task": "implement rate limiting"},
+            },
+        })
+
+        result = response["result"]
+        self.assertFalse(result["isError"])
+        self.assertEqual(result["structuredContent"]["task"], "implement rate limiting")
+        self.assertEqual(result["structuredContent"]["prs"], ["pr:400"])
+        # Not the /ask shape -- no verdict/answer key leaks through.
+        self.assertNotIn("verdict", result["structuredContent"])
+        request.assert_any_call("/context", {"task": "implement rate limiting"})
 
     @patch("demo.mcp_server._request")
     def test_repo_mismatch_refuses_before_asking_or_switching(self, request):

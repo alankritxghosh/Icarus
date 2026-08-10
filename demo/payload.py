@@ -141,6 +141,22 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
     return payload
 
 
+def build_context_payload(package: dict, repo: str, commit: str,
+                          indexing: bool = False) -> dict:
+    """`package` is `evals.context_package.build_context_package`'s output --
+    structured pre-implementation context (Experiment B's `icarus.context
+    (task)`, docs/HANDOFF.md), NOT a conversational answer. Wraps it with the
+    same self-identifying fields every other payload carries (`repo`/`commit`
+    /`indexing`) so an agent client never infers which repo answered -- the
+    same discipline `build_payload` documents above.
+
+    Deliberately NOT built on `build_payload`: a context package has no single
+    verdict (it can hold decisions AND risks AND unknowns at once), so forcing
+    it through the answer/unknown shape would invent a field that does not
+    mean anything here."""
+    return {"repo": repo, "commit": commit, "indexing": bool(indexing), **package}
+
+
 def build_investigation_payload(result, investigation, repo: str, commit: str,
                                 indexing: bool = False) -> dict:
     """An investigation's answer, in the SAME shape `/ask` returns plus the trail
