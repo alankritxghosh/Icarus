@@ -1,4 +1,4 @@
-# Experiment C2 — results (IN PROGRESS: task 1 of 4)
+# Experiment C2 — results (COMPLETE: 4 of 4)
 
 Plan and registered prediction: `2026-08-11-agent-mode-exp-c2-plan.md` (`1853e6f`),
 committed before this run started. Protocol: `PROTOCOL.md`.
@@ -231,13 +231,94 @@ both cite a merged PR alongside the closed one. That is the rule working as
 intended, and is the same mechanism that produced the task-2 false negative:
 identical logic, opposite verdicts, because the evidence differed.
 
+## Task 4 — #1580 `llm tools` shows dynamic toolboxes as a bare header
+
+**Fourth unprompted call.** Task valid, reproduced by execution beforehand.
+
+The agent kept the toolbox listed and explained the emptiness, and separately
+made toolbox INSTANCES list their real tools (`.tools()` for an instance,
+`method_tools()` for a class) — noticing that `llm tools 'MCP("...")'`, the
+obvious next command, also printed a bare header because `method_tools()` is a
+classmethod that never sees the instance's registered tools.
+
+**It knew #1581 had been closed, and deliberately went the other way**, on the
+stated reasoning that dropping empty toolboxes from the listing destroys the
+discoverability the command exists for.
+
+**Independently verified: upstream agrees with the agent, not with #1581.** The
+real fix (`1b99533`, "llm tools now displays dynamic toolboxes usefully, closes
+#1580") rewrites `introspect_tools` to dispatch on instance-vs-class exactly as
+the agent did — same structure, same reason. #1581's approach (skip empty
+toolboxes) is not what landed, and the #1580 thread shows the maintainer working
+toward instantiating toolboxes and listing their tools.
+
+**So this is the case where `rejected_attempts` had genuine predictive value.**
+Unlike tasks 1–3, here "closed unmerged" really did mean "this approach was not
+adopted", and knowing it steered the agent to the solution upstream chose.
+
+## The closed-unmerged tally across the whole run
+
+Nine pull requests surfaced as `rejected_attempts` across four tasks. What each
+closure actually meant, from the closure comments and commits:
+
+| task | PRs | what "closed unmerged" meant |
+|---|---|---|
+| 1 | #1467 #1469 #1487 #1544 | maintainer fixed it himself, **same approach**; four swept in 29s with no comment |
+| 2 | #1512 #1549 #1571 | **the winning approach** — two closed as duplicates of the third, the third landed by hand |
+| 3 | #1584 | duplicate of **merged** #1588, same approach |
+| 4 | #1581 | **genuinely not adopted** — "I fixed this another way" |
+
+**One in nine corresponded to an approach that was actually not taken.** The
+other eight were the right approach arriving by another route. The signal is
+honest and it is useful — in task 4 it steered correctly, and in directed-D it
+stopped an 8th duplicate — but "closed unmerged" answers *"do not send this
+again"* far more often than *"this idea was wrong"*, and those recommend
+different next actions.
+
+## Conclusion
+
+**My registered prediction was wrong.** I predicted 0–1 of 4 unprompted calls
+and argued the interface was never the bottleneck. The result is **4 of 4**,
+with no `CLAUDE.md` nudge, against a 0/11 baseline and Experiment C's 0-of-4
+*with* a strong nudge. Alankrit's read — that C's nudge was badly written rather
+than the approach being structurally doomed — is the one the evidence supports.
+
+What changed was not the interface but what the description SAYS: leading with
+the capability the agent cannot otherwise reach, and triggering on observable
+events ("you are about to edit") instead of on the agent's own estimate of
+whether a task is important enough. The prior wording asked a coding agent to
+judge its task "meaningful", and it reliably judged it wasn't.
+
+Outcome influence, on the three valid tasks: task 3 (supplied merged precedent
+#1588, unreachable by search) and task 4 (steered away from the approach that
+was not adopted) both changed the work. Task 1's contribution was a correct
+warning about PRs that turned out not to be refusals. So 2 of 3 clearly, 3 of 3
+if you count a warning that was right in form.
+
+**This does not retire the deterministic-trigger option.** 4 of 4 in one
+repository, one agent, one session's worth of tasks, all bug-fix shaped and all
+in a repo whose history is unusually rich in duplicate attempts. A description
+persuades; a hook guarantees. What this run establishes is that persuasion was
+not exhausted, which is what Alankrit said and I doubted.
+
+## Queued, deliberately not done during the run
+
+1. Disclose in the tool description that a closed pull request may mean the
+   change was made another way rather than refused — now backed by 8 of 9.
+2. `rests_on_rejected`'s every-citation rule produced a real false negative in
+   task 2 ("the accepted fix", citing one refused PR plus an issue). Decide
+   whether to relax it to any-citation or to leave it and rely on `composed`.
+3. The `llm` fixes themselves are uncommitted in the clone. Four of them target
+   issues whose PRs were closed; per the tally above, read the closure threads
+   before submitting anything upstream.
+
 ## Running score
 
 | | task 1 (#1466) | task 2 (#1511) | task 3 (#1583) | task 4 (#1580) |
 |---|---|---|---|---|
-| unprompted call | yes | yes | yes | not run |
+| unprompted call | yes | yes | yes | yes |
 | task valid | yes | **no (my error)** | yes (executed) | yes (executed) |
-| changed the outcome | warned of 4 prior attempts | no (invalid task) | **yes — supplied merged precedent #1588** | — |
+| changed the outcome | warned of 4 prior attempts | no (invalid task) | **yes — supplied merged precedent #1588** | **yes — steered AWAY from the refused approach** |
 
 **3 of 3 undirected sessions called Icarus with no nudge**, against a 0/11
 baseline and Experiment C's 0-of-4 WITH a strong nudge. My registered
