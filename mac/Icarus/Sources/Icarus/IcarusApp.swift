@@ -19,6 +19,11 @@ struct Main {
         if AgentSessionCommand.requested {
             exit(await AgentSessionCommand.run())
         }
+        // Before the app ever launches a window: an MCP client starts this
+        // process expecting a clean JSON-RPC channel on stdout.
+        if McpCommand.requested {
+            exit(await McpCommand.run())
+        }
         if let dir = IconExport.iconsetDirArg() {
             IconExport.writeIconset(to: dir)
             exit(0)

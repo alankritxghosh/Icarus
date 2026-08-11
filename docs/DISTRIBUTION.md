@@ -188,6 +188,61 @@ server-side token migration; this is a real, user-visible one-time step.
 
 ---
 
+## Part 3 — Give a user's coding agent access (MCP)
+
+The Mac app IS the MCP server: `Icarus --mcp` speaks newline-delimited JSON-RPC
+on stdio and serves the same three tools as `demo/mcp_server.py`. A user needs
+no checkout, no Python (macOS ships none by default) and no separate package —
+only the app they already installed, signed in, with a repository connected.
+
+Tell them to add this to their agent's MCP configuration — `.mcp.json` for
+Claude Code, `.cursor/mcp.json` for Cursor, the equivalent block for Codex:
+
+```json
+{
+  "mcpServers": {
+    "icarus": {
+      "type": "stdio",
+      "command": "/Applications/Icarus.app/Contents/MacOS/Icarus",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+No credential goes in that file, and none should ever be put there. The app
+reads the user's GitHub token from their own login Keychain and exchanges it for
+a short-lived, read-only, route-scoped Icarus session per run; the GitHub
+credential never reaches the agent or the config.
+
+**The first run shows a Keychain prompt, and it must be answered.** macOS asks
+before letting a binary read a Keychain item it did not create, and a coding
+agent launches this in the background where a prompt cannot be seen — the
+server will simply sit there producing no output. Have the user run it once in
+a terminal first:
+
+```bash
+/Applications/Icarus.app/Contents/MacOS/Icarus --mcp
+```
+
+Click **Always Allow**, then Ctrl-C. After that the agent can launch it silently.
+(Observed during development: a freshly built, differently-signed copy of the
+app blocks on exactly this, with empty stdout AND empty stderr — the same
+symptom for `--agent-session`, which is how it was identified as a Keychain
+prompt rather than a bug in the server.)
+
+Two things worth telling a user up front:
+- **One repository at a time.** A tool call names the repo it expects, and
+  Icarus refuses if a different one is connected rather than answering about
+  the wrong codebase. Switching repos happens in the app.
+- **Restart the agent after upgrading Icarus**, since the client keeps the
+  stdio process alive for the session.
+
+The Python adapter (`demo/mcp_server.py`) remains the path for anyone working
+from a checkout, and stays the SOURCE OF TRUTH for the tool contract: the
+Swift copy is generated from it by `scripts/gen_mcp_tools.py`, and
+`demo/test_mcp_tools_generated.py` fails if the two drift.
+
 ## Tradeoffs you accepted (know these before sharing widely)
 
 - **Your quota, their questions.** Every ask spends your free Groq/Gemini quota
