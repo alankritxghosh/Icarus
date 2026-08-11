@@ -551,7 +551,7 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
   </p>
   <p class="meta">
     SHA-256 of <code>Icarus.dmg</code> —
-    <code>d15af5a2364fe40be2763c1c512e9bd3b8c908aed040a3964c87231e350eb9b2</code><br />
+    <code id="dmg-sha">d15af5a2364fe40be2763c1c512e9bd3b8c908aed040a3964c87231e350eb9b2</code><br />
     Check yours with <code>shasum -a 256 Icarus.dmg</code>. This detects a corrupted or altered
     download; it is not a substitute for Apple's signature, and does not pretend to be.
   </p>
@@ -562,7 +562,7 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
      This is an early beta — reports of what broke are genuinely useful.</p>
   <div class="ctarow">
     <a class="cta" href="Icarus.dmg" download>↓ Download for macOS</a>
-    <span class="meta">Apple silicon · ~2349 KB</span>
+    <span class="meta" id="dmg-size">Apple silicon · ~2349 KB</span>
   </div>
 </section>
 
@@ -594,15 +594,64 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
   </p>
   <p class="meta">
     SHA-256 of <code>icarus-extension.zip</code> —
-    <code>d15af5a2364fe40be2763c1c512e9bd3b8c908aed040a3964c87231e350eb9b2</code><br />
+    <code>aa79cd8cc43a45e10ae715ebdd63ef02c18f657d1eed43d590f23f7faf03b7d6</code><br />
     Check yours with <code>shasum -a 256 icarus-extension.zip</code>. Unlike the app, the extension
     has no auto-update — a new version means downloading and loading it again.
   </p>
 
   <div class="ctarow">
     <a class="cta" href="icarus-extension.zip" download>↓ Download the extension</a>
-    <span class="meta">Chrome · version 0.1.1 · ~2349 KB</span>
+    <span class="meta">Chrome · version 0.1.1 · ~11 KB</span>
   </div>
+</section>
+
+<section class="wrap art second">
+  <p class="arc">VIII · What your agent cannot see</p>
+  <h2>Claude Code, Cursor, Codex</h2>
+  <p>
+    A merged pull request leaves a commit. A refused one leaves nothing — so <code>git log</code>,
+    <code>git blame</code> and your working tree are blind to every change your team already tried and
+    closed. Your coding agent reads exactly those three things. Icarus reads the rest, and this is how
+    the agent asks it.
+  </p>
+
+  <p class="eyebrow" style="margin-top:28px">Claude Code — one command</p>
+  <pre>claude mcp add -s user icarus -- /Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
+  <p class="meta">
+    <code>-s user</code> installs it once for every project rather than per repository. Nothing else
+    to configure: the app is the server, so there is no package to install and no credential to paste.
+  </p>
+
+  <p class="eyebrow" style="margin-top:28px">Cursor, Codex, anything else that speaks MCP</p>
+  <pre>{
+  "mcpServers": {
+    "icarus": {
+      "type": "stdio",
+      "command": "/Applications/Icarus.app/Contents/MacOS/Icarus",
+      "args": ["--mcp"]
+    }
+  }
+}</pre>
+  <p class="meta">
+    Put that in your client's MCP configuration — <code>.cursor/mcp.json</code> for Cursor,
+    <code>.mcp.json</code> for a project-scoped Claude Code setup.
+  </p>
+
+  <p class="eyebrow" style="margin-top:28px">Run it once by hand first</p>
+  <pre>/Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
+  <p class="meta">
+    macOS asks before letting the app read the sign-in it keeps in your Keychain, and your agent
+    launches this in the background where that prompt cannot be seen — it would just sit there
+    producing nothing. Run the line above once, click <strong>Always Allow</strong>, then press
+    Ctrl-C. It is asked once, not once per session.
+  </p>
+
+  <p class="meta" style="margin-top:22px">
+    Three read-only tools: the recorded <em>why</em> behind a change, an explanation of specific lines,
+    and structured context before a task. Each call names the repository it expects, and Icarus
+    refuses if a different one is connected rather than answering about the wrong codebase — one
+    repository at a time, switched in the app. It never edits your code and never opens a pull request.
+  </p>
 </section>
 
 <footer class="wrap art sea">

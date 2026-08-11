@@ -148,8 +148,14 @@ SHA="$(shasum -a 256 Icarus.dmg | cut -d ' ' -f 1)"
 KB="$(( ($(wc -c < Icarus.dmg) + 512) / 1024 ))"
 
 sed -i '' -E "s/^EXPECTED_SHA=.*/EXPECTED_SHA=\"$SHA\"/" install.sh
-sed -i '' -E "s#<code>[0-9a-f]{64}</code>#<code>$SHA</code>#" index.html
-sed -i '' -E "s/~[0-9]+ KB/~$KB KB/g" index.html
+# Anchored to the DMG's OWN elements. The previous patterns matched any 64-hex
+# <code> and every "~N KB" on the page, so both silently overwrote the browser
+# EXTENSION's checksum and size with the disk image's -- shipping a checksum
+# that reports every good download as corrupted, which is worse than publishing
+# none. Live for at least two releases before it was noticed (2026-08-11).
+# If these ids ever disappear from index.html the guards below fail loudly.
+sed -i '' -E "s#<code id=\"dmg-sha\">[0-9a-f]{64}</code>#<code id=\"dmg-sha\">$SHA</code>#" index.html
+sed -i '' -E "s#(id=\"dmg-size\">[^~]*~)[0-9]+ KB#\1$KB KB#" index.html
 
 STAMPED_CASK="no (--skip-cask)"
 if [ "$SKIP_CASK" -eq 0 ]; then
@@ -161,7 +167,19 @@ fi
 # Prove every stamp actually landed, rather than trusting that sed matched.
 STAMPED="$(sed -n -E 's/^EXPECTED_SHA="([0-9a-f]{64})"$/\1/p' install.sh)"
 [ "$STAMPED" = "$SHA" ] || { echo "install.sh was not stamped correctly — fix before committing." >&2; exit 1; }
-grep -q "$SHA" index.html || { echo "index.html was not stamped correctly — fix before committing." >&2; exit 1; }
+grep -q "<code id=\"dmg-sha\">$SHA</code>" index.html || { echo "index.html dmg-sha was not stamped correctly — fix before committing." >&2; exit 1; }
+grep -q "id=\"dmg-size\">[^<]*~$KB KB" index.html || { echo "index.html dmg-size was not stamped correctly — fix before committing." >&2; exit 1; }
+# The extension is a DIFFERENT artifact with a different checksum, and this
+# script must never touch it. Proven, not assumed: its published hash has to
+# match the zip sitting beside it.
+if [ -f icarus-extension.zip ]; then
+  EXT_SHA="$(shasum -a 256 icarus-extension.zip | cut -d ' ' -f 1)"
+  grep -q "$EXT_SHA" index.html || {
+    echo "index.html publishes the wrong icarus-extension.zip checksum." >&2
+    echo "       expected $EXT_SHA — did a stamp overwrite it again?" >&2
+    exit 1
+  }
+fi
 sh -n install.sh || { echo "install.sh is no longer valid shell — fix before committing." >&2; exit 1; }
 
 if [ "$SKIP_CASK" -eq 0 ]; then
