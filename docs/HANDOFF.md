@@ -157,20 +157,35 @@ real open work and belong in next session's queue, not swept under "Priority
    consultation happen without hand-holding a prompt into place. Nothing
    built on it yet.
 
-2. **The Experiment A fabrication class is still unverified against the
+2. **RUN 2026-08-11 — the Experiment A fabrication class is NOT covered by the
    defense already shipped.** The gate proves citations are real, not that
    the answer follows from them (disclosed, structural — CLAUDE.md is
    explicit that entailment stays writer-reliant beyond the (b)/(c) guards).
    The fabrication happened BEFORE the writer self-report
-   (`per_claim`/`attribute_claims`, shipped later the same day, `0f5a313`)
-   existed. **Nobody has gone back and checked whether that already-shipped
-   mechanism would flag it** — re-run the exact uv #20477 question with
-   `per_claim=True` and see whether the fabricated sentence about paths
-   "requiring traversal outside the project root" gets labelled `composed`
-   (self-reported multi-source synthesis, i.e. worth a second look) or
-   `quoted` (silently trusted). Cheap, concrete, un-run — do this before
-   assuming the gap is covered. If it's NOT flagged, that's a real finding
-   about a real gap in a real shipped feature, not a hypothetical.
+   (`per_claim`/`attribute_claims`, `0f5a313`) existed, and nobody had checked
+   whether that mechanism would flag it. It was checked: the fabricated
+   sentence reproduced near-verbatim against a fresh uv corpus and came back
+   labelled **`quoted`** — the label the MCP tool description tells the agent
+   to TRUST — citing `pr:17122` alone.
+
+   **The framing in the original write-up was wrong in a way that matters.**
+   Run 1 diagnosed the fabrication as an over-generalisation across two
+   sources, which is what made `composed` sound like the right defense. The
+   writer self-reports ONE source, so a single-source over-read is
+   structurally indistinguishable from an honest restatement and gets the
+   trusted label by construction. `composed` is aimed at the wrong shape.
+
+   **Second, previously unrecorded finding:** `pr:17122` is CLOSED WITHOUT
+   MERGING — it appears in that same payload's own `rejected_attempts` list.
+   The answer rests a claim about CURRENT BEHAVIOUR on a refused proposal and
+   nothing notices, though the payload computes that fact one field away.
+   Cross-referencing claim citations against `rejected_attempts` is cheap,
+   deterministic and currently unwired — the most concrete piece of open work
+   to come out of this.
+
+   Full write-up, with method and caveats (reconstructed question wording;
+   fresh ingest at `a50af60`, not Experiment A's `1881d307`):
+   `docs/experiments/2026-08-11-fabrication-recheck-per-claim.md`.
 
 3. **Efficiency direction isn't predictable.** Observed, not a defect —
    whether a directed Icarus call costs more or less depends on whether the
@@ -180,10 +195,13 @@ real open work and belong in next session's queue, not swept under "Priority
 
 ## 6. Where to pick up
 
-**Priority 1 is done, but item 2 above (the fabrication-class recheck) is
-cheap enough it should happen FIRST, before Priority 2 work starts** — it's
-a five-minute check against infrastructure that already exists, not a new
-build. After that, default to **Priority 2 — productise Agent Mode**: decide
+**Priority 1 is done, and item 2 above (the fabrication-class recheck) was
+RUN on 2026-08-11 — the answer is "not covered".** It produced one piece of
+concrete, cheap open work (cross-reference claim citations against
+`rejected_attempts`, so a claim resting only on a closed-unmerged PR stops
+reading as current behaviour). Do that or consciously defer it; don't let it
+disappear into Priority 2. Then default to **Priority 2 — productise Agent
+Mode**: decide
 the actual interface (MCP, CLI, local HTTP API, SDK, or a mix) now that real
 data exists, rather than assuming it, and let item 1 above (nothing makes
 consultation automatic yet) shape that decision directly. Don't re-run any
