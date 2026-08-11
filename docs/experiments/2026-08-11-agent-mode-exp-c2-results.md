@@ -191,15 +191,61 @@ Honest limit: this proves the RENDERING defect from pinned source. Reproducing
 it through the real CLI in this clone would need the `llm-mcp-client` plugin
 installed, which was not done.
 
+## Task 3 — #1583 template `schema_object` overrides `--schema`
+
+**Third unprompted call** (`3 calls  unprompted`, transcript-verified). Task
+valid, reproduced by execution before the run.
+
+The fix the agent shipped is the right one — `if template_obj.schema_object and
+not schema:` — and it justified the shape correctly: every other setting in that
+same block already defers to what the user typed (`extract`, `if template_system
+and not system`, `-o` options), and `--schema-multi` is folded into `schema`
+before this point so one guard covers both flags. It also added a red→green pair
+(the new tests fail on unpatched code) plus a test that the template schema still
+applies when no flag is passed, so the fix is not just disabling the feature.
+
+**This is the best result of the run, and the reason is what Icarus returned.**
+The answer cited three refs — `issue:1583`, `pr:1584` (closed unmerged) and
+**`pr:1588` (MERGED)**. Verified independently: #1588 is real, merged
+2026-08-03, "Fix llm openai endpoint ignoring --schema when template also
+defines schema_object". #1584's own closure comment reads *"This looks to be a
+duplicate of: #1588"*.
+
+So Icarus supplied the merged precedent, not just the refusal — the agent did
+not find #1588 by searching. That gave it what neither `git log` nor
+`rejected_attempts` alone could: the approach is ESTABLISHED in this codebase,
+and the closed PR was a duplicate of the one that landed. Its own summary drew
+exactly the right line: the approach is established, "I don't know why #1584
+specifically was closed."
+
+**A wrinkle worth recording.** The second claim reads "This behavior **has been
+corrected** to ensure consistency with other template settings". At the pinned
+commit it has NOT been — #1588 corrected the `llm openai endpoint` path, not
+`cli.py:742`. A reader could take that sentence as "already fixed here" and skip
+the change. It is labelled `composed` (citing `pr:1584` + `pr:1588`), which is
+the label the tool description tells an agent to verify, and this agent did
+verify it. The label did its job; the sentence is still loose.
+
+Note also that `rests_on_rejected` correctly did NOT fire on either claim here —
+both cite a merged PR alongside the closed one. That is the rule working as
+intended, and is the same mechanism that produced the task-2 false negative:
+identical logic, opposite verdicts, because the evidence differed.
+
 ## Running score
 
 | | task 1 (#1466) | task 2 (#1511) | task 3 (#1583) | task 4 (#1580) |
 |---|---|---|---|---|
-| unprompted call | yes | yes | not run | not run |
+| unprompted call | yes | yes | yes | not run |
 | task valid | yes | **no (my error)** | yes (executed) | yes (executed) |
+| changed the outcome | warned of 4 prior attempts | no (invalid task) | **yes — supplied merged precedent #1588** | — |
 
-2 of 2 sessions called Icarus unprompted with no nudge, against a 0/11 baseline
-and Experiment C's 0-of-4 WITH a nudge. The registered prediction (0–1 of 4,
-expected to fail) is under water on call behaviour. It is not yet decided —
-n=2, and neither task's fix outcome has been shown to be better BECAUSE of the
-call.
+**3 of 3 undirected sessions called Icarus with no nudge**, against a 0/11
+baseline and Experiment C's 0-of-4 WITH a strong nudge. My registered
+prediction (0–1 of 4, expected to fail) is refuted on call behaviour; I was
+wrong, and the direction Alankrit chose is doing better than I argued it would.
+
+What is NOT yet established is that the calls improve outcomes. Task 1's
+influence was advisory (a warning, correct but about PRs that turned out not to
+be refusals), task 2 is invalid, and only task 3 shows the tool supplying a
+fact — merged precedent #1588 — that measurably shaped the work and that the
+agent would not otherwise have had.
