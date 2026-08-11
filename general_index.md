@@ -51,6 +51,15 @@ removing, or renaming files). For class/function-level detail see
 - `scripts/private_flow_smoke.py` — manual, leak-safe live smoke of the brain's
   PRIVATE-repo HTTP path (/status→/connect→/ask→/disconnect) the Mac app drives;
   token from `GH_BEARER` env (never argv/logs), repo from `ICARUS_PRIVATE_REPO`.
+- `scripts/agent_call_audit.py` — counts real `mcp__icarus__*` `tool_use` blocks
+  in Claude Code's persisted session transcripts
+  (`~/.claude/projects/<slug>/*.jsonl`), because an agent's SELF-REPORT of its
+  own tool use has now disagreed with the harness metadata three times (once 6
+  reported against 14 actual). The measurement half of the Agent Mode work: any
+  claim that a change made agents consult Icarus more must come from this, not
+  from asking the agent. Flags a session "directed" if a user message names
+  Icarus, biased so the unprompted count under-claims. `--selftest` runs its
+  own parser check with no transcripts needed.
 - `.githooks/pre-commit` — commit gate: a staged secret hard-blocks; failing
   tests only warn (never block).
 - `.github/workflows/security.yml` — CI backstop on push/PR: secrets scan +
@@ -113,6 +122,31 @@ anything about CI here.
 - `docs/decisions/2026-08-07-engineering-memory-records.md` — accepted first
   closed-loop record path: one human-triggered repository Markdown proposal,
   one branch, one GitHub pull request, never an automatic merge.
+
+## docs/experiments/
+Append-only records of measured runs. **Deliberately NOT one index line per
+file** — these are dated records, not code, and the folder grows every session;
+the two governing documents are listed, the rest are self-describing by
+filename and are read on demand.
+- `docs/experiments/PROTOCOL.md` — the rules every Agent Mode experiment
+  follows, **one rule per failure that actually happened**, each naming the run
+  it cost: tool use is read from transcripts and never from self-report; a task
+  is valid only if the bug is proven present at the PINNED commit AND the
+  mechanism is a genuine closed-unmerged PR (both checks mechanical, with the
+  exact commands); the prediction is registered before launch; inconvenient
+  results are reported in the result, not a footnote; `git remote -v` before
+  any claim about repo state. Read this before designing a run.
+- `docs/experiments/2026-08-11-agent-mode-exp-c2-results.md` — the load-bearing
+  measurement so far: rewriting the MCP tool description to trigger on
+  observable events took unprompted Icarus calls from 0/11 to 4/4, and the
+  nine-PR tally showing that "closed unmerged" meant "already done another way"
+  eight times out of nine.
+- The `2026-08-10-agent-mode-exp-*.md` set (A runs 1–3, C, D, directed-D,
+  efficiency), `2026-08-10-quotation-vs-composition-negative-result.md`,
+  `2026-08-10-rejected-attempt-false-positive-rate.md`, and
+  `2026-08-11-fabrication-recheck-per-claim.md` — individual run records; the
+  last one proves the shipped per-claim self-report does NOT flag the
+  Experiment A fabrication class.
 
 ## docs/plans/
 - `docs/plans/2026-06-28-phase-1.md` — the Phase 1 plan.

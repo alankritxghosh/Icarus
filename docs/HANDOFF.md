@@ -1,4 +1,136 @@
-# Icarus — Session Handoff (2026-08-11: PRIORITY 1 closed out — Experiments B, C, and a directed D-redo; the whole "does Agent Mode actually help" question now has three-for-three evidence)
+# Icarus — Session Handoff (2026-08-11, later session: the fabrication recheck answered NO, Priority 2 opened, and Experiment C2 got 4/4 unprompted calls — refuting my own registered prediction)
+
+**READ THIS FIRST.** This session ran the queued fabrication recheck (answer:
+the shipped defense does NOT cover it), started Priority 2 in the direction
+Alankrit chose, and ran Experiment C2 to decide whether that direction works.
+It does, on call behaviour. Everything below is measured; the two things I got
+wrong are named rather than buried.
+
+## 1. The fabrication recheck — NOT covered (this closes the previous entry's §5 item 2)
+
+Re-ran Experiment A's uv #20477 question with `per_claim=True` against a fresh
+`astral-sh/uv` corpus. The fabricated sentence reproduced near-verbatim and came
+back labelled **`quoted`** — the label the MCP description tells agents to TRUST
+— citing `pr:17122` alone.
+
+**The original diagnosis was wrong in a way that mattered.** Run 1 called it an
+over-generalisation across two sources, which is what made `composed` sound like
+the right defense. The writer self-reports ONE source, so a single-source
+over-read is structurally identical to an honest restatement. `composed` was
+aimed at the wrong shape.
+
+Second finding, previously unrecorded: `pr:17122` is closed-unmerged and sat in
+that same payload's own `rejected_attempts`. A claim about CURRENT BEHAVIOUR
+rested on a refused proposal and nothing noticed, though the fact was computed
+one field away. Write-up:
+`docs/experiments/2026-08-11-fabrication-recheck-per-claim.md`.
+
+## 2. `rests_on_rejected` — built, then corrected by real data
+
+Shipped (`a2c5712`) as: flag a claim when EVERY citation is a closed-unmerged
+PR. Corrected the same day (`1261072`) after Experiment C2 produced a real false
+negative — Icarus called a closed PR's approach "the accepted fix" while citing
+that PR plus the ISSUE reporting the bug, and the flag stayed silent.
+
+Current rule: **at least one citation is a refused PR, and every citation is a
+refused PR or an issue** — i.e. nothing cited shows the change ever LANDED. A
+merged PR, commit, code or doc is solid ground. The naive "flag if ANY citation
+is refused" is wrong and C2 task 3 is the counter-example (closed `pr:1584`
+beside MERGED `pr:1588`). Verified by replaying the actual captured payloads:
+task 2's claims flip to flagged, task 3's stay silent.
+
+## 3. Priority 2 — Alankrit chose "make the existing MCP tool irresistible"
+
+I recommended a deterministic trigger (hooks) and argued the interface was never
+the bottleneck. **He chose persuasion, and he was right.**
+
+Rewrote `_INSTRUCTIONS` and `get_change_context`'s description (`064879a`) to
+lead with the capability an agent cannot otherwise reach (a refused PR leaves no
+commit) and to trigger on OBSERVABLE events — "you are about to edit a file /
+open a PR / conclude a bug is fixed / call a behaviour intentional" — instead of
+the old "before planning a meaningful code change". "Meaningful" was a judgment
+call, and Experiment C watched Claude Code answer "not this one" four times out
+of four.
+
+`scripts/agent_call_audit.py` counts real `mcp__icarus__*` `tool_use` blocks in
+Claude Code's persisted JSONL transcripts. **Self-report is not evidence** — it
+has now disagreed with metadata three times. Baseline under the OLD
+descriptions: 58 sessions, 12 undirected, **0/11** honest.
+
+## 4. Experiment C2 — 4 of 4 unprompted, no CLAUDE.md nudge
+
+Registered plan and prediction committed BEFORE running (`1853e6f`), per the new
+`docs/experiments/PROTOCOL.md`. Fresh clone at the pinned corpus commit, no
+nudge (deliberately harder than C), four tasks each validated by EXECUTION.
+
+**Result: 4/4 undirected sessions called Icarus**, against 0/11 baseline and C's
+0-of-4 WITH a strong nudge. My registered prediction (0–1 of 4, expected to
+fail) is refuted. Outcome influence on the three valid tasks: task 3 supplied
+merged precedent `pr:1588` the agent could not have found by searching; task 4
+steered it AWAY from the one approach that genuinely was not adopted.
+
+**Not claimed:** that this retires the deterministic trigger. One repo, one
+agent, four bug-shaped tasks, in a history unusually rich in duplicates. A
+description persuades; a hook guarantees.
+
+**My error, recorded:** C2 task 2 is INVALID and it is mine. I wrote "local
+sqlite is 3.53.3, so the bug is reachable" — backwards, the SQLite defect was
+fixed upstream in 3.51.2. I inferred from a version string instead of executing,
+the same failure class as C's task 3, one day after writing the protocol against
+it. Tasks 3 and 4 were then re-validated by execution.
+
+Full write-up: `docs/experiments/2026-08-11-agent-mode-exp-c2-results.md`.
+
+## 5. The closed≠refused finding, measured and disclosed
+
+Nine closed-unmerged PRs surfaced across C2's four tasks. **Eight were closed
+because the same change arrived another way** (maintainer wrote it himself and
+swept four in 29 seconds; three that WERE the winning approach; one duplicate of
+a merged PR). One marked an approach genuinely not adopted.
+
+The signal is honest and useful — it stopped an 8th duplicate in directed-D and
+steered C2 task 4 correctly — but it answers "do not send this again" far more
+often than "this idea was wrong". Disclosed in the tool description and recorded
+in `evals/attempts.py`'s docstring (`bd5997a`), with an explicit warning NOT to
+"fix" it by classifying closures: that needs the review thread the module exists
+to refuse to interpret.
+
+## 6. Deploys go through GitLab CI — I got this wrong, see §3b of the entry below
+
+I asserted there was no deploy automation after checking only `.github/` and a
+stale note, and started a manual Docker/ACR/`az` deploy that cost Alankrit a
+re-login. `.gitlab-ci.yml` has existed all along. Corrected in
+`general_index.md`, `docs/DISTRIBUTION.md` and §3b below (`f36ad98`).
+**`git remote -v` before any claim about this repo's CI.**
+
+Three deploys this session, all through the pipeline: `a2c5712`, `bd5997a`,
+`1261072`. The brain is on `1261072`. Each dropped every session and wiped
+per-user corpora — say that BEFORE deploying, not after.
+
+## 7. Where to pick up
+
+1. **Four uncommitted `llm` fixes** in `/Users/alankritghosh/JARVIS /experiment-c2-llm`.
+   Three are good; the fragment-filter one is a no-op against a bug that is not
+   present (invalid task 2). Read the closure threads before submitting any
+   upstream.
+2. **Sweep detection** (queued from C2 task 1, unbuilt): a closed PR whose
+   linked issue closed COMPLETED seconds earlier is the signature of a
+   maintainer sweep. Report the SHAPE, never a reason. Sharpens the signal
+   beyond disclosure.
+3. **C2 is n=1 repository.** A second repo decides whether the description
+   rewrite generalises or whether `simonw/llm` flattered it. This is NOT the
+   replication the previous entry warns against — that was about re-measuring
+   correctness, this measures whether consultation happens.
+4. Priority 4 (X accounts, 45/50), 5 (X content), 6 (share with engineer
+   friend) remain untouched.
+
+**Still sitting unmerged, checked every session:** the other person's WIP in
+`evals/gate.py`, `evals/test_gate.py`, `demo/ledger.py`, `demo/test_ledger.py`,
+`.gitignore`, `site/for/*`. Untouched by all seven commits this session.
+
+---
+
+**Previous entry — 2026-08-11 (earlier): PRIORITY 1 closed out — Experiments B, C, and a directed D-redo; the whole "does Agent Mode actually help" question now has three-for-three evidence**
 
 **READ THIS FIRST.** This session finished what §13 of the entry below
 queued: Experiment B (shipped), Experiment C (run for real in VS Code, with
