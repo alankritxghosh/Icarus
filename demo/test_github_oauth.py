@@ -47,14 +47,19 @@ class AuthorizeUrlTests(unittest.TestCase):
 
 
 class LoginScopeByModeTests(unittest.TestCase):
-    """The consent screen a user sees must match what that surface can actually do.
+    """The consent screen must match what the user is actually doing right now.
 
-    The browser trial only ever connects PUBLIC repositories, so asking it for
-    `repo` -- read AND write to every repository the person owns, public and
-    private -- overstates what it needs by an enormous margin, on the very
-    surface a stranger meets first. The native surfaces genuinely do connect
-    private repositories, so they keep `repo` until the per-repo GitHub App
-    replaces it.
+    `repo` grants read AND WRITE on every private repository a person owns.
+    Until 2026-08-11 the Mac app asked for it on the FIRST launch, before the
+    user had seen Icarus answer anything -- an unnotarized alpha demanding
+    write access to everything, which is the largest single obstacle between a
+    stranger and trying it.
+
+    Now every first sign-in asks for identity only, and `repo` is requested in
+    its own consent screen at the moment somebody connects a private
+    repository. This narrows what is REQUESTED, never what is enforced: a token
+    without `repo` cannot read a private repo, so github_access.repo_info
+    refuses it regardless.
     """
 
     def _flow(self):
@@ -63,25 +68,36 @@ class LoginScopeByModeTests(unittest.TestCase):
         return OAuthFlow("cid", "secret", "http://127.0.0.1:8000/auth/github/callback",
                          exchanger=fake_exchange)
 
-    def test_web_login_asks_for_identity_only(self):
-        _state, url = self._flow().begin("web")
+    def test_first_sign_in_asks_for_identity_only_on_every_surface(self):
+        for mode, target in (("app", None), ("web", None),
+                             ("extension",
+                              "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/")):
+            with self.subTest(mode=mode):
+                _state, url = self._flow().begin(mode, target) if target \
+                    else self._flow().begin(mode)
+                self.assertIn("scope=read%3Auser", url)
+                self.assertNotIn("scope=repo", url)
+
+    def test_private_mode_is_the_only_one_that_asks_for_repo(self):
+        _state, url = self._flow().begin("app-private")
+        self.assertIn("scope=repo", url)
+
+    def test_default_mode_is_identity_only(self):
+        # No mode = the Mac app's ordinary sign-in. It must be the SAFE default:
+        # a caller that forgets to say what it wants gets the least privilege.
+        _state, url = self._flow().begin()
         self.assertIn("scope=read%3Auser", url)
-        # The whole point: the browser trial must NOT request repository access.
         self.assertNotIn("scope=repo", url)
 
-    def test_app_login_still_asks_for_repo(self):
-        _state, url = self._flow().begin("app")
-        self.assertIn("scope=repo", url)
-
-    def test_extension_login_still_asks_for_repo(self):
-        _state, url = self._flow().begin(
-            "extension", "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/")
-        self.assertIn("scope=repo", url)
-
-    def test_default_mode_is_treated_as_the_app(self):
-        # begin() with no mode is the Mac app; it must not be silently narrowed.
-        _state, url = self._flow().begin()
-        self.assertIn("scope=repo", url)
+    def test_private_mode_uses_the_native_callback(self):
+        # app-private differs from app ONLY in scope. If it ever stopped being
+        # treated as a native login, the callback would redirect somewhere the
+        # Mac app is not listening and the upgrade would silently never finish.
+        flow = self._flow()
+        state, _url = flow.begin("app-private")
+        _session, mode, target = flow.complete(state, "code-1")
+        self.assertEqual(mode, "app-private")
+        self.assertIsNone(target)
 
 
 class ExchangeCodeTests(unittest.TestCase):

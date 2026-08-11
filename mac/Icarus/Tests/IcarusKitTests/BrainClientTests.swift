@@ -115,6 +115,26 @@ final class BrainClientTests: XCTestCase {
         XCTAssertEqual(url.path, "/login/oauth/authorize")
     }
 
+    func testOrdinarySignInDoesNotAskGitHubForRepoScope() async throws {
+        // The consent screen a stranger meets first must not demand read AND
+        // WRITE on every private repository they own. If this body ever carries
+        // a mode again by default, that screen comes back.
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"authorize_url":"https://github.com/x"}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+        _ = try await client.beginGitHubLogin()
+        XCTAssertNil(try connectBody()["mode"])
+    }
+
+    func testPrivateAccessSignInAsksForTheUpgradeMode() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"authorize_url":"https://github.com/x"}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+        _ = try await client.beginGitHubLogin(privateAccess: true)
+        XCTAssertEqual(try connectBody()["mode"] as? String, "app-private",
+                       "without this the upgrade button silently re-runs an identity-only login")
+    }
+
     func testRedeemGitHubSessionReturnsToken() async throws {
         _CapturingProtocol.body = Data(#"{"token":"gho_redeemed"}"#.utf8)
         let client = BrainClient(session: stubbedSession())

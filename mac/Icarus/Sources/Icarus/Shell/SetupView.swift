@@ -88,6 +88,7 @@ struct SetupView: View {
                 // since. A private repo becomes your team's Company Brain.
                 Text("Any repository your GitHub account can read — public or private. The first index of a new repo can take a minute.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                privateAccessRow
             case .connecting(let repo):
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -108,11 +109,36 @@ struct SetupView: View {
                     .font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.cited)
             case .failed(let message):
                 Text(message).font(.system(size: 14)).foregroundStyle(Theme.unknown)
+                // A private repository is INDISTINGUISHABLE from a missing one
+                // to a token without `repo` scope -- GitHub returns 404 either
+                // way -- so the failure message cannot tell them apart, and the
+                // fix has to be offered here rather than guessed at.
+                privateAccessRow
             case .lost:
                 EmptyView()   // the banner above carries this state
             }
 
             Button("Sign out") { auth.signOut() }.buttonStyle(.plain).foregroundStyle(Theme.muted)
+        }
+    }
+
+    /// Upgrading to the `repo` scope, asked for HERE rather than at sign-in.
+    ///
+    /// The first consent screen a stranger sees now asks for identity only.
+    /// `repo` means read AND WRITE on every private repository they own, and
+    /// demanding that before they have seen the product answer anything is the
+    /// largest single reason someone closes the window. GitHub grants the union
+    /// of scopes, so this is additive: whoever never connects a private repo is
+    /// never asked, and whoever does sees a consent screen that matches exactly
+    /// what they just tried to do.
+    @ViewBuilder private var privateAccessRow: some View {
+        HStack(spacing: 6) {
+            Text("Connecting a private repository?")
+                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Button("Grant GitHub access") { auth.connect(privateAccess: true) }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.ink)
         }
     }
 

@@ -37,10 +37,18 @@ final class AuthModel {
     var isSignedIn: Bool { state == .signedIn }
 
     /// Start the web login: begin → open the sheet → redeem the session → signed in.
-    func connect() {
+    ///
+    /// `privateAccess` runs the SAME flow asking GitHub for the `repo` scope,
+    /// which is what connecting a private repository needs. It is deliberately
+    /// not the default: an ordinary sign-in asks for identity only, so the
+    /// first consent screen a stranger sees does not demand write access to
+    /// every private repository they own. GitHub grants the union of scopes, so
+    /// this is an upgrade rather than a re-authorisation, and someone who never
+    /// connects a private repo is never asked.
+    func connect(privateAccess: Bool = false) {
         flow?.cancel()
         state = .requesting
-        flow = Task { await run() }
+        flow = Task { await run(privateAccess: privateAccess) }
     }
 
     func signOut() {
@@ -49,9 +57,9 @@ final class AuthModel {
         state = .signedOut
     }
 
-    private func run() async {
+    private func run(privateAccess: Bool = false) async {
         do {
-            let authorizeURL = try await client.beginGitHubLogin()
+            let authorizeURL = try await client.beginGitHubLogin(privateAccess: privateAccess)
             let callback = try await webAuth.authenticate(url: authorizeURL, callbackScheme: "icarus")
             guard let session = parseCallbackSession(callback) else {
                 state = .error("Sign-in didn't complete — try again.")

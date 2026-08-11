@@ -50,6 +50,27 @@ _CHROMIUMAPP_REDIRECT = re.compile(r"^https://[a-p]{32}\.chromiumapp\.org/$")
 _WEB_SCOPE = "read:user"
 _NATIVE_SCOPE = "repo"
 
+# Scope is requested per SURFACE and, since 2026-08-11, per INTENT.
+#
+# Every first sign-in now asks for identity only. `repo` -- read AND WRITE on
+# every private repository the person owns -- is asked for at the moment
+# somebody actually connects a private repo, in its own consent screen, and
+# never before. The old behaviour asked for it on the very first launch of an
+# unnotarized alpha by someone who had not yet seen the product work, which is
+# the single largest thing standing between a stranger and trying Icarus.
+#
+# Nothing about what the SERVER can reach changes: a token without `repo`
+# cannot read a private repository, so `evals/github_access.repo_info` already
+# refuses it -- fail-safe, with a message that is true either way ("doesn't
+# exist or your GitHub account can't read it"). This narrows what is REQUESTED,
+# never what is enforced.
+#
+# GitHub keeps the UNION of scopes granted to an OAuth App, so upgrading is
+# additive and someone who already granted `repo` keeps it until they revoke it
+# in their GitHub settings. Existing users are unaffected.
+_IDENTITY_ONLY_MODES = ("app", "web", "extension")
+_PRIVATE_REPO_MODE = "app-private"
+
 
 def new_state() -> str:
     """A URL-safe, unguessable token for CSRF `state` and session ids."""
@@ -146,7 +167,9 @@ class OAuthFlow:
                 raise ValueError("extension mode requires a valid chromiumapp.org redirect_target")
         else:
             redirect_target = None
-        scope = _WEB_SCOPE if mode == "web" else _NATIVE_SCOPE
+        # Identity by default on every surface; `repo` only for the mode whose
+        # whole purpose is connecting a private repository.
+        scope = _NATIVE_SCOPE if mode == _PRIVATE_REPO_MODE else _WEB_SCOPE
         state = new_state()
         with self._lock:
             self._sweep()

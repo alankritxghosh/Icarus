@@ -230,11 +230,19 @@ public struct BrainClient: Sendable {
 
     /// POST /auth/github/begin -> the GitHub authorize URL to open in the sheet.
     /// No bearer needed (this is how you get one).
-    public func beginGitHubLogin() async throws -> URL {
+    /// `privateAccess` asks GitHub for the `repo` scope instead of identity
+    /// alone. Kept OFF for an ordinary sign-in: `repo` is read AND write on
+    /// every private repository, and asking for it before the user has
+    /// connected anything is what makes a stranger close the window. The
+    /// upgrade is offered at the moment a private repository is actually being
+    /// connected, and GitHub keeps the union of granted scopes, so it is
+    /// additive rather than a re-authorisation.
+    public func beginGitHubLogin(privateAccess: Bool = false) async throws -> URL {
         var request = URLRequest(url: base.appending(path: "auth/github/begin"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
+        let body = privateAccess ? #"{"mode":"app-private"}"# : "{}"
+        request.httpBody = Data(body.utf8)
         let (data, response) = try await dataWithRetry(for: request)
         try check(response)
         struct Begin: Decodable { let authorize_url: String }

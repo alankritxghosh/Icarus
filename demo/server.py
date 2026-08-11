@@ -595,7 +595,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 except (ValueError, AttributeError):
                     body = {}
                 mode = body.get("mode", "app")
-                if mode not in ("app", "web", "extension"):
+                # "app-private" is the same native flow as "app" -- same
+                # icarus:// callback -- differing only in the scope it asks
+                # GitHub for. An unknown value falls back to the LEAST
+                # privileged mode, never the most.
+                if mode not in ("app", "web", "extension", "app-private"):
                     mode = "app"
                 redirect_target = body.get("redirect_target") if mode == "extension" else None
                 try:
