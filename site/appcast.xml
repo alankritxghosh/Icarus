@@ -4,12 +4,12 @@
         <title>Icarus</title>
         <item>
             <title>0.1.6</title>
-            <pubDate>Mon, 10 Aug 2026 05:34:30 +0530</pubDate>
+            <pubDate>Tue, 11 Aug 2026 18:50:03 +0530</pubDate>
             <sparkle:version>9</sparkle:version>
             <sparkle:shortVersionString>0.1.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://icarus-website-kappa.vercel.app/Icarus.dmg" length="2376485" type="application/octet-stream" sparkle:edSignature="5pFPUWZD0wb2+Mot7g7ZFN1E7WHEHsuPxvH0nCKRmliSg+PevoMOfQLHxLNOMRppYvL+4+cwePwxIEG9cQKnBA=="/>
+            <enclosure url="https://icarus-website-kappa.vercel.app/Icarus.dmg" length="2405837" type="application/octet-stream" sparkle:edSignature="NbTsq+yP5Owlx4ktMwEt8jh5r2ME6Qgo5dpX0ubxlHd5l/1SSzwwu8+DV9EubNjt0PJojv0upzADo2IwRxipDw=="/>
         </item>
     </channel>
 </rss>
