@@ -63,6 +63,25 @@ class PayloadTests(unittest.TestCase):
         self.assertTrue(p["claims"][0]["rests_on_rejected"])
         self.assertNotIn("rests_on_rejected", p["claims"][1])
 
+    def test_tool_description_disclaims_closed_means_refused(self):
+        """A closed pull request mostly means "already done another way".
+
+        Measured 2026-08-11 across nine surfaced PRs on simonw/llm: eight were
+        closed because the same change arrived another way, one was an approach
+        genuinely not adopted. The raw signal reads as "this was rejected" and
+        that inference is wrong most of the time, so the description has to say
+        so -- an agent acts on this.
+        """
+        from demo.mcp_server import handle_message
+        tools = handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        )["result"]["tools"]
+        desc = next(t["description"] for t in tools
+                    if t["name"] == "get_change_context")
+        self.assertIn("not evidence that the approach was rejected", desc)
+        self.assertIn("do not send a duplicate", desc)
+        self.assertIn("closure thread", desc)
+
     def test_mcp_tool_tells_the_agent_what_the_flag_means(self):
         """An unexplained flag is inert -- the same reason `composed` carries
         an instruction rather than just a name."""

@@ -31,6 +31,25 @@ caller's specific change, and it cannot say WHY it was closed -- the reason
 lives in review comments, and asserting one would be exactly the composed
 rationale these experiments caught Icarus inventing twice. Callers are told to
 go read it, not told what it says.
+
+**"Closed unmerged" is a much weaker signal than "refused", and the gap was
+measured** (docs/experiments/2026-08-11-agent-mode-exp-c2-results.md). Across
+the nine pull requests this surfaced over four real tasks on `simonw/llm`,
+EIGHT were closed because the same change arrived another way -- four swept in
+29 seconds when the maintainer wrote the identical fix himself, three that were
+the winning approach (two duplicates of a third that was landed by hand), one
+duplicate of a MERGED pull request -- and exactly one marked an approach that
+was genuinely not adopted. The module name says REFUSED; the data says mostly
+"already done".
+
+That does not make it useless, and it is not a defect to fix here: the honest
+reading, "someone has been here before, do not send a duplicate", is what
+stopped an 8th duplicate submission in directed-D and what steered task 4 of C2
+to the solution upstream chose. It is a defect in what a READER infers, so the
+correction lives in what callers are told -- see the `rejected_attempts` note
+in `demo/mcp_server.py`'s tool description. Do not "fix" it here by trying to
+classify closures: that requires the review thread, which is exactly the thing
+this module refuses to interpret.
 """
 from typing import Dict, List, Mapping
 
