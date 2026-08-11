@@ -1,4 +1,209 @@
-# Icarus — Session Handoff (2026-08-11, later session: the fabrication recheck answered NO, Priority 2 opened, and Experiment C2 got 4/4 unprompted calls — refuting my own registered prediction)
+# Icarus — Session Handoff (2026-08-11, third session: Priority 2 fully productised and shipped — MCP now reaches every user, the biggest install-friction sources are fixed, and P3 is corrected: leads are SCREENED, not EMAILED)
+
+**READ THIS FIRST — next session's first task is emailing the 9 truly
+outreach-ready leads, not "111 leads."** P3 was marked done last session
+because 111 repos were screened. It is not done: screening finds a candidate
+and a named contact, it does NOT run Icarus against the repo to generate the
+real per-repo answer the outreach is supposed to be built on. Only **9 of 111**
+have that (`READY TO RECORD`: 4, `asked, weak`: 5, in `outputs/leads/ALL_LEADS.md`).
+The other 102 are `screened` with `-` in the answers column — sending them
+outreach today would mean generic copy, exactly what batch 1 already tried and
+got 0 replies for (see memory `cold-outreach-batch-1-results` — 23 sends, 0
+replies, root causes were role-inbox targeting and speculative copy, not
+volume). See §6 below for the two-track plan.
+
+## 1. Priority 2 — productised and shipped, this session's main work
+
+Last session ended with Priority 2 "started" (description rewrite + C2 proof
+that it works). This session finished it: the tool now reaches a user who has
+never cloned the repo, and the two biggest things that would have made them
+quit before trying it are fixed.
+
+**`Icarus --mcp` — the Mac app IS the MCP server now (`c42e8cf`).** Before
+this, MCP was reachable from exactly one machine: `.mcp.json` hardcoded a local
+venv path, the DMG shipped no adapter, the app had no MCP entry point.
+`McpContract.swift` is GENERATED from `demo/mcp_server.py`
+(`scripts/gen_mcp_tools.py`) so the measured tool wording can never drift
+between the two implementations — `demo/test_mcp_tools_generated.py` fails if
+it does. Payloads pass through as raw JSON, not the app's typed models,
+because `AskResponse` would silently drop `claims`/`rests_on_rejected`/
+`rejected_attempts` — exactly what an agent is told to act on. **Verified
+end-to-end against the real binary** (not just unit tests): initialize,
+tools/list, the repo-mismatch refusal, and `rests_on_rejected` firing live on
+the exact fabricated sentence from the morning's recheck. 245 Swift tests.
+
+**The recommended install path was silently broken for every new user
+(`58a4eef`).** The site told people to `curl` the installer from a stale
+`Icarus-Website` GitHub repo that still pinned an OLD DMG checksum. It would
+download the CURRENT image, fail its own integrity check, and abort with "the
+download was corrupted, or the published build changed." Found while cutting
+the friction-reduction work, not reported by anyone — every cold-email
+recipient who tried the recommended path would have hit a hard stop at step
+one. Fixed by pointing at one canonical `install.sh` (the one this repo
+stamps) instead of two copies, with a release-script guard so it can't
+silently rot again the way the extension's checksum did earlier the same day
+(`f0ccc85` — `release-dmg.sh`'s stamping regex was unanchored and had been
+overwriting the browser extension's checksum with the DMG's for at least two
+releases; also fixed, also guarded).
+
+**`repo` OAuth scope moved off first sign-in (`871de33`).** The app asked for
+GitHub `repo` — read AND WRITE on every private repository — on first launch,
+before a stranger had seen it answer a single question. Now every first
+sign-in on every surface asks for identity only (`read:user`); `repo` is
+requested in its own consent screen (`app-private` mode) only when someone
+actually tries to connect a private repo, reachable from the idle state and
+from a failed-connect state (a private repo and a missing one both look like a
+404 to a scoped-out token, so the fix has to be offered from both). This
+narrows what's REQUESTED, never what's ENFORCED — `github_access.repo_info`
+already refused an under-scoped token regardless. GitHub grants the union of
+scopes, so existing users are unaffected.
+
+**The installer wires Claude Code itself (`58a4eef`).** `curl … | sh` now
+also runs `claude mcp add -s user icarus -- ...` when `claude` is present,
+skips silently when it's not, and leaves a pre-existing `icarus` entry alone.
+Detection uses `claude mcp get` (1.5s) not `claude mcp list` (measured 16.7s —
+it CONNECTS to every configured server, which an installer may not spend on a
+yes/no question).
+
+**The website's install section is now one obvious path (`3a8b9cd`).** A
+numbered 4-step "Get started" block sits directly in the hero, above the live
+demo, reusing the site's own `.steps` component: install, sign in, connect a
+repo, one Claude Code Keychain command. Every other install/MCP section on the
+page now points BACK at it instead of presenting a second, differently-worded
+procedure someone could half-follow. Verified at desktop/tablet/mobile widths
+via a real local server — `file://` previews outside the project render as
+static snapshots and do not resize, learned the hard way mid-session.
+
+**Net effect on the funnel:** was six steps (install, clear Gatekeeper, sign
+in, connect, configure MCP by hand, clear the Keychain prompt). Now three:
+one command, sign in + connect in the app, one Keychain click if using Claude
+Code — and the scariest consent screen (`repo` scope) no longer appears unless
+actually needed.
+
+## 2. Experiment C2 — 4/4 unprompted, my registered prediction refuted
+
+Full write-up: `docs/experiments/2026-08-11-agent-mode-exp-c2-results.md`.
+Registered before running, per `PROTOCOL.md`. I predicted 0–1 of 4 and argued
+the interface was never the bottleneck. **Result: 4 of 4 undirected sessions
+called Icarus unprompted**, no `CLAUDE.md` nudge, against a 0/11 baseline
+under the old descriptions and Experiment C's 0-of-4 WITH a strong nudge.
+Alankrit's read — that C's nudge was just badly written, not that persuasion
+is structurally doomed — is the one the evidence supports.
+
+Two outcome-changing calls: task 3 supplied a MERGED precedent (`pr:1588`) the
+agent could not have found by searching, correctly steering it toward the
+established approach; task 4 knew a prior attempt was closed and deliberately
+went the other way, independently verified to match what upstream actually
+shipped.
+
+**A finding that cuts against the feature, also from this run:** of nine
+closed-unmerged PRs surfaced across the four tasks, only ONE was an approach
+genuinely not adopted — the other eight were closed because the same change
+landed another way (maintainer wrote it himself, duplicate of a merged PR,
+etc.). Disclosed in the tool description and `evals/attempts.py`'s docstring
+(`bd5997a`) rather than fixed by trying to classify closures, which would need
+the review thread this module deliberately does not read.
+
+**My own two errors this run, named rather than buried:** C2 task 2 is
+INVALID — I validated its SQLite version-bug premise from a version string
+("3.53.3 is past the fix" reasoning applied backwards) instead of executing
+it, the exact failure class `PROTOCOL.md` was written to prevent, one day
+after writing it. Tasks 3 and 4 were re-validated by execution before use.
+Separately, `rests_on_rejected` shipped with an every-citation rule that
+produced a real false negative on task 2 (a claim citing one refused PR plus
+an issue reporting the bug stayed unflagged); corrected same day (`1261072`)
+to "nothing cited shows the change landed."
+
+## 3. Fabrication recheck — closes last session's queued item
+
+`docs/experiments/2026-08-11-fabrication-recheck-per-claim.md`. Re-ran
+Experiment A's uv #20477 fabrication with `per_claim=True`: reproduced
+near-verbatim, labelled **`quoted`** — the trusted label. The original
+diagnosis (over-generalisation across two sources) was wrong; the writer
+reports ONE source, so `composed` was aimed at the wrong shape. Also found:
+the sole citation (`pr:17122`) was itself closed-unmerged, sitting in the same
+payload's own `rejected_attempts` — a claim about current behaviour resting on
+a refused proposal, unnoticed though the fact was computed one field away.
+That finding is what led to building `rests_on_rejected`.
+
+## 4. Deploys — three landed this session, brain confirmed in sync
+
+`a2c5712`, `bd5997a`, `1261072` earlier; then `3a8b9cd` (batched with
+`871de33`, `58a4eef`, `f0ccc85` — a stalled GitLab auth session earlier in the
+day meant several pushes landed as one). **Verified authoritatively, not
+inferred:** `az containerapp show --query "properties.template.containers[0].image"`
+against the deployed tag, not `/health` (which only reports the CONNECTED
+REPO's commit, not the brain's own code version — this distinction is worth
+remembering, it is what made "is the brain up to date" a real question worth
+asking rather than an obviously-yes). Confirmed at session end: deployed image
+tag `3a8b9cd5` matches local/origin/gitlab `HEAD` exactly.
+
+**A background sync-check is active**, per Alankrit's instruction to keep the
+brain in sync for the next few hours: fires roughly every 30 min, compares
+`HEAD` against both remotes and the deployed image tag, redeploys
+automatically if a real `demo/`/`evals/` change lands and drifts, stays quiet
+otherwise. If this handoff is being read, that loop may still be running in
+the originating session — check for it before assuming a manual sync is
+needed, but verify with the `az containerapp show` command above regardless of
+what the loop last reported, since a stale assumption here is exactly the
+mistake this session corrected.
+
+## 5. GitLab CI, corrected last session, held this session
+
+`git remote -v` before any claim about deploy state — this repo has two
+remotes and GitLab is the pipeline. No repeat of the earlier hand-run-`az`
+mistake this session, but the "is it actually deployed" question above shows
+the failure mode generalizes: don't trust an adjacent signal (`/health`,
+"I pushed a commit") for a claim a direct check can make authoritative.
+
+## 6. Where to pick up — P3 correction is the first task
+
+**Corrected status:** `outputs/leads/ALL_LEADS.md` has 111 SCREENED repos (a
+qualified candidate + a named human contact), not 111 outreach-ready leads.
+`sales/ask_repo.py`'s `ask` step — which actually runs Icarus against a
+prospect's repo and grades the answers — has completed for only 9:
+
+    READY TO RECORD   4   (muxinc/media-chrome, snapotter-hq/SnapOtter, vidstack/player, cpvalente/ontime)
+    asked, weak       5   (canalplus/rx-player, whyboris/Video-Hub-App, UniversalViewer/universalviewer, MurhafSousli/ngx-gallery, chintan9/plyr-react)
+    screened        102   (no recorded answer — outreach here today would be generic)
+
+**Two tracks, do both, don't block one on the other:**
+
+1. **Email the 9 now.** They already have a real per-repo Icarus answer to
+   build the message on — the exact thing `cold-outreach-engine`/
+   `icarus-outreach` skills exist to use, and the exact thing batch 1's 0-reply
+   result says is necessary (named contact, not a role inbox; anchored in a
+   real finding, not speculation about their pain). Check `outputs/leads/*-answers.json`
+   for each before writing — the answer is the whole point.
+2. **Extend `ask` to the other 102**, or a useful subset, so this stops being
+   a one-batch bottleneck:
+
+       .venv/bin/python sales/ask_repo.py index OWNER/REPO
+       .venv/bin/python sales/ask_repo.py digest OWNER/REPO
+       .venv/bin/python sales/ask_repo.py ask   OWNER/REPO questions.json answers.json
+       python3 sales/roll_up.py    # rebuilds ALL_LEADS.md from whatever's on disk
+
+   Must run with `.venv/bin/python` — system Python has no fastembed and
+   degrades silently to lexical-only, per `sales/README.md`. The nightly
+   automation (`launchd`) that's supposed to do this unattended has a known
+   broken prerequisite (`sales/README.md`'s "Unattended" section — headless
+   `claude -p` needs its own credential, last checked failing 2026-08-05,
+   never fixed) — check whether that's still broken before assuming any
+   nightly runs happened since.
+
+**Not done, lower priority, unchanged:**
+- P4 (X accounts): 45/50.
+- P5 (X content): not started.
+- P6 (engineer friend): outreach copy drafted this session but never sent —
+  blocked on the friend's email address, which was never given.
+- Sweep detection (closed PR + issue closed COMPLETED within seconds → flag
+  the shape): queued from C2 task 1, unbuilt.
+- C2 replication on a second repo: the 4/4 result is proven in one repository
+  only.
+
+---
+
+
 
 **READ THIS FIRST.** This session ran the queued fabrication recheck (answer:
 the shipped defense does NOT cover it), started Priority 2 in the direction
