@@ -172,6 +172,18 @@ grep -q "id=\"dmg-size\">[^<]*~$KB KB" index.html || { echo "index.html dmg-size
 # The extension is a DIFFERENT artifact with a different checksum, and this
 # script must never touch it. Proven, not assumed: its published hash has to
 # match the zip sitting beside it.
+# The page must point people at THIS install.sh, not a copy in another repo.
+# Found live 2026-08-11: index.html told users to curl the installer from
+# raw.githubusercontent.com/.../Icarus-Website, which had gone stale and still
+# pinned an OLD DMG checksum -- so the recommended install path downloaded the
+# CURRENT image, failed its own integrity check, and aborted. A second copy of
+# a stamped file is a second thing to forget; there is now one.
+if grep -q "raw.githubusercontent.com/[^\"]*install.sh" index.html; then
+  echo "index.html points at an install.sh in another repository — that copy is" >&2
+  echo "       not stamped by this script and will pin a stale checksum." >&2
+  exit 1
+fi
+
 if [ -f icarus-extension.zip ]; then
   EXT_SHA="$(shasum -a 256 icarus-extension.zip | cut -d ' ' -f 1)"
   grep -q "$EXT_SHA" index.html || {

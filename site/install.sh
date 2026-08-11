@@ -74,6 +74,33 @@ xattr -dr com.apple.quarantine "$DEST/$APP" 2>/dev/null || true
 
 echo
 echo "Installed: $DEST/$APP"
+
+# Wire the app into Claude Code as an MCP server, if Claude Code is installed.
+# Done here rather than printed as a command to copy: every step a person has to
+# perform by hand is a step they can abandon, and this one is a fixed string we
+# already know. Skipped silently when `claude` is absent -- most people
+# installing Icarus are not using Claude Code, and telling them about a tool
+# they do not have is noise.
+#
+# `-s user` registers it for every project rather than the current directory,
+# which is what someone running an installer expects. Re-running is safe: the
+# add is idempotent for an identical entry, and a pre-existing `icarus` server
+# is left alone rather than silently rewritten -- if someone configured it by
+# hand, theirs wins.
+if command -v claude >/dev/null 2>&1; then
+  # `claude mcp get` reads configuration; `claude mcp list` CONNECTS to every
+  # configured server and took 16.7s on a real machine (measured), which is not
+  # something an installer may spend to answer a yes/no question.
+  if claude mcp get icarus >/dev/null 2>&1; then
+    echo "Claude Code: an MCP server named 'icarus' is already configured, leaving it as is."
+  elif claude mcp add -s user icarus -- "$DEST/$APP/Contents/MacOS/Icarus" --mcp >/dev/null 2>&1; then
+    echo "Claude Code: connected (MCP server 'icarus', available in every project)."
+  else
+    echo "Claude Code: could not register automatically. To do it by hand:"
+    echo "  claude mcp add -s user icarus -- \"$DEST/$APP/Contents/MacOS/Icarus\" --mcp"
+  fi
+fi
+
 echo "Open it from $DEST, or run:  open -a Icarus"
 echo
 echo "First run: sign in with GitHub, connect a repo, then press Cmd-Shift-I"
