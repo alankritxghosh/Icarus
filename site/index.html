@@ -331,9 +331,23 @@
     questions about <strong>why</strong> things were built the way they were. Every answer shows the
     evidence it came from. When the reason was never written down, it says so instead of inventing one.
   </p>
-  <div class="ctarow">
-    <a class="cta" href="Icarus.dmg" download>↓ Download for macOS</a>
-    <span class="meta">Apple silicon · ~2349 KB · free alpha</span>
+  <p class="eyebrow" id="get-started" style="margin-top:34px">Get started · macOS, Apple Silicon · ~2 minutes</p>
+  <div class="steps" style="margin-top:14px">
+    <div class="step"><div class="n">01</div><h3>Install</h3>
+      <pre style="margin:10px 0 8px">curl -fsSL https://icarus-website-kappa.vercel.app/install.sh | sh</pre>
+      <p>One command. Installs Icarus and, if you have Claude Code, connects it automatically.</p></div>
+    <div class="step"><div class="n">02</div><h3>Sign in</h3>
+      <p>Open Icarus, click "Sign in with GitHub." Asks for your identity only — nothing else, yet.</p></div>
+    <div class="step"><div class="n">03</div><h3>Connect a repo</h3>
+      <p>Type <code>owner/repo</code> and press Connect. Icarus indexes it — seconds to a few minutes.</p></div>
+    <div class="step"><div class="n">04</div><h3>Claude Code — one time</h3>
+      <pre style="margin:10px 0 8px">/Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
+      <p>Click "Always Allow," then Ctrl-C. A one-time macOS permission. Skip this if you don't use
+      Claude Code.</p></div>
+  </div>
+  <div class="ctarow" style="margin-top:20px">
+    <a class="cta" href="Icarus.dmg" download>↓ Or just download the .dmg</a>
+    <span class="meta">~2349 KB · free alpha</span>
   </div>
 
   <!-- Live replay of a REAL exchange. Every string below is verbatim output from
@@ -501,9 +515,10 @@ It is probably still blocked by the support of HTTP/2.0 in `urllib3` — the tra
   <p class="arc">VI · The descent</p>
   <h2>Install</h2>
   <p>
-    Icarus is not notarized by Apple — notarization requires a paid Developer ID this alpha does not
-    have yet, so macOS cannot vouch for it. Rather than paper over that: both install paths are below,
-    along with the checksum, so you can verify what you downloaded yourself.
+    Fastest path is <a href="#get-started">the four steps at the top of this page</a>. What follows is
+    the detail behind them: Icarus is not notarized by Apple — notarization requires a paid Developer ID
+    this alpha does not have yet, so macOS cannot vouch for it. Rather than paper over that, every
+    install path is below, along with the checksum, so you can verify what you downloaded yourself.
   </p>
 
   <p class="eyebrow" style="margin-top:28px">Terminal — recommended</p>
@@ -620,8 +635,9 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
 
   <p class="eyebrow" style="margin-top:28px">Claude Code</p>
   <p class="meta" style="margin-top:0">
-    <strong>Already done if you installed with the terminal script</strong> — it registers Icarus with
-    Claude Code for you. To do it by hand, or after a Homebrew install:
+    <strong>Already done if you followed <a href="#get-started">Get started</a></strong> — the installer
+    registers Icarus with Claude Code for you, and step 4 there covers the one-time permission prompt.
+    To do it by hand, or after a Homebrew install:
   </p>
   <pre>claude mcp add -s user icarus -- /Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
   <p class="meta">
