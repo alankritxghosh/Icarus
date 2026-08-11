@@ -50,6 +50,32 @@ class PayloadTests(unittest.TestCase):
                          without)
 
 
+    def test_rests_on_rejected_surfaces_and_is_absent_otherwise(self):
+        """The flag a client acts on must cross the boundary -- and must not
+        appear on an ordinary claim, or it stops meaning anything."""
+        r = _result(claims=[
+            {"text": "Absolute paths are preserved.", "citations": ["pr:100"],
+             "label": "quoted", "rests_on_rejected": True},
+            {"text": "Paths were made absolute.", "citations": ["pr:100"],
+             "label": "quoted"},
+        ])
+        p = build_payload(r, "o/r", "abc123")
+        self.assertTrue(p["claims"][0]["rests_on_rejected"])
+        self.assertNotIn("rests_on_rejected", p["claims"][1])
+
+    def test_mcp_tool_tells_the_agent_what_the_flag_means(self):
+        """An unexplained flag is inert -- the same reason `composed` carries
+        an instruction rather than just a name."""
+        from demo.mcp_server import handle_message
+        tools = handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        )["result"]["tools"]
+        desc = next(t["description"] for t in tools
+                    if t["name"] == "get_change_context")
+        self.assertIn("rests_on_rejected", desc)
+        self.assertIn("closed WITHOUT being merged", desc)
+
+
 class RejectedAttemptsPayloadTests(unittest.TestCase):
     """The refused-attempt signal at the payload boundary."""
 

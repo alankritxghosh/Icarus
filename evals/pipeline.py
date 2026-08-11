@@ -489,4 +489,21 @@ class GatedPipeline(Pipeline):
         # did not rest on it -- that is precisely the case where an agent is
         # about to redo it. Set on the abstention path too, for the same reason.
         result.rejected_attempts = rejected_attempts(evidence)
+        # A claim whose every citation is a REFUSED pull request is not a
+        # statement of how the system behaves -- it restates something somebody
+        # proposed and had rejected. Found 2026-08-11 re-running Experiment A's
+        # fabrication (docs/experiments/2026-08-11-fabrication-recheck-per-claim.md):
+        # the fabricated sentence cited `pr:17122` ALONE, so it was labelled
+        # `quoted` -- the label the agent is told to trust -- while that PR sits
+        # in this same result's `rejected_attempts`.
+        #
+        # A separate field, not a fourth label: `label` is about HOW MANY chunks
+        # a sentence rests on, this is about WHAT KIND they are, and collapsing
+        # two axes into one enum would make `quoted` mean two different things.
+        # Set only when true, so every existing payload is byte-identical.
+        refused = {a["ref"] for a in result.rejected_attempts}
+        for claim in result.claims:
+            cits = claim.get("citations") or []
+            if cits and all(ref in refused for ref in cits):
+                claim["rests_on_rejected"] = True
         return result

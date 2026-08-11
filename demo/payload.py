@@ -106,7 +106,12 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
             {"text": c["text"],
              "citations": [{"ref": ref, "url": ref_to_url(ref, repo, commit)}
                            for ref in c["citations"]],
-             "label": c["label"]}
+             "label": c["label"],
+             # Present ONLY when every citation behind this sentence is a pull
+             # request closed without merging -- i.e. it restates a proposal
+             # that was refused, not shipped behaviour. Absent otherwise, so
+             # existing clients are byte-identical. See evals/pipeline.py.
+             **({"rests_on_rejected": True} if c.get("rests_on_rejected") else {})}
             for c in result.claims
         ]
     # Pull requests among the evidence that were CLOSED WITHOUT MERGING. Emitted

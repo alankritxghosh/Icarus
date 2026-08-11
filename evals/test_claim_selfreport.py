@@ -176,5 +176,65 @@ class PipelineWiringTests(unittest.TestCase):
                          (on.verdict, on.citations, on.answer))
 
 
+class RestsOnRejectedTests(unittest.TestCase):
+    """A sentence resting only on REFUSED pull requests is marked as such.
+
+    Reproduces the real shape found 2026-08-11 (docs/experiments/
+    2026-08-11-fabrication-recheck-per-claim.md): the fabricated sentence cited
+    ONE closed-unmerged PR, so `label` was `quoted` -- the label an agent is
+    told to trust -- while that same PR sat in `rejected_attempts`.
+    """
+
+    CHUNKS = [
+        # Closed WITHOUT merging -- a proposal, not shipped behaviour.
+        Chunk(ref="pr:17122", source="pr",
+              text="PR #17122: preserve absolute paths when find-links is absolute\n"
+                   "[CLOSED by someone]\nAbsolute paths should survive locking."),
+        # Merged -- shipped behaviour, must never be marked.
+        Chunk(ref="pr:18176", source="pr",
+              text="PR #18176: preserve absolute/relative paths in lockfiles\n"
+                   "[MERGED by someone]\nRelative stays relative."),
+    ]
+    RETRIEVED = [c.ref for c in CHUNKS]
+
+    def _run(self, claims_json):
+        from evals.retriever import LexicalRetriever
+        reply = ('{"verdict":"answer","answer":"Paths are preserved.",'
+                 '"citations":["pr:17122"],"claims":' + claims_json + '}')
+        p = GatedPipeline(LexicalRetriever(self.CHUNKS), self.CHUNKS,
+                          StaticProvider([reply]))
+        return p._answer_from("what is preserved?", self.CHUNKS, self.RETRIEVED,
+                              per_claim=True)
+
+    def test_claim_citing_only_a_refused_pr_is_marked(self):
+        r = self._run('[{"text":"Absolute paths are preserved.",'
+                      '"citations":["pr:17122"]}]')
+        claim = r.claims[0]
+        # The label is unchanged -- this is a second axis, not a fourth label.
+        self.assertEqual(claim["label"], CLAIM_QUOTED)
+        self.assertTrue(claim["rests_on_rejected"])
+        self.assertIn("pr:17122", [a["ref"] for a in r.rejected_attempts])
+
+    def test_claim_citing_a_merged_pr_is_not_marked(self):
+        r = self._run('[{"text":"Relative paths stay relative.",'
+                      '"citations":["pr:18176"]}]')
+        self.assertNotIn("rests_on_rejected", r.claims[0])
+
+    def test_one_live_source_is_enough_to_not_mark(self):
+        """Marked only when EVERY citation is refused: a sentence that also
+        rests on shipped evidence is not a restatement of a refusal."""
+        r = self._run('[{"text":"Paths are preserved.",'
+                      '"citations":["pr:17122","pr:18176"]}]')
+        self.assertEqual(r.claims[0]["label"], CLAIM_COMPOSED)
+        self.assertNotIn("rests_on_rejected", r.claims[0])
+
+    def test_unsupported_claim_is_not_marked(self):
+        """No citations means nothing to be resting ON -- vacuous all() must
+        not mark it."""
+        r = self._run('[{"text":"Paths are preserved.","citations":["pr:999"]}]')
+        self.assertEqual(r.claims[0]["label"], CLAIM_UNSUPPORTED)
+        self.assertNotIn("rests_on_rejected", r.claims[0])
+
+
 if __name__ == "__main__":
     unittest.main()
