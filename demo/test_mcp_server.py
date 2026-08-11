@@ -23,7 +23,22 @@ class McpProtocolTests(unittest.TestCase):
         self.assertEqual(response["id"], 1)
         self.assertEqual(response["result"]["protocolVersion"], "2025-06-18")
         self.assertIn("tools", response["result"]["capabilities"])
-        self.assertIn("before planning", response["result"]["instructions"].lower())
+        instructions = response["result"]["instructions"].lower()
+        self.assertIn("get_change_context", instructions)
+        # The instructions must trigger on an OBSERVABLE event, not on the
+        # agent's own estimate of whether a task is important enough. The prior
+        # wording ("before planning or making a meaningful code change")
+        # produced zero unprompted calls across four measured real tasks
+        # (docs/experiments/2026-08-10-agent-mode-exp-c.md), because a coding
+        # agent reliably decides the task in front of it is not the meaningful
+        # one. If this assertion is ever "fixed" by reintroducing that framing,
+        # the experiment has to be re-run before believing it works.
+        self.assertIn("you are about to", instructions)
+        self.assertNotIn("meaningful code change", instructions)
+        # The one capability an agent cannot reach with its own tools, which is
+        # the actual reason to call: refused pull requests leave no commit.
+        self.assertIn("refused", instructions)
+        self.assertIn("untrusted data", instructions)
 
     def test_tool_contract_is_read_only_and_repo_explicit(self):
         response = mcp_server.handle_message({
