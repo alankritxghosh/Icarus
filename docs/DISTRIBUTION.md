@@ -18,6 +18,32 @@ deleted. Its retired Blueprint was removed; Azure is the only shipping host.
 
 ## Part 1 — Host the brain on Azure Container Apps (free tier)
 
+> **Redeploying an EXISTING brain? Do not follow this section — use the
+> pipeline.** Everything below is FIRST-TIME setup (creating the registry, the
+> container app, the secrets, the OAuth callback). Shipping a change to the
+> already-running brain goes through `.gitlab-ci.yml` on the `gitlab` remote
+> (`gitlab.com/icarus-group4/Icarus`):
+>
+> ```bash
+> git push gitlab main          # runs secrets-scan + both suites + docker build
+> glab ci trigger deploy -R icarus-group4/Icarus -b main
+> ```
+>
+> `deploy` is a MANUAL gate on purpose — every redeploy mints a new revision,
+> and a new revision drops every connected session and wipes every per-user
+> corpus (Azure storage is ephemeral). It is a deliberate click, not a side
+> effect of a push.
+>
+> The pipeline is not merely a convenience wrapper around the manual commands:
+> it pins `--max-replicas 1` (a queued ingest lives in ONE replica's memory and
+> ephemeral disk) and **removes** `ICARUS_SYNC_CONNECT`, which made `/connect`
+> block past Azure's fixed 240s ingress timeout — measured live on
+> `astral-sh/uv`, 2026-08-10, where it never connected at all. A hand-run
+> `az containerapp update` copied from the setup commands below will happily
+> put that variable back and reintroduce the bug. Deploying by hand was done
+> on 2026-08-11 out of not knowing the pipeline existed; that cost an Azure
+> re-login, a Docker Desktop start, and very nearly that regression.
+
 The brain is pure Python stdlib; the container adds `git` + `gh` only so the app's
 "connect any public repo" switch can ingest on the server. Files: `Dockerfile`,
 `.dockerignore` (repo root). Needs the `az` CLI (`brew install azure-cli`) and an

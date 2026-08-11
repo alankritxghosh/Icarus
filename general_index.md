@@ -56,6 +56,25 @@ removing, or renaming files). For class/function-level detail see
 - `.github/workflows/security.yml` — CI backstop on push/PR: secrets scan +
   Python suites (evals, demo) + Swift build/test.
 
+## CI/CD — the deploy pipeline (GitLab, NOT GitHub)
+The repo has TWO remotes: `origin` (github.com/alankritxghosh/Icarus) and
+`gitlab` (gitlab.com/icarus-group4/Icarus). **Deploys run on GitLab.** A
+`.github/`-only look at this repo shows just the security workflow and reads
+as "there is no deploy automation" — which is how a session on 2026-08-11
+came to redeploy the brain by hand. Check `git remote -v` before concluding
+anything about CI here.
+- `.gitlab-ci.yml` — the deploy pipeline: `secrets-scan` + `tests` (both
+  suites) → `build` (docker build + push to ACR; ACR Tasks is disabled on this
+  registry, so the runner builds) → `deploy` (`az containerapp update`, then
+  polls `/health` until the new revision actually serves) → `package-dmg` (Mac
+  app + Sparkle on a SaaS macOS runner; manual, or automatic on an `alpha-*`
+  tag; deliberately does NOT sign the appcast — that private EdDSA key stays
+  in one login keychain). `deploy` is a MANUAL gate: every revision drops all
+  connected sessions and wipes per-user corpora. Gated on `.image_sources`, so
+  a docs-only commit cannot offer to deploy an image that was never built.
+  Ship a change with `git push gitlab main` then
+  `glab ci trigger deploy -R icarus-group4/Icarus -b main`.
+
 ## docs/
 - `docs/VISION.md` — product vision: one honest organizational-memory brain for
   engineers and their coding agents, preserving the Mac/extension experience

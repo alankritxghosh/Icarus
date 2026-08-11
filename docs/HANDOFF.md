@@ -125,7 +125,40 @@ reached a materially worse conclusion every single time; whether directed
 consultation costs more or less depends on whether the answer collapses a
 search or opens a line of follow-up verification.
 
+## 3b. Deploys run on GitLab CI — read this before shipping anything
+
+`.gitlab-ci.yml` (repo root) is the deploy path, and it has been for a while.
+The repo has two remotes: `origin` = GitHub, `gitlab` =
+`gitlab.com/icarus-group4/Icarus`. To ship a brain change:
+
+```bash
+git push gitlab main          # secrets-scan + both suites + docker build
+glab ci trigger deploy -R icarus-group4/Icarus -b main
+```
+
+`deploy` is a manual gate because every revision drops all connected sessions
+and wipes per-user corpora (ephemeral storage).
+
+**Recorded because it cost real time on 2026-08-11:** this session looked at
+`.github/`, found only `security.yml`, read the (stale) "deploy sync not
+built" note in an older entry below, and told Alankrit there was no CI/CD —
+then started a manual Docker + ACR + `az containerapp update` deploy, which
+needed a Docker Desktop start and an expired-Azure-token re-login before he
+pointed out the GitLab pipeline existed. **`git remote -v` is the check that
+would have prevented all of it.** The manual path was also actively worse than
+the pipeline: the pipeline pins `--max-replicas 1` and REMOVES
+`ICARUS_SYNC_CONNECT` (which made `/connect` block past Azure's 240s ingress
+timeout — the measured reason `astral-sh/uv` never connected on 2026-08-10),
+and the hand-run `az` command copied from `docs/DISTRIBUTION.md`'s setup
+section would have set that variable straight back.
+
 ## 4. Housekeeping
+
+**Deployed 2026-08-11:** `a2c5712` (pipeline #30) — the `rests_on_rejected`
+flag is live and verified on the deployed brain (a claim citing only `pr:1549`,
+closed-unmerged, comes back `quoted` WITH the flag). That revision signed every
+tester out and wiped the `astral-sh/uv` corpus connected earlier that day;
+reproducing the fabrication recheck live means re-ingesting uv.
 
 Both `experiment-d2-*` clones deleted (Alankrit's instruction, confirmed
 clean via `git status` in each first). `experiment-c-llm` still exists at
@@ -1616,6 +1649,13 @@ synthetic corpus, not replayed against the repo that surfaced it.
    gold PR is confirmed indexed, confirm it anchors correctly post-deploy.
 
 ## 3. Next session, task 2: build the GitHub → Azure deploy sync
+
+> **SUPERSEDED — this was built, on GitLab rather than GitHub Actions.** See
+> `.gitlab-ci.yml` and the deploy note in the 2026-08-11 entry at the top of
+> this file. Do not read the paragraphs below as the current state: a session
+> on 2026-08-11 did exactly that, concluded there was no deploy automation,
+> and redeployed the brain by hand. The steps in §2 above are likewise
+> historical, not the procedure.
 
 Discussed but deliberately **not built** this session — adding a credential
 to GitHub secrets at 6am after no sleep was judged not worth doing awake vs.
