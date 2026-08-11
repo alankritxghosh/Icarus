@@ -311,3 +311,41 @@ Whether that gap is closeable with a better nudge, a different integration
 point, or isn't meant to be closed at all (some tasks explicitly told to use
 Icarus vs. relying on the model's own judgment) is the open question this
 experiment leaves for whatever comes next.
+
+---
+
+## Appendix — the exact `CLAUDE.md` nudge (preserved 2026-08-11)
+
+Recorded verbatim before the `experiment-c-llm` clone was deleted. This is the
+**control condition** for Experiment C2: C got 0 unprompted calls in 4 tasks
+WITH this instruction in place, C2 got 4 of 4 with NO instruction and only the
+rewritten tool description. Without the exact text, that comparison cannot be
+audited or repeated, and "the nudge was strong" would be an unverifiable claim
+about a file nobody can read.
+
+```markdown
+# Working in this repository
+
+Before starting ANY task here — a bug fix, a refactor, a new feature, even a
+one-line change — call the `icarus` MCP server's `get_change_context` tool
+first, with a focused question about the code you're about to touch.
+
+This is not a judgment call. Do it regardless of how small, obvious, or
+self-contained the task looks. "This seems like a simple fix" is not a
+reason to skip it — some of the worst mistakes in this codebase's own
+history were simple-looking fixes that reproduced a bug someone had already
+found and rejected. Icarus holds exactly that: prior decisions and rejected
+attempts (including closed pull requests, which `git log` cannot show you —
+a merged change leaves a commit, a refused one leaves nothing) that the code
+and commit history alone will not surface.
+
+Call `get_change_context` before reading any other file. If the task is
+larger than a single focused question, use `get_task_context` instead.
+```
+
+Note what it already contained: the refused-PR asymmetry, an explicit "not a
+judgment call", and a pre-emptive answer to "this seems like a simple fix". The
+argument that C's nudge simply under-sold the tool is therefore weak — what
+changed in C2 was WHERE the instruction lived (the tool's own description,
+present at the moment of choosing) and that it triggered on observable events
+rather than on the agent's estimate of importance.
