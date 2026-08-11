@@ -124,29 +124,77 @@ anything about CI here.
   one branch, one GitHub pull request, never an automatic merge.
 
 ## docs/experiments/
-Append-only records of measured runs. **Deliberately NOT one index line per
-file** — these are dated records, not code, and the folder grows every session;
-the two governing documents are listed, the rest are self-describing by
-filename and are read on demand.
+Append-only records of measured runs — the evidence base for every Agent Mode
+claim. A negative result is kept exactly like a positive one.
 - `docs/experiments/PROTOCOL.md` — the rules every Agent Mode experiment
   follows, **one rule per failure that actually happened**, each naming the run
   it cost: tool use is read from transcripts and never from self-report; a task
   is valid only if the bug is proven present at the PINNED commit AND the
   mechanism is a genuine closed-unmerged PR (both checks mechanical, with the
   exact commands); the prediction is registered before launch; inconvenient
-  results are reported in the result, not a footnote; `git remote -v` before
-  any claim about repo state. Read this before designing a run.
-- `docs/experiments/2026-08-11-agent-mode-exp-c2-results.md` — the load-bearing
-  measurement so far: rewriting the MCP tool description to trigger on
-  observable events took unprompted Icarus calls from 0/11 to 4/4, and the
-  nine-PR tally showing that "closed unmerged" meant "already done another way"
-  eight times out of nine.
-- The `2026-08-10-agent-mode-exp-*.md` set (A runs 1–3, C, D, directed-D,
-  efficiency), `2026-08-10-quotation-vs-composition-negative-result.md`,
-  `2026-08-10-rejected-attempt-false-positive-rate.md`, and
-  `2026-08-11-fabrication-recheck-per-claim.md` — individual run records; the
-  last one proves the shipped per-claim self-report does NOT flag the
-  Experiment A fabrication class.
+  results go in the result, not a footnote; `git remote -v` before any claim
+  about repo state. Read before designing a run.
+- `2026-08-10-agent-mode-exp-a-run1.md` — Experiment A run 1 (`astral-sh/uv`
+  #20477): Icarus inverted a wrong prior (absolute paths were a regression
+  inside a PR titled "Preserve absolute/relative paths", not a design choice)
+  **and produced the one fabrication** across all four A tasks — a `..`-escaping
+  rule that does not exist, over-generalised from two real sources, with every
+  citation resolving so the gate passed it.
+- `2026-08-10-agent-mode-exp-a-run2.md` — run 2 (#20917, workspace groups no
+  longer additive): chosen to test whether run 1's fabrication recurs, with the
+  issue naming no PR and labelled `enhancement` so "deliberate" was a live
+  answer. Both claims accurate; corrected the prior again.
+- `2026-08-10-agent-mode-exp-a-run3.md` — run 3 (#20981, `uv tool run` ignores
+  the installed version): designed to test ABSTENTION via a `needs-decision`
+  label, and the premise was wrong — Icarus answered, correctly, from a
+  maintainer comment. The decisive outcome was "write nothing at all", the
+  maintainer considering the behaviour intended.
+- `2026-08-10-agent-mode-abstention-test.md` — the property runs 1–3 left
+  untested, run against the committed board rather than a live repo: all gates
+  100% on `gemini-paid`, so the fabrication was not an abstention failure.
+- `2026-08-10-agent-mode-exp-c.md` — Experiment C, Claude Code in VS Code, the
+  only run Alankrit drove by hand. Source of the 0-unprompted-calls-in-4-tasks
+  result under a strong `CLAUDE.md` nudge, of the transcript-verification method
+  (`~/.claude/projects/*.jsonl`), and of two honestly-logged task-selection
+  misses that PROTOCOL §2 now prevents.
+- `2026-08-10-agent-mode-exp-d.md` — Experiment D, paired within-task control
+  vs. Icarus on `astral-sh/uv`, control frozen in writing first. Discloses what
+  the design CANNOT measure: the Icarus arm is contaminated by having just read
+  the code, so efficiency numbers are not available from it.
+- `2026-08-10-agent-mode-exp-d-efficiency.md` — the efficiency half redone with
+  two subagents that cannot see each other (control explicitly forbidden every
+  `mcp__icarus__*` tool), on uv #20675 — the run where a control agent declared
+  a live bug fixed because only the merge was visible.
+- `2026-08-10-agent-mode-exp-d-directed.md` — D redone with DIRECTED rather than
+  volunteered consultation, two clean clones. The registered prediction was
+  wrong: control did better first-principles code reading and would still have
+  shipped an 8th duplicate; one directed call surfaced all seven prior attempts
+  and flipped the recommendation to "do not write this".
+- `2026-08-10-quotation-vs-composition-negative-result.md` — **negative result,
+  nothing shipped.** `evals/attribution.py` was built to label sentences by
+  lexical overlap with cited chunks, measured against the real recorded cases,
+  found ANTI-correlated with truth (a plausible fabrication is assembled from
+  the evidence's own words and so scores higher than an honest paraphrase), and
+  deleted. Why the per-claim WRITER self-report exists instead.
+- `2026-08-10-rejected-attempt-false-positive-rate.md` — the relevance-noise
+  measurement behind the tool description's "up to one in three": three runs,
+  criterion registered before any hit was seen, and the third run (uv, 5.4× the
+  closed-PR pool) contradicting the "no filter needed" conclusion the first two
+  supported.
+- `2026-08-11-fabrication-recheck-per-claim.md` — proves the shipped per-claim
+  self-report does NOT flag the Experiment A fabrication class: the sentence
+  reproduced and came back `quoted`, the trusted label. Also the first record of
+  a claim resting entirely on a closed-unmerged PR.
+- `2026-08-11-agent-mode-exp-c2-plan.md` — C2 registered BEFORE the run per
+  PROTOCOL §3: the prediction (0–1 of 4, expected to fail), the four tasks with
+  their §2 validation evidence, verbatim prompts fixed in advance, and what
+  would make the run invalid.
+- `2026-08-11-agent-mode-exp-c2-results.md` — the load-bearing measurement so
+  far: rewriting the MCP tool description to trigger on observable events took
+  unprompted calls from 0/11 to **4/4** with no nudge, refuting the registered
+  prediction; plus the nine-PR tally showing "closed unmerged" meant "already
+  done another way" eight times out of nine, and one invalid task whose §2a
+  check was inferred from a version string instead of executed.
 
 ## docs/plans/
 - `docs/plans/2026-06-28-phase-1.md` — the Phase 1 plan.
