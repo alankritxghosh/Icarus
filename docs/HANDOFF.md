@@ -156,40 +156,53 @@ mistake this session, but the "is it actually deployed" question above shows
 the failure mode generalizes: don't trust an adjacent signal (`/health`,
 "I pushed a commit") for a claim a direct check can make authoritative.
 
-## 6. Where to pick up — P3 correction is the first task
+## 6. Where to pick up — P3, SUPERSEDED same day: outreach strategy changed
 
-**Corrected status:** `outputs/leads/ALL_LEADS.md` has 111 SCREENED repos (a
-qualified candidate + a named human contact), not 111 outreach-ready leads.
-`sales/ask_repo.py`'s `ask` step — which actually runs Icarus against a
-prospect's repo and grades the answers — has completed for only 9:
+The plan directly below this paragraph (two-track: email the 9 `ask`-ready
+leads with a per-repo answer, extend `ask` to the other 102) was written
+earlier THIS SAME SESSION and was already wrong by the end of it. Read the
+correction first, not the plan.
 
-    READY TO RECORD   4   (muxinc/media-chrome, snapotter-hq/SnapOtter, vidstack/player, cpvalente/ontime)
-    asked, weak       5   (canalplus/rx-player, whyboris/Video-Hub-App, UniversalViewer/universalviewer, MurhafSousli/ngx-gallery, chintan9/plyr-react)
-    screened        102   (no recorded answer — outreach here today would be generic)
+**Batch 4 (2026-08-08, `method: "repo-proof"` in `site/for/outreach_log.jsonl`)
+was exactly that two-track plan already executed once** — 17 emails, each
+built on a real per-repo Icarus answer with a linked landing page, the
+elaborate personalized approach. Result: effectively 0 useful replies (one
+logged reply was confusion — "I'm unsure what you are asking?" — not
+interest). Combined with batch 1 (23 sends, generic copy, 0/23), TWO
+structurally opposite strategies have now failed: generic-and-broad, and
+personalized-and-detailed. Alankrit's read, given directly: the failure mode
+is information volume, not targeting or personalization depth — "keep it
+simple, not bombard them with information... direct with the ask." See memory
+`repo-proof-outreach-also-failed-simple-copy-now-standing`.
 
-**Two tracks, do both, don't block one on the other:**
+**Standing template now (approved earlier this session, ~58 words):**
 
-1. **Email the 9 now.** They already have a real per-repo Icarus answer to
-   build the message on — the exact thing `cold-outreach-engine`/
-   `icarus-outreach` skills exist to use, and the exact thing batch 1's 0-reply
-   result says is necessary (named contact, not a role inbox; anchored in a
-   real finding, not speculation about their pain). Check `outputs/leads/*-answers.json`
-   for each before writing — the answer is the whole point.
-2. **Extend `ask` to the other 102**, or a useful subset, so this stops being
-   a one-batch bottleneck:
+    Subject: 10 minutes on one of your repos?
 
-       .venv/bin/python sales/ask_repo.py index OWNER/REPO
-       .venv/bin/python sales/ask_repo.py digest OWNER/REPO
-       .venv/bin/python sales/ask_repo.py ask   OWNER/REPO questions.json answers.json
-       python3 sales/roll_up.py    # rebuilds ALL_LEADS.md from whatever's on disk
+    Hey [name],
 
-   Must run with `.venv/bin/python` — system Python has no fastembed and
-   degrades silently to lexical-only, per `sales/README.md`. The nightly
-   automation (`launchd`) that's supposed to do this unattended has a known
-   broken prerequisite (`sales/README.md`'s "Unattended" section — headless
-   `claude -p` needs its own credential, last checked failing 2026-08-05,
-   never fixed) — check whether that's still broken before assuming any
-   nightly runs happened since.
+    We built Icarus — it tells your coding agent *why* your code is the way
+    it is, including the pull requests your team tried and killed, which git
+    can't see. So it stops rebuilding things you already rejected.
+
+    Worth 10 minutes on one of your repos this week? Setup is one brew
+    command, I'll send it if you're in.
+
+    — Alankrit
+
+No landing page, no repo-specific finding, no install manual in the first
+touch — those go in the reply, only if asked. This does NOT need
+`sales/ask_repo.py`'s answer step at all: unlike repo-proof, it isn't built on
+a per-repo finding, so **all 111 screened leads are immediately usable** —
+`sales/screen_leads.py` already guarantees a named human contact, not a role
+inbox, which is the one thing batch 1 also got wrong and this template
+doesn't reintroduce.
+
+**Recommended next step, not yet decided by Alankrit — ask, don't assume:**
+send a small test batch (10–15) with this exact template before scaling to
+all 111, given TWO prior full-scale sends have both underperformed. If this
+batch also gets ~0 replies, the next lever to test is the ASK itself or the
+channel — not copy length again, that variable is now tested twice.
 
 **Not done, lower priority, unchanged:**
 - P4 (X accounts): 45/50.
