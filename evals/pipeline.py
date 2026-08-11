@@ -501,9 +501,27 @@ class GatedPipeline(Pipeline):
         # a sentence rests on, this is about WHAT KIND they are, and collapsing
         # two axes into one enum would make `quoted` mean two different things.
         # Set only when true, so every existing payload is byte-identical.
+        #
+        # The test is "nothing cited shows the change ever LANDED", not the
+        # original "every citation is a refused PR". Both real cases from
+        # Experiment C2 decided this (docs/experiments/2026-08-11-agent-mode-
+        # exp-c2-results.md):
+        #   - MISSED by the old rule: "the accepted fix is..." citing a refused
+        #     PR plus the ISSUE that reported the bug. An issue reports a
+        #     problem; it never records an adoption, so it cannot rescue the
+        #     claim -- yet its presence alone switched the flag off.
+        #   - Must STAY silent: a claim citing a refused PR alongside a MERGED
+        #     one. The merged PR is proof the approach landed, so flagging it
+        #     would be noise. This is what rules out the obvious alternative
+        #     fix of marking whenever ANY citation is refused.
+        # Anything that is not a refused PR or an issue -- a merged PR, a
+        # commit, code, a doc -- is evidence of something that exists, and is
+        # deliberately treated as solid ground.
         refused = {a["ref"] for a in result.rejected_attempts}
         for claim in result.claims:
             cits = claim.get("citations") or []
-            if cits and all(ref in refused for ref in cits):
+            if not cits or not any(ref in refused for ref in cits):
+                continue
+            if all(ref in refused or ref.startswith("issue:") for ref in cits):
                 claim["rests_on_rejected"] = True
         return result

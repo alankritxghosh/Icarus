@@ -228,6 +228,54 @@ class RestsOnRejectedTests(unittest.TestCase):
         self.assertEqual(r.claims[0]["label"], CLAIM_COMPOSED)
         self.assertNotIn("rests_on_rejected", r.claims[0])
 
+    # --- the two REAL cases from Experiment C2, which decide this rule -------
+    # (docs/experiments/2026-08-11-agent-mode-exp-c2-results.md)
+
+    C2_CHUNKS = [
+        Chunk(ref="pr:1549", source="pr",
+              text="PR #1549: Fix fragment filter SQL broken by SQLite 3.51.0\n"
+                   "[CLOSED by ikatyal2110]\nSQLite 3.51.0 broke correlated EXISTS."),
+        Chunk(ref="issue:1511", source="issue",
+              text="ISSUE #1511: llm logs -f fragment filter returns no results\n"
+                   "[CLOSED by Cyrus580529]\nThe fragment filter builds SQL like this."),
+        Chunk(ref="pr:1588", source="pr",
+              text="PR #1588: Fix llm openai endpoint ignoring --schema\n"
+                   "[MERGED by simonw]\nMatches the pattern used everywhere else."),
+        Chunk(ref="pr:1584", source="pr",
+              text="PR #1584: Fix template schema_object overriding --schema\n"
+                   "[CLOSED by simonw]\nDuplicate."),
+    ]
+
+    def _c2(self, claims_json):
+        from evals.retriever import LexicalRetriever
+        reply = ('{"verdict":"answer","answer":"x.","citations":["pr:1549"],'
+                 '"claims":' + claims_json + '}')
+        refs = [c.ref for c in self.C2_CHUNKS]
+        p = GatedPipeline(LexicalRetriever(self.C2_CHUNKS), self.C2_CHUNKS,
+                          StaticProvider([reply]))
+        return p._answer_from("q?", self.C2_CHUNKS, refs, per_claim=True)
+
+    def test_refused_pr_plus_issue_is_marked(self):
+        """C2 task 2's real false negative: Icarus called a REFUSED pull
+        request's approach "the accepted fix", citing that PR plus the issue
+        that reported the bug. Nothing cited shows the change ever landed --
+        an issue reports a problem, it does not record an adoption -- so this
+        must be marked. The original every-citation rule stayed silent here.
+        """
+        r = self._c2('[{"text":"The accepted fix is to replace the UNION.",'
+                     '"citations":["pr:1549","issue:1511"]}]')
+        self.assertTrue(r.claims[0].get("rests_on_rejected"))
+
+    def test_refused_pr_plus_merged_pr_is_not_marked(self):
+        """C2 task 3, the case that must STAY silent: the claim cites a closed
+        PR alongside a MERGED one. The merged PR is proof the approach landed,
+        so the sentence is standing on solid ground and flagging it would be
+        noise -- this is the case a naive any-citation rule would get wrong.
+        """
+        r = self._c2('[{"text":"The command-line schema should win.",'
+                     '"citations":["pr:1584","pr:1588"]}]')
+        self.assertNotIn("rests_on_rejected", r.claims[0])
+
     def test_unsupported_claim_is_not_marked(self):
         """No citations means nothing to be resting ON -- vacuous all() must
         not mark it."""

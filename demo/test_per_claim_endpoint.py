@@ -92,7 +92,15 @@ class PayloadTests(unittest.TestCase):
         desc = next(t["description"] for t in tools
                     if t["name"] == "get_change_context")
         self.assertIn("rests_on_rejected", desc)
-        self.assertIn("closed WITHOUT being merged", desc)
+        # The flag's meaning is "nothing cited shows this LANDED", not "every
+        # citation is a closed PR" -- the rule was widened after a measured
+        # false negative, and a description promising the old test would send an
+        # agent looking for the wrong thing.
+        self.assertIn("ever LANDED", desc)
+        # The exclusion is as load-bearing as the rule: an agent must know that
+        # an UNflagged claim citing a closed PR alongside a merged one is not
+        # an oversight.
+        self.assertIn("NOT flagged", desc)
 
 
 class RejectedAttemptsPayloadTests(unittest.TestCase):
