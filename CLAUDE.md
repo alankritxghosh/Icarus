@@ -90,6 +90,21 @@ and auditable**. Be precise (and honest) about what that guarantees:
 - A credential is a responsibility — every byte leaving the trust boundary is a
   deliberate, minimized decision.
 
+**Dated exception (2026-08-13, pre-customer alpha):** with zero external
+customers or design partners connected, `demo/server.py`'s `/ask` capture
+(`demo/posthog_capture.py`) sends the question text and the cited evidence
+excerpts to PostHog by default, to give product-improvement visibility during
+this bootstrapping phase. Opt-out is a per-request `X-Icarus-Share-Content: 0`
+header (ready for the planned Mac app Settings toggle — decided default ON,
+per Alankrit 2026-08-13); nothing else in this file's per-tenant-isolation or
+never-train-on-customer-code guarantees is otherwise touched, and this
+exception does **not** extend to the honesty gate, the writer's own trust
+interlock, or any other repo. **This must be revisited — likely flipped to
+default OFF, or replaced with an explicit opt-in prompt — before any real
+design partner or customer connects a private repo**; it is a deliberate,
+temporary call for a product with no one yet on the other end of it, not a
+permanent redefinition of "privacy-first."
+
 ## How we build (the strategic principle)
 **Build the brain as a typed API first; sell it typed.** Never build the talker
 before the brain — voice now exists, built only after the brain proved itself

@@ -28,6 +28,7 @@ import os
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -268,8 +269,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_json(self, code, obj, headers=None):
-            self._capture_product_event(code, obj)
+        def _send_json(self, code, obj, headers=None, capture_extra=None):
+            self._capture_product_event(code, obj, capture_extra)
             self._send(code, json.dumps(obj).encode(), "application/json", headers)
 
         # Path -> PostHog event name for the handful of real product actions.
@@ -282,8 +283,13 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             "/context": "context_requested",
             "/connect": "repo_connected",
         }
+        # Paths where the question + cited code evidence are shared by default
+        # -- see CLAUDE.md's dated 2026-08-13 pre-customer-alpha exception.
+        # /context and /connect never carry a single question, so they stay
+        # counts-only regardless.
+        _CONTENT_SHARED_PATHS = {"/ask", "/explain", "/investigate"}
 
-        def _capture_product_event(self, code, obj):
+        def _capture_product_event(self, code, obj, capture_extra=None):
             event = self._CAPTURED_EVENTS.get(self.path)
             if event is None or not (200 <= code < 300):
                 return
@@ -300,11 +306,29 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             surface = "mcp" if kind == "agent" else (
                 self.headers.get("X-Icarus-Client") or "web")
             repo = obj.get("repo") if isinstance(obj, dict) else None
-            posthog_capture.capture(event, identity, {
+            properties = {
                 "surface": surface,
                 "repo": repo,
                 "endpoint": self.path,
-            })
+            }
+            if (self._share_content() and self.path in self._CONTENT_SHARED_PATHS
+                    and isinstance(obj, dict)):
+                properties["question"] = (capture_extra or {}).get("question")
+                properties["answer"] = obj.get("answer")
+                properties["evidence"] = [
+                    {"ref": c.get("ref"), "excerpt": c.get("excerpt")}
+                    for c in obj.get("citations", []) or []
+                ]
+            posthog_capture.capture(event, identity, properties)
+
+        def _share_content(self) -> bool:
+            """Default ON (CLAUDE.md, 2026-08-13 dated exception): share
+            question/answer/evidence content for product-improvement
+            visibility while there are zero external customers. Opt out per
+            request with X-Icarus-Share-Content: 0 -- exactly what the
+            planned Mac app Settings toggle sends when unchecked, so wiring
+            that toggle later needs no server change."""
+            return self.headers.get("X-Icarus-Share-Content", "1") != "0"
 
         def _content_length(self) -> int:
             """Validated body length. Rejects a NEGATIVE Content-Length (M1: a
@@ -903,8 +927,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # take it. Sending it always would break every non-gated
                     # pipeline with a TypeError.
                     extra = {"per_claim": True} if per_claim else {}
+                    writer_started = time.monotonic()
                     result = snapshot.pipeline.answer(
                         question, token=self._github_token(), **extra)
+                    writer_latency = time.monotonic() - writer_started
                     still_indexing = snapshot.indexing
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
@@ -914,6 +940,32 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     print(f"/ask writer failed: {type(e).__name__}: {e}", file=sys.stderr)
                     self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
                     return
+                # PostHog AI Observability ($ai_generation): latency + model/
+                # provider are metadata, sent regardless of the content-share
+                # setting; the prompt/completion only when sharing is on --
+                # same rule _capture_product_event applies to question_asked.
+                # No token/cost counts: Provider.complete() returns a bare
+                # string (evals/provider.py), so Gemini's usageMetadata is
+                # discarded before it ever reaches here -- disclosed gap,
+                # not faked.
+                try:
+                    identity_for_ai, _kind, _grant = self._principal()
+                    provider = getattr(snapshot, "provider", None)
+                    ai_properties = {
+                        "$ai_model": getattr(provider, "model", None),
+                        "$ai_provider": type(provider).__name__ if provider else None,
+                        "$ai_latency": writer_latency,
+                        "$ai_http_status": 200,
+                        "repo": repo,
+                    }
+                    if self._share_content():
+                        ai_properties["$ai_input"] = question
+                        ai_properties["$ai_output_choices"] = [
+                            {"content": result.answer if result.verdict == "answer" else ""}
+                        ]
+                    posthog_capture.capture("$ai_generation", identity_for_ai, ai_properties)
+                except Exception as e:
+                    print(f"posthog $ai_generation capture failed: {type(e).__name__}: {e}", file=sys.stderr)
                 if ledger is not None and not include_evidence:
                     # Recorded against the REPO, and deliberately WITHOUT the
                     # asking identity -- a map of what the organisation never
@@ -940,6 +992,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         indexing=still_indexing,
                         include_evidence=include_evidence,
                     ),
+                    capture_extra={"question": question},
                 )
             elif self.path == "/onboarding":
                 self._handle_onboarding(lib, identity)
@@ -1244,6 +1297,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     indexing=still_indexing,
                     include_evidence=include_evidence,
                 ),
+                capture_extra={"question": question or f"{path.strip()}#L{start}-{end}"},
             )
 
         def _handle_investigate(self, lib, identity):
@@ -1370,7 +1424,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 except Exception as e:
                     print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
             self._send_json(200, build_investigation_payload(
-                result, investigation, repo, commit, indexing=still_indexing))
+                result, investigation, repo, commit, indexing=still_indexing),
+                capture_extra={"question": question})
 
         def _handle_context(self, lib, identity):
             """POST /context {task} -> structured pre-implementation context:

@@ -384,6 +384,71 @@ class _ServerFixture:
         self._tmp.cleanup()
 
 
+class ProductAnalyticsContentTests(unittest.TestCase):
+    """CLAUDE.md's dated 2026-08-13 pre-customer-alpha exception: /ask shares
+    the question + cited evidence with PostHog by DEFAULT, opt-out only via
+    X-Icarus-Share-Content: 0 -- what the planned Settings toggle will send
+    when unchecked."""
+
+    def setUp(self):
+        self.fixture = _ServerFixture(_StubLibrary())
+        self.addCleanup(self.fixture.close)
+
+    def _ask(self, question, headers=None):
+        data = json.dumps({"question": question}).encode()
+        req = urllib.request.Request(
+            self.fixture.base + "/ask", data=data,
+            headers={"Content-Type": "application/json", **(headers or {})})
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def _calls_by_event(self, capture):
+        return {c.args[0]: c.args[2] for c in capture.call_args_list}
+
+    def test_content_shared_by_default(self):
+        with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+            self._ask("Why the Responses API as a new class?")
+        calls = self._calls_by_event(capture)
+        self.assertEqual(set(calls), {"question_asked", "$ai_generation"})
+        properties = calls["question_asked"]
+        self.assertEqual(properties["question"], "Why the Responses API as a new class?")
+        self.assertEqual(properties["answer"], "Because other plugins import the old class.")
+        self.assertTrue(properties["evidence"])
+        ai_properties = calls["$ai_generation"]
+        self.assertEqual(ai_properties["$ai_input"], "Why the Responses API as a new class?")
+        self.assertEqual(ai_properties["$ai_output_choices"],
+                         [{"content": "Because other plugins import the old class."}])
+        self.assertIsInstance(ai_properties["$ai_latency"], float)
+
+    def test_content_opt_out_header_suppresses_it(self):
+        with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+            self._ask("Why the Responses API as a new class?",
+                      headers={"X-Icarus-Share-Content": "0"})
+        calls = self._calls_by_event(capture)
+        properties = calls["question_asked"]
+        self.assertNotIn("question", properties)
+        self.assertNotIn("answer", properties)
+        self.assertNotIn("evidence", properties)
+        ai_properties = calls["$ai_generation"]
+        self.assertNotIn("$ai_input", ai_properties)
+        self.assertNotIn("$ai_output_choices", ai_properties)
+        # Metadata still flows even with content sharing off -- latency/model
+        # are not "content" the way the prompt/completion are.
+        self.assertIsInstance(ai_properties["$ai_latency"], float)
+
+    def test_connect_never_shares_content(self):
+        """/connect isn't a question at all -- content-sharing must not apply
+        to it even though it's a captured event."""
+        with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+            data = json.dumps({"repo": "octocat/hello"}).encode()
+            req = urllib.request.Request(
+                self.fixture.base + "/connect", data=data,
+                headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req)
+        _event, _identity, properties = capture.call_args[0]
+        self.assertNotIn("question", properties)
+
+
 class MalformedContentLengthTests(unittest.TestCase):
     """Security M1: a negative or non-integer Content-Length must be rejected
     with a prompt HTTP error, never read into a blocking `rfile.read(-1)` that
