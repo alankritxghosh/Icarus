@@ -80,11 +80,16 @@ public struct BrainClient: Sendable {
         self.retryDelay = retryDelay
     }
 
-    /// Attach `Authorization: Bearer <token>` when a token is available.
+    /// Attach `Authorization: Bearer <token>` when a token is available, plus
+    /// which client is calling -- the server's product-analytics capture
+    /// (demo/server.py's `_capture_product_event`) uses this to tell the Mac
+    /// app apart from the browser extension; both authenticate identically
+    /// via GitHub, so there's no other signal available server-side.
     private func authorize(_ request: inout URLRequest) {
         if let t = token(), !t.isEmpty {
             request.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
         }
+        request.setValue("mac-app", forHTTPHeaderField: "X-Icarus-Client")
     }
 
     /// Retries the transport call ONCE after a short delay if it throws --

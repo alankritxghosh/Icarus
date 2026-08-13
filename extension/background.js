@@ -64,7 +64,7 @@ async function fetchStatusWithOAuth(token) {
     };
   }
   const res = await fetch(`${BRAIN_URL}/status`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "X-Icarus-Client": "extension" },
   });
   if (!res.ok) return { ok: false, status: res.status };
   const data = await res.json();
@@ -92,7 +92,11 @@ async function fetchExplainWithOAuth(token, payload) {
   }
   const res = await fetch(`${BRAIN_URL}/explain`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-Icarus-Client": "extension",
+    },
     body: JSON.stringify(payload),
   });
   const data = await res.json().catch(() => ({}));

@@ -35,6 +35,7 @@ from urllib.parse import urlparse, parse_qs
 from evals.corpus_meta import load_meta
 from evals.env_file import load_env_file
 
+from . import posthog_capture
 from .freshness import FreshnessChecker
 from .ledger import Ledger
 from .memory_writer import GitHubMemoryWriter, MemoryWriteError
@@ -268,7 +269,42 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             self.wfile.write(body)
 
         def _send_json(self, code, obj, headers=None):
+            self._capture_product_event(code, obj)
             self._send(code, json.dumps(obj).encode(), "application/json", headers)
+
+        # Path -> PostHog event name for the handful of real product actions.
+        # Deliberately a small whitelist, not every response: a health check or
+        # a validation error is not usage worth counting.
+        _CAPTURED_EVENTS = {
+            "/ask": "question_asked",
+            "/explain": "question_asked",
+            "/investigate": "question_asked",
+            "/context": "context_requested",
+            "/connect": "repo_connected",
+        }
+
+        def _capture_product_event(self, code, obj):
+            event = self._CAPTURED_EVENTS.get(self.path)
+            if event is None or not (200 <= code < 300):
+                return
+            try:
+                identity, kind, _grant = self._principal()
+            except Exception:
+                return
+            # MCP always authenticates via an agent session (see
+            # demo/auth.py/agent_sessions.py) -- that's already a reliable
+            # surface signal with no MCP-side code change needed. Everything
+            # else is GitHub-authenticated the same way, so a client-supplied
+            # header is what tells the Mac app apart from the extension; a
+            # caller that sends neither (the plain web demo) is "web".
+            surface = "mcp" if kind == "agent" else (
+                self.headers.get("X-Icarus-Client") or "web")
+            repo = obj.get("repo") if isinstance(obj, dict) else None
+            posthog_capture.capture(event, identity, {
+                "surface": surface,
+                "repo": repo,
+                "endpoint": self.path,
+            })
 
         def _content_length(self) -> int:
             """Validated body length. Rejects a NEGATIVE Content-Length (M1: a
