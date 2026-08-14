@@ -1,9 +1,13 @@
 # demo/posthog_capture.py
 """Fire-and-forget PRODUCT usage capture for PostHog -- counts and identity
-only. Never question text, code, citations, or answer content: this sits on
-the same request path private-repo evidence flows through, so what it sends
-is a deliberate, minimized decision (see CLAUDE.md's credential-boundary
-rule), not the website's marketing snippet. Separate PostHog project from the
+by default, and question/answer/evidence content ONLY when the caller
+explicitly opted in with `X-Icarus-Share-Content: 1` (see
+`demo/server.py::_share_content`). This sits on the same request path
+private-repo evidence flows through, so what it sends is a deliberate,
+minimized decision (see CLAUDE.md's credential-boundary rule), not the
+website's marketing snippet. This module itself sends whatever properties it
+is handed -- the decision lives at the call site, which is where the header
+is visible. Separate PostHog project from the
 website (POSTHOG_PROJECT_TOKEN here is the PRODUCT project's key, not the
 one embedded in site/index.html and demo/index.html).
 

@@ -385,10 +385,20 @@ class _ServerFixture:
 
 
 class ProductAnalyticsContentTests(unittest.TestCase):
-    """CLAUDE.md's dated 2026-08-13 pre-customer-alpha exception: /ask shares
-    the question + cited evidence with PostHog by DEFAULT, opt-out only via
-    X-Icarus-Share-Content: 0 -- what the planned Settings toggle will send
-    when unchecked."""
+    """Counts-only by DEFAULT; question/answer/evidence only on explicit opt-in.
+
+    Reversed 2026-08-14 (Alankrit) from the dated 2026-08-13 exception, which
+    made content-sharing default ON with an opt-out header. Raised in review:
+    the exception was written for `demo/server.py`'s /ask when nothing external
+    was connected, but the MCP surface now serves PRIVATE repositories and NO
+    client -- MCP adapters, extension, web, Mac app -- ever sent the opt-out.
+    Configuring the production PostHog token therefore exported private
+    questions, answers and cited code automatically, which is not something a
+    default should be able to decide.
+
+    Opting IN is now an explicit `X-Icarus-Share-Content: 1`. Anything else --
+    absent, "0", empty, or junk -- is counts-only.
+    """
 
     def setUp(self):
         self.fixture = _ServerFixture(_StubLibrary())
@@ -405,11 +415,30 @@ class ProductAnalyticsContentTests(unittest.TestCase):
     def _calls_by_event(self, capture):
         return {c.args[0]: c.args[2] for c in capture.call_args_list}
 
-    def test_content_shared_by_default(self):
+    def test_content_is_NOT_shared_by_default(self):
+        """The finding, inverted into a test: a caller that says nothing gets
+        counts only. Every shipped client sends nothing today."""
         with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
             self._ask("Why the Responses API as a new class?")
         calls = self._calls_by_event(capture)
         self.assertEqual(set(calls), {"question_asked", "$ai_generation"})
+        properties = calls["question_asked"]
+        self.assertNotIn("question", properties)
+        self.assertNotIn("answer", properties)
+        self.assertNotIn("evidence", properties)
+        ai_properties = calls["$ai_generation"]
+        self.assertNotIn("$ai_input", ai_properties)
+        self.assertNotIn("$ai_output_choices", ai_properties)
+        # The counts themselves still flow -- that is the whole point of
+        # "counts-only" rather than "off".
+        self.assertEqual(properties["endpoint"], "/ask")
+        self.assertIn("surface", properties)
+
+    def test_explicit_opt_in_shares_content(self):
+        with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+            self._ask("Why the Responses API as a new class?",
+                      headers={"X-Icarus-Share-Content": "1"})
+        calls = self._calls_by_event(capture)
         properties = calls["question_asked"]
         self.assertEqual(properties["question"], "Why the Responses API as a new class?")
         self.assertEqual(properties["answer"], "Because other plugins import the old class.")
@@ -425,7 +454,22 @@ class ProductAnalyticsContentTests(unittest.TestCase):
             ai_properties["icarus_answer_latency_seconds"], float)
         self.assertNotIn("$ai_latency", ai_properties)
 
-    def test_content_opt_out_header_suppresses_it(self):
+    def test_anything_other_than_an_explicit_one_is_counts_only(self):
+        """Fail CLOSED on a malformed or unexpected value. A truthy-ish string
+        must not be able to turn content sharing on by accident."""
+        # NB: " 1" and "1 " are deliberately absent. HTTP strips whitespace
+        # around a header value, so those arrive as exactly "1" and ARE an
+        # explicit opt-in -- asserting otherwise tests the parser, not us.
+        for value in ("0", "", "true", "yes", "2", "on", "TRUE", "1;x"):
+            with unittest.mock.patch(
+                    "demo.server.posthog_capture.capture") as capture:
+                self._ask("q?", headers={"X-Icarus-Share-Content": value})
+            properties = self._calls_by_event(capture)["question_asked"]
+            self.assertNotIn("question", properties, value)
+            self.assertNotIn("answer", properties, value)
+            self.assertNotIn("evidence", properties, value)
+
+    def test_the_opt_out_header_still_suppresses_it(self):
         with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
             self._ask("Why the Responses API as a new class?",
                       headers={"X-Icarus-Share-Content": "0"})
