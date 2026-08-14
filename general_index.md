@@ -48,6 +48,17 @@ removing, or renaming files). For class/function-level detail see
   or tracked-files (CI) mode. Exits non-zero on a provider-token or secret-shaped
   hit so it can block a commit/build.
 - `scripts/install_hooks.sh` — one-time wire of `core.hooksPath` → `.githooks`.
+- `scripts/check_detailed_index.py` — CI gate that fails when
+  `detailed_index.md` stops describing the real code: every documented module
+  exists, every backticked symbol appears in that module's source, and every
+  non-test `evals/`/`demo/` module has a section. Written after the index was
+  found documenting 31 of 52 modules plus three functions that do not exist
+  (`_extract_json`, judge.py's `_JSON`, `_checked_public_repo`) — each one an
+  API name an agent would have cited confidently. `--selftest` proves the
+  checker can FAIL before its pass means anything. Disclosed limits: the symbol
+  test is a substring match (catches renames/typos/deletions, not `foo` vs
+  `_foo`), Swift sections are unchecked, and nothing verifies a DESCRIPTION is
+  true — only that the symbol is real.
 - `scripts/private_flow_smoke.py` — manual, leak-safe live smoke of the brain's
   PRIVATE-repo HTTP path (/status→/connect→/ask→/disconnect) the Mac app drives;
   token from `GH_BEARER` env (never argv/logs), repo from `ICARUS_PRIVATE_REPO`.
