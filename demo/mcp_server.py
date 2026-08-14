@@ -362,10 +362,22 @@ def _request(path, body=None):
         # crossing a boundary meant to be fail-closed. Each tool's postflight
         # catches the wrong ANSWER; this catches the wrong WORK, before it runs.
         #
+        # Scoped to requests that CARRY A BODY (/ask, /context, /explain).
+        # `/status` has none: it asks what is connected right now, and a
+        # deliberate switch A -> B is precisely when it must be allowed to
+        # remint. Guarding it too failed the user's first correctly-named call
+        # after every intentional switch, which then succeeded on a manual
+        # retry -- found in review.
+        #
+        # Compared case-insensitively, the same way `_checked_repo` and the
+        # rest of this file compare GitHub repository names: `Octo/Repo` and
+        # `octo/repo` are one repository, and refusing on casing alone was a
+        # pure false positive.
+        #
         # Costs no extra request: the grant already names its repository. An
         # unknown repo on either side (a dev override) never blocks the retry.
-        if (attempt and previous_repo and connection.repo
-                and connection.repo != previous_repo):
+        if (attempt and body is not None and previous_repo and connection.repo
+                and connection.repo.casefold() != previous_repo.casefold()):
             raise _ToolError(
                 f"Icarus switched to {connection.repo} while answering about "
                 f"{previous_repo}; retry the request")

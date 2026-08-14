@@ -102,8 +102,20 @@ enum McpCommand {
                 // and on a private repo that is evidence crossing a boundary
                 // meant to be fail-closed. The tool's postflight catches the
                 // wrong ANSWER; this catches the wrong WORK, before it runs.
+                //
+                // Scoped to requests that CARRY A BODY (/ask, /context,
+                // /explain). `/status` has none: it asks what is connected
+                // right now, and a deliberate switch A -> B is exactly when it
+                // must be allowed to remint. Guarding it too failed the user's
+                // first correctly-named call after every intentional switch.
+                //
+                // Compared case-insensitively, as GitHub repository names are
+                // everywhere else here -- refusing `Octo/Repo` -> `octo/repo`
+                // was a pure false positive. Both found in review.
+                //
                 // Costs no extra request: the grant already names its repo.
-                if attempt > 0, let previousRepo, agentSession.repo != previousRepo {
+                if attempt > 0, body != nil, let previousRepo,
+                   agentSession.repo.caseInsensitiveCompare(previousRepo) != .orderedSame {
                     throw McpServer.ToolError(
                         "Icarus switched to \(agentSession.repo) while answering "
                         + "about \(previousRepo); retry the request.")

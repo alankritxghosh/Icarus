@@ -442,6 +442,50 @@ class RemintRepoBoundaryTests(unittest.TestCase):
 
     @patch("demo.mcp_server._connection")
     @patch("demo.mcp_server._OPENER.open")
+    def test_the_status_preflight_may_remint_across_repositories(
+            self, open_request, connection):
+        """The legitimate switch, which the first version of this guard broke.
+
+        When a user deliberately switches A -> B and the next tool call
+        correctly names B, the cached A grant hits /status first and gets 403.
+        Refusing there failed that call outright; the identical call then
+        succeeded on a manual retry because B was cached by then. /status
+        carries no body and asks only what is connected NOW, so reminting
+        across repositories is exactly what it is for.
+        """
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"repo":"octo/b"}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection("octo/a"),
+                                  self._connection("octo/b")]
+
+        self.assertEqual(mcp_server._request("/status"), {"repo": "octo/b"})
+        self.assertEqual(open_request.call_count, 2)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_the_same_repository_in_a_different_case_is_not_a_switch(
+            self, open_request, connection):
+        """GitHub repository names are compared case-insensitively everywhere
+        else here (`_checked_repo`), so casing alone must not read as a move."""
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"ok":true}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection("Octo/Repo"),
+                                  self._connection("octo/repo")]
+
+        self.assertEqual(mcp_server._request("/ask", {"question": "why?"}),
+                         {"ok": True})
+        self.assertEqual(open_request.call_count, 2)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
     def test_an_unknown_repo_on_either_side_does_not_block_the_retry(
             self, open_request, connection):
         """A dev override carries no repo. Refusing there would break the

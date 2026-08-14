@@ -192,6 +192,49 @@ final class McpCommandTests: XCTestCase {
         XCTAssertEqual(RetryingProtocol.seenAuthorization.count, 1)
     }
 
+    func testTheStatusPreflightMayRemintAcrossRepositories() async throws {
+        // The legitimate switch the first version of this guard broke: after a
+        // deliberate A -> B, the cached A grant hits /status, gets 403, and
+        // must be allowed to remint onto B. /status carries no body and asks
+        // only what is connected now.
+        RetryingProtocol.reset(statuses: [403, 200])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let factory = SessionFactory([
+            AgentSession(token: "a", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/a"),
+            AgentSession(token: "b", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/repo"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: URLSession(configuration: configuration))
+
+        let payload = try await transport("/status", nil)
+        XCTAssertEqual(payload["repo"] as? String, "octo/repo")
+        XCTAssertEqual(RetryingProtocol.seenAuthorization.count, 2)
+    }
+
+    func testCasingAloneIsNotARepositorySwitch() async throws {
+        RetryingProtocol.reset(statuses: [403, 200])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let factory = SessionFactory([
+            AgentSession(token: "a", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "Octo/Repo"),
+            AgentSession(token: "b", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/repo"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: URLSession(configuration: configuration))
+
+        _ = try await transport("/ask", ["question": "why?"])
+        XCTAssertEqual(RetryingProtocol.seenAuthorization.count, 2)
+    }
+
     /// The legitimate retry: an EXPIRED grant for the SAME repository.
     ///
     /// The fixture used to hand out `old/repo` then `octo/repo` -- a repository
