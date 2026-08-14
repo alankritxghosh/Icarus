@@ -51,11 +51,16 @@ struct SettingsView: View {
                 Toggle("Help improve Icarus", isOn: $shareContent)
                     .toggleStyle(.switch)
                 Text(
-                    "Off by default. Turn this on to share the questions you "
-                    + "ask and the code Icarus cites to answer them, so we can "
-                    + "see real usage while building the product. Never shared: "
-                    + "your repository's full source, or anything beyond what a "
-                    + "given answer actually cited."
+                    "Off by default. Turn this on and Icarus shares three "
+                    + "things with our product analytics: the question you "
+                    + "asked, the full answer it gave back, and the references "
+                    + "and excerpts of the code that answer cited. Never "
+                    + "shared: your repository's full source, or anything an "
+                    + "answer did not cite. Questions asked by a coding agent "
+                    + "through MCP never share this content, whatever this is "
+                    + "set to. Whether it is on or off, Icarus records that a "
+                    + "question happened, on which repository, and from which "
+                    + "surface."
                 )
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.muted)

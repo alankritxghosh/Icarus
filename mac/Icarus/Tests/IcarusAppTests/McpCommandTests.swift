@@ -28,17 +28,24 @@ final class McpCommandTests: XCTestCase {
         private static let lock = NSLock()
         nonisolated(unsafe) private static var statuses: [Int] = []
         nonisolated(unsafe) private static var authorization: [String?] = []
+        nonisolated(unsafe) private static var shareContent: [String?] = []
 
         static func reset(statuses: [Int]) {
             lock.lock()
             self.statuses = statuses
             authorization = []
+            shareContent = []
             lock.unlock()
         }
 
         static var seenAuthorization: [String?] {
             lock.lock(); defer { lock.unlock() }
             return authorization
+        }
+
+        static var seenShareContent: [String?] {
+            lock.lock(); defer { lock.unlock() }
+            return shareContent
         }
 
         override class func canInit(with request: URLRequest) -> Bool { true }
@@ -48,6 +55,7 @@ final class McpCommandTests: XCTestCase {
             Self.lock.lock()
             let status = Self.statuses.removeFirst()
             Self.authorization.append(request.value(forHTTPHeaderField: "Authorization"))
+            Self.shareContent.append(request.value(forHTTPHeaderField: "X-Icarus-Share-Content"))
             Self.lock.unlock()
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
@@ -158,6 +166,28 @@ final class McpCommandTests: XCTestCase {
         XCTAssertTrue(McpCommand.message(forStatus: 403).contains("repository"))
         XCTAssertTrue(McpCommand.message(forStatus: 429).contains("rate limited"))
         XCTAssertTrue(McpCommand.message(forStatus: 0).contains("could not be reached"))
+    }
+
+    func testTheAgentSurfaceNeverSharesContent() async throws {
+        // There is no consent surface here: whoever runs a coding agent never
+        // saw the Settings toggle in this context, and MCP serves PRIVATE
+        // repositories. So the agent transport states "0" on every request
+        // rather than leaving it to the server's default. Raised in review --
+        // BrainClient's own tests cannot see this path at all.
+        RetryingProtocol.reset(statuses: [200])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let factory = SessionFactory([
+            AgentSession(token: "a", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/repo"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: URLSession(configuration: configuration))
+
+        _ = try await transport("/ask", ["question": "why?"])
+        XCTAssertEqual(RetryingProtocol.seenShareContent, ["0"])
     }
 
     func testTransportRemintsAndRetriesOnceWhenRepositoryBoundSessionIsStale() async throws {

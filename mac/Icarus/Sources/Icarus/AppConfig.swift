@@ -22,7 +22,15 @@ enum AppConfig {
     static let shareContentReader: @Sendable () -> Bool = { SharePreferences().shareContent }
 
     /// An authorized client for the connected brain.
-    static func client() -> BrainClient {
+    ///
+    /// The ONLY supported way to build one. Constructing `BrainClient` by hand
+    /// silently drops whichever readers the call site forgets -- the overlay
+    /// did exactly that and ignored the share-content toggle for every typed
+    /// and spoken question. `tokenReader` is injectable so a caller with its
+    /// own reader (the overlay) still gets the share preference wired.
+    static func client(
+        tokenReader: @escaping @Sendable () -> String? = AppConfig.tokenReader
+    ) -> BrainClient {
         BrainClient(base: brainBaseURL, token: tokenReader, shareContent: shareContentReader)
     }
 }
