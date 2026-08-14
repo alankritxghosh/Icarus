@@ -51,10 +51,19 @@ cannot mutate state, and cannot cross the private-code boundary.
   server still refuses immediately if Icarus's active-repo state becomes private
   or switches repositories.
 - Sessions are process-local. A server restart invalidates them, and a request
-  routed to a different replica cannot verify them. The adapter retries one 401
-  by obtaining a fresh session, which contains ordinary restarts but does not
+  routed to a different replica cannot verify them. The adapter retries one
+  401 or repository-staleness 403 by obtaining a fresh session, which contains
+  ordinary restarts and repository switches but does not
   make a multi-replica deployment reliable. Before agent access is distributed,
   choose either stateless signed grants with a dedicated shared signing secret,
   a shared session store, or an explicit single-replica constraint.
 - Remote OAuth remains the later team-scale path; this decision does not attempt
   to simulate a full OAuth authorization server in the current stdlib service.
+
+## Production constraint (2026-08-14)
+
+The distribution choice is now explicit: production is pinned to exactly one
+warm Azure Container Apps replica in `.gitlab-ci.yml`. This accepts horizontal
+scaling as unavailable while corpora and grants are process-local. The MCP
+client remints once after a restart or repository switch, and the Mac app ships
+the stdio server directly with an in-app Claude Code install/repair action.

@@ -82,22 +82,40 @@ echo "Installed: $DEST/$APP"
 # installing Icarus are not using Claude Code, and telling them about a tool
 # they do not have is noise.
 #
-# `-s user` registers it for every project rather than the current directory,
-# which is what someone running an installer expects. Re-running is safe: the
-# add is idempotent for an identical entry, and a pre-existing `icarus` server
-# is left alone rather than silently rewritten -- if someone configured it by
-# hand, theirs wins.
+# User scope registers it for every project rather than the current directory,
+# which is what someone running an installer expects. A known legacy Icarus
+# Python adapter is migrated because it depends on one developer checkout and
+# is not a portable user installation. Any other server named `icarus` is left
+# alone rather than silently overwritten.
 if command -v claude >/dev/null 2>&1; then
   # `claude mcp get` reads configuration; `claude mcp list` CONNECTS to every
   # configured server and took 16.7s on a real machine (measured), which is not
   # something an installer may spend to answer a yes/no question.
-  if claude mcp get icarus >/dev/null 2>&1; then
-    echo "Claude Code: an MCP server named 'icarus' is already configured, leaving it as is."
-  elif claude mcp add -s user icarus -- "$DEST/$APP/Contents/MacOS/Icarus" --mcp >/dev/null 2>&1; then
+  MCP_DETAILS="$(claude mcp get icarus 2>&1 || true)"
+  if printf '%s' "$MCP_DETAILS" | grep -Fq "Scope: User config" \
+     && printf '%s' "$MCP_DETAILS" | grep -Fq "Command: $DEST/$APP/Contents/MacOS/Icarus" \
+     && printf '%s' "$MCP_DETAILS" | grep -Fq "Args: --mcp"; then
     echo "Claude Code: connected (MCP server 'icarus', available in every project)."
+  elif printf '%s' "$MCP_DETAILS" | grep -Fq "Scope: User config" \
+       && printf '%s' "$MCP_DETAILS" | grep -Fq "demo.mcp_server"; then
+    echo "Claude Code: replacing the checkout-only Icarus connector with the installed app."
+    claude mcp remove icarus --scope user >/dev/null 2>&1 || true
+    if claude mcp add --transport stdio --scope user icarus -- \
+         "$DEST/$APP/Contents/MacOS/Icarus" --mcp >/dev/null 2>&1; then
+      echo "Claude Code: connected (MCP server 'icarus', available in every project)."
+    else
+      echo "Claude Code: could not repair automatically. Open Icarus -> Settings to retry."
+    fi
+  elif printf '%s' "$MCP_DETAILS" | grep -Fq 'No MCP server named'; then
+    if claude mcp add --transport stdio --scope user icarus -- \
+         "$DEST/$APP/Contents/MacOS/Icarus" --mcp >/dev/null 2>&1; then
+      echo "Claude Code: connected (MCP server 'icarus', available in every project)."
+    else
+      echo "Claude Code: could not register automatically. Open Icarus -> Settings to retry."
+    fi
   else
-    echo "Claude Code: could not register automatically. To do it by hand:"
-    echo "  claude mcp add -s user icarus -- \"$DEST/$APP/Contents/MacOS/Icarus\" --mcp"
+    echo "Claude Code: a different MCP server named 'icarus' already exists; leaving it unchanged."
+    echo "Open Icarus -> Settings for details."
   fi
 fi
 

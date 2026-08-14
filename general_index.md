@@ -26,12 +26,12 @@ removing, or renaming files). For class/function-level detail see
 
 ## Coding-agent integration
 - `.mcp.json` — Claude Code project registration for the read-only Icarus MCP
-  adapter; default authentication comes from the signed-in Icarus app, with no
-  credential in project configuration.
+  server shipped inside the installed Mac app; no credential lives in project
+  configuration.
 - `.cursor/mcp.json` — Cursor IDE/CLI project registration for the same stdio
   adapter.
 - `.codex/config.toml` — Codex project registration for the same stdio adapter,
-  forwarding `ICARUS_BRAIN_URL` and `ICARUS_TOKEN` when present.
+  using the installed app binary rather than a checkout-specific virtualenv.
 
 ## Cloud deployment (host the brain on Azure Container Apps)
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
@@ -1421,7 +1421,8 @@ claim. A negative result is kept exactly like a positive one.
   with the SAME identity `bundle.sh` used (re-signing ad-hoc here would
   silently undo a stable certificate), and lays out a drag-to-Applications DMG
   with a first-open `READ ME FIRST.txt`. Refuses a HALF-configured update feed
-  (one of the two vars) -- that is how an unverified update gets installed.
+  (one of the two vars) and refuses to package an ad-hoc-signed app -- that
+  would change its Keychain identity on every update.
 - `mac/Icarus/scripts/make_signing_cert.sh` — one-time, run interactively:
   creates the self-signed "Icarus Self-Signed" code-signing certificate in the
   login keychain. Ad-hoc signing makes the app's designated requirement its own
@@ -1557,9 +1558,19 @@ claim. A negative result is kept exactly like a positive one.
 - `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
   Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
 - `AgentSessionCommand.swift` — the headless `Icarus --agent-session` bridge:
-  uses the Keychain-backed app client to mint a short-lived public-read Icarus
+  uses the Keychain-backed app client to mint a short-lived read-only Icarus
   credential and writes only that credential, expiry, repo, and brain URL to
   stdout.
+- `McpCommand.swift` — the production `Icarus --mcp` stdio server entry point:
+  keeps JSON-RPC stdout clean, refuses redirects carrying an agent bearer,
+  surfaces signed-out failures as tool errors after a successful handshake,
+  and remints once after expiry, restart, or repository switching.
+- `ClaudeConnector.swift` — finds Claude Code even from a GUI app's minimal
+  PATH, diagnoses the effective `icarus` MCP registration, installs the app at
+  user scope, migrates only the known checkout-only Python adapter, and refuses
+  to overwrite an unrelated same-name server.
+- `SettingsView.swift` — native Settings UI for explicit Claude Code
+  install/repair without hand-editing configuration files.
 - `ExtensionBridgeCommand.swift` — one-process/one-request Chrome native host;
   reads the Keychain-backed credential, proxies only `ping`, `status`, and
   `explain`, reports signed-out status honestly, and returns framed JSON without
@@ -1735,6 +1746,11 @@ claim. A negative result is kept exactly like a positive one.
 - `ExtensionBridgeCommandTests.swift` — exercises the real native-host handler
   for signed-out status plus proxied status/explain response shapes without
   installing a host in the test browser.
+- `McpCommandTests.swift` — newline-delimited stdio framing and notification
+  silence, plus the stale repository-bound session remint/retry path.
+- `ClaudeConnectorTests.swift` — shipped-app detection, safe legacy migration,
+  current Claude CLI command shape, and refusal to overwrite a same-name custom
+  server.
 
 ## .claude/agents/ and .codex/agents/
 - `.claude/agents/opus-architect.md` — the opus-architect agent (principal

@@ -1,6 +1,8 @@
 import json
+import io
 import subprocess
 import unittest
+import urllib.error
 import urllib.request
 from unittest.mock import patch
 
@@ -395,6 +397,35 @@ class TransportSecurityTests(unittest.TestCase):
             with self.assertRaises(mcp_server._ToolError):
                 mcp_server._request("/status")
         open_request.assert_not_called()
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_managed_session_remints_once_after_repo_switch_forbidden(
+            self, open_request, connection):
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return b'{"repo":"octo/fresh"}'
+
+        stale = mcp_server._Connection(
+            base="https://brain.example", token="stale", managed=True,
+            expires_at=1_600.0)
+        fresh = mcp_server._Connection(
+            base="https://brain.example", token="fresh", managed=True,
+            expires_at=1_600.0)
+        connection.side_effect = [stale, fresh]
+        open_request.side_effect = [
+            urllib.error.HTTPError(
+                "https://brain.example/status", 403, "Forbidden", {},
+                io.BytesIO(b'{"error":"agent session is not valid for the active repo"}')),
+            Response(),
+        ]
+        mcp_server._cached_agent_session = stale
+
+        payload = mcp_server._request("/status")
+
+        self.assertEqual(payload["repo"], "octo/fresh")
+        self.assertEqual(connection.call_count, 2)
 
 
 class AutomaticAppSessionTests(unittest.TestCase):

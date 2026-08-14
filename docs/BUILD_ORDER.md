@@ -40,29 +40,22 @@ materially change a coding plan; it also showed that an honest unknown must carr
 the bounded related evidence retrieval considered without promoting that
 evidence into an asserted reason.
 
-**Done when:** a public-repository agent call returns a self-identifying
-repo/commit, cited answer or honest unknown, and opt-in retrieved evidence; repo
-mismatches and private or uncertain data egress fail closed. Private-repository
-agent access remains a later trust brick requiring verified provider posture.
+**Done when:** an agent call returns a self-identifying repo/commit, cited
+answer or honest unknown, and bounded retrieved evidence; repo mismatches fail
+closed. Private-repository evidence is allowed under the explicit transferred
+risk recorded in `decisions/2026-08-07-mcp-private-repository-access.md`.
 
 **Authentication bridge complete:** without a development override, the MCP
-adapter asks the installed, signed-in Mac app to exchange its Keychain-held
-GitHub bearer for a ten-minute, in-memory, public-read Icarus session. The agent
-never receives the GitHub credential. The server binds the session to one
-identity and active public repo, rate-limits issuance, and permits only
-`/status`, `/ask`, and `/explain`.
+installed Mac app exchanges its Keychain-held GitHub bearer for a ten-minute,
+in-memory, read-only Icarus session. The MCP client never receives the GitHub
+credential. The server binds the session to one identity and active repository,
+rate-limits issuance, and permits only `/status`, `/ask`, `/explain`, and
+`/context`.
 
-**Next smallest brick:** make short-lived session verification topology-safe
-before distributing it. The accepted first bridge is process-local, while the
-documented Azure configuration permits multiple replicas; either adopt
-stateless signed grants with a dedicated shared secret, use shared session
-storage, or explicitly constrain the service to one replica. That choice adds a
-credential or availability consequence and must be made deliberately. Then ship
-the adapter with Icarus and add an explicit one-action project registration flow,
-so a user can enable Icarus in any codebase without carrying this repository's
-Python module or virtualenv path. Project-level client approval must remain
-explicit. Only after a provider policy can be identified and verified may
-private-repository evidence cross into a coding agent. Measure
+**Distribution complete:** the app binary is the stdio MCP server, production
+is explicitly constrained to one warm replica, the installer wires Claude Code,
+and Settings provides an explicit install/repair action. No user needs this
+repository's Python module or virtualenv path. Measure
 time-to-first-context and whether context reduces plan changes or review
 corrections; do not infer those outcomes from tool availability.
 

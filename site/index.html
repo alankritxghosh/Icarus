@@ -341,9 +341,8 @@
     <div class="step"><div class="n">03</div><h3>Connect a repo</h3>
       <p>Type <code>owner/repo</code> and press Connect. Icarus indexes it — seconds to a few minutes.</p></div>
     <div class="step"><div class="n">04</div><h3>Claude Code — one time</h3>
-      <pre style="margin:10px 0 8px">/Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
-      <p>Click "Always Allow," then Ctrl-C. A one-time macOS permission. Skip this if you don't use
-      Claude Code.</p></div>
+      <p>Open Icarus → Settings and click <strong>Connect</strong>. Approve Keychain access if macOS
+      asks. Skip this if you don't use Claude Code.</p></div>
   </div>
   <div class="ctarow" style="margin-top:20px">
     <a class="cta" href="Icarus.dmg" download>↓ Or just download the .dmg</a>
@@ -637,12 +636,12 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
   <p class="eyebrow" style="margin-top:28px">Claude Code</p>
   <p class="meta" style="margin-top:0">
     <strong>Already done if you followed <a href="#get-started">Get started</a></strong> — the installer
-    registers Icarus with Claude Code for you, and step 4 there covers the one-time permission prompt.
-    To do it by hand, or after a Homebrew install:
+    registers Icarus with Claude Code for you. Settings shows the live status and can install or repair
+    the connector after a manual/Homebrew install. To do it by hand:
   </p>
-  <pre>claude mcp add -s user icarus -- /Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
+  <pre>claude mcp add --transport stdio --scope user icarus -- /Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
   <p class="meta">
-    <code>-s user</code> installs it once for every project rather than per repository. Nothing else
+    <code>--scope user</code> installs it once for every project rather than per repository. Nothing else
     to configure: the app is the server, so there is no package to install and no credential to paste.
   </p>
 
@@ -661,13 +660,11 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
     <code>.mcp.json</code> for a project-scoped Claude Code setup.
   </p>
 
-  <p class="eyebrow" style="margin-top:28px">Run it once by hand first</p>
-  <pre>/Applications/Icarus.app/Contents/MacOS/Icarus --mcp</pre>
+  <p class="eyebrow" style="margin-top:28px">Repair and permissions</p>
   <p class="meta">
-    macOS asks before letting the app read the sign-in it keeps in your Keychain, and your agent
-    launches this in the background where that prompt cannot be seen — it would just sit there
-    producing nothing. Run the line above once, click <strong>Always Allow</strong>, then press
-    Ctrl-C. It is asked once, not once per session.
+    Open Icarus → Settings. It detects the checkout-only development adapter, migrates that known
+    legacy entry only after you click Repair, and never overwrites an unrelated server with the same
+    name. Because the check runs while Icarus is visible, any Keychain prompt is visible too.
   </p>
 
   <p class="meta" style="margin-top:22px">

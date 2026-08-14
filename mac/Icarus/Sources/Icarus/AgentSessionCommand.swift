@@ -4,7 +4,8 @@ import IcarusKit
 /// Headless credential bridge used by the Icarus MCP adapter.
 ///
 /// The GitHub credential is read by the app and sent only to the Icarus brain.
-/// Stdout contains a short-lived Icarus session, never the Keychain credential.
+/// Stdout contains a short-lived, repository-bound, read-only Icarus session,
+/// never the Keychain credential.
 enum AgentSessionCommand {
     private struct Output: Encodable {
         let brainURL: String

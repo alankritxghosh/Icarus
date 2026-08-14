@@ -1,14 +1,8 @@
 {
   "mcpServers": {
     "icarus": {
-      "command": "/Users/alankritghosh/JARVIS /jarvis_engineering/.venv/bin/python",
-      "args": [
-        "-m",
-        "demo.mcp_server"
-      ],
-      "env": {
-        "PYTHONPATH": "/Users/alankritghosh/JARVIS /jarvis_engineering"
-      }
+      "command": "/Applications/Icarus.app/Contents/MacOS/Icarus",
+      "args": ["--mcp"]
     }
   }
 }

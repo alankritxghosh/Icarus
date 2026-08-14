@@ -72,6 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Icarus", action: #selector(openWindow), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Ask… (⌘⇧I)", action: #selector(ask), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","))
         // Only shown when the build was stamped with an update feed and key --
         // an item that silently does nothing is worse than no item.
         if Updater.shared.isConfigured {
@@ -153,6 +155,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func checkForUpdates() { Updater.shared.checkForUpdates() }
+
+    /// Opens SwiftUI's `Settings` scene (IcarusApp.swift). `showSettingsWindow:`
+    /// is the selector SwiftUI itself installs on the responder chain for this --
+    /// there's no AppKit-facing API to open it directly from a status-bar menu.
+    @objc private func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
 
     @objc private func openWindow() { shell.show() }
     @objc private func ask() { overlay.toggle() }

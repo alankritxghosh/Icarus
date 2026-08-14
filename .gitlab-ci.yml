@@ -81,14 +81,10 @@ build:
 # So publishing stays a local `site/release-dmg.sh` step, which accepts this
 # job's artifact directly (see that script's header) and re-signs the feed there.
 #
-# ⚠ THE ARTIFACT IS AD-HOC SIGNED, and is NOT interchangeable with a local
-# build. scripts/bundle.sh looks for the "Icarus Self-Signed" identity and falls
-# back to ad-hoc when it is absent — which it is on a fresh runner. Ad-hoc makes
-# the app's designated requirement its own cdhash, so it changes every build and
-# the login Keychain treats each update as a different app, re-prompting every
-# tester for their GitHub token (the exact problem scripts/make_signing_cert.sh
-# was written to solve). Shipping this artifact to users needs the certificate
-# imported as a CI secret first; until then, treat it as a test build.
+# The packaging script REFUSES an ad-hoc signature. A stable signing identity
+# must be imported on the runner before this job can produce an artifact;
+# otherwise every update changes the app's designated requirement and can leave
+# a background MCP launch waiting on an invisible Keychain prompt.
 #
 # Manual, and gated on mac/ changing: SaaS macOS runners bill compute minutes at
 # a premium multiplier, and a Swift release build is not cheap. `needs: [tests]`

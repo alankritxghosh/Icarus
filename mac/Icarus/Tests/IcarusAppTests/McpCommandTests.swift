@@ -12,6 +12,54 @@ import XCTest
 /// next reader/writer change is checked here rather than by hand.
 final class McpCommandTests: XCTestCase {
 
+    private actor SessionFactory {
+        private var sessions: [AgentSession]
+        private(set) var calls = 0
+
+        init(_ sessions: [AgentSession]) { self.sessions = sessions }
+
+        func next() async throws -> AgentSession {
+            calls += 1
+            return sessions.removeFirst()
+        }
+    }
+
+    private final class RetryingProtocol: URLProtocol {
+        private static let lock = NSLock()
+        nonisolated(unsafe) private static var statuses: [Int] = []
+        nonisolated(unsafe) private static var authorization: [String?] = []
+
+        static func reset(statuses: [Int]) {
+            lock.lock()
+            self.statuses = statuses
+            authorization = []
+            lock.unlock()
+        }
+
+        static var seenAuthorization: [String?] {
+            lock.lock(); defer { lock.unlock() }
+            return authorization
+        }
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            Self.lock.lock()
+            let status = Self.statuses.removeFirst()
+            Self.authorization.append(request.value(forHTTPHeaderField: "Authorization"))
+            Self.lock.unlock()
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            let body = status == 200 ? #"{"repo":"octo/repo"}"# : #"{"error":"stale"}"#
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+    }
+
     /// Collects what the server wrote, decoded per line.
     private final class Output: @unchecked Sendable {
         private let lock = NSLock()
@@ -110,5 +158,31 @@ final class McpCommandTests: XCTestCase {
         XCTAssertTrue(McpCommand.message(forStatus: 403).contains("repository"))
         XCTAssertTrue(McpCommand.message(forStatus: 429).contains("rate limited"))
         XCTAssertTrue(McpCommand.message(forStatus: 0).contains("could not be reached"))
+    }
+
+    func testTransportRemintsAndRetriesOnceWhenRepositoryBoundSessionIsStale() async throws {
+        RetryingProtocol.reset(statuses: [403, 200])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let factory = SessionFactory([
+            AgentSession(token: "old", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "old/repo"),
+            AgentSession(token: "fresh", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/repo"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: session)
+
+        let payload = try await transport("/status", nil)
+        let factoryCalls = await factory.calls
+
+        XCTAssertEqual(payload["repo"] as? String, "octo/repo")
+        XCTAssertEqual(factoryCalls, 2)
+        XCTAssertEqual(
+            RetryingProtocol.seenAuthorization.compactMap { $0 },
+            ["Bearer old", "Bearer fresh"])
     }
 }

@@ -40,8 +40,9 @@ OAuth credential remains a fallback only when Chrome cannot launch the native
 host; a real refusal from the app is authoritative.
 
 ### 2. The Agent Adapter — another thin face
-A local, read-only MCP process lets Claude Code, Codex, Cursor, and compatible
-tools ask the existing HTTP brain for change context before they edit. It owns no
+A local, read-only MCP process inside the installed Mac app lets Claude Code,
+Codex, Cursor, and compatible tools ask the existing HTTP brain for change
+context before they edit. It owns no
 retrieval or answering logic and never switches repositories or writes code. It
 returns the same cited answer or honest unknown, plus bounded retrieved evidence
 when the agent explicitly opts in. It serves public AND private repositories
@@ -51,17 +52,19 @@ exposure owned by whoever configures the client, not a guarantee Icarus makes
 — see
 [docs/decisions/2026-08-07-mcp-private-repository-access.md](decisions/2026-08-07-mcp-private-repository-access.md).
 
-The signed-in Mac app is the credential bridge for this local process. A
-headless app command exchanges the GitHub bearer held in Keychain for a
-ten-minute Icarus session and prints only the short-lived session plus the
-configured brain URL. The adapter keeps that session in memory and refreshes it
-through the app; explicit URL/token environment values remain development
-overrides. The brain binds the session to the verified identity and active
-public repository, and accepts it only on `/status`, `/ask`, and `/explain`.
-The first bridge stores grants in the issuing server process, so it is an alpha
-boundary for a single active replica, not yet a topology-safe distributed auth
-mechanism. The next brick must make verification shared/stateless or explicitly
-constrain deployment to one replica before broad distribution.
+The app binary is both server and credential bridge. It exchanges the GitHub
+bearer held in Keychain for a ten-minute Icarus session without placing either
+credential in the MCP client's configuration. It refreshes once after an
+expired grant, server restart, or repository switch. The brain binds the
+session to the verified identity and active repository, and accepts it only on
+the read-only `/status`, `/ask`, `/explain`, and `/context` routes.
+
+The first bridge stores grants in the issuing server process. Production is
+therefore explicitly pinned to one warm Azure replica in `.gitlab-ci.yml`; this
+is the accepted availability constraint until both corpora and sessions move to
+shared storage. The installer registers Claude Code automatically, and the Mac
+app's Settings window diagnoses, installs, or repairs that user-scoped
+registration without editing Claude's configuration files itself.
 
 ### 3. The Librarian — learning the codebase (cloud)
 Connects to a company's GitHub, pulls in code + pull requests + review comments,

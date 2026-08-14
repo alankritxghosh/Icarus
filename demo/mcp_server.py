@@ -368,7 +368,11 @@ def _request(path, body=None):
                 payload = json.loads(response.read().decode("utf-8"))
             break
         except urllib.error.HTTPError as error:
-            if error.code == 401 and connection.managed and attempt == 0:
+            # A process-local grant can become invalid before its timestamp:
+            # 401 after a server restart, or 403 when the app switches to a new
+            # repository. Remint once in either case; a persistent refusal is
+            # returned on the second attempt rather than looped over.
+            if error.code in (401, 403) and connection.managed and attempt == 0:
                 error.close()
                 _cached_agent_session = None
                 continue
