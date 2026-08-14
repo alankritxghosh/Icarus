@@ -514,9 +514,18 @@ class GatedPipeline(Pipeline):
         #     one. The merged PR is proof the approach landed, so flagging it
         #     would be noise. This is what rules out the obvious alternative
         #     fix of marking whenever ANY citation is refused.
-        # Anything that is not a refused PR or an issue -- a merged PR, a
-        # commit, code, a doc -- is evidence of something that exists, and is
-        # deliberately treated as solid ground.
+        # Anything that is not an unlanded PR or an issue -- a merged PR, a
+        # commit, code, a doc -- silences the flag.
+        #
+        # What that silence is worth, stated honestly after review: this reads
+        # the SHAPE of a sentence's sources, never whether they support it. A
+        # citation to current code does NOT establish the sentence is true of
+        # that code -- the measured false claim ("Stat already uses SizeValue")
+        # would go unflagged if it cited the open proposal AND the file that
+        # disproves it. Checking that needs entailment between a sentence and a
+        # chunk, which is the thing gate.py refuses to attempt on purpose.
+        # Pinned as a named KNOWN_LIMITATION test in test_claim_selfreport.py
+        # so it cannot change without someone choosing to change it.
         #
         # Widened 2026-08-14 from closed-unmerged to UNLANDED, and renamed with
         # it. The rule the comment above always described -- "nothing cited

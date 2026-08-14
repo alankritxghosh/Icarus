@@ -70,6 +70,18 @@ computes, and stops. The key is ABSENT when the corpus does not record one --
 every corpus ingested before the field existed, which is all of them until
 each is refreshed -- because a default would invent precisely the judgment
 this exists to remove.
+
+**What `review` does NOT establish**, corrected after review: `reviewDecision`
+is the CURRENT aggregate merge state, never a history. `review_required` means
+only what GitHub's schema says -- "a review is required before the pull request
+can be merged" -- and an approval dismissed by new commits, or a resolved
+change request, both land back on it. So `review_required` must never be read
+as "nobody reviewed this" or "the author abandoned it"; a first draft of this
+field called it `none` and said exactly that, which was the same overclaiming
+one layer down. Establishing that nobody ever reviewed needs the reviews or
+timeline, which ingest does not fetch per pull request. What the three values
+DO separate is a pull request that currently carries an approval, one that
+currently carries a change request, and one that carries neither.
 """
 from typing import Dict, List, Mapping
 
@@ -95,7 +107,7 @@ _HEADER_SCAN_LINES = 3
 # carries no line at all, and reading THAT as "nobody reviewed it" would
 # manufacture the exact false judgment this exists to remove.
 _REVIEW_PREFIX = "Review: "
-_REVIEW_VALUES = ("approved", "changes_requested", "none")
+_REVIEW_VALUES = ("approved", "changes_requested", "review_required")
 # Counted in NON-EMPTY lines, because ingest joins its sections with a blank
 # line between them: the review line is the third non-empty line (title, state,
 # review) but the fifth raw one. A raw-line window looked right, passed a

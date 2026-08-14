@@ -153,14 +153,29 @@ findings and their outcomes sit together.
 1. **Rejection-conflation — fixed with data, not a disclaimer.** GitHub's own
    `reviewDecision` answers it mechanically, and `gh pr list --json` (which
    ingest already calls) carries it, so `evals/ingest.py` now records
-   `Review: approved|changes_requested|none` and `evals/attempts.py` reports it
-   as `review`. `none` means no review reached a decision — not "nobody
-   looked", since a plain COMMENTED review leaves it unset either way. Absent
-   when unknown, which is every corpus ingested before today. Measured over 60
-   real `meilisearch-swift` PRs: of the 11 closed-unmerged, **6 `none`, 3
-   `approved`, 2 `changes_requested`** — so the word "rejected" was defensible
-   for 2 of 11, and #515 reports `none` without anyone having to pull the
-   timeline by hand. The proposed `gh api .../timeline` oracle was not needed.
+   `Review: approved|changes_requested|review_required` and
+   `evals/attempts.py` reports it as `review`. Absent when unknown, which is
+   every corpus ingested before today. Measured over 60 real
+   `meilisearch-swift` PRs: of the 11 closed-unmerged, **6 `review_required`,
+   3 `approved`, 2 `changes_requested`**.
+
+   **Corrected during review — the first version of this overclaimed.** It
+   mapped GitHub's `REVIEW_REQUIRED` to `none` and glossed that as "nobody
+   approved it and nobody requested changes, which is what an author
+   abandoning their own pull request looks like". That is a conclusion about
+   HISTORY drawn from a CURRENT-state field: GitHub's schema defines
+   `REVIEW_REQUIRED` as only "a review is required before the pull request can
+   be merged", and a dismissed approval or a resolved change request both land
+   back on it. Fixing one conflation while introducing another, one layer
+   down. The value is now carried through as `review_required` and described
+   as the state that STANDS, never as history.
+
+   What survives: the three values separate a standing approval from a
+   standing change request from neither, so **only 2 of 11 carry evidence of a
+   reviewer pushing back**. What does NOT survive: this cannot show that #515
+   was never reviewed. That specific claim still needs the
+   `gh api .../timeline` check the original record proposed, which is
+   therefore still open rather than obviated.
 2. **Citation-conflation (the unmerged-diff half) — fixed.** `rests_on_rejected`
    could never have caught this: #522 is OPEN, so it was not in
    `rejected_attempts` at all. The predicate the code described ("nothing cited

@@ -784,15 +784,20 @@ claim. A negative result is kept exactly like a positive one.
   reason lives in review comments, and asserting one is the composed rationale
   these experiments caught twice. Each entry may also carry `review`
   (2026-08-14): GitHub's own `reviewDecision` as `approved` /
-  `changes_requested` / `none`, so an author's unreviewed self-close stops
-  reading identically to a maintainer declining a change -- the
-  rejection-conflation axis measured on `meilisearch-swift` #515, distinct
-  from the relevance axis above. Still no interpretation of review prose and
-  no extra request (the field rides `gh pr list --json`). The key is ABSENT
-  when unknown, which is every corpus ingested before the field existed, since
-  a default would invent the judgment this removes. Measured live over 60
-  `meilisearch-swift` PRs: of 11 closed-unmerged, 6 `none`, 3 `approved`,
-  only 2 `changes_requested`.
+  `changes_requested` / `review_required` — the rejection-conflation axis
+  measured on `meilisearch-swift` #515, distinct from the relevance axis
+  above. Still no interpretation of review prose and no extra request (the
+  field rides `gh pr list --json`). The key is ABSENT when unknown, which is
+  every corpus ingested before the field existed, since a default would invent
+  the judgment this removes. **It reports the state that STANDS, never a
+  history:** `review_required` means only what GitHub's schema says (a review
+  is required before merge) and is NOT evidence nobody reviewed — a dismissed
+  approval, a resolved change request and a plain comment all land there. A
+  first version mapped it to `none` and glossed it as author abandonment,
+  which was the same overclaiming one layer down; caught in review. Measured
+  live over 60 `meilisearch-swift` PRs: of 11 closed-unmerged, 6
+  `review_required`, 3 `approved`, only 2 `changes_requested` carrying
+  evidence of a reviewer pushing back.
   Also `unlanded_prs(evidence)` (2026-08-14): the refs that do NOT show a
   change having landed — a pull request still OPEN or closed unmerged, plus a
   `diff:N` inheriting `pr:N`'s state (unknown when that PR is absent, so it is

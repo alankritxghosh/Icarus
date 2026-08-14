@@ -105,7 +105,7 @@ class ReviewDecisionLineTests(unittest.TestCase):
     def test_each_github_decision_maps_to_one_recorded_word(self):
         for decision, expected in (("APPROVED", "approved"),
                                    ("CHANGES_REQUESTED", "changes_requested"),
-                                   ("REVIEW_REQUIRED", "none")):
+                                   ("REVIEW_REQUIRED", "review_required")):
             text = ingest._pr_or_issue_text(
                 {"number": 515, "title": "x", "state": "CLOSED",
                  "reviewDecision": decision}, "pr")

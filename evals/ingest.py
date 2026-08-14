@@ -563,10 +563,21 @@ _MIN_DISCUSSION_DEPTH = 25
 # GitHub's `reviewDecision` -> the one word recorded in the chunk. Anything
 # outside this table (including null and a value GitHub adds later) records
 # nothing, so an unrecognised state can never be read as a decision.
+#
+# `REVIEW_REQUIRED` is carried through under its OWN name and deliberately NOT
+# collapsed into "nobody reviewed this". GitHub's schema defines it as only "A
+# review is required before the pull request can be merged" -- the CURRENT
+# aggregate merge state, not a history. An approval can be dismissed when new
+# commits land, and a change request can be resolved; either lands back here.
+# An earlier version of this table mapped it to "none" and the tool description
+# glossed that as an author abandoning their own pull request, which is a
+# conclusion about history that this field cannot support -- the same
+# overclaiming these fields exist to remove. Proving nobody ever reviewed
+# needs the reviews/timeline, which ingest does not fetch per pull request.
 _REVIEW_DECISIONS = {
     "APPROVED": "approved",
     "CHANGES_REQUESTED": "changes_requested",
-    "REVIEW_REQUIRED": "none",
+    "REVIEW_REQUIRED": "review_required",
 }
 
 

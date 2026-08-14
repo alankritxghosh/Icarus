@@ -426,13 +426,43 @@ class OpenPullRequestIsNotCurrentStateTests(unittest.TestCase):
                       '"citations":["pr:522"]}]')
         self.assertNotIn("pr:522", [a["ref"] for a in r.rejected_attempts])
 
-    def test_the_shipped_file_alongside_it_is_solid_ground(self):
-        """Citing the code itself is evidence of the present, so a sentence
-        resting partly on it is not a claim about a proposal."""
+    def test_a_current_state_citation_alongside_it_silences_the_flag(self):
+        """The suppression rule, stated as what it actually is.
+
+        A citation to current code means the sentence does not rest SOLELY on
+        proposals. It does not mean the code supports the sentence -- this is a
+        source-SHAPE heuristic, and the flag has no way to check entailment
+        without becoming a model, which AGENTS.md rules out.
+        """
         r = self._run(
             '[{"text":"Stat is a struct of stat fields.",'
             '"citations":["pr:522","code:Sources/MeiliSearch/Stats.swift"]}]')
         self.assertNotIn("rests_on_unlanded", r.claims[0])
+
+    def test_KNOWN_LIMITATION_a_contradicting_code_citation_also_silences_it(self):
+        """Raised in review, and recorded rather than papered over.
+
+        This is the ORIGINAL false sentence -- "Stat already uses SizeValue" --
+        citing the open proposal AND the current `Stats.swift`, which actually
+        DISPROVES it. The flag stays silent, because the rule reads source
+        shape and `Stats.swift` is current-state evidence.
+
+        So the flag catches this defect only in the arrangement it was measured
+        in (the proposal cited ALONE). Detecting the contradiction needs
+        semantic entailment between a sentence and a chunk, which is exactly
+        what `evals/gate.py` refuses to attempt and what the per-claim
+        `composed`/`quoted` labels exist to hand to the reader instead.
+
+        Asserted, not just commented, so the limitation cannot quietly change
+        without someone deciding to change it.
+        """
+        r = self._run(
+            '[{"text":"Stat already uses this SizeValue type.",'
+            '"citations":["pr:522","code:Sources/MeiliSearch/Stats.swift"]}]')
+        self.assertNotIn("rests_on_unlanded", r.claims[0])
+        # What the reader DOES still get: the sentence rests on two chunks
+        # taken together, which is the label they are told to verify.
+        self.assertEqual(r.claims[0]["label"], CLAIM_COMPOSED)
 
     def test_a_merged_pr_alongside_it_is_solid_ground(self):
         r = self._run('[{"text":"Stats have shipped before.",'

@@ -11,7 +11,7 @@ import json
 import os
 import unittest
 
-from evals.attempts import rejected_attempts
+from evals.attempts import _REVIEW_VALUES, rejected_attempts
 
 CLOSED_PR = "PR #20754: Clean up stale Python temp dirs\n[CLOSED by someone]\nBody."
 MERGED_PR = "PR #20752: allow temp_dir to clean up on drop\n[MERGED by simonw]\nBody."
@@ -41,7 +41,7 @@ class RejectedAttemptsTests(unittest.TestCase):
 
 
 class ReviewDecisionTests(unittest.TestCase):
-    """Did anyone actually review it, or did the author walk away?
+    """What review decision currently stands on a closed pull request.
 
     From docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md:
     `meilisearch-swift` PR #515 was surfaced as a "rejected attempt" for a
@@ -56,9 +56,15 @@ class ReviewDecisionTests(unittest.TestCase):
     can be perfectly on-topic and genuinely closed-unmerged and still say
     nothing about maintainer intent.
 
-    GitHub answers it mechanically with `reviewDecision`, so this needs no
-    model, no interpretation of review prose, and no extra request -- it rides
-    the `gh pr list --json` call ingest already makes.
+    GitHub answers PART of it mechanically with `reviewDecision`, so this
+    needs no model, no interpretation of review prose, and no extra request --
+    it rides the `gh pr list --json` call ingest already makes.
+
+    The part it does NOT answer, corrected after review: `reviewDecision` is a
+    CURRENT aggregate state, not a history, so it can separate "an approval
+    stands" from "a change request stands" from "neither" -- but it can never
+    prove nobody reviewed. That needs the reviews/timeline, which ingest does
+    not fetch per pull request.
     """
 
     def _pr(self, state="CLOSED", decision=None):
@@ -76,15 +82,34 @@ class ReviewDecisionTests(unittest.TestCase):
         parts.append("Body.")
         return "\n\n".join(parts)
 
-    def test_no_review_reached_a_decision_is_reported(self):
-        """The #515 shape: closed unmerged with nobody having approved it or
-        asked for changes."""
-        out = rejected_attempts({"pr:515": self._pr(decision="none")})
-        self.assertEqual(out[0]["review"], "none")
+    def test_review_required_is_carried_through_under_its_own_name(self):
+        """The #515 shape: closed unmerged with no review decision standing.
+
+        Carried through as `review_required`, NOT flattened to "none". GitHub
+        defines this value as only "a review is required before the pull
+        request can be merged" -- the current aggregate merge state. A
+        dismissed approval or a resolved change request both land back on it,
+        so it cannot prove nobody ever reviewed. The first version of this
+        field called it `none` and the tool description glossed that as an
+        author abandoning their own pull request; that was a conclusion about
+        HISTORY drawn from a CURRENT-state field, i.e. the same overclaiming
+        this whole feature exists to remove, one layer down.
+        """
+        out = rejected_attempts({"pr:515": self._pr(decision="review_required")})
+        self.assertEqual(out[0]["review"], "review_required")
+
+    def test_none_is_never_emitted_as_a_review_value(self):
+        """A guard against reintroducing the flattened value by name."""
+        from evals.ingest import _REVIEW_DECISIONS
+        self.assertNotIn("none", _REVIEW_DECISIONS.values())
+        self.assertNotIn("none", _REVIEW_VALUES)
+        self.assertNotIn("review", rejected_attempts(
+            {"pr:5": self._pr(decision="none")})[0])
 
     def test_changes_requested_is_reported_as_itself(self):
-        """The shape that IS a maintainer declining -- and it must not be
-        flattened into the same word as the one above."""
+        """A standing change request -- the one value that does evidence a
+        reviewer having pushed back, and it must not be flattened into the
+        same word as the one above."""
         out = rejected_attempts({"pr:1": self._pr(decision="changes_requested")})
         self.assertEqual(out[0]["review"], "changes_requested")
 
@@ -138,7 +163,8 @@ class ReviewDecisionTests(unittest.TestCase):
              "state": "CLOSED", "author": {"login": "mvanhorn"},
              "body": "Adds the parameter.", "reviewDecision": "REVIEW_REQUIRED"},
             "pr")
-        self.assertEqual(rejected_attempts({"pr:515": text})[0]["review"], "none")
+        self.assertEqual(rejected_attempts({"pr:515": text})[0]["review"],
+                         "review_required")
 
     def test_code_and_commit_refs_are_ignored(self):
         ev = {"code:a.py#L1-L5": "[CLOSED by nobody]\nx",
