@@ -59,8 +59,8 @@ struct SettingsView: View {
                     + "answer did not cite. Questions asked by a coding agent "
                     + "through MCP never share this content, whatever this is "
                     + "set to. Whether it is on or off, Icarus records that a "
-                    + "question happened, on which repository, and from which "
-                    + "surface."
+                    + "question happened, from which surface, and a one-way "
+                    + "hash of the repository — never its name."
                 )
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.muted)
