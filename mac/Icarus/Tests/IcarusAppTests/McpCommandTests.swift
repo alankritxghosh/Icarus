@@ -160,6 +160,45 @@ final class McpCommandTests: XCTestCase {
         XCTAssertTrue(McpCommand.message(forStatus: 0).contains("could not be reached"))
     }
 
+    func testARemintOntoAnotherRepositoryRefusesInsteadOfRetrying() async throws {
+        // Raised in review: the preflight validates repo A, the user switches
+        // the app to B, the request 403s, the transport remints onto B and
+        // resends the ORIGINAL body -- so retrieval, the writer and analytics
+        // all run inside a repository the caller never asked about. The
+        // postflight rejects the answer, but only after the work happened, and
+        // on a private repo that is evidence past a fail-closed boundary.
+        RetryingProtocol.reset(statuses: [403, 200])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let factory = SessionFactory([
+            AgentSession(token: "a", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/a"),
+            AgentSession(token: "b", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/b"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: URLSession(configuration: configuration))
+
+        do {
+            _ = try await transport("/ask", ["question": "why?"])
+            XCTFail("expected a refusal rather than a retry against octo/b")
+        } catch let error as McpServer.ToolError {
+            XCTAssertTrue(error.message.contains("octo/b"), error.message)
+        }
+        // The decisive assertion: the body was sent ONCE. A second request
+        // means the writer ran against the repository nobody asked about.
+        XCTAssertEqual(RetryingProtocol.seenAuthorization.count, 1)
+    }
+
+    /// The legitimate retry: an EXPIRED grant for the SAME repository.
+    ///
+    /// The fixture used to hand out `old/repo` then `octo/repo` -- a repository
+    /// SWITCH -- and assert the retry went through, so it encoded the defect
+    /// found in review rather than the behaviour anyone wanted. The assertions
+    /// are unchanged; only the fixture is, to model what the retry is actually
+    /// for. The switch case is now its own test directly above, and it refuses.
     func testTransportRemintsAndRetriesOnceWhenRepositoryBoundSessionIsStale() async throws {
         RetryingProtocol.reset(statuses: [403, 200])
         let configuration = URLSessionConfiguration.ephemeral
@@ -167,7 +206,7 @@ final class McpCommandTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let factory = SessionFactory([
             AgentSession(token: "old", expiresAt: Date().timeIntervalSince1970 + 10_000,
-                         repo: "old/repo"),
+                         repo: "octo/repo"),
             AgentSession(token: "fresh", expiresAt: Date().timeIntervalSince1970 + 10_000,
                          repo: "octo/repo"),
         ])
