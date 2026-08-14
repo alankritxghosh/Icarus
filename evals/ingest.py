@@ -538,7 +538,7 @@ _MAX_FILES_LISTED = 30
 # is the bar), then re-fetch the most recent `DISCUSSION_DEPTH` with the
 # discussion attached and let those override. Two calls per kind -- still no N+1.
 _PR_FIELDS_BASE = ("number,title,body,closingIssuesReferences,state,author,"
-                   "mergedAt,labels")
+                   "mergedAt,labels,reviewDecision")
 _PR_FIELDS_FULL = _PR_FIELDS_BASE + ",files,comments,reviews"
 _ISSUE_FIELDS_BASE = "number,title,body,state,author,labels"
 _ISSUE_FIELDS_FULL = _ISSUE_FIELDS_BASE + ",comments"
@@ -558,6 +558,27 @@ DISCUSSION_DEPTH = 400
 # psf/requests and fails outright on sqlite-utils. Below this it is not worth
 # another round trip; every item is still indexed by its description regardless.
 _MIN_DISCUSSION_DEPTH = 25
+
+
+# GitHub's `reviewDecision` -> the one word recorded in the chunk. Anything
+# outside this table (including null and a value GitHub adds later) records
+# nothing, so an unrecognised state can never be read as a decision.
+#
+# `REVIEW_REQUIRED` is carried through under its OWN name and deliberately NOT
+# collapsed into "nobody reviewed this". GitHub's schema defines it as only "A
+# review is required before the pull request can be merged" -- the CURRENT
+# aggregate merge state, not a history. An approval can be dismissed when new
+# commits land, and a change request can be resolved; either lands back here.
+# An earlier version of this table mapped it to "none" and the tool description
+# glossed that as an author abandoning their own pull request, which is a
+# conclusion about history that this field cannot support -- the same
+# overclaiming these fields exist to remove. Proving nobody ever reviewed
+# needs the reviews/timeline, which ingest does not fetch per pull request.
+_REVIEW_DECISIONS = {
+    "APPROVED": "approved",
+    "CHANGES_REQUESTED": "changes_requested",
+    "REVIEW_REQUIRED": "review_required",
+}
 
 
 def _login(actor):
@@ -593,6 +614,17 @@ def _pr_or_issue_text(data, source):
     if state:
         who = _login(data.get("author"))
         line = f"[{state} by {who}]"
+        # INSIDE the state header, immediately after the bracket, deliberately.
+        # Evidence text is untrusted -- title, body and label names are all
+        # author-controlled -- and a free-standing "Review:" line put the value
+        # at a position a BODY's first line could occupy, so an author opening
+        # their description with "Review: approved" was read as GitHub having
+        # approved it. This is the one line Icarus writes itself, at a fixed
+        # offset, which no author-supplied text can reach.
+        if source == "pr":
+            recorded = _REVIEW_DECISIONS.get(data.get("reviewDecision") or "")
+            if recorded:
+                line += f" review: {recorded}"
         labels = [l.get("name") for l in (data.get("labels") or []) if l.get("name")]
         if labels:
             line += " labels: " + ", ".join(labels)

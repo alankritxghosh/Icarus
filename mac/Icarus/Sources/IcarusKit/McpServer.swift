@@ -14,7 +14,7 @@ import Foundation
 /// Payloads are passed through as decoded JSON objects rather than through the
 /// app's typed models. That is deliberate: `AskResponse` decodes only what a
 /// view renders, so routing an answer through it would silently drop fields the
-/// agent is told to act on -- `claims`, `rests_on_rejected`, `rejected_attempts`
+/// agent is told to act on -- `claims`, `rests_on_unlanded`, `rejected_attempts`
 /// -- and the loss would be invisible.
 public struct McpServer: Sendable {
 
