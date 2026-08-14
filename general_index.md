@@ -1502,8 +1502,19 @@ claim. A negative result is kept exactly like a positive one.
   with the SAME identity `bundle.sh` used (re-signing ad-hoc here would
   silently undo a stable certificate), and lays out a drag-to-Applications DMG
   with a first-open `READ ME FIRST.txt`. Refuses a HALF-configured update feed
-  (one of the two vars) and refuses to package an ad-hoc-signed app -- that
-  would change its Keychain identity on every update.
+  (one of the two vars). It does NOT refuse an ad-hoc signature -- that
+  refusal was deliberately removed in `4900025`, since ad-hoc packaging is the
+  accepted alpha model and a SaaS CI runner carries no identity -- but it
+  prints a loud **TEST ARTIFACT ONLY** warning when it falls back, because an
+  ad-hoc signature changes the app's Keychain identity on every update. The
+  gate is at PUBLISH instead (`site/release-dmg.sh`), which refuses an
+  ad-hoc build unless given `--allow-adhoc` and PINS the leaf certificate's
+  SHA-256 -- accepting any non-empty `Authority=` proved only that something
+  signed it, and a regenerated self-signed certificate with the same name
+  passes that while changing the designated requirement, which is the very
+  re-prompt this guards against. Rotation is deliberate via
+  `ICARUS_SIGNING_CERT_SHA256`. This entry and `.gitlab-ci.yml`'s comment both
+  described the removed refusal as still present until 2026-08-14.
 - `mac/Icarus/scripts/make_signing_cert.sh` — one-time, run interactively:
   creates the self-signed "Icarus Self-Signed" code-signing certificate in the
   login keychain. Ad-hoc signing makes the app's designated requirement its own

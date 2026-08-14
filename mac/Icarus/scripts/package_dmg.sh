@@ -90,6 +90,32 @@ if [ -n "${NEEDS_RESIGN}" ]; then
     codesign -d -r- "${APP}" 2>&1 | tail -1
 fi
 
+# Say plainly which of the two kinds of artifact this is.
+#
+# Ad-hoc packaging is ALLOWED and is the accepted alpha model, but it is not
+# distributable: an ad-hoc signature makes the app's designated requirement its
+# own cdhash, which changes on EVERY build, so the login Keychain treats each
+# update as a different app and re-prompts for the saved GitHub token -- and a
+# background `Icarus --mcp` launch can end up waiting on a prompt nobody can
+# see. This warning was removed along with the hard refusal in 4900025; the
+# refusal is deliberately not coming back (it would block the alpha), but the
+# artifact must not be able to look distributable when it is not.
+# `site/release-dmg.sh` refuses to PUBLISH an ad-hoc build unless explicitly
+# overridden, which is where the decision belongs.
+AUTHORITY="$(codesign -dv --verbose=2 "${APP}" 2>&1 \
+    | sed -n 's/^Authority=//p' | head -1)"
+if [ -n "${AUTHORITY}" ]; then
+    echo "==> signing identity: ${AUTHORITY}"
+else
+    echo "" >&2
+    echo "*** TEST ARTIFACT ONLY — ad-hoc signed, do not distribute. ***" >&2
+    echo "    The signature changes on every build, so each update looks like" >&2
+    echo "    a different app: users are re-prompted for their Keychain token," >&2
+    echo "    and a headless MCP launch can hang on an invisible prompt." >&2
+    echo "    Run mac/Icarus/scripts/make_signing_cert.sh once to fix this." >&2
+    echo "" >&2
+fi
+
 # 3) Stage a drag-to-Applications layout + a first-open README, then build the DMG.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT

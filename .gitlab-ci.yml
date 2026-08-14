@@ -85,10 +85,25 @@ build:
 # So publishing stays a local `site/release-dmg.sh` step, which accepts this
 # job's artifact directly (see that script's header) and re-signs the feed there.
 #
-# The packaging script REFUSES an ad-hoc signature. A stable signing identity
-# must be imported on the runner before this job can produce an artifact;
-# otherwise every update changes the app's designated requirement and can leave
-# a background MCP launch waiting on an invisible Keychain prompt.
+# SIGNING, stated accurately. This comment used to claim the packaging script
+# REFUSES an ad-hoc signature. It does not -- that refusal was deliberately
+# removed in 4900025, since ad-hoc packaging is the accepted alpha model and a
+# SaaS runner carries no signing identity. So this job normally produces an
+# AD-HOC signed artifact, and `package_dmg.sh` now prints a "TEST ARTIFACT
+# ONLY" warning saying so.
+#
+# What that costs: an ad-hoc signature makes the app's designated requirement
+# its own cdhash, which changes on every build, so each update looks like a
+# different app -- users are re-prompted for the GitHub token in their
+# Keychain, and a background MCP launch can wait on an invisible prompt.
+#
+# The gate is therefore at PUBLISH, not here: `site/release-dmg.sh` verifies
+# the signature, refuses an ad-hoc build unless given --allow-adhoc, and PINS
+# the leaf certificate's SHA-256 -- a different certificate with the same
+# display name changes the designated requirement and re-prompts every user,
+# so matching "Icarus Self-Signed" by name is not enough. Import that exact
+# identity on the runner to make this job produce a distributable artifact
+# instead of a test one.
 #
 # Manual, and gated on mac/ changing: SaaS macOS runners bill compute minutes at
 # a premium multiplier, and a Swift release build is not cheap. `needs: [tests]`
