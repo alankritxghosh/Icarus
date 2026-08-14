@@ -47,6 +47,10 @@ tests:
   script:
     - python3 -m unittest discover -t . -s evals
     - python3 -m unittest discover -t . -s demo
+    # See .github/workflows/security.yml for why. --selftest proves the checker
+    # can fail before its pass is worth anything.
+    - python3 scripts/check_detailed_index.py --selftest
+    - python3 scripts/check_detailed_index.py
 
 build:
   stage: build

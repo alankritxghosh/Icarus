@@ -92,6 +92,60 @@ class DiffSourceTests(unittest.TestCase):
         self.assertTrue(_RATIONALE_MARKERS)
 
 
+class ReviewDecisionLineTests(unittest.TestCase):
+    """`reviewDecision`, the second field ingest can get for free.
+
+    Same shape as the linked-issue line above: already available on the
+    `gh pr list --json` call ingest makes, previously not asked for. It is what
+    lets `evals/attempts.py` say whether anyone actually reviewed a closed
+    pull request instead of leaving every one of them under the word
+    "rejected" (docs/experiments/2026-08-14-dogfood-*.md).
+    """
+
+    def test_each_github_decision_maps_to_one_recorded_word(self):
+        for decision, expected in (("APPROVED", "approved"),
+                                   ("CHANGES_REQUESTED", "changes_requested"),
+                                   ("REVIEW_REQUIRED", "review_required")):
+            text = ingest._pr_or_issue_text(
+                {"number": 515, "title": "x", "state": "CLOSED",
+                 "reviewDecision": decision}, "pr")
+            # Inside the state header, not a line of its own: a free-standing
+            # line sat where an author's body could forge one.
+            self.assertIn(f"] review: {expected}", text)
+
+    def test_a_missing_or_null_decision_writes_no_line_at_all(self):
+        """Unknown must stay unknown. GitHub returns null here for reasons that
+        are not "nobody looked" (measured: 1 of 60 sampled PRs), and every
+        corpus ingested before this field existed has no value at all."""
+        for data in ({"number": 1, "title": "x", "state": "CLOSED"},
+                     {"number": 1, "title": "x", "state": "CLOSED",
+                      "reviewDecision": None},
+                     {"number": 1, "title": "x", "state": "CLOSED",
+                      "reviewDecision": ""}):
+            self.assertNotIn("review:", ingest._pr_or_issue_text(data, "pr"))
+
+    def test_an_issue_never_gets_a_review_line(self):
+        text = ingest._pr_or_issue_text(
+            {"number": 1, "title": "x", "state": "CLOSED",
+             "reviewDecision": "APPROVED"}, "issue")
+        self.assertNotIn("review:", text)
+
+    def test_a_pull_request_without_the_field_is_byte_identical_to_before(self):
+        # The committed corpus depends on this, exactly as the linked-issue
+        # line below does.
+        data = {"number": 400, "title": "chunking", "body": "Body.",
+                "state": "CLOSED"}
+        self.assertEqual(
+            ingest._pr_or_issue_text({**data, "reviewDecision": None}, "pr"),
+            ingest._pr_or_issue_text(data, "pr"))
+
+    def test_the_field_is_actually_requested_from_github(self):
+        # Writing the line is useless if nothing ever asks for the value; this
+        # is the seam where the linked-issue equivalent sat unfetched for
+        # months. Base pass, so it covers every PR, not just the depth pass.
+        self.assertIn("reviewDecision", ingest._PR_FIELDS_BASE)
+
+
 class LinkedIssueLineTests(unittest.TestCase):
     """GitHub's own closing-issue links, which ingest fetched and discarded."""
 
