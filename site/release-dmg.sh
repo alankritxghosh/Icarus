@@ -35,15 +35,19 @@ set -eu
 
 SRC=""
 SKIP_CASK=0
+# Publishing an ad-hoc-signed build must be a DECISION, never a default --
+# see the signature check further down for what it costs a user.
+ALLOW_ADHOC=0
 for arg in "$@"; do
   case "$arg" in
     --skip-cask) SKIP_CASK=1 ;;
+    --allow-adhoc) ALLOW_ADHOC=1 ;;
     -*) echo "unknown option: $arg" >&2; exit 1 ;;
     *) SRC="$arg" ;;
   esac
 done
 
-[ -n "$SRC" ] || { echo "usage: $0 /path/to/Icarus.dmg [--skip-cask]" >&2; exit 1; }
+[ -n "$SRC" ] || { echo "usage: $0 /path/to/Icarus.dmg [--skip-cask] [--allow-adhoc]" >&2; exit 1; }
 [ -f "$SRC" ] || { echo "no such file: $SRC" >&2; exit 1; }
 
 # Resolve SRC before cd, so a relative path still works.
@@ -103,6 +107,47 @@ case "$BRAIN" in
     exit 1 ;;
 esac
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || echo '?')"
+
+# Validate the SIGNATURE, not just where the build points.
+#
+# `package_dmg.sh` falls back to ad-hoc signing when no stable identity is on
+# the machine (the accepted alpha model), so a fresh runner silently produces
+# an artifact whose designated requirement is its own cdhash. That changes on
+# every build: the login Keychain treats each update as a different app and
+# re-prompts for the saved GitHub token, and a background `Icarus --mcp`
+# launch can wait on a prompt nobody can see. Nothing checked this before
+# publishing, so the difference was invisible until a user hit it.
+#
+# Refused by default rather than warned about, because the failure lands on
+# someone else's Mac. `--allow-adhoc` publishes anyway for a deliberate test
+# release -- the point is that it becomes a decision, not a default.
+if ! codesign --verify --deep --strict "$MNT/Icarus.app" 2>/dev/null; then
+  echo "The app inside $SRC fails codesign --verify. Refusing to publish a" >&2
+  echo "broken or tampered bundle." >&2
+  hdiutil detach "$MNT" -quiet || true
+  exit 1
+fi
+APP_AUTHORITY="$(codesign -dv --verbose=2 "$MNT/Icarus.app" 2>&1 \
+  | sed -n 's/^Authority=//p' | head -1)"
+if [ -n "$APP_AUTHORITY" ]; then
+  echo "Signing identity: $APP_AUTHORITY"
+elif [ "$ALLOW_ADHOC" = 1 ]; then
+  echo "WARNING: publishing an AD-HOC signed build because --allow-adhoc was" >&2
+  echo "         given. Every future update will re-prompt users for their" >&2
+  echo "         Keychain token. Test release only." >&2
+else
+  echo "This build is AD-HOC signed, so its identity changes on every build:" >&2
+  echo "each update looks like a different app, users are re-prompted for the" >&2
+  echo "GitHub token in their Keychain, and a headless MCP launch can hang on" >&2
+  echo "a prompt they cannot see. Refusing to publish." >&2
+  echo "" >&2
+  echo "Fix: run mac/Icarus/scripts/make_signing_cert.sh once on the build" >&2
+  echo "machine, then rebuild. To publish a deliberate TEST release anyway:" >&2
+  echo "  $0 $SRC --allow-adhoc" >&2
+  hdiutil detach "$MNT" -quiet || true
+  exit 1
+fi
+
 hdiutil detach "$MNT" -quiet
 
 cp "$SRC" Icarus.dmg
