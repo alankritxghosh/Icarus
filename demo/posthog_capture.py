@@ -17,8 +17,31 @@ import sys
 import threading
 import urllib.request
 
-_PROJECT_TOKEN = os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip()
-_HOST = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com").strip().rstrip("/")
+_DEFAULT_HOST = "https://us.i.posthog.com"
+
+# How many capture threads may be in flight at once. One thread per event is
+# fine at this scale and lethal without a ceiling: a burst (or a hung PostHog)
+# stacks threads until `Thread.start()` raises RuntimeError, and that used to
+# escape into the request being served. Over this many, the event is DROPPED --
+# analytics is the thing that gives way, never the answer.
+_MAX_IN_FLIGHT = 32
+_in_flight = 0
+_in_flight_lock = threading.Lock()
+
+
+def _config():
+    """Read configuration at CALL time, not import time.
+
+    `demo/server.py` imports this module at line 39 but only loads `.env`
+    inside `serve()`, so reading the token into a module global at import left
+    it permanently empty for the documented local `.env` setup -- analytics
+    silently off, and a custom POSTHOG_HOST silently ignored. Shell- and
+    PaaS-injected variables happened to work, which is why it went unnoticed.
+    """
+    return (
+        os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip(),
+        os.environ.get("POSTHOG_HOST", _DEFAULT_HOST).strip().rstrip("/") or _DEFAULT_HOST,
+    )
 
 
 def capture(event, distinct_id, properties=None, opener=None, token=None):
@@ -27,7 +50,10 @@ def capture(event, distinct_id, properties=None, opener=None, token=None):
     break or slow down an answer). Returns the thread (join it in tests);
     real callers ignore the return value. `opener`/`token` are injectable for
     offline tests -- default to the real urlopen and the env-configured key."""
-    token = _PROJECT_TOKEN if token is None else token
+    global _in_flight
+    env_token, host = _config()
+    if token is None:
+        token = env_token
     if not token:
         return None
     opener = opener or urllib.request.urlopen
@@ -38,16 +64,37 @@ def capture(event, distinct_id, properties=None, opener=None, token=None):
         "properties": properties or {},
     }
 
+    with _in_flight_lock:
+        if _in_flight >= _MAX_IN_FLIGHT:
+            print("posthog capture dropped: too many in flight", file=sys.stderr)
+            return None
+        _in_flight += 1
+
     def _send():
+        global _in_flight
         try:
             data = json.dumps(body).encode("utf-8")
             request = urllib.request.Request(
-                f"{_HOST}/i/v0/e/", data=data,
+                f"{host}/i/v0/e/", data=data,
                 headers={"Content-Type": "application/json"}, method="POST")
             opener(request, timeout=5).close()
         except Exception as e:  # analytics failing must never surface to a caller
             print(f"posthog capture failed: {type(e).__name__}: {e}", file=sys.stderr)
+        finally:
+            with _in_flight_lock:
+                _in_flight -= 1
 
-    thread = threading.Thread(target=_send, daemon=True)
-    thread.start()
+    # Thread CREATION and start are inside the guard, not just the send. They
+    # were outside it, so a `RuntimeError: cannot start new thread` propagated
+    # out of capture() -- and `demo/server.py` calls capture BEFORE writing the
+    # response, so analytics could stop the real answer from being sent.
+    try:
+        thread = threading.Thread(target=_send, daemon=True)
+        thread.start()
+    except Exception as e:
+        with _in_flight_lock:
+            _in_flight -= 1
+        print(f"posthog capture could not start: {type(e).__name__}: {e}",
+              file=sys.stderr)
+        return None
     return thread
