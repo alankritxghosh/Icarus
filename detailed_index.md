@@ -1,9 +1,11 @@
 # Icarus — Detailed Index
 
-Every class and function in the `evals/` package, with its real signature and a
-one-line description from the actual docstring/code. Docs under `docs/` are prose,
-not code, and are not listed here (see `general_index.md`). Regenerate after any
-structural change.
+Every class and function in the `evals/` and `demo/` packages, with its real
+signature and a one-line description from the actual docstring/code, plus the
+IcarusKit types worth knowing about. Docs under `docs/` are prose, not code, and
+are not listed here (see `general_index.md`). Regenerate after any structural
+change — this file had drifted to 31 of 52 modules by 2026-08-15, so if a symbol
+is missing here, check the source before concluding it does not exist.
 
 ## evals/__init__.py
 Package docstring only — no classes or functions. Declares the harness as the
@@ -168,7 +170,7 @@ The deterministic honesty gate: turns the writer's raw reply into a `Result` and
 can only ever fail safe toward abstention. Module constants: `_JSON`, `_LINES`
 (the `#Lstart-Lend` regex), `_KNOWN_SOURCES` (the source labels ingest emits).
 
-- `_extract_json(raw: str)` — find the first `{...}` span and `json.loads` it,
+- `extract_json(raw: str)` — find the first `{...}` span and `json.loads` it,
   returning None on no match or parse error.
 - `_debracket(cit) -> str` — strip surrounding display brackets/whitespace a
   writer may echo (`[code:foo#L1-L2]`); non-strings become `""` (match nothing).
@@ -189,7 +191,7 @@ can only ever fail safe toward abstention. Module constants: `_JSON`, `_LINES`
 
 ## evals/judge.py
 The answer-correctness judge: the fuzzy, judge-later quality dial — NOT an honesty
-gate. Module constants: `JUDGE_INSTRUCTION`, `_MAX_CANDIDATE_CHARS`, `_JSON`.
+gate. Module constants: `JUDGE_INSTRUCTION`, `_MAX_CANDIDATE_CHARS`.
 
 - `build_judge_prompt(question: str, reference: str, candidate: str) -> str` —
   assemble the grading instruction with the question, reference, and (truncated)
@@ -257,6 +259,131 @@ CLI entry point that runs and prints the Phase 1 eval board. Module constants:
   `make_provider(writer)`), build `Judge(make_provider(judge))` when that
   provider's key is set (else None → answer correctness stays PENDING), grade the
   board, print it, and return exit code 0 only when the honesty gates hold.
+
+## evals/attempts.py
+What was tried and REFUSED — the one thing `git log` cannot record, since a
+merged pull request leaves a commit and a refused one leaves nothing.
+Deterministic, derived from the header line `ingest._pr_or_issue_text` writes,
+so it cannot be bluffed. Module constants: `_REJECTED_SOURCE`,
+`_REJECTED_STATE`, `_UNLANDED_STATES`, `_DIFF_SOURCE`, `_HEADER_SCAN_LINES`,
+`_REVIEW_VALUES`, `_REVIEW_IN_HEADER`.
+
+- `rejected_attempts(evidence) -> List[Dict[str, str]]` — the pull requests among
+  `evidence` closed WITHOUT merging, as `[{"ref", "title"[, "review"]}]` in the
+  order given. A closed ISSUE is deliberately not an attempt. Reports WHAT was
+  refused, never WHY.
+- `unlanded_prs(evidence) -> set` — refs that do NOT show a change having landed:
+  a pull request still OPEN or closed unmerged, plus a `diff:N` inheriting
+  `pr:N`'s state (absent → left out, never guessed). A SEPARATE predicate from
+  `rejected_attempts`, because an open pull request was never refused by anyone.
+- `_review_decision(header) -> Optional[str]` — GitHub's `reviewDecision` as
+  `approved` / `changes_requested` / `review_required`, read ONLY from the state
+  header via `_REVIEW_IN_HEADER`. Takes the header, not the chunk text, so no
+  author-controlled body or label can occupy that position and forge one.
+
+## evals/ast_chunk.py
+AST-aware code chunking: split Python at function/class boundaries instead of
+fixed line windows, because the embedder truncates at 512 tokens while a real
+300-line window measures ~2,234. Constants: `_IMPORT_SCAN_LINES`,
+`_MAX_HEADER_IMPORTS`, `_MAX_WHOLE_CLASS_LINES`, `_MAX_EMITTED_CHUNK_LINES`,
+`_MAX_EMITTED_CHUNK_CHARS`, `_IMPORT_RE`.
+
+- `ast_chunk(text, ref_prefix)` — split at definition boundaries, same ref format
+  and contract as `ingest.chunk_text`. Falls back to `chunk_text` verbatim on
+  non-Python, a syntax error, or a module with no top-level defs, so it can never
+  do worse.
+- `_scope_header(lines)` — the imports + enclosing class context prepended to each
+  chunk, so a method still reads as belonging to something.
+
+## evals/ts_chunk.py
+The same idea via tree-sitter for the React Native language set (`.ts`/`.tsx`/
+`.js`/`.jsx`/`.mjs`/`.cjs` through the `tsx` grammar, plus `.mm`/`.m`/`.java`/
+`.kt`). Constants include `_MAX_ERROR_RATE`, `_MAX_EMITTED_CHUNK_LINES`,
+`_MAX_EMITTED_CHUNK_CHARS`, `_LANG_CONFIG`.
+
+- `ts_chunk(text, ref_prefix, ext)` — recursive definition walk with
+  export/const-arrow unwrapping, plus a size safety valve that re-windows any
+  span over twice `chunk_text`'s budget by LINE or CHAR count. Lazy tree-sitter
+  import and an ERROR-rate gate; falls back to `chunk_text` whenever untrustworthy.
+- `_node_name(node)` / `_find_members(container_node, member_types)` /
+  `_scope_header(lines, import_types)` / `_error_rate(node)` / `_get_parser(language)`.
+
+## evals/query_normalize.py
+Brick Q's query-understanding layer: stdlib-only spelling correction toward real
+corpus terms, for RETRIEVAL only — the writer and the user still see the original
+question. Constants: `COMMON_SHORT_WORDS`, `_WORD_RE`.
+
+- `build_vocabulary(chunks) -> set` — the real tokens in this corpus, reusing
+  `retriever.tokenize()` exactly so the two can never split a word differently.
+- `normalize_query(text, vocabulary, cutoff=0.8)` — best-effort `difflib`
+  correction toward that vocabulary. Never an external dictionary.
+
+## evals/baseline_retriever.py
+The third-party comparison yardstick: what a developer gets by grepping today.
+
+- `class GrepBaselineRetriever` — same `.search(query, k) -> List[str]` contract as
+  every other retriever, so it drops into `grade()` for an apples-to-apples
+  comparison. Deliberately dumb (keyword-presence OR-match, no term-frequency
+  weighting) and pure Python, so it reproduces without ripgrep installed. Not a
+  shipped retrieval technique.
+
+## evals/vector_cache.py
+On-disk cache of chunk embeddings so a restart doesn't re-embed a corpus. Pure
+optimization, fail-safe at every step: any mismatch returns None → re-embed.
+
+- `corpus_fingerprint(chunks) -> str` — content hash of the corpus the vectors were
+  computed FROM, so a changed corpus can never silently reuse old vectors.
+- `load_vectors(path, model_name, refs, fingerprint)` — the cached `{ref: vector}`
+  ONLY if it was written by the same model over the same corpus; else None.
+- `save_vectors(path, model_name, vectors, fingerprint)` — atomic write (temp +
+  replace), best-effort: a failed write is a cache miss, never an error.
+
+## evals/index_facts.py
+Icarus's OWN index as one citable evidence chunk — the class of true statements
+nobody writes down ("this project is TypeScript" is a property of the FILES).
+Constants: `INDEX_REF`, `_LANGUAGE_BY_EXT`.
+
+- `build_index_chunk(chunks) -> Optional[Chunk]` — measured counts only, appended
+  LAST so `retrieved[:k]` and every recall number stay byte-identical. Pinned
+  against `gate.py`'s real `_RATIONALE_MARKERS`: `index:` is not a rationale
+  source, so a "why" grounded only on it still abstains.
+- `language_for(path)` — the shared extension→language table `demo/repo_map.py`
+  imports, so a cited answer and the map can never disagree about a file.
+- `_path_of(ref)` — the repository path a ref addresses, None for pr/issue/commit.
+
+## evals/context_package.py
+Experiment B's `icarus.context(task)`: pure reshaping of ALREADY-gated output into
+structured pre-implementation context. No new retrieval, no new model call, no new
+honesty logic.
+
+- `build_context_package(investigation, result, structure, texts) -> dict` —
+  `architecture`/`dependencies` from `demo.structure.build_structure`;
+  `decisions`/`unknowns`/`citations` from a gated investigation; `risks` from
+  `attempts.rejected_attempts` over EVERYTHING gathered, not just what was cited;
+  `constraints` are disclosed limits on the context itself, never invented
+  engineering constraints. Deliberately drops `symbols` — nothing extracts
+  symbol-level information cheaply and honestly today, and a permanently-empty
+  field would be worse than a documented omission.
+
+## evals/substance.py
+Did an answer actually ANSWER, or did it just say something true? A quality dial,
+never a gate. Constants: `SUBSTANCE_INSTRUCTION`, `_MAX_ANSWER_CHARS`.
+
+- `build_substance_prompt(question, answer)` / `parse_substance(raw)` — the parser
+  returns True only for a well-formed `substantive` verdict, so anything ambiguous
+  reads as insubstantial rather than being credited.
+- `is_substantive(provider, question, answer)` — asks a provider and fails safe.
+
+## evals/onboarding_probe.py
+Measures how often a guided tour would have to abstain, BEFORE any tour UI exists.
+Deliberately not a unittest: needs network, `gh`, a paid key and ~1 hour.
+Constants: `CANDIDATE_STEPS`, `ONBOARDING_STEPS`, `DEFAULT_REPOS`.
+
+- `probe_repo(lib, repo, anchor, judge)` — connect a repo and ask every step through
+  the REAL serving path, with `background_upgrade=False` so nothing is asked inside
+  the lexical-only window.
+- `summarize(results)` — abstention rate overall, per step and per repo, with the
+  reasons. `main(argv)` / `_print_report(...)` drive it from the CLI.
 
 ## Test modules
 - `evals/test_corpus.py` — pins that `load_chunks` parses JSONL into `Chunk`s and
@@ -450,7 +577,7 @@ and the two tool schemas.
 - `_required_string(arguments, name)` / `_required_line(arguments, name)` —
   strict tool-argument validators, including rejecting booleans as line
   integers.
-- `_checked_public_repo(expected_repo)` — preflight `/status`, refuse a
+- `_checked_repo(expected_repo)` — preflight `/status`, refuse a
   missing/mismatched active repo, and fail closed unless privacy is explicitly
   `false`.
 - `_get_change_context(arguments)` — preflight the repo, call `/ask` with
@@ -612,6 +739,139 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
   `LibraryRegistry` from `ICARUS_STORAGE_ROOT` (default `<repo>/data`), wire up
   the GitHub verifier/OAuth flow when configured, and run `ThreadingHTTPServer`.
   Entry point: `python3 -m demo.server`.
+
+## demo/repo_map.py
+The repository map served by `GET /map`: what Icarus INDEXED, said before anyone
+asks. Pure — in-memory chunks + a status snapshot in, dict out; no model, no
+network, no filesystem. Constants: `_FILE_SOURCES`, `_ROOT`.
+
+- `build_map(chunks, status) -> dict` — distinct indexed FILE count, files by
+  language and by top-level directory, indexed documentation (explicit
+  `readme: null` when none), chunk counts per source, lexical/semantic readiness,
+  truncation, `indexed_entry_points` and `indexed_structure`. Every field is named
+  `indexed_*` on purpose: it describes what Icarus READ, never what EXISTS.
+- `_exclusion_rules()` — the ingest deny-lists as rules that were APPLIED, derived
+  from `evals/ingest.py`'s own constants so they cannot drift. Never a list of
+  observed excluded files, since `classify_file` records nothing about what it skips.
+- `_readme(doc_paths)` / `_named_doc(doc_paths, stem_test)` — the shallowest match,
+  sorted by (depth, path) so the choice is deterministic.
+- `_split(ref)` / `_top_directory(path)`.
+
+## demo/entry_points.py
+"Where do I start reading?", answered by explicit RULES only, never by a score.
+
+- `detect_entry_points(chunks)` — five rules (`pyproject-console-script`,
+  `python-main-guard`, `go-main-function`, `rust-main-file`,
+  `conventional-filename`). Every result carries `{rule, evidence_ref, detail}` —
+  the indexed chunk that proves it — and a rule may only name a file that is IN
+  the corpus. No rule fires → empty list, never a guess.
+- `is_auxiliary_path(path)` — tests/fixtures excluded from every rule, earned by
+  running it over this repo: the guard rule otherwise returned 70 "entry points".
+- `_script_targets(text)` / `_module_candidates(target)` / `_path_of(chunk)`.
+
+## demo/structure.py
+How the code is ARRANGED, read off its own import statements. Pure and
+deterministic, so it holds during the lexical-only window and cannot bluff.
+
+- `build_structure(chunks) -> dict` — `file_edges` (Python/JS, where an import
+  names a FILE), `package_edges` (Go, where it names a DIRECTORY), directory-level
+  `components` carrying the indexed refs proving their edges,
+  `most_depended_on_files`, `unresolved_import_count`, `unanalysed_languages`.
+- `_resolve_python(...)` / `_resolve_js(...)` / `_resolve_go(...)` — every resolver
+  is language-specific ON PURPOSE: a first generic pass invented a `pkg -> demo`
+  edge across 566 files of lazygit by bare-name matching.
+- `_edges_for(...)` / `_language(path)` / `_directory(path)` / `_path_of(chunk)` /
+  `_python_targets(text)`.
+
+## demo/onboarding.py
+The guided tour: `STEPS` (the five measurement proved reliable, plus two
+writer-free ones), `ANCHOR_DOCUMENT`, `ANCHORED_STEPS`. Holds NO per-user state.
+
+- `plan(status)` — the ordered tour. Pure and instant: no writer, no retrieval, so
+  interrupting and resuming costs nothing.
+- `answer_step(pipeline, status, step_id, token) -> Result` — one step as an
+  ordinary gated ask, returned untouched. A claim Icarus VOLUNTEERS earns less
+  scepticism from a reader than one they asked for, so it needs more proof, not
+  less. Unknown step id raises rather than being guessed.
+- `title_for(step_id)`.
+
+## demo/freshness.py
+Does the connected index still match the repository? Constants: `_DEFAULT_TTL`.
+
+- `class FreshnessChecker` — thread-safe, TTL-cached per `(repo, indexed_commit)`,
+  so a refresh invalidates instantly. `.check(repo, indexed_commit, token)` returns
+  `{up_to_date, behind_by, head_commit, checked_at}` and NEVER raises.
+- `_unknown(checked_at)` — every key present on every path, so a client cannot
+  KeyError its way through a failure. `up_to_date` is three-valued and every
+  failure lands on `None`: claiming freshness because the check failed is the same
+  class of failure as a bluffed citation.
+
+## demo/investigations.py
+What one caller's investigation remembers between turns, so "why did **it**
+change?" resolves. Constants: `_DEFAULT_TTL`, `_MAX_CONVERSATIONS`,
+`_MAX_CARRIED_CLAIMS`, `_REFERRING`.
+
+- `class ConversationStore` — keyed on (identity, repo, corpus fingerprint) with a
+  request counter, so a subject cannot survive a repo switch, leak between users,
+  or be overwritten by an older overlapping investigation. `.begin`, `.resume`,
+  `.remember`, `.forget`, `._purge`.
+- `class CarriedClaim` / `class Conversation` — verified findings WITH the support
+  class they were measured at; never evidence TEXT, since the corpus can be
+  refreshed underneath a live conversation.
+- `refers_back(question) -> bool` — the deterministic deictic check gating subject
+  inheritance. Never a model: a wrongly inherited subject produces a confident,
+  fully cited answer about the wrong change, which groundedness cannot detect.
+
+## demo/visits.py
+What Icarus remembers about a RETURNING user: exactly four facts and no fifth.
+Constants: `_SAFE_ID`, `_SAFE_REPO`, `_FILENAME`.
+
+- `class VisitStore` — `.record(user_id, repo, commit)` takes no question, answer
+  or verdict PARAMETER at all: a signature that cannot accept one is a stronger
+  guarantee than a policy saying we will not pass one. A visit OVERWRITES rather
+  than appends, because a list of timestamps is an activity log however innocuous
+  each row looks. `.last_visit(user_id, repo)` → `{"commit", "at"}` or None.
+- `_safe_user(user_id)` / `_safe_repo(repo)` — hostile ids refused, so nothing can
+  escape the caller's own storage tree (the exact tree `disconnect` deletes).
+
+## demo/github_oauth.py
+Server-side GitHub authorization-code flow. The client SECRET lives only here,
+never in the app or the extension. Constants: `AUTHORIZE_URL`, `TOKEN_URL`,
+`_CHROMIUMAPP_REDIRECT`, `_WEB_SCOPE`, `_NATIVE_SCOPE`, `_IDENTITY_ONLY_MODES`,
+`_PRIVATE_REPO_MODE`.
+
+- `class OAuthFlow` — `.begin(mode, redirect_target=None)` tags each login `web`,
+  `app`, `app-private` or `extension` and mints a single-use CSRF state;
+  `.complete(state, code)` validates and exchanges; `.redeem(session_id)` returns
+  the token exactly ONCE. `._sweep()` expires stale entries.
+- `authorize_url(client_id, redirect_uri, state, scope)` / `exchange_code(code)` /
+  `new_state()`.
+- Scope is per-surface: `web` asks `read:user` (identity only), so the consent
+  screen a stranger meets first does not demand read/write on every private repo.
+  An `extension` redirect target is validated against `_CHROMIUMAPP_REDIRECT` so
+  this can never become an open redirect.
+
+## demo/posthog_capture.py
+Fire-and-forget PRODUCT usage capture. Stdlib `urllib` only, matching
+`evals/provider.py`; no SDK, no new dependency.
+
+- `capture(event, distinct_id, properties=None, opener=None, token=None)` — sends
+  one event on a daemon thread, no-ops when unconfigured, and never raises into
+  the request that triggered it. `opener`/`token` are injectable for offline tests.
+  It sends whatever properties it is handed: the decision about WHAT may be sent
+  lives at the call site in `demo/server.py`, which is where the caller's
+  content-sharing header is visible.
+
+## demo/warm_cache.py
+Build-time warm-up, run by the Dockerfile so a container boots warm rather than
+embedding the default corpus on the first request. Constant: `CORPUS_DIR`.
+
+- `warm(corpus_dir=CORPUS_DIR)` — embed the default corpus and write its
+  `vectors.json` cache.
+
+## demo/__init__.py
+Package docstring only: the minimal local face over the proven gated brain. It
+imports `evals/`, and changes no brain code.
 
 ## demo/ test modules
 - `demo/test_links.py` — pins `ref_to_url` across pr/issue/code and bad input.

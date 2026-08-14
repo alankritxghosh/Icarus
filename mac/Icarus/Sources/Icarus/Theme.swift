@@ -120,7 +120,18 @@ struct CitationChip: View {
 /// an explicit, opt-in gesture. One fixed value, picked for the worst case.
 struct GlassPanel: ViewModifier {
     /// Pinned by `ThemeContrastTests.testAnswerTextSurvivesGlassOverAWhiteBackdrop`.
-    static let alpha: Double = 0.65
+    ///
+    /// `nonisolated` because it is a plain constant, not main-actor state.
+    /// `ViewModifier` is `@MainActor` in Swift 6, so this static inherited that
+    /// isolation and the contrast test -- an ordinary nonisolated XCTest method
+    /// -- could not read it: "main actor-isolated static property 'alpha' can
+    /// not be referenced from a nonisolated context". Xcode 16 (CI) rejected it
+    /// while Swift 6.2 locally did not, so the Swift job was red on every branch
+    /// and green on every laptop. Marking the CONSTANT nonisolated is the fix
+    /// rather than pushing the test onto the main actor, because the number
+    /// genuinely has no isolation requirement and any other caller would hit
+    /// the same wall.
+    nonisolated static let alpha: Double = 0.65
 
     var cornerRadius: CGFloat
 

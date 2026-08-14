@@ -64,6 +64,11 @@ public struct BrainClient: Sendable {
     /// header. Read lazily at request time so a fresh sign-in takes effect at once.
     /// Defaults to no token — the open web-demo mode needs none.
     private let token: @Sendable () -> String?
+    /// Read lazily at request time, same as `token` -- flipping the Settings
+    /// toggle takes effect on the very next request, not just after relaunch.
+    /// Defaults to sharing ON, matching the server's own default when the
+    /// header is absent.
+    private let shareContent: @Sendable () -> Bool
     /// Injectable so tests can capture the outgoing request via a URLProtocol stub.
     private let session: URLSession
     /// Delay before the one cold-start retry (see `dataWithRetry`). Injectable so
@@ -72,10 +77,14 @@ public struct BrainClient: Sendable {
 
     public init(base: URL = URL(string: "http://127.0.0.1:8000")!,
                 token: @Sendable @escaping () -> String? = { nil },
+                // Defaults to NOT sharing: a caller that forgets to wire the
+                // reader must not opt a user in on their behalf.
+                shareContent: @Sendable @escaping () -> Bool = { false },
                 session: URLSession = .shared,
                 retryDelay: Duration = .seconds(3)) {
         self.base = base
         self.token = token
+        self.shareContent = shareContent
         self.session = session
         self.retryDelay = retryDelay
     }
@@ -84,12 +93,21 @@ public struct BrainClient: Sendable {
     /// which client is calling -- the server's product-analytics capture
     /// (demo/server.py's `_capture_product_event`) uses this to tell the Mac
     /// app apart from the browser extension; both authenticate identically
-    /// via GitHub, so there's no other signal available server-side.
+    /// via GitHub, so there's no other signal available server-side. Also the
+    /// content-sharing choice. The header is sent on EVERY request, stating
+    /// the choice either way, because the server shares content only on an
+    /// exact "1" and is counts-only otherwise (CLAUDE.md, 2026-08-14). Sending
+    /// it only to opt OUT -- as this did -- meant the Settings toggle's ON
+    /// position shared nothing at all. Stating it explicitly also means this
+    /// client keeps doing what the user chose if the server's default ever
+    /// moves again, rather than inheriting whatever that default becomes.
     private func authorize(_ request: inout URLRequest) {
         if let t = token(), !t.isEmpty {
             request.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
         }
         request.setValue("mac-app", forHTTPHeaderField: "X-Icarus-Client")
+        request.setValue(shareContent() ? "1" : "0",
+                         forHTTPHeaderField: "X-Icarus-Share-Content")
     }
 
     /// Retries the transport call ONCE after a short delay if it throws --
@@ -268,7 +286,7 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(Redeem.self, from: data).token
     }
 
-    /// Exchange the app-owned GitHub bearer for a short-lived, public-read
+    /// Exchange the app-owned GitHub bearer for a short-lived, read-only
     /// credential suitable for a coding-agent process. The GitHub token remains
     /// behind this client boundary and is never part of the returned value.
     public func createAgentSession() async throws -> AgentSession {

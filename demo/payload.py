@@ -107,11 +107,17 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
              "citations": [{"ref": ref, "url": ref_to_url(ref, repo, commit)}
                            for ref in c["citations"]],
              "label": c["label"],
-             # Present ONLY when every citation behind this sentence is a pull
-             # request closed without merging -- i.e. it restates a proposal
-             # that was refused, not shipped behaviour. Absent otherwise, so
-             # existing clients are byte-identical. See evals/pipeline.py.
-             **({"rests_on_rejected": True} if c.get("rests_on_rejected") else {})}
+             # Present ONLY when nothing this sentence cites shows the change
+             # LANDED: every citation is a pull request still open or closed
+             # unmerged, or an issue. Either way the sentence restates a
+             # PROPOSAL, not the repository today.
+             #
+             # ABSENCE IS NOT A VERIFICATION. This reads the SHAPE of a
+             # sentence's sources, never whether they support it: a sentence
+             # citing an open pull request alongside the very file that
+             # contradicts it is not flagged. Absent otherwise also keeps
+             # existing clients byte-identical. See evals/pipeline.py.
+             **({"rests_on_unlanded": True} if c.get("rests_on_unlanded") else {})}
             for c in result.claims
         ]
     # Pull requests among the evidence that were CLOSED WITHOUT MERGING. Emitted
@@ -128,10 +134,19 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
     # comments, and asserting one is exactly the composed rationale these
     # experiments caught twice. The caller is pointed at the PR, not told its
     # verdict.
+    #
+    # `review` rides along when the corpus records it: GitHub's own
+    # reviewDecision, so a reader can tell an author's unreviewed self-close
+    # from a maintainer asking for changes without being told why either
+    # happened. Omitted when unknown -- every corpus ingested before the field
+    # existed has no value, and a default would invent one.
     if result.rejected_attempts:
         payload["rejected_attempts"] = [
+            # `url` keeps its existing shape (present, possibly null) so no
+            # renderer changes; only `review` is omitted when unknown.
             {"ref": a["ref"], "title": a["title"],
-             "url": ref_to_url(a["ref"], repo, commit)}
+             "url": ref_to_url(a["ref"], repo, commit),
+             **({"review": a["review"]} if a.get("review") else {})}
             for a in result.rejected_attempts
         ]
     if include_evidence:

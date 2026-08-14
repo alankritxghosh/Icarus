@@ -308,9 +308,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             repo = obj.get("repo") if isinstance(obj, dict) else None
             properties = {
                 "surface": surface,
-                "repo": repo,
                 "endpoint": self.path,
             }
+            # PSEUDONYMISED, never the slug. A private owner/name is
+            # confidential customer metadata on its own -- neither a count nor
+            # the caller's identity -- and it was leaving in the clear on every
+            # event, including with content sharing off. Omitted entirely when
+            # no salt is configured: a weak hash would look like protection.
+            key = posthog_capture.repo_key(repo)
+            if key:
+                properties["repo_hash"] = key
             if (self._share_content() and self.path in self._CONTENT_SHARED_PATHS
                     and isinstance(obj, dict)):
                 properties["question"] = (capture_extra or {}).get("question")
@@ -322,13 +329,24 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             posthog_capture.capture(event, identity, properties)
 
         def _share_content(self) -> bool:
-            """Default ON (CLAUDE.md, 2026-08-13 dated exception): share
-            question/answer/evidence content for product-improvement
-            visibility while there are zero external customers. Opt out per
-            request with X-Icarus-Share-Content: 0 -- exactly what the
-            planned Mac app Settings toggle sends when unchecked, so wiring
-            that toggle later needs no server change."""
-            return self.headers.get("X-Icarus-Share-Content", "1") != "0"
+            """Counts-only unless the caller EXPLICITLY opts in.
+
+            Reversed 2026-08-14 (Alankrit) from the dated 2026-08-13
+            exception, which shared question/answer/evidence by default with
+            an opt-out header. Raised in review: that exception was written
+            for this endpoint when nothing external was connected, but the
+            MCP surface now serves PRIVATE repositories and no client -- the
+            two MCP adapters, the extension, the web page, the Mac app --
+            ever sent the opt-out. So configuring the production PostHog
+            token exported private questions, answers and cited code
+            automatically. A default should not be able to decide that.
+
+            Fails CLOSED on anything unexpected: only the exact string "1"
+            opts in, so a malformed or truthy-looking value cannot turn
+            content sharing on by accident. A client that wants to opt in
+            must SEND "1" -- absence is no longer consent.
+            """
+            return self.headers.get("X-Icarus-Share-Content", "") == "1"
 
         def _content_length(self) -> int:
             """Validated body length. Rejects a NEGATIVE Content-Length (M1: a
@@ -927,10 +945,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # take it. Sending it always would break every non-gated
                     # pipeline with a TypeError.
                     extra = {"per_claim": True} if per_claim else {}
-                    writer_started = time.monotonic()
+                    answer_started = time.monotonic()
                     result = snapshot.pipeline.answer(
                         question, token=self._github_token(), **extra)
-                    writer_latency = time.monotonic() - writer_started
+                    answer_latency = time.monotonic() - answer_started
                     still_indexing = snapshot.indexing
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
@@ -954,10 +972,21 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     ai_properties = {
                         "$ai_model": getattr(provider, "model", None),
                         "$ai_provider": type(provider).__name__ if provider else None,
-                        "$ai_latency": writer_latency,
+                        # NOT $ai_latency. This clock covers the whole of
+                        # pipeline.answer() -- exact-ref GitHub fetches,
+                        # retrieval, evidence assembly, the writer AND the
+                        # honesty gate -- so publishing it as the model's own
+                        # latency corrupts any provider/model comparison built
+                        # on it. Named for what it measures; the provider call
+                        # is not timed at its own boundary today (Provider
+                        # .complete returns a bare string), so $ai_latency is
+                        # omitted rather than faked, exactly as token counts are.
+                        "icarus_answer_latency_seconds": answer_latency,
                         "$ai_http_status": 200,
-                        "repo": repo,
                     }
+                    ai_repo_key = posthog_capture.repo_key(repo)
+                    if ai_repo_key:
+                        ai_properties["repo_hash"] = ai_repo_key
                     if self._share_content():
                         ai_properties["$ai_input"] = question
                         ai_properties["$ai_output_choices"] = [

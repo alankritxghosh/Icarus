@@ -28,7 +28,13 @@ final class OverlayController {
         self.connect = connect
         self.voice = voice
         self.latency = latency
-        self.model = AskModel(client: BrainClient(base: AppConfig.brainBaseURL, token: tokenReader))
+        // The PRIMARY ask path -- every ⌘⇧I question, typed or spoken. It built
+        // its own client and never passed `shareContent`, so it silently used
+        // the default and ignored the Settings toggle entirely. Found in
+        // review; `AppConfig.client()` is the one place that wires token, base
+        // URL and the share preference together, and this is why nothing else
+        // should construct a client by hand.
+        self.model = AskModel(client: AppConfig.client(tokenReader: tokenReader))
         self.model.history = history   // asks flow into the shared shell history
         // Speech becomes the exact same question a user would type, then submits.
         self.voice.onTranscript = { [weak self] text in

@@ -90,20 +90,35 @@ and auditable**. Be precise (and honest) about what that guarantees:
 - A credential is a responsibility — every byte leaving the trust boundary is a
   deliberate, minimized decision.
 
-**Dated exception (2026-08-13, pre-customer alpha):** with zero external
-customers or design partners connected, `demo/server.py`'s `/ask` capture
-(`demo/posthog_capture.py`) sends the question text and the cited evidence
-excerpts to PostHog by default, to give product-improvement visibility during
-this bootstrapping phase. Opt-out is a per-request `X-Icarus-Share-Content: 0`
-header (ready for the planned Mac app Settings toggle — decided default ON,
-per Alankrit 2026-08-13); nothing else in this file's per-tenant-isolation or
-never-train-on-customer-code guarantees is otherwise touched, and this
-exception does **not** extend to the honesty gate, the writer's own trust
-interlock, or any other repo. **This must be revisited — likely flipped to
-default OFF, or replaced with an explicit opt-in prompt — before any real
-design partner or customer connects a private repo**; it is a deliberate,
-temporary call for a product with no one yet on the other end of it, not a
-permanent redefinition of "privacy-first."
+**Analytics content sharing: counts-only by default (decided 2026-08-14,
+Alankrit).** Product analytics (`demo/posthog_capture.py`) send counts, caller
+identity, and a **salted hash of the repository, never its name** — a private
+`owner/name` slug is confidential customer metadata on its own, and it used to
+leave in the clear on every event. Public repositories are hashed too, so the
+plaintext entries cannot become a signal that someone's other repositories are
+private. With no `ICARUS_ANALYTICS_SALT` set the field is omitted entirely,
+since a weak hash would look like protection. The question text, the answer, and cited evidence excerpts are sent
+**only** when a caller explicitly opts in with `X-Icarus-Share-Content: 1`;
+anything else — absent, `0`, or a malformed value — is counts-only, so the
+decision fails closed. A client that wants to share must SEND the header:
+absence is not consent.
+
+**This closes the dated exception of 2026-08-13**, which made sharing the
+DEFAULT with an opt-out header during pre-customer alpha and said in its own
+text that it "must be revisited — likely flipped to default OFF — before any
+real design partner or customer connects a private repo." Review found the
+exception had already outgrown what it was written for: it was scoped to
+`demo/server.py`'s `/ask` with nothing external connected, but the MCP surface
+serves PRIVATE repositories, and no client — neither MCP adapter, the
+extension, the web page, nor the Mac app — ever sent the opt-out. Configuring
+the production PostHog token therefore exported private questions, answers and
+cited code automatically. The revisit happened before a design partner
+connected rather than after, which is the only part of that plan that went
+right.
+
+Unchanged: this never extended to the honesty gate, the writer's trust
+interlock, per-tenant isolation, never-train-on-customer-code, or any other
+repo, and it still does not.
 
 ## How we build (the strategic principle)
 **Build the brain as a typed API first; sell it typed.** Never build the talker
