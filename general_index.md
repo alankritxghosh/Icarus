@@ -1426,9 +1426,14 @@ claim. A negative result is kept exactly like a positive one.
   accepted alpha model and a SaaS CI runner carries no identity -- but it
   prints a loud **TEST ARTIFACT ONLY** warning when it falls back, because an
   ad-hoc signature changes the app's Keychain identity on every update. The
-  gate is at PUBLISH instead (`site/release-dmg.sh`). This entry and
-  `.gitlab-ci.yml`'s comment both described the removed refusal as still
-  present until 2026-08-14.
+  gate is at PUBLISH instead (`site/release-dmg.sh`), which refuses an
+  ad-hoc build unless given `--allow-adhoc` and PINS the leaf certificate's
+  SHA-256 -- accepting any non-empty `Authority=` proved only that something
+  signed it, and a regenerated self-signed certificate with the same name
+  passes that while changing the designated requirement, which is the very
+  re-prompt this guards against. Rotation is deliberate via
+  `ICARUS_SIGNING_CERT_SHA256`. This entry and `.gitlab-ci.yml`'s comment both
+  described the removed refusal as still present until 2026-08-14.
 - `mac/Icarus/scripts/make_signing_cert.sh` — one-time, run interactively:
   creates the self-signed "Icarus Self-Signed" code-signing certificate in the
   login keychain. Ad-hoc signing makes the app's designated requirement its own

@@ -127,25 +127,61 @@ if ! codesign --verify --deep --strict "$MNT/Icarus.app" 2>/dev/null; then
   hdiutil detach "$MNT" -quiet || true
   exit 1
 fi
-APP_AUTHORITY="$(codesign -dv --verbose=2 "$MNT/Icarus.app" 2>&1 \
-  | sed -n 's/^Authority=//p' | head -1)"
-if [ -n "$APP_AUTHORITY" ]; then
-  echo "Signing identity: $APP_AUTHORITY"
-elif [ "$ALLOW_ADHOC" = 1 ]; then
-  echo "WARNING: publishing an AD-HOC signed build because --allow-adhoc was" >&2
-  echo "         given. Every future update will re-prompt users for their" >&2
-  echo "         Keychain token. Test release only." >&2
-else
-  echo "This build is AD-HOC signed, so its identity changes on every build:" >&2
-  echo "each update looks like a different app, users are re-prompted for the" >&2
-  echo "GitHub token in their Keychain, and a headless MCP launch can hang on" >&2
-  echo "a prompt they cannot see. Refusing to publish." >&2
+# The LEAF CERTIFICATE, not the display name. Accepting any non-empty
+# Authority= only proves "something signed this": a newly generated
+# self-signed certificate with the same common name passes while changing the
+# app's designated requirement, which is the exact Keychain re-prompt /
+# invisible-headless-prompt problem this check exists to prevent --
+# make_signing_cert.sh warns about precisely that. Raised in review.
+#
+# A certificate fingerprint is public information, so pinning it here is safe.
+# Rotating the certificate is a real (rare) event: set
+# ICARUS_SIGNING_CERT_SHA256 to the new fingerprint deliberately, knowing every
+# installed copy will prompt once for its Keychain token.
+EXPECTED_CERT_SHA256="${ICARUS_SIGNING_CERT_SHA256:-8624652617bcf4aeddfd5f6e598bc2acdc019b6bc39067be02756fa2797a509e}"
+
+# Extract into $TMP: codesign writes the DER files into the CURRENT directory,
+# and this script has already cd'd into site/.
+( cd "$TMP" && codesign -d --extract-certificates=leaf "$MNT/Icarus.app" ) \
+  >/dev/null 2>&1 || true
+CERT_SHA=""
+[ -f "$TMP/leaf0" ] && CERT_SHA="$(shasum -a 256 "$TMP/leaf0" | cut -d ' ' -f 1)"
+
+if [ -z "$CERT_SHA" ]; then
+  # No leaf certificate at all: an ad-hoc signature.
+  if [ "$ALLOW_ADHOC" = 1 ]; then
+    echo "WARNING: publishing an AD-HOC signed build because --allow-adhoc was" >&2
+    echo "         given. Every future update will re-prompt users for their" >&2
+    echo "         Keychain token. Test release only." >&2
+  else
+    echo "This build is AD-HOC signed, so its identity changes on every build:" >&2
+    echo "each update looks like a different app, users are re-prompted for the" >&2
+    echo "GitHub token in their Keychain, and a headless MCP launch can hang on" >&2
+    echo "a prompt they cannot see. Refusing to publish." >&2
+    echo "" >&2
+    echo "Fix: run mac/Icarus/scripts/make_signing_cert.sh once on the build" >&2
+    echo "machine, then rebuild. To publish a deliberate TEST release anyway:" >&2
+    echo "  $0 $SRC --allow-adhoc" >&2
+    hdiutil detach "$MNT" -quiet || true
+    exit 1
+  fi
+elif [ "$CERT_SHA" != "$EXPECTED_CERT_SHA256" ]; then
+  echo "This build is signed by a DIFFERENT certificate than the published" >&2
+  echo "releases:" >&2
+  echo "  expected $EXPECTED_CERT_SHA256" >&2
+  echo "  found    $CERT_SHA" >&2
   echo "" >&2
-  echo "Fix: run mac/Icarus/scripts/make_signing_cert.sh once on the build" >&2
-  echo "machine, then rebuild. To publish a deliberate TEST release anyway:" >&2
-  echo "  $0 $SRC --allow-adhoc" >&2
+  echo "Its display name may match, but a different leaf certificate means a" >&2
+  echo "different designated requirement: every installed copy will treat the" >&2
+  echo "update as a new app and prompt again for its Keychain token, and a" >&2
+  echo "headless MCP launch can hang on a prompt nobody can see." >&2
+  echo "" >&2
+  echo "If the signing certificate was rotated on purpose, publish with:" >&2
+  echo "  ICARUS_SIGNING_CERT_SHA256=$CERT_SHA $0 $SRC" >&2
   hdiutil detach "$MNT" -quiet || true
   exit 1
+else
+  echo "Signing certificate: $CERT_SHA (pinned)"
 fi
 
 hdiutil detach "$MNT" -quiet

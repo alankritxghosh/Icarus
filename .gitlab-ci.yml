@@ -94,9 +94,12 @@ build:
 # Keychain, and a background MCP launch can wait on an invisible prompt.
 #
 # The gate is therefore at PUBLISH, not here: `site/release-dmg.sh` verifies
-# the signature and refuses an ad-hoc build unless given --allow-adhoc. Import
-# a stable identity on the runner (mac/Icarus/scripts/make_signing_cert.sh) to
-# make this job produce a distributable artifact instead of a test one.
+# the signature, refuses an ad-hoc build unless given --allow-adhoc, and PINS
+# the leaf certificate's SHA-256 -- a different certificate with the same
+# display name changes the designated requirement and re-prompts every user,
+# so matching "Icarus Self-Signed" by name is not enough. Import that exact
+# identity on the runner to make this job produce a distributable artifact
+# instead of a test one.
 #
 # Manual, and gated on mac/ changing: SaaS macOS runners bill compute minutes at
 # a premium multiplier, and a Swift release build is not cheap. `needs: [tests]`
