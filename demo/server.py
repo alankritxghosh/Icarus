@@ -927,10 +927,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # take it. Sending it always would break every non-gated
                     # pipeline with a TypeError.
                     extra = {"per_claim": True} if per_claim else {}
-                    writer_started = time.monotonic()
+                    answer_started = time.monotonic()
                     result = snapshot.pipeline.answer(
                         question, token=self._github_token(), **extra)
-                    writer_latency = time.monotonic() - writer_started
+                    answer_latency = time.monotonic() - answer_started
                     still_indexing = snapshot.indexing
                 except Exception as e:
                     # The rented writer failed -- missing/invalid key, provider
@@ -954,7 +954,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     ai_properties = {
                         "$ai_model": getattr(provider, "model", None),
                         "$ai_provider": type(provider).__name__ if provider else None,
-                        "$ai_latency": writer_latency,
+                        # NOT $ai_latency. This clock covers the whole of
+                        # pipeline.answer() -- exact-ref GitHub fetches,
+                        # retrieval, evidence assembly, the writer AND the
+                        # honesty gate -- so publishing it as the model's own
+                        # latency corrupts any provider/model comparison built
+                        # on it. Named for what it measures; the provider call
+                        # is not timed at its own boundary today (Provider
+                        # .complete returns a bare string), so $ai_latency is
+                        # omitted rather than faked, exactly as token counts are.
+                        "icarus_answer_latency_seconds": answer_latency,
                         "$ai_http_status": 200,
                         "repo": repo,
                     }

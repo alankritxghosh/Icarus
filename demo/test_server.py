@@ -418,7 +418,12 @@ class ProductAnalyticsContentTests(unittest.TestCase):
         self.assertEqual(ai_properties["$ai_input"], "Why the Responses API as a new class?")
         self.assertEqual(ai_properties["$ai_output_choices"],
                          [{"content": "Because other plugins import the old class."}])
-        self.assertIsInstance(ai_properties["$ai_latency"], float)
+        # End-to-end, and named so: the clock spans retrieval, live
+        # fetches, the writer and the gate, so it is not the model's
+        # latency and must never be published as $ai_latency.
+        self.assertIsInstance(
+            ai_properties["icarus_answer_latency_seconds"], float)
+        self.assertNotIn("$ai_latency", ai_properties)
 
     def test_content_opt_out_header_suppresses_it(self):
         with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
@@ -434,7 +439,12 @@ class ProductAnalyticsContentTests(unittest.TestCase):
         self.assertNotIn("$ai_output_choices", ai_properties)
         # Metadata still flows even with content sharing off -- latency/model
         # are not "content" the way the prompt/completion are.
-        self.assertIsInstance(ai_properties["$ai_latency"], float)
+        # End-to-end, and named so: the clock spans retrieval, live
+        # fetches, the writer and the gate, so it is not the model's
+        # latency and must never be published as $ai_latency.
+        self.assertIsInstance(
+            ai_properties["icarus_answer_latency_seconds"], float)
+        self.assertNotIn("$ai_latency", ai_properties)
 
     def test_connect_never_shares_content(self):
         """/connect isn't a question at all -- content-sharing must not apply
