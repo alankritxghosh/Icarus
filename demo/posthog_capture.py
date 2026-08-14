@@ -1,6 +1,6 @@
 # demo/posthog_capture.py
-"""Fire-and-forget PRODUCT usage capture for PostHog -- counts and identity
-by default, and question/answer/evidence content ONLY when the caller
+"""Fire-and-forget PRODUCT usage capture for PostHog -- counts, caller
+identity and a SALTED HASH of the repository (never its name) by default, and question/answer/evidence content ONLY when the caller
 explicitly opted in with `X-Icarus-Share-Content: 1` (see
 `demo/server.py::_share_content`). This sits on the same request path
 private-repo evidence flows through, so what it sends is a deliberate,
@@ -15,6 +15,7 @@ Stdlib only -- urllib, matching the rest of this codebase's provider clients
 (evals/provider.py). No SDK, no new dependency.
 """
 
+import hashlib
 import json
 import os
 import sys
@@ -46,6 +47,38 @@ def _config():
         os.environ.get("POSTHOG_PROJECT_TOKEN", "").strip(),
         os.environ.get("POSTHOG_HOST", _DEFAULT_HOST).strip().rstrip("/") or _DEFAULT_HOST,
     )
+
+
+def repo_key(repo):
+    """A stable pseudonym for a repository, or None when one cannot be made.
+
+    A private `owner/name` slug is confidential customer metadata in its own
+    right: not a count, not the caller's identity, and it was leaving in the
+    clear on every captured event while `.env.example` and this module's own
+    docstring said "counts and identity only".
+
+    SALTED, because a bare digest of a repository name is reversible by anyone
+    willing to hash a list of repository names and public repositories are
+    enumerable. With no `ICARUS_ANALYTICS_SALT` configured this returns None
+    and the caller omits the field entirely -- a weak hash is worse than no
+    field, since it would look like protection.
+
+    Applied to PUBLIC repositories too, deliberately and uniformly: hashing
+    only the private ones would make the plaintext entries a positive signal
+    that a user's other repositories are private.
+
+    Case-folded first, so `Octo/Repo` and `octo/repo` do not become two
+    different rows for one repository.
+    """
+    if not isinstance(repo, str) or not repo.strip():
+        return None
+    salt = os.environ.get("ICARUS_ANALYTICS_SALT", "").strip()
+    if not salt:
+        return None
+    digest = hashlib.sha256(f"{salt}:{repo.strip().casefold()}".encode("utf-8"))
+    # 16 hex chars is 64 bits -- ample to keep real repositories distinct in a
+    # product analytics dataset, and short enough to read in a dashboard.
+    return digest.hexdigest()[:16]
 
 
 def capture(event, distinct_id, properties=None, opener=None, token=None):

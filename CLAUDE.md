@@ -91,8 +91,13 @@ and auditable**. Be precise (and honest) about what that guarantees:
   deliberate, minimized decision.
 
 **Analytics content sharing: counts-only by default (decided 2026-08-14,
-Alankrit).** Product analytics (`demo/posthog_capture.py`) send counts and
-identity. The question text, the answer, and cited evidence excerpts are sent
+Alankrit).** Product analytics (`demo/posthog_capture.py`) send counts, caller
+identity, and a **salted hash of the repository, never its name** — a private
+`owner/name` slug is confidential customer metadata on its own, and it used to
+leave in the clear on every event. Public repositories are hashed too, so the
+plaintext entries cannot become a signal that someone's other repositories are
+private. With no `ICARUS_ANALYTICS_SALT` set the field is omitted entirely,
+since a weak hash would look like protection. The question text, the answer, and cited evidence excerpts are sent
 **only** when a caller explicitly opts in with `X-Icarus-Share-Content: 1`;
 anything else — absent, `0`, or a malformed value — is counts-only, so the
 decision fails closed. A client that wants to share must SEND the header:

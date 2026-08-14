@@ -308,9 +308,16 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             repo = obj.get("repo") if isinstance(obj, dict) else None
             properties = {
                 "surface": surface,
-                "repo": repo,
                 "endpoint": self.path,
             }
+            # PSEUDONYMISED, never the slug. A private owner/name is
+            # confidential customer metadata on its own -- neither a count nor
+            # the caller's identity -- and it was leaving in the clear on every
+            # event, including with content sharing off. Omitted entirely when
+            # no salt is configured: a weak hash would look like protection.
+            key = posthog_capture.repo_key(repo)
+            if key:
+                properties["repo_hash"] = key
             if (self._share_content() and self.path in self._CONTENT_SHARED_PATHS
                     and isinstance(obj, dict)):
                 properties["question"] = (capture_extra or {}).get("question")
@@ -976,8 +983,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         # omitted rather than faked, exactly as token counts are.
                         "icarus_answer_latency_seconds": answer_latency,
                         "$ai_http_status": 200,
-                        "repo": repo,
                     }
+                    ai_repo_key = posthog_capture.repo_key(repo)
+                    if ai_repo_key:
+                        ai_properties["repo_hash"] = ai_repo_key
                     if self._share_content():
                         ai_properties["$ai_input"] = question
                         ai_properties["$ai_output_choices"] = [

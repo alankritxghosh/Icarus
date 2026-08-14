@@ -1,5 +1,6 @@
 # demo/test_server.py
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -10,6 +11,7 @@ from http.server import HTTPServer
 from pathlib import Path
 
 from evals.pipeline import Result, Pipeline
+from . import posthog_capture as demo_posthog
 from .server import make_handler
 
 REPO = "simonw/llm"
@@ -414,6 +416,35 @@ class ProductAnalyticsContentTests(unittest.TestCase):
 
     def _calls_by_event(self, capture):
         return {c.args[0]: c.args[2] for c in capture.call_args_list}
+
+    def test_the_repository_name_never_leaves_in_the_clear(self):
+        """Raised in review: `repo` was sent as a plain owner/name slug on every
+        captured event, including with content sharing off, while the docs said
+        counts and identity only. A private slug is confidential on its own."""
+        with unittest.mock.patch.dict(
+                os.environ, {"ICARUS_ANALYTICS_SALT": "test-salt"}, clear=False):
+            with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+                self._ask("why?")
+            # Computed INSIDE the salt context: repo_key reads the salt at call
+            # time, so an expectation built after the block would be None and
+            # the assertion would pass against a plaintext leak.
+            expected = demo_posthog.repo_key("simonw/llm")
+        self.assertIsNotNone(expected)
+        for event, properties in self._calls_by_event(capture).items():
+            self.assertNotIn("repo", properties, event)
+            self.assertNotIn(
+                "simonw/llm", json.dumps(properties),
+                f"{event} leaked the repository name")
+            self.assertEqual(properties["repo_hash"], expected, event)
+
+    def test_no_salt_means_no_repository_field_rather_than_a_weak_hash(self):
+        with unittest.mock.patch.dict(
+                os.environ, {"ICARUS_ANALYTICS_SALT": ""}, clear=False):
+            with unittest.mock.patch("demo.server.posthog_capture.capture") as capture:
+                self._ask("why?")
+        for event, properties in self._calls_by_event(capture).items():
+            self.assertNotIn("repo", properties, event)
+            self.assertNotIn("repo_hash", properties, event)
 
     def test_content_is_NOT_shared_by_default(self):
         """The finding, inverted into a test: a caller that says nothing gets

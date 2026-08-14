@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest import mock
 
-from .posthog_capture import capture
+from .posthog_capture import capture, repo_key
 
 
 class _Resp(io.BytesIO):
@@ -160,3 +160,53 @@ class NeverBlocksTheResponseTests(unittest.TestCase):
         self.assertEqual(pc._in_flight, 0)
         self.assertIsNotNone(capture("ev", "me", token="t",
                                      opener=lambda *a, **k: _Resp(b"")))
+
+
+class RepoKeyTests(unittest.TestCase):
+    """Repository identifiers are pseudonymised before they leave.
+
+    A private `owner/name` slug is confidential customer metadata in its own
+    right -- it is neither a count nor the caller's identity, and "counts and
+    identity only" was not true while it was sent in the clear.
+
+    Salted on purpose: a bare SHA-256 of a repository name is reversible by
+    anyone willing to hash a list of repository names, and public repositories
+    are enumerable. Without a configured salt the field is OMITTED rather than
+    sent weakly hashed.
+    """
+
+    SALT = {"ICARUS_ANALYTICS_SALT": "s3cr3t-salt-value"}
+
+    def test_no_salt_configured_means_no_repository_field_at_all(self):
+        with mock.patch.dict(os.environ, {"ICARUS_ANALYTICS_SALT": ""}, clear=False):
+            self.assertIsNone(repo_key("octo/private-thing"))
+
+    def test_the_plaintext_name_never_appears_in_the_key(self):
+        with mock.patch.dict(os.environ, self.SALT, clear=False):
+            key = repo_key("octo/private-thing")
+        self.assertIsNotNone(key)
+        self.assertNotIn("octo", key)
+        self.assertNotIn("private-thing", key)
+
+    def test_the_same_repository_always_gets_the_same_key(self):
+        """Grouping by repository is the whole point of keeping the field."""
+        with mock.patch.dict(os.environ, self.SALT, clear=False):
+            self.assertEqual(repo_key("octo/a"), repo_key("octo/a"))
+            self.assertNotEqual(repo_key("octo/a"), repo_key("octo/b"))
+
+    def test_casing_does_not_split_one_repository_into_two(self):
+        with mock.patch.dict(os.environ, self.SALT, clear=False):
+            self.assertEqual(repo_key("Octo/Repo"), repo_key("octo/repo"))
+
+    def test_a_different_salt_gives_a_different_key(self):
+        """The salt is what makes this not a dictionary lookup."""
+        with mock.patch.dict(os.environ, self.SALT, clear=False):
+            a = repo_key("octo/a")
+        with mock.patch.dict(os.environ, {"ICARUS_ANALYTICS_SALT": "other"}, clear=False):
+            b = repo_key("octo/a")
+        self.assertNotEqual(a, b)
+
+    def test_missing_or_blank_repo_is_no_key(self):
+        with mock.patch.dict(os.environ, self.SALT, clear=False):
+            for value in (None, "", "   "):
+                self.assertIsNone(repo_key(value))
