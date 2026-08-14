@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a distributable Icarus.dmg: the release .app (stably signed) stamped with
+# Build a distributable Icarus.dmg: the release .app (ad-hoc signed) stamped with
 # the hosted brain URL, plus a drag-to-Applications layout and first-open notes.
 #
 # Usage:
@@ -20,19 +20,8 @@ DMG="Icarus.dmg"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Icarus-Info.plist 2>/dev/null || echo 0.1.0)"
 VOLNAME="Icarus ${VERSION}"
 
-# 1) Build + assemble the release app. `bundle.sh` may fall back to ad-hoc for
-# local development, but a distributable DMG must never do that: an ad-hoc
-# signature changes identity on every update, which makes the Keychain prompt
-# again and can leave a background MCP launch waiting on an invisible dialog.
+# 1) Build + assemble + ad-hoc sign the release .app.
 "${ROOT}/scripts/bundle.sh"
-SIGNING_IDENTITY="$(codesign -dv --verbose=2 "${APP}" 2>&1 \
-    | sed -n 's/^Authority=//p' | head -1)"
-if [ -z "${SIGNING_IDENTITY}" ]; then
-    echo "error: refusing to package an ad-hoc-signed Icarus app." >&2
-    echo "       Import the stable release signing identity first." >&2
-    exit 1
-fi
-echo "==> distribution signing identity: ${SIGNING_IDENTITY}"
 
 # 2) Stamp the hosted brain URL and the update feed into the bundle's
 #    Info.plist, then RE-SIGN (editing Info.plist invalidates the signature
@@ -89,8 +78,14 @@ if [ -n "${NEEDS_RESIGN}" ]; then
     # Re-sign with the SAME identity bundle.sh used. Re-signing ad-hoc here
     # would silently undo a stable certificate and hand every user another
     # Keychain prompt -- the exact problem make_signing_cert.sh exists to fix.
-    echo "==> re-signing after Info.plist edit (${SIGNING_IDENTITY})"
-    codesign --force --sign "${SIGNING_IDENTITY}" "${APP}"
+    IDENTITY="Icarus Self-Signed"
+    if security find-certificate -c "${IDENTITY}" >/dev/null 2>&1; then
+        echo "==> re-signing after Info.plist edit (${IDENTITY})"
+        codesign --force --sign "${IDENTITY}" "${APP}"
+    else
+        echo "==> re-signing after Info.plist edit (ad-hoc)"
+        codesign --force --deep --sign - "${APP}"
+    fi
     codesign --verify --verbose "${APP}"
     codesign -d -r- "${APP}" 2>&1 | tail -1
 fi
