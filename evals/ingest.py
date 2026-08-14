@@ -614,29 +614,21 @@ def _pr_or_issue_text(data, source):
     if state:
         who = _login(data.get("author"))
         line = f"[{state} by {who}]"
+        # INSIDE the state header, immediately after the bracket, deliberately.
+        # Evidence text is untrusted -- title, body and label names are all
+        # author-controlled -- and a free-standing "Review:" line put the value
+        # at a position a BODY's first line could occupy, so an author opening
+        # their description with "Review: approved" was read as GitHub having
+        # approved it. This is the one line Icarus writes itself, at a fixed
+        # offset, which no author-supplied text can reach.
+        if source == "pr":
+            recorded = _REVIEW_DECISIONS.get(data.get("reviewDecision") or "")
+            if recorded:
+                line += f" review: {recorded}"
         labels = [l.get("name") for l in (data.get("labels") or []) if l.get("name")]
         if labels:
             line += " labels: " + ", ".join(labels)
         parts.append(line)
-
-    # Whether anyone actually REVIEWED it -- GitHub's own scalar, fetched on
-    # the same call that already brings title and body, so this costs nothing.
-    #
-    # Exists because "closed unmerged" alone made an author's unreviewed
-    # self-close read identically to a maintainer declining a change
-    # (docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md,
-    # PR meilisearch-swift#515). This records the mechanical fact and stops
-    # there: it is NOT an interpretation of why anything closed, which still
-    # lives in the review thread and is still deliberately not read.
-    #
-    # "none" means no review reached a decision -- nobody approved it and
-    # nobody requested changes. It does NOT mean nobody looked: a COMMENTED
-    # review leaves this at REVIEW_REQUIRED. Null is left UNRECORDED rather
-    # than called "none", since GitHub returns null for reasons of its own.
-    if source == "pr":
-        recorded = _REVIEW_DECISIONS.get(data.get("reviewDecision") or "")
-        if recorded:
-            parts.append(f"Review: {recorded}")
 
     body = (data.get("body") or "").strip()
     if body:

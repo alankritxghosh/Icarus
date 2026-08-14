@@ -110,8 +110,13 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
              # Present ONLY when nothing this sentence cites shows the change
              # LANDED: every citation is a pull request still open or closed
              # unmerged, or an issue. Either way the sentence restates a
-             # PROPOSAL, not the repository today. Absent otherwise, so
-             # existing clients are byte-identical. See evals/pipeline.py.
+             # PROPOSAL, not the repository today.
+             #
+             # ABSENCE IS NOT A VERIFICATION. This reads the SHAPE of a
+             # sentence's sources, never whether they support it: a sentence
+             # citing an open pull request alongside the very file that
+             # contradicts it is not flagged. Absent otherwise also keeps
+             # existing clients byte-identical. See evals/pipeline.py.
              **({"rests_on_unlanded": True} if c.get("rests_on_unlanded") else {})}
             for c in result.claims
         ]

@@ -53,7 +53,9 @@ this module refuses to interpret.
 
 **A SECOND axis, added 2026-08-14 and distinct from the one above.** The
 paragraph before this one is about RELEVANCE -- whether a listed pull request
-concerns your change. This one is about whether anyone ever REVIEWED it.
+concerns your change. This one is about which review decision currently
+STANDS on it -- which is not the same as whether anyone ever reviewed it,
+see the correction below.
 Measured on `meilisearch/meilisearch-swift` #515
 (docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md): a pull
 request correctly retrieved, genuinely closed-unmerged, and genuinely
@@ -83,6 +85,7 @@ timeline, which ingest does not fetch per pull request. What the three values
 DO separate is a pull request that currently carries an approval, one that
 currently carries a change request, and one that carries neither.
 """
+import re
 from typing import Dict, List, Mapping
 
 # A closed pull request is a refused attempt. A closed ISSUE is not -- it is a
@@ -106,15 +109,15 @@ _HEADER_SCAN_LINES = 3
 # these three words are honoured: a corpus ingested before the field existed
 # carries no line at all, and reading THAT as "nobody reviewed it" would
 # manufacture the exact false judgment this exists to remove.
-_REVIEW_PREFIX = "Review: "
 _REVIEW_VALUES = ("approved", "changes_requested", "review_required")
-# Counted in NON-EMPTY lines, because ingest joins its sections with a blank
-# line between them: the review line is the third non-empty line (title, state,
-# review) but the fifth raw one. A raw-line window looked right, passed a
-# hand-written fixture that used single newlines, and found nothing at all
-# against real `gh` output -- so this bound is deliberately expressed in the
-# same units the writer uses.
-_REVIEW_SCAN_LINES = 3
+# Read ONLY from the state header Icarus writes, anchored immediately after the
+# `[STATE by author]` bracket. It used to be a free-standing "Review:" line,
+# which put it at a position an author's BODY could occupy -- opening a
+# description with "Review: approved" forged a GitHub approval. Title, body and
+# label names are all author-controlled, so the value has to live somewhere no
+# author-supplied text can reach.
+_REVIEW_IN_HEADER = re.compile(
+    r"^\[[^\]]*\] review: (approved|changes_requested|review_required)(?:\s|$)")
 
 
 def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
@@ -143,7 +146,7 @@ def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
         if lines and ":" in lines[0]:
             title = lines[0].split(":", 1)[1].strip()
         attempt = {"ref": ref, "title": title}
-        review = _review_decision(text)
+        review = _review_decision(header)
         # Omitted, never defaulted: an absent key is the only representation of
         # unknown a caller cannot mistake for an answer.
         if review is not None:
@@ -195,21 +198,11 @@ def unlanded_prs(evidence: Mapping[str, str]) -> set:
     return out
 
 
-def _review_decision(text):
-    """The recorded review decision, or None when the corpus does not say.
+def _review_decision(header):
+    """The recorded review decision from the STATE HEADER, or None.
 
-    Bounded to the header region so a body or a comment quoting "Review: none"
-    cannot become one -- the same anchoring the state line already relies on.
+    Takes the header line specifically -- not the chunk text -- so there is no
+    position an author-controlled body or label can occupy to forge one.
     """
-    seen = 0
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        if line.startswith(_REVIEW_PREFIX):
-            value = line[len(_REVIEW_PREFIX):].strip()
-            return value if value in _REVIEW_VALUES else None
-        seen += 1
-        if seen >= _REVIEW_SCAN_LINES:
-            return None
-    return None
+    match = _REVIEW_IN_HEADER.match(header or "")
+    return match.group(1) if match else None

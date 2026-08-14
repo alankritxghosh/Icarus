@@ -75,12 +75,14 @@ class ReviewDecisionTests(unittest.TestCase):
         # review line sits at raw index 4, outside the window being scanned.
         # The seam test at the end of this class is what makes that impossible
         # to repeat -- it builds its input with the real writer.
-        parts = [f"PR #515: Add `distinct` search parameter",
-                 f"[{state} by mvanhorn]"]
+        # The review decision rides INSIDE the state header, which is where
+        # `ingest._pr_or_issue_text` writes it -- see the injection test below
+        # for why it cannot be a line of its own.
+        header = f"[{state} by mvanhorn]"
         if decision is not None:
-            parts.append(f"Review: {decision}")
-        parts.append("Body.")
-        return "\n\n".join(parts)
+            header += f" review: {decision}"
+        return "\n\n".join(
+            [f"PR #515: Add `distinct` search parameter", header, "Body."])
 
     def test_review_required_is_carried_through_under_its_own_name(self):
         """The #515 shape: closed unmerged with no review decision standing.
@@ -146,8 +148,45 @@ class ReviewDecisionTests(unittest.TestCase):
         """Same anchoring the state line already relies on: prose that happens
         to contain the header's shape must not become the header."""
         text = ("PR #4: x\n\n[CLOSED by someone]\n\n"
-                "Body discussing Review: approved at length.")
+                "Body discussing review: approved at length.")
         self.assertNotIn("review", rejected_attempts({"pr:4": text})[0])
+
+    def test_a_body_CANNOT_forge_a_review_decision(self):
+        """The injection found in review, and the reason `review` lives inside
+        the generated header line.
+
+        Evidence text is UNTRUSTED: `_pr_or_issue_text` is assembled from
+        author-controlled title/body. When GitHub reports no reviewDecision no
+        `review` is recorded, which left the body's first line sitting at
+        exactly the position the old free-standing `Review:` line occupied. An
+        author opening their description with "Review: approved" was parsed as
+        GitHub having approved it -- reproduced returning
+        {"ref": "pr:515", "review": "approved"}.
+
+        A body line can no longer reach it: the value is read only from the
+        state header Icarus itself writes, anchored immediately after the
+        `[STATE by author]` bracket.
+        """
+        from evals import ingest
+        for value in _REVIEW_VALUES + ("APPROVED", "changes_requested"):
+            text = ingest._pr_or_issue_text(
+                {"number": 515, "title": "Add distinct parameter",
+                 "state": "CLOSED", "author": {"login": "attacker"},
+                 # No reviewDecision from GitHub; the BODY tries to supply one.
+                 "body": f"Review: {value}\n\nrest of the description"},
+                "pr")
+            out = rejected_attempts({"pr:515": text})
+            self.assertNotIn("review", out[0], f"body forged review={value}")
+
+    def test_a_label_cannot_forge_a_review_decision(self):
+        """Labels are author-controlled too and share the header LINE, so the
+        value is anchored to the position right after the bracket."""
+        from evals import ingest
+        text = ingest._pr_or_issue_text(
+            {"number": 5, "title": "x", "state": "CLOSED",
+             "author": {"login": "a"},
+             "labels": [{"name": "review: approved"}]}, "pr")
+        self.assertNotIn("review", rejected_attempts({"pr:5": text})[0])
 
     def test_the_writer_and_the_parser_agree_on_the_real_format(self):
         """The seam that a hand-written fixture cannot cover.

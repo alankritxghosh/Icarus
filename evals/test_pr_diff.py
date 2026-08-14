@@ -109,7 +109,9 @@ class ReviewDecisionLineTests(unittest.TestCase):
             text = ingest._pr_or_issue_text(
                 {"number": 515, "title": "x", "state": "CLOSED",
                  "reviewDecision": decision}, "pr")
-            self.assertIn(f"Review: {expected}", text)
+            # Inside the state header, not a line of its own: a free-standing
+            # line sat where an author's body could forge one.
+            self.assertIn(f"] review: {expected}", text)
 
     def test_a_missing_or_null_decision_writes_no_line_at_all(self):
         """Unknown must stay unknown. GitHub returns null here for reasons that
@@ -120,13 +122,13 @@ class ReviewDecisionLineTests(unittest.TestCase):
                       "reviewDecision": None},
                      {"number": 1, "title": "x", "state": "CLOSED",
                       "reviewDecision": ""}):
-            self.assertNotIn("Review:", ingest._pr_or_issue_text(data, "pr"))
+            self.assertNotIn("review:", ingest._pr_or_issue_text(data, "pr"))
 
     def test_an_issue_never_gets_a_review_line(self):
         text = ingest._pr_or_issue_text(
             {"number": 1, "title": "x", "state": "CLOSED",
              "reviewDecision": "APPROVED"}, "issue")
-        self.assertNotIn("Review:", text)
+        self.assertNotIn("review:", text)
 
     def test_a_pull_request_without_the_field_is_byte_identical_to_before(self):
         # The committed corpus depends on this, exactly as the linked-issue
