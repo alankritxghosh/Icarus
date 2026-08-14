@@ -50,18 +50,18 @@ class PayloadTests(unittest.TestCase):
                          without)
 
 
-    def test_rests_on_rejected_surfaces_and_is_absent_otherwise(self):
+    def test_rests_on_unlanded_surfaces_and_is_absent_otherwise(self):
         """The flag a client acts on must cross the boundary -- and must not
         appear on an ordinary claim, or it stops meaning anything."""
         r = _result(claims=[
             {"text": "Absolute paths are preserved.", "citations": ["pr:100"],
-             "label": "quoted", "rests_on_rejected": True},
+             "label": "quoted", "rests_on_unlanded": True},
             {"text": "Paths were made absolute.", "citations": ["pr:100"],
              "label": "quoted"},
         ])
         p = build_payload(r, "o/r", "abc123")
-        self.assertTrue(p["claims"][0]["rests_on_rejected"])
-        self.assertNotIn("rests_on_rejected", p["claims"][1])
+        self.assertTrue(p["claims"][0]["rests_on_unlanded"])
+        self.assertNotIn("rests_on_unlanded", p["claims"][1])
 
     def test_tool_description_disclaims_closed_means_refused(self):
         """A closed pull request mostly means "already done another way".
@@ -91,7 +91,7 @@ class PayloadTests(unittest.TestCase):
         )["result"]["tools"]
         desc = next(t["description"] for t in tools
                     if t["name"] == "get_change_context")
-        self.assertIn("rests_on_rejected", desc)
+        self.assertIn("rests_on_unlanded", desc)
         # The flag's meaning is "nothing cited shows this LANDED", not "every
         # citation is a closed PR" -- the rule was widened after a measured
         # false negative, and a description promising the old test would send an
