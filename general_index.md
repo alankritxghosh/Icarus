@@ -1539,6 +1539,15 @@ claim. A negative result is kept exactly like a positive one.
 - `NativeHostManifest.swift` — validates canonical Chrome extension origins,
   generates the exact-origin native-host manifest, and atomically installs it
   under the current user's Chrome configuration.
+- `SharePreferences.swift` — the "help improve Icarus" toggle's store, read
+  off the main actor at request time by `BrainClient`. Defaults **OFF**,
+  matching the server's counts-only default: sharing the questions someone
+  asks and the private code Icarus cites is not a decision a default gets to
+  make, on either side of the wire. Shares one UserDefaults key with
+  `SettingsView`'s `@AppStorage` so the two can never drift apart.
+- `SharePreferencesTests.swift` — the store's contract: defaults to NOT
+  sharing, both directions persist, and it reads the exact key `@AppStorage`
+  writes.
 - `SavedConnection.swift` — persists the last-connected repo
   (injectable UserDefaults) and the pure `isLost` check behind the
   eviction/restart lost-connection banner.

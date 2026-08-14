@@ -22,6 +22,13 @@ final class _CapturingProtocol: URLProtocol {
     override func stopLoading() {}
 }
 
+/// A mutable box for a test-only flag read from inside a `@Sendable` closure --
+/// same shape as `_CapturingProtocol`'s statics above, just per-instance.
+final class _ShareFlag: @unchecked Sendable {
+    var value: Bool
+    init(_ value: Bool) { self.value = value }
+}
+
 final class BrainClientTests: XCTestCase {
     private func stubbedSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
@@ -310,6 +317,63 @@ final class BrainClientTests: XCTestCase {
         _ = try? await client.ask("why?")
         let auth = _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization")
         XCTAssertNil(auth)
+    }
+
+    // MARK: - Content sharing (Settings toggle, CLAUDE.md's 2026-08-13 exception)
+    // Default ON matches the server's own default when the header is absent
+    // (demo/server.py's `_share_content`) -- the header is sent ONLY to opt
+    // out, so a client that forgets to wire the reader still shares by
+    // default rather than silently going dark.
+
+    func testShareContentOnSendsAnExplicitOptIn() async throws {
+        // The server now shares content ONLY on an exact "1" (counts-only
+        // otherwise). Sending nothing -- which is what this did -- meant the
+        // Settings toggle's ON position silently shared nothing at all.
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)
+        let client = BrainClient(shareContent: { true }, session: stubbedSession())
+        _ = try? await client.ask("why?")
+        XCTAssertEqual(
+            _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "X-Icarus-Share-Content"), "1")
+    }
+
+    func testShareContentDefaultsOffAndSaysSoExplicitly() async throws {
+        // A client that does not wire the reader must not opt in by accident.
+        // The header is still SENT, so the request states the choice rather
+        // than relying on the server's default -- if that default ever moves
+        // again, this client's behaviour does not move with it.
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+        _ = try? await client.ask("why?")
+        XCTAssertEqual(
+            _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "X-Icarus-Share-Content"), "0")
+    }
+
+    func testShareContentOffSendsTheOptOutHeader() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)
+        let client = BrainClient(shareContent: { false }, session: stubbedSession())
+        _ = try? await client.ask("why?")
+        XCTAssertEqual(
+            _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "X-Icarus-Share-Content"), "0")
+    }
+
+    func testShareContentIsReadLazilyPerRequest() async throws {
+        // Same contract as the token reader: flipping the Settings toggle must
+        // take effect on the very next request, not require a relaunch.
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"verdict":"unknown","answer":"","citations":[],"searched":[]}"#.utf8)
+        let flag = _ShareFlag(true)
+        let client = BrainClient(shareContent: { flag.value }, session: stubbedSession())
+        _ = try? await client.ask("why?")
+        XCTAssertEqual(
+            _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "X-Icarus-Share-Content"), "1")
+
+        flag.value = false
+        _ = try? await client.ask("why?")
+        XCTAssertEqual(
+            _CapturingProtocol.lastRequest?.value(forHTTPHeaderField: "X-Icarus-Share-Content"), "0")
     }
 
     // MARK: - Cold-start retry

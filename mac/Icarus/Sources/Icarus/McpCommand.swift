@@ -125,6 +125,13 @@ enum McpCommand {
                     url: baseURL.appending(path: String(path.dropFirst())))
                 request.timeoutInterval = timeout(forPath: path)
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
+                // Never share question/answer/evidence content from the agent
+                // surface. Stated explicitly rather than left to the server's
+                // default: there is no consent surface here -- the person
+                // running a coding agent never saw the Settings toggle in this
+                // context -- and MCP serves private repositories. Counts still
+                // flow, exactly as they do with the toggle off.
+                request.setValue("0", forHTTPHeaderField: "X-Icarus-Share-Content")
                 request.setValue(
                     "Bearer \(agentSession.token)", forHTTPHeaderField: "Authorization")
                 if let body {
