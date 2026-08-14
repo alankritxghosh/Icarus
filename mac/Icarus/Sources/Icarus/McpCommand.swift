@@ -95,6 +95,7 @@ enum McpCommand {
 
                 var request = URLRequest(
                     url: baseURL.appending(path: String(path.dropFirst())))
+                request.timeoutInterval = timeout(forPath: path)
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
                 request.setValue(
                     "Bearer \(agentSession.token)", forHTTPHeaderField: "Authorization")
@@ -103,7 +104,20 @@ enum McpCommand {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                 }
-                let (data, response) = try await urlSession.data(for: request)
+                let data: Data
+                let response: URLResponse
+                do {
+                    (data, response) = try await urlSession.data(for: request)
+                } catch let error as URLError where error.code == .timedOut {
+                    // A slow answer and a broken adapter must not read the
+                    // same. The Python adapter surfaced this as "-32603
+                    // Internal error" and this one as "could not be reached";
+                    // both sent the one user who hit it to debug the wrong
+                    // thing (docs/experiments/2026-08-14-dogfood-*.md).
+                    throw McpServer.ToolError(
+                        "Icarus took longer than \(Int(timeout(forPath: path)))s "
+                        + "to answer; retry, or ask a narrower question.")
+                }
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 // Sessions are repository-bound and process-local. Expiry, a
                 // server restart, or switching repos can invalidate a cached
@@ -123,6 +137,24 @@ enum McpCommand {
                 return parsed
             }
             throw McpServer.ToolError("Icarus could not refresh its agent session")
+        }
+    }
+
+    /// How long a route is allowed to take, by how much work it does.
+    ///
+    /// `/context` runs a bounded investigation -- several writer calls -- where
+    /// `/ask` runs one, so URLSession's flat 60s default made the most
+    /// expensive tool the least reliable one. Measured live on
+    /// meilisearch-swift (2026-08-14): `get_task_context` succeeded in 16.1s
+    /// and failed twice at exactly the 60s cut, i.e. the old ceiling sat inside
+    /// the normal spread. 240s matches the Azure Container Apps ingress
+    /// ceiling; waiting past it cannot succeed. Kept in step with
+    /// `demo/mcp_server.py`'s `_TIMEOUTS`.
+    static func timeout(forPath path: String) -> TimeInterval {
+        switch path {
+        case "/context", "/investigate": return 240
+        case "/status": return 20
+        default: return 60
         }
     }
 

@@ -74,8 +74,8 @@ _TOOLS = [
             "whoever configures this client owns that exposure. An unknown "
             "verdict can still include related evidence, but that evidence "
             "must not be presented as a recorded decision."
-            "Each response also carries \"claims\": one entry per sentence of the answer, labelled \"quoted\" (that sentence restates a single cited chunk), \"composed\" (it rests on two or more chunks taken together), or \"unsupported\". Treat \"composed\" sentences as the ones to verify against the repository before relying on them -- every citation shown has already been checked to be real, but a sentence assembled from several sources can still state something no single source states. A claim may also carry \"rests_on_rejected\": true, meaning nothing that sentence cites shows the change ever LANDED -- it rests only on pull requests that were closed unmerged and on issues describing the problem. Do not read such a sentence as a description of how the repository behaves today; verify it against the code before relying on it. A claim citing a MERGED pull request, a commit or code alongside a closed one is NOT flagged, because that is evidence something real exists. This is independent of the label: such a sentence can still be \"quoted\". It was added after a measured case where Icarus called a closed pull request's approach \"the accepted fix\"."
-            " When present, \"rejected_attempts\" lists pull requests in the retrieved evidence that were CLOSED WITHOUT being merged. Read them before writing a change of your own: a merged pull request leaves a commit that git history shows, but a refused one leaves no trace in the repository at all, so this is the only place an attempt that was tried and rejected becomes visible. Icarus reports only THAT a pull request was closed, never why. **A closed pull request is not evidence that the approach was rejected.** Measured across nine of them in one repository: eight had been closed because the same change arrived another way -- the maintainer wrote it himself, or it duplicated a pull request that was merged, or it WAS the approach that landed by hand -- and only one marked an approach that was genuinely not taken. So read this as \"someone has been here before; do not send a duplicate\", and go read the closure thread before concluding anything about whether the idea was wanted. Icarus cannot tell you which of those two situations you are in, because the reason lives in review comments it does not interpret. Judge each entry on its title too: relevance comes from retrieval, so a closed pull request that ranked well but does not concern your change can appear -- measured up to one in three even on the hybrid index, and measurably noisier when only the lexical index is ready, which is the state during initial indexing."
+            "Each response also carries \"claims\": one entry per sentence of the answer, labelled \"quoted\" (that sentence restates a single cited chunk), \"composed\" (it rests on two or more chunks taken together), or \"unsupported\". Treat \"composed\" sentences as the ones to verify against the repository before relying on them -- every citation shown has already been checked to be real, but a sentence assembled from several sources can still state something no single source states. A claim may also carry \"rests_on_unlanded\": true, meaning nothing that sentence cites shows the change ever LANDED -- it rests only on pull requests that are still OPEN or were closed unmerged, and on issues. An ISSUE is a request or a bug report: it is evidence that somebody WANTED something, never that anybody built it, and an issue asking for a change is not evidence that the change was attempted. Be especially careful when such a sentence answers a question of the form \"has X been done\" -- a flagged \"yes\" there is usually the issue that ASKED for X being read back as the answer. Do not read such a sentence as a description of how the repository behaves today; verify it against the code before relying on it. An open pull request is a PROPOSAL: its diff is what someone wants the file to become, never what the file currently is, and an approved one is no different in this respect. A claim citing a MERGED pull request, a commit or code alongside an unlanded one is NOT flagged, because that is evidence something real exists. This is independent of the label: such a sentence can still be \"quoted\". It was added after a measured case where Icarus called a closed pull request's approach \"the accepted fix\", and widened after it read an open pull request's diff as a description of the current file and stated that a type was already in use where it was not."
+            " When present, \"rejected_attempts\" lists pull requests in the retrieved evidence that were CLOSED WITHOUT being merged. Read them before writing a change of your own: a merged pull request leaves a commit that git history shows, but a refused one leaves no trace in the repository at all, so this is the only place an attempt that was tried and rejected becomes visible. Icarus reports only THAT a pull request was closed, never why. **A closed pull request is not evidence that the approach was rejected.** Measured across nine of them in one repository: eight had been closed because the same change arrived another way -- the maintainer wrote it himself, or it duplicated a pull request that was merged, or it WAS the approach that landed by hand -- and only one marked an approach that was genuinely not taken. So read this as \"someone has been here before; do not send a duplicate\", and go read the closure thread before concluding anything about whether the idea was wanted. An entry may carry \"review\", GitHub's own review decision, which is the one part of this Icarus CAN tell you: \"changes_requested\" means a reviewer asked for changes, \"approved\" means it was approved and closed anyway (usually because the change arrived another way), and \"none\" means no review ever reached a decision -- nobody approved it and nobody requested changes, which is what an author abandoning their own pull request looks like. \"none\" is NOT proof nobody looked: a review left as a plain comment does not reach a decision either. When \"review\" is absent Icarus does not know, and absence must never be read as \"none\". Icarus still never says WHY anything closed -- that reason lives in review comments it does not interpret. Judge each entry on its title too: relevance comes from retrieval, so a closed pull request that ranked well but does not concern your change can appear -- measured up to one in three even on the hybrid index, and measurably noisier when only the lexical index is ready, which is the state during initial indexing."
         ),
         "inputSchema": {
             "type": "object",
@@ -341,6 +341,22 @@ def _connection():
     return _cached_agent_session
 
 
+# How long each route is allowed to take. `/context` and `/investigate` run a
+# bounded investigation -- several writer calls -- where `/ask` runs one, so a
+# single budget for both makes the most expensive route the least reliable one.
+# Measured live on meilisearch-swift (2026-08-14): a successful
+# `get_task_context` took 16.1s and two failures were cut off at 60s, i.e. the
+# old ceiling sat inside the normal spread rather than beyond it. 240s matches
+# the Azure Container Apps ingress ceiling -- waiting past it cannot succeed.
+_TIMEOUTS = {"/context": 240, "/investigate": 240, "/status": 20}
+_DEFAULT_TIMEOUT = 60
+
+
+def _timeout_for(path):
+    """Seconds to wait on `path`, by how much work it actually does."""
+    return _TIMEOUTS.get(path, _DEFAULT_TIMEOUT)
+
+
 def _request(path, body=None):
     """Call the Icarus HTTP brain without logging or persisting its token."""
     global _cached_agent_session
@@ -364,7 +380,7 @@ def _request(path, body=None):
         request = urllib.request.Request(
             connection.base + path, data=data, headers=headers, method=method)
         try:
-            with _OPENER.open(request, timeout=60) as response:
+            with _OPENER.open(request, timeout=_timeout_for(path)) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             break
         except urllib.error.HTTPError as error:
@@ -389,6 +405,19 @@ def _request(path, body=None):
                 f"{error.reason}") from None
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise _ToolError("Icarus returned invalid JSON") from None
+        except TimeoutError:
+            # urllib wraps a CONNECT timeout in URLError but lets the response
+            # read raise straight through, so this escaped into `serve`'s
+            # catch-all and reached the agent as "-32603 Internal error" with
+            # every detail on stderr, which the client discards. The caller
+            # then has no idea whether to retry or to go debug Icarus.
+            raise _ToolError(
+                f"Icarus took longer than {_timeout_for(path)}s to answer; "
+                "retry, or ask a narrower question") from None
+        except OSError as error:
+            # Same class of escape as the timeout above: any transport failure
+            # urllib does not wrap belongs to the caller as a tool error.
+            raise _ToolError(f"Could not reach Icarus: {error}") from None
 
     if not isinstance(payload, dict):
         raise _ToolError("Icarus returned an invalid response")

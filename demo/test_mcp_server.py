@@ -372,6 +372,61 @@ class McpToolTests(unittest.TestCase):
         )
 
 
+class RequestTimeoutTests(unittest.TestCase):
+    """A slow brain must read as a slow brain, not as a broken adapter.
+
+    Reproduces the live failure recorded in
+    docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md:
+    `get_task_context` failed twice on meilisearch-swift with
+    `MCP error -32603: Internal error` and no detail. The transcripts
+    (`~/.claude/projects/-Users-alankritghosh-meilisearch-swift/*.jsonl`) time
+    both failures at 61.1s and 60.2s against this module's `timeout=60`, while
+    every call that succeeded that session finished in 2.6-16.1s.
+
+    A socket read timeout surfaces as a bare `TimeoutError`, which `_request`
+    did not catch (`urllib` wraps a CONNECT timeout in `URLError` but lets
+    `getresponse()` raise straight through), so it escaped `handle_message`
+    into `serve`'s catch-all and became a protocol-level -32603 whose only
+    detail went to stderr -- discarded by the client.
+    """
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_a_timeout_is_an_actionable_tool_error_not_an_internal_error(
+            self, open_request, connection):
+        connection.return_value = mcp_server._Connection(
+            base="https://brain.example", token="t", managed=False,
+            expires_at=None)
+        open_request.side_effect = TimeoutError("timed out")
+
+        with self.assertRaises(mcp_server._ToolError) as caught:
+            mcp_server._request("/context", {"task": "add a field"})
+
+        message = str(caught.exception).lower()
+        # Say how long was actually waited -- "Internal error" left the one
+        # user who hit this unable to tell a slow answer from a broken tool.
+        self.assertIn(str(mcp_server._timeout_for("/context")), message)
+        # Name the tool call's own remedy. "Internal error" sent the one user
+        # who hit this to look for a bug in Icarus rather than retry.
+        self.assertIn("retry", message)
+
+    @patch("demo.mcp_server._request")
+    def test_an_investigation_gets_longer_than_a_single_question(self, request):
+        """`/context` runs an investigation; `/ask` runs one writer call.
+
+        Holding both to the same 60s budget is what made the flagship tool the
+        least reliable one: the successful `get_task_context` in the same
+        session took 16.1s, so 60s is inside the normal spread, not beyond it.
+        """
+        self.assertGreater(
+            mcp_server._timeout_for("/context"),
+            mcp_server._timeout_for("/ask"),
+        )
+        self.assertGreaterEqual(mcp_server._timeout_for("/context"), 240)
+        # A status preflight must stay quick -- it is on every tool call.
+        self.assertLessEqual(mcp_server._timeout_for("/status"), 30)
+
+
 class TransportSecurityTests(unittest.TestCase):
     def test_redirects_are_refused_before_authorization_can_be_forwarded(self):
         original = urllib.request.Request(

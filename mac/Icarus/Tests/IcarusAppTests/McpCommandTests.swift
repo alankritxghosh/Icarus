@@ -160,6 +160,18 @@ final class McpCommandTests: XCTestCase {
         XCTAssertTrue(McpCommand.message(forStatus: 0).contains("could not be reached"))
     }
 
+    func testAnInvestigationGetsLongerThanASingleQuestion() {
+        // URLSession's flat 60s default made the most expensive tool the least
+        // reliable one: measured live on meilisearch-swift 2026-08-14,
+        // get_task_context succeeded in 16.1s and failed twice at the 60s cut.
+        XCTAssertGreaterThan(
+            McpCommand.timeout(forPath: "/context"),
+            McpCommand.timeout(forPath: "/ask"))
+        XCTAssertGreaterThanOrEqual(McpCommand.timeout(forPath: "/context"), 240)
+        // The status preflight runs on every tool call and must stay quick.
+        XCTAssertLessThanOrEqual(McpCommand.timeout(forPath: "/status"), 30)
+    }
+
     func testTransportRemintsAndRetriesOnceWhenRepositoryBoundSessionIsStale() async throws {
         RetryingProtocol.reset(statuses: [403, 200])
         let configuration = URLSessionConfiguration.ephemeral

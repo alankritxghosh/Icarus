@@ -50,6 +50,26 @@ correction lives in what callers are told -- see the `rejected_attempts` note
 in `demo/mcp_server.py`'s tool description. Do not "fix" it here by trying to
 classify closures: that requires the review thread, which is exactly the thing
 this module refuses to interpret.
+
+**A SECOND axis, added 2026-08-14 and distinct from the one above.** The
+paragraph before this one is about RELEVANCE -- whether a listed pull request
+concerns your change. This one is about whether anyone ever REVIEWED it.
+Measured on `meilisearch/meilisearch-swift` #515
+(docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md): a pull
+request correctly retrieved, genuinely closed-unmerged, and genuinely
+on-topic -- but no maintainer had reviewed it, the AUTHOR closed it three
+hours after opening, and the issue it claimed to close is still open. An
+abandoned submission and a declined one are different facts, and this module
+was reporting them in one word.
+
+`review` therefore carries GitHub's own `reviewDecision`, recorded by
+`evals/ingest._pr_or_issue_text` on the request it already makes. This is NOT
+the closure classification the paragraph above forbids: it interprets no
+review prose and asserts no reason. It reports a mechanical fact GitHub
+computes, and stops. The key is ABSENT when the corpus does not record one --
+every corpus ingested before the field existed, which is all of them until
+each is refreshed -- because a default would invent precisely the judgment
+this exists to remove.
 """
 from typing import Dict, List, Mapping
 
@@ -61,9 +81,28 @@ from typing import Dict, List, Mapping
 _REJECTED_SOURCE = "pr:"
 _REJECTED_STATE = "[CLOSED "
 
+# Landed means MERGED. Both of these describe something someone PROPOSED --
+# `unlanded_prs` below, which is a different question from "was it refused".
+_UNLANDED_STATES = ("[CLOSED ", "[OPEN ")
+_DIFF_SOURCE = "diff:"
+
 # The header sits on the first line that opens with "[", within the first few
 # lines -- line 1 is always "PR #N: <title>" (evals/ingest._pr_or_issue_text).
 _HEADER_SCAN_LINES = 3
+
+# `Review: <word>`, written by ingest from GitHub's own `reviewDecision`. Only
+# these three words are honoured: a corpus ingested before the field existed
+# carries no line at all, and reading THAT as "nobody reviewed it" would
+# manufacture the exact false judgment this exists to remove.
+_REVIEW_PREFIX = "Review: "
+_REVIEW_VALUES = ("approved", "changes_requested", "none")
+# Counted in NON-EMPTY lines, because ingest joins its sections with a blank
+# line between them: the review line is the third non-empty line (title, state,
+# review) but the fifth raw one. A raw-line window looked right, passed a
+# hand-written fixture that used single newlines, and found nothing at all
+# against real `gh` output -- so this bound is deliberately expressed in the
+# same units the writer uses.
+_REVIEW_SCAN_LINES = 3
 
 
 def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
@@ -91,5 +130,74 @@ def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
         title = ""
         if lines and ":" in lines[0]:
             title = lines[0].split(":", 1)[1].strip()
-        out.append({"ref": ref, "title": title})
+        attempt = {"ref": ref, "title": title}
+        review = _review_decision(text)
+        # Omitted, never defaulted: an absent key is the only representation of
+        # unknown a caller cannot mistake for an answer.
+        if review is not None:
+            attempt["review"] = review
+        out.append(attempt)
     return out
+
+
+def unlanded_prs(evidence: Mapping[str, str]) -> set:
+    """Refs among `evidence` that do NOT show a change having landed.
+
+    A pull request is landed only when it MERGED. Open and closed-unmerged
+    both describe something proposed, and a sentence resting only on those is
+    not a description of the repository today -- which is the distinction
+    `rejected_attempts` above does not make, because an OPEN pull request was
+    never refused by anyone and has no business in a list of refusals.
+
+    Measured need (docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-
+    issues.md): Icarus read `pr:522`, open and approved, as a description of
+    `main` and stated a type was "already used" in a file that does not use
+    it. Every citation resolved, so the honesty gate passed it.
+
+    A `diff:N` ref carries no state of its own -- it is one pull request's
+    proposed hunks -- so it inherits `pr:N`'s. When that pull request is not in
+    evidence the state is unknown and the ref is left OUT, since flagging on an
+    unknown would be a guess in the direction of noise.
+
+    Same discipline as everything else here: the indexed TEXT has to say it.
+    """
+    states = {}
+    for ref, text in (evidence or {}).items():
+        if not isinstance(ref, str) or not isinstance(text, str):
+            continue
+        if not ref.startswith(_REJECTED_SOURCE):
+            continue
+        header = next(
+            (l for l in text.split("\n", _HEADER_SCAN_LINES)[:_HEADER_SCAN_LINES]
+             if l.startswith("[")), None)
+        if header is None:
+            continue
+        states[ref] = header.startswith(_UNLANDED_STATES)
+
+    out = {ref for ref, unlanded in states.items() if unlanded}
+    for ref in (evidence or {}):
+        if isinstance(ref, str) and ref.startswith(_DIFF_SOURCE):
+            owner = _REJECTED_SOURCE + ref[len(_DIFF_SOURCE):]
+            if states.get(owner):
+                out.add(ref)
+    return out
+
+
+def _review_decision(text):
+    """The recorded review decision, or None when the corpus does not say.
+
+    Bounded to the header region so a body or a comment quoting "Review: none"
+    cannot become one -- the same anchoring the state line already relies on.
+    """
+    seen = 0
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(_REVIEW_PREFIX):
+            value = line[len(_REVIEW_PREFIX):].strip()
+            return value if value in _REVIEW_VALUES else None
+        seen += 1
+        if seen >= _REVIEW_SCAN_LINES:
+            return None
+    return None

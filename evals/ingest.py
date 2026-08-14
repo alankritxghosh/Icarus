@@ -538,7 +538,7 @@ _MAX_FILES_LISTED = 30
 # is the bar), then re-fetch the most recent `DISCUSSION_DEPTH` with the
 # discussion attached and let those override. Two calls per kind -- still no N+1.
 _PR_FIELDS_BASE = ("number,title,body,closingIssuesReferences,state,author,"
-                   "mergedAt,labels")
+                   "mergedAt,labels,reviewDecision")
 _PR_FIELDS_FULL = _PR_FIELDS_BASE + ",files,comments,reviews"
 _ISSUE_FIELDS_BASE = "number,title,body,state,author,labels"
 _ISSUE_FIELDS_FULL = _ISSUE_FIELDS_BASE + ",comments"
@@ -558,6 +558,16 @@ DISCUSSION_DEPTH = 400
 # psf/requests and fails outright on sqlite-utils. Below this it is not worth
 # another round trip; every item is still indexed by its description regardless.
 _MIN_DISCUSSION_DEPTH = 25
+
+
+# GitHub's `reviewDecision` -> the one word recorded in the chunk. Anything
+# outside this table (including null and a value GitHub adds later) records
+# nothing, so an unrecognised state can never be read as a decision.
+_REVIEW_DECISIONS = {
+    "APPROVED": "approved",
+    "CHANGES_REQUESTED": "changes_requested",
+    "REVIEW_REQUIRED": "none",
+}
 
 
 def _login(actor):
@@ -597,6 +607,25 @@ def _pr_or_issue_text(data, source):
         if labels:
             line += " labels: " + ", ".join(labels)
         parts.append(line)
+
+    # Whether anyone actually REVIEWED it -- GitHub's own scalar, fetched on
+    # the same call that already brings title and body, so this costs nothing.
+    #
+    # Exists because "closed unmerged" alone made an author's unreviewed
+    # self-close read identically to a maintainer declining a change
+    # (docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md,
+    # PR meilisearch-swift#515). This records the mechanical fact and stops
+    # there: it is NOT an interpretation of why anything closed, which still
+    # lives in the review thread and is still deliberately not read.
+    #
+    # "none" means no review reached a decision -- nobody approved it and
+    # nobody requested changes. It does NOT mean nobody looked: a COMMENTED
+    # review leaves this at REVIEW_REQUIRED. Null is left UNRECORDED rather
+    # than called "none", since GitHub returns null for reasons of its own.
+    if source == "pr":
+        recorded = _REVIEW_DECISIONS.get(data.get("reviewDecision") or "")
+        if recorded:
+            parts.append(f"Review: {recorded}")
 
     body = (data.get("body") or "").strip()
     if body:

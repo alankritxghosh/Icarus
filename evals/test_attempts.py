@@ -39,6 +39,107 @@ class RejectedAttemptsTests(unittest.TestCase):
         committed corpus, so counting issues would bury the signal."""
         self.assertEqual(rejected_attempts({"issue:1": CLOSED_ISSUE}), [])
 
+
+class ReviewDecisionTests(unittest.TestCase):
+    """Did anyone actually review it, or did the author walk away?
+
+    From docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md:
+    `meilisearch-swift` PR #515 was surfaced as a "rejected attempt" for a
+    structurally identical change. The timeline says no maintainer ever
+    reviewed it, the AUTHOR closed it three hours after opening, and the issue
+    it claimed to close is still open. Retrieval was right and the PR was
+    genuinely closed-unmerged; what misled was the word "rejected", which
+    reads as a judgment that never happened.
+
+    This is a SECOND axis, distinct from the relevance/false-positive rate
+    measured in 2026-08-10-rejected-attempt-false-positive-rate.md: an entry
+    can be perfectly on-topic and genuinely closed-unmerged and still say
+    nothing about maintainer intent.
+
+    GitHub answers it mechanically with `reviewDecision`, so this needs no
+    model, no interpretation of review prose, and no extra request -- it rides
+    the `gh pr list --json` call ingest already makes.
+    """
+
+    def _pr(self, state="CLOSED", decision=None):
+        # Sections joined by a BLANK line, which is what
+        # `ingest._pr_or_issue_text` actually emits. An earlier draft of this
+        # helper used single newlines; every test below passed against it while
+        # the parser found nothing at all on real `gh` output, because the
+        # review line sits at raw index 4, outside the window being scanned.
+        # The seam test at the end of this class is what makes that impossible
+        # to repeat -- it builds its input with the real writer.
+        parts = [f"PR #515: Add `distinct` search parameter",
+                 f"[{state} by mvanhorn]"]
+        if decision is not None:
+            parts.append(f"Review: {decision}")
+        parts.append("Body.")
+        return "\n\n".join(parts)
+
+    def test_no_review_reached_a_decision_is_reported(self):
+        """The #515 shape: closed unmerged with nobody having approved it or
+        asked for changes."""
+        out = rejected_attempts({"pr:515": self._pr(decision="none")})
+        self.assertEqual(out[0]["review"], "none")
+
+    def test_changes_requested_is_reported_as_itself(self):
+        """The shape that IS a maintainer declining -- and it must not be
+        flattened into the same word as the one above."""
+        out = rejected_attempts({"pr:1": self._pr(decision="changes_requested")})
+        self.assertEqual(out[0]["review"], "changes_requested")
+
+    def test_approved_then_closed_is_reported(self):
+        """Approved and closed anyway: real in the wild (3 of 60 sampled on
+        meilisearch-swift), and the strongest evidence of 'landed another way'."""
+        out = rejected_attempts({"pr:2": self._pr(decision="approved")})
+        self.assertEqual(out[0]["review"], "approved")
+
+    def test_a_corpus_without_the_field_says_unknown_not_none(self):
+        """The honesty-critical case.
+
+        Every corpus ingested before this field existed has no Review line.
+        Reading that absence as "nobody reviewed it" would manufacture exactly
+        the false judgment this change exists to remove -- across every repo
+        connected today. Unknown is the ABSENCE of the key, so a caller cannot
+        accidentally treat it as a value.
+        """
+        out = rejected_attempts({"pr:515": self._pr()})
+        self.assertEqual(out, [{"ref": "pr:515",
+                                "title": "Add `distinct` search parameter"}])
+        self.assertNotIn("review", out[0])
+
+    def test_an_unrecognised_decision_is_unknown_rather_than_guessed(self):
+        out = rejected_attempts({"pr:3": self._pr(decision="MAYBE")})
+        self.assertNotIn("review", out[0])
+
+    def test_the_review_line_never_makes_a_non_attempt_into_one(self):
+        """The field annotates an attempt; it can never create one."""
+        merged = self._pr(state="MERGED", decision="changes_requested")
+        self.assertEqual(rejected_attempts({"pr:9": merged}), [])
+
+    def test_a_body_quoting_the_line_is_not_a_decision(self):
+        """Same anchoring the state line already relies on: prose that happens
+        to contain the header's shape must not become the header."""
+        text = ("PR #4: x\n\n[CLOSED by someone]\n\n"
+                "Body discussing Review: approved at length.")
+        self.assertNotIn("review", rejected_attempts({"pr:4": text})[0])
+
+    def test_the_writer_and_the_parser_agree_on_the_real_format(self):
+        """The seam that a hand-written fixture cannot cover.
+
+        Builds the evidence with the REAL `ingest._pr_or_issue_text` instead of
+        a string literal, so the two halves of this feature can never drift the
+        way they did on first write -- where every unit test above passed and
+        the parser still returned nothing against real `gh pr list` output.
+        """
+        from evals import ingest
+        text = ingest._pr_or_issue_text(
+            {"number": 515, "title": "Add `distinct` search parameter",
+             "state": "CLOSED", "author": {"login": "mvanhorn"},
+             "body": "Adds the parameter.", "reviewDecision": "REVIEW_REQUIRED"},
+            "pr")
+        self.assertEqual(rejected_attempts({"pr:515": text})[0]["review"], "none")
+
     def test_code_and_commit_refs_are_ignored(self):
         ev = {"code:a.py#L1-L5": "[CLOSED by nobody]\nx",
               "commit:abc123": "[CLOSED by nobody]\nx",

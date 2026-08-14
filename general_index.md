@@ -195,6 +195,25 @@ claim. A negative result is kept exactly like a positive one.
   prediction; plus the nine-PR tally showing "closed unmerged" meant "already
   done another way" eight times out of nine, and one invalid task whose §2a
   check was inferred from a version string instead of executed.
+- `2026-08-14-dogfood-meilisearch-swift-two-issues.md` — two real shipped PRs
+  against `meilisearch/meilisearch-swift` with Icarus gated before code and
+  before commit. Retrieval was right every time (`pr:522`, an approved unmerged
+  PR touching the exact struct, was the session's most valuable fact); the
+  prose over it overstated twice — an issue cited as evidence of a prior
+  attempt, and an unmerged PR's diff cited as the current file. Plus the
+  rejection-conflation finding: `rejected_attempts` labelled an author's
+  unreviewed self-close a "rejection", a second axis distinct from the
+  relevance/false-positive one already measured.
+- `2026-08-14-get-task-context-timeout-reproduction.md` — closes the above's
+  consequence 3. The `-32603 Internal error` was a flat 60s timeout, not an
+  internal fault: transcript timings put both failures at 61.1s/60.2s against
+  16.1s for the same tool's success, and three live replays of the identical
+  task measured 52.1/62.0/50.8s — one in three crossing the ceiling. Two
+  stacked defects, the second hiding the first: one timeout for every route,
+  and a bare `TimeoutError` escaping `_request` (urllib wraps a CONNECT
+  timeout but not a response read) into `serve`'s catch-all, sending its only
+  detail to stderr. Both adapters fixed; the ~55s median cost of `/context`
+  itself is disclosed as untouched.
 
 ## docs/plans/
 - `docs/plans/2026-06-28-phase-1.md` — the Phase 1 plan.
@@ -305,7 +324,14 @@ claim. A negative result is kept exactly like a positive one.
   beginning and thrown away until 2026-08-08, which left an issue linked only
   through GitHub's interface invisible; written in the shape the entity index's
   mention regex already reads, so nothing downstream needed changing, and a
-  pull request closing nothing produces byte-identical text to before.
+  pull request closing nothing produces byte-identical text to before. Same
+  shape again 2026-08-14 for `reviewDecision`, added to `_PR_FIELDS_BASE` (so
+  it covers EVERY pull request, not just the depth pass, and `fetch_ref_detail`
+  inherits it) and written as a `Review: approved|changes_requested|none` line
+  -- the fact `evals/attempts.py` needs to tell an abandoned submission from a
+  declined one. Null/unrecognised writes NO line, because unknown must not
+  become "none"; issues never get one; and a PR without the field is
+  byte-identical to before.
   `fetch_commit_detail(repo, sha)` live-fetches ONE commit (message, author,
   per-file diff) as a `commit:<full-sha>` chunk — commits are deliberately NOT
   indexed (a real repo has 10k-1M; they'd swamp the 50k cap and BM25's IDF), so
@@ -756,12 +782,47 @@ claim. A negative result is kept exactly like a positive one.
   deliberately NOT an attempt (544 of them vs 129 closed PRs in the committed
   corpus would bury the signal). Reports WHAT was refused, never WHY -- the
   reason lives in review comments, and asserting one is the composed rationale
-  these experiments caught twice.
-- `evals/test_attempts.py` — 11 tests weighted toward what must NOT be
+  these experiments caught twice. Each entry may also carry `review`
+  (2026-08-14): GitHub's own `reviewDecision` as `approved` /
+  `changes_requested` / `none`, so an author's unreviewed self-close stops
+  reading identically to a maintainer declining a change -- the
+  rejection-conflation axis measured on `meilisearch-swift` #515, distinct
+  from the relevance axis above. Still no interpretation of review prose and
+  no extra request (the field rides `gh pr list --json`). The key is ABSENT
+  when unknown, which is every corpus ingested before the field existed, since
+  a default would invent the judgment this removes. Measured live over 60
+  `meilisearch-swift` PRs: of 11 closed-unmerged, 6 `none`, 3 `approved`,
+  only 2 `changes_requested`.
+  Also `unlanded_prs(evidence)` (2026-08-14): the refs that do NOT show a
+  change having landed — a pull request still OPEN or closed unmerged, plus a
+  `diff:N` inheriting `pr:N`'s state (unknown when that PR is absent, so it is
+  left out rather than guessed). Deliberately a SEPARATE predicate from
+  `rejected_attempts` rather than a wider list: an open pull request was never
+  refused by anyone and must never appear in a list of refusals. Backs
+  `evals/pipeline.py`'s per-claim `rests_on_unlanded` flag (renamed from
+  `rests_on_rejected`, whose rule was always "nothing cited shows this
+  LANDED" but whose implementation read closed-only — so `pr:522`, open and
+  approved, was read as a description of `main`). Verified over the same 60
+  real PRs: 22 unlanded vs 11 refused, no MERGED PR marked unlanded and no
+  OPEN one in `rejected_attempts`. The flag fires when NOTHING cited shows a
+  landing — unlanded PRs, issues, or both — the "at least one unlanded PR"
+  anchor having been dropped the same day, since a claim resting on issues
+  ALONE was the one arrangement nothing checked and is exactly the shape of
+  "has been attempted before" citing the issue that REQUESTS the change
+  (reproduced live: "Yes, issue #531 tracks the addition of…" answering
+  whether it had been added). Measured before widening: 3 of 8 claims over 10
+  real questions were issue-only, all three true positives, on a question set
+  biased toward that shape.
+- `evals/test_attempts.py` — 18 tests weighted toward what must NOT be
   reported: a MERGED PR, an OPEN one, a closed ISSUE, a non-PR ref, a body
   merely containing the word (anchored to the header start), plus determinism,
   hostile input, and a guard that reads the REAL committed corpus so the parser
-  cannot drift from what ingest actually writes.
+  cannot drift from what ingest actually writes. The `review` half adds the
+  unknown-is-absent guard and a SEAM test that builds its input with the real
+  `ingest._pr_or_issue_text` -- written after hand-made fixtures using single
+  newlines passed while the parser found nothing on real `gh` output, because
+  ingest joins sections with a BLANK line and the field sat outside the
+  scanned window.
 - `evals/test_claim_selfreport.py` — the writer's per-sentence self-report (18
   tests, stdlib only): the prompt is BYTE-IDENTICAL with `per_claim=False` (the
   guarantee that lets this ship without re-baselining the board), a claim citing

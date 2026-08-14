@@ -436,7 +436,7 @@ class GatedPipeline(Pipeline):
         there did the USER point at specific lines."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate, attribute_claims, extract_json
-        from .attempts import rejected_attempts
+        from .attempts import rejected_attempts, unlanded_prs
         anchored = list(dict.fromkeys(anchored or ()))
         # Icarus's own index, offered as ordinary evidence (evals/index_facts).
         #
@@ -517,11 +517,43 @@ class GatedPipeline(Pipeline):
         # Anything that is not a refused PR or an issue -- a merged PR, a
         # commit, code, a doc -- is evidence of something that exists, and is
         # deliberately treated as solid ground.
-        refused = {a["ref"] for a in result.rejected_attempts}
+        #
+        # Widened 2026-08-14 from closed-unmerged to UNLANDED, and renamed with
+        # it. The rule the comment above always described -- "nothing cited
+        # shows the change ever LANDED" -- was implemented against
+        # `rejected_attempts`, which is closed-only, so an OPEN pull request
+        # slipped through the exact same hole: Icarus read `pr:522`, open and
+        # approved, as a description of `main` and said a type was "already
+        # used" in a file that does not use it (docs/experiments/
+        # 2026-08-14-dogfood-meilisearch-swift-two-issues.md). An open PR is
+        # not a refusal, so it must NOT join `rejected_attempts` -- hence a
+        # separate predicate rather than a wider list. The name moved from
+        # `rests_on_rejected` because calling an approved open pull request
+        # "rejected" is the same overclaiming this whole flag exists to catch.
+        #
+        # Widened again 2026-08-14: the "at least one unlanded pull request"
+        # anchor is gone, so a claim resting ONLY on issues is marked too. The
+        # principle was already written above -- an issue reports a problem, it
+        # never records an adoption -- but it was applied only when a pull
+        # request happened to be cited alongside, leaving issues-alone as the
+        # one arrangement nothing checked. That is the arrangement the measured
+        # case used: "adding indexSize/usedIndexSize has been attempted before"
+        # citing `issue:531`, the issue REQUESTING those fields, i.e. the issue
+        # restating its own existence read as evidence of a prior attempt. The
+        # live re-measurement is in the same experiment record.
+        #
+        # Measured before widening rather than argued: over 10 real questions
+        # on meilisearch-swift, 3 of 8 claims were issue-only, and all three
+        # were true positives (two describing a Core module that is proposed
+        # and not built, one answering "has this been added" with the issue
+        # asking for it). A claim citing code or a MERGED pull request
+        # alongside an issue still does not fire, which is what keeps this from
+        # marking ordinary grounded answers.
+        unlanded = unlanded_prs(evidence)
         for claim in result.claims:
             cits = claim.get("citations") or []
-            if not cits or not any(ref in refused for ref in cits):
+            if not cits:
                 continue
-            if all(ref in refused or ref.startswith("issue:") for ref in cits):
-                claim["rests_on_rejected"] = True
+            if all(ref in unlanded or ref.startswith("issue:") for ref in cits):
+                claim["rests_on_unlanded"] = True
         return result
