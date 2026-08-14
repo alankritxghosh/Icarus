@@ -153,11 +153,11 @@ final class McpServerTests: XCTestCase {
 
     func testPayloadIsPassedThroughVerbatim() async {
         // The regression this guards: routing the answer through the app's typed
-        // models would drop `claims`/`rests_on_rejected`/`rejected_attempts`,
+        // models would drop `claims`/`rests_on_unlanded`/`rejected_attempts`,
         // which are exactly what the tool description tells an agent to act on.
         let rich: [String: Any] = [
             "repo": "simonw/llm", "verdict": "answer",
-            "claims": [["text": "x", "label": "quoted", "rests_on_rejected": true]],
+            "claims": [["text": "x", "label": "quoted", "rests_on_unlanded": true]],
             "rejected_attempts": [["ref": "pr:1549", "title": "t"]],
         ]
         let (server, _) = await makeServer(answer: rich)
@@ -165,7 +165,7 @@ final class McpServerTests: XCTestCase {
                                 ["repo": "simonw/llm", "question": "why?"])
         let structured = result["structuredContent"] as? [String: Any]
         let claims = structured?["claims"] as? [[String: Any]]
-        XCTAssertEqual(claims?.first?["rests_on_rejected"] as? Bool, true)
+        XCTAssertEqual(claims?.first?["rests_on_unlanded"] as? Bool, true)
         XCTAssertNotNil(structured?["rejected_attempts"])
         XCTAssertEqual(result["isError"] as? Bool, false)
     }

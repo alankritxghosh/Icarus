@@ -76,6 +76,7 @@ enum McpCommand {
     ) -> McpServer.Transport {
         let cache = SessionCache(create: sessionFactory)
         return { path, body in
+            var previousRepo: String?
             for attempt in 0..<2 {
                 let agentSession: AgentSession
                 do {
@@ -93,8 +94,36 @@ enum McpCommand {
                         "Icarus could not create an agent session. Open the app and try again.")
                 }
 
+                // A retry is only ever meant to replace an EXPIRED grant for
+                // the same repository. If reminting landed on a DIFFERENT one
+                // -- the user switched the app between the preflight and now
+                // -- resending the body would run retrieval, the writer and
+                // analytics inside a repository the caller never asked about,
+                // and on a private repo that is evidence crossing a boundary
+                // meant to be fail-closed. The tool's postflight catches the
+                // wrong ANSWER; this catches the wrong WORK, before it runs.
+                //
+                // Scoped to requests that CARRY A BODY (/ask, /context,
+                // /explain). `/status` has none: it asks what is connected
+                // right now, and a deliberate switch A -> B is exactly when it
+                // must be allowed to remint. Guarding it too failed the user's
+                // first correctly-named call after every intentional switch.
+                //
+                // Compared case-insensitively, as GitHub repository names are
+                // everywhere else here -- refusing `Octo/Repo` -> `octo/repo`
+                // was a pure false positive. Both found in review.
+                //
+                // Costs no extra request: the grant already names its repo.
+                if attempt > 0, body != nil, let previousRepo,
+                   agentSession.repo.caseInsensitiveCompare(previousRepo) != .orderedSame {
+                    throw McpServer.ToolError(
+                        "Icarus switched to \(agentSession.repo) while answering "
+                        + "about \(previousRepo); retry the request.")
+                }
+
                 var request = URLRequest(
                     url: baseURL.appending(path: String(path.dropFirst())))
+                request.timeoutInterval = timeout(forPath: path)
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
                 // Never share question/answer/evidence content from the agent
                 // surface. Stated explicitly rather than left to the server's
@@ -110,13 +139,27 @@ enum McpCommand {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.httpBody = try JSONSerialization.data(withJSONObject: body)
                 }
-                let (data, response) = try await urlSession.data(for: request)
+                let data: Data
+                let response: URLResponse
+                do {
+                    (data, response) = try await urlSession.data(for: request)
+                } catch let error as URLError where error.code == .timedOut {
+                    // A slow answer and a broken adapter must not read the
+                    // same. The Python adapter surfaced this as "-32603
+                    // Internal error" and this one as "could not be reached";
+                    // both sent the one user who hit it to debug the wrong
+                    // thing (docs/experiments/2026-08-14-dogfood-*.md).
+                    throw McpServer.ToolError(
+                        "Icarus took longer than \(Int(timeout(forPath: path)))s "
+                        + "to answer; retry, or ask a narrower question.")
+                }
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 // Sessions are repository-bound and process-local. Expiry, a
                 // server restart, or switching repos can invalidate a cached
                 // grant before its wall-clock expiry. Remint once, then surface
                 // a real persistent refusal instead of looping.
                 if (code == 401 || code == 403), attempt == 0 {
+                    previousRepo = agentSession.repo
                     await cache.invalidate()
                     continue
                 }
@@ -130,6 +173,24 @@ enum McpCommand {
                 return parsed
             }
             throw McpServer.ToolError("Icarus could not refresh its agent session")
+        }
+    }
+
+    /// How long a route is allowed to take, by how much work it does.
+    ///
+    /// `/context` runs a bounded investigation -- several writer calls -- where
+    /// `/ask` runs one, so URLSession's flat 60s default made the most
+    /// expensive tool the least reliable one. Measured live on
+    /// meilisearch-swift (2026-08-14): `get_task_context` succeeded in 16.1s
+    /// and failed twice at exactly the 60s cut, i.e. the old ceiling sat inside
+    /// the normal spread. 240s matches the Azure Container Apps ingress
+    /// ceiling; waiting past it cannot succeed. Kept in step with
+    /// `demo/mcp_server.py`'s `_TIMEOUTS`.
+    static func timeout(forPath path: String) -> TimeInterval {
+        switch path {
+        case "/context", "/investigate": return 240
+        case "/status": return 20
+        default: return 60
         }
     }
 

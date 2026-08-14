@@ -372,6 +372,189 @@ class McpToolTests(unittest.TestCase):
         )
 
 
+class RequestTimeoutTests(unittest.TestCase):
+    """A slow brain must read as a slow brain, not as a broken adapter.
+
+    Reproduces the live failure recorded in
+    docs/experiments/2026-08-14-dogfood-meilisearch-swift-two-issues.md:
+    `get_task_context` failed twice on meilisearch-swift with
+    `MCP error -32603: Internal error` and no detail. The transcripts
+    (`~/.claude/projects/-Users-alankritghosh-meilisearch-swift/*.jsonl`) time
+    both failures at 61.1s and 60.2s against this module's `timeout=60`, while
+    every call that succeeded that session finished in 2.6-16.1s.
+
+    A socket read timeout surfaces as a bare `TimeoutError`, which `_request`
+    did not catch (`urllib` wraps a CONNECT timeout in `URLError` but lets
+    `getresponse()` raise straight through), so it escaped `handle_message`
+    into `serve`'s catch-all and became a protocol-level -32603 whose only
+    detail went to stderr -- discarded by the client.
+    """
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_a_timeout_is_an_actionable_tool_error_not_an_internal_error(
+            self, open_request, connection):
+        connection.return_value = mcp_server._Connection(
+            base="https://brain.example", token="t", managed=False,
+            expires_at=None)
+        open_request.side_effect = TimeoutError("timed out")
+
+        with self.assertRaises(mcp_server._ToolError) as caught:
+            mcp_server._request("/context", {"task": "add a field"})
+
+        message = str(caught.exception).lower()
+        # Say how long was actually waited -- "Internal error" left the one
+        # user who hit this unable to tell a slow answer from a broken tool.
+        self.assertIn(str(mcp_server._timeout_for("/context")), message)
+        # Name the tool call's own remedy. "Internal error" sent the one user
+        # who hit this to look for a bug in Icarus rather than retry.
+        self.assertIn("retry", message)
+
+    @patch("demo.mcp_server._request")
+    def test_an_investigation_gets_longer_than_a_single_question(self, request):
+        """`/context` runs an investigation; `/ask` runs one writer call.
+
+        Holding both to the same 60s budget is what made the flagship tool the
+        least reliable one: the successful `get_task_context` in the same
+        session took 16.1s, so 60s is inside the normal spread, not beyond it.
+        """
+        self.assertGreater(
+            mcp_server._timeout_for("/context"),
+            mcp_server._timeout_for("/ask"),
+        )
+        self.assertGreaterEqual(mcp_server._timeout_for("/context"), 240)
+        # A status preflight must stay quick -- it is on every tool call.
+        self.assertLessEqual(mcp_server._timeout_for("/status"), 30)
+class RemintRepoBoundaryTests(unittest.TestCase):
+    """A remint must never carry a request into a DIFFERENT repository.
+
+    Raised in review of PR #3. The sequence:
+
+      1. the preflight validates repository A
+      2. the user switches the app to repository B
+      3. `/ask` or `/context` comes back 403 (the grant is repo-bound)
+      4. the transport remints -- getting a session for B -- and resends the
+         ORIGINAL body
+      5. retrieval, the writer and analytics all run against B
+      6. only then does the postflight reject the result
+
+    The wrong answer never reaches the caller, which is why this is not a
+    correctness bug. But work executed inside a repository the caller never
+    asked about, and on a private one that is evidence leaving a boundary that
+    is supposed to be fail-closed. The refusal has to happen BEFORE the retry.
+
+    The check costs no extra request: the agent session already carries its
+    repo, so a remint that lands on a different one is visible immediately.
+    """
+
+    def _connection(self, repo, token="t"):
+        return mcp_server._Connection(
+            base="https://brain.example", token=token, managed=True,
+            expires_at=None, repo=repo)
+
+    def _forbidden(self):
+        return urllib.error.HTTPError(
+            "https://brain.example/ask", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_a_remint_onto_another_repo_refuses_instead_of_retrying(
+            self, open_request, connection):
+        open_request.side_effect = self._forbidden()
+        connection.side_effect = [self._connection("octo/a"),
+                                  self._connection("octo/b")]
+
+        with self.assertRaises(mcp_server._ToolError) as caught:
+            mcp_server._request("/ask", {"question": "why?"})
+
+        self.assertIn("octo/b", str(caught.exception))
+        # The decisive assertion: the body was sent ONCE. A second call here
+        # means the writer ran against the repository nobody asked about.
+        self.assertEqual(open_request.call_count, 1)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_a_remint_onto_the_same_repo_still_retries(
+            self, open_request, connection):
+        """The case the retry exists for -- an expired grant or a restarted
+        server -- must keep working, or this fix costs every legitimate retry.
+        """
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"repo":"octo/a"}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection("octo/a", "stale"),
+                                  self._connection("octo/a", "fresh")]
+
+        payload = mcp_server._request("/ask", {"question": "why?"})
+
+        self.assertEqual(payload, {"repo": "octo/a"})
+        self.assertEqual(open_request.call_count, 2)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_the_status_preflight_may_remint_across_repositories(
+            self, open_request, connection):
+        """The legitimate switch, which the first version of this guard broke.
+
+        When a user deliberately switches A -> B and the next tool call
+        correctly names B, the cached A grant hits /status first and gets 403.
+        Refusing there failed that call outright; the identical call then
+        succeeded on a manual retry because B was cached by then. /status
+        carries no body and asks only what is connected NOW, so reminting
+        across repositories is exactly what it is for.
+        """
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"repo":"octo/b"}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection("octo/a"),
+                                  self._connection("octo/b")]
+
+        self.assertEqual(mcp_server._request("/status"), {"repo": "octo/b"})
+        self.assertEqual(open_request.call_count, 2)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_the_same_repository_in_a_different_case_is_not_a_switch(
+            self, open_request, connection):
+        """GitHub repository names are compared case-insensitively everywhere
+        else here (`_checked_repo`), so casing alone must not read as a move."""
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"ok":true}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection("Octo/Repo"),
+                                  self._connection("octo/repo")]
+
+        self.assertEqual(mcp_server._request("/ask", {"question": "why?"}),
+                         {"ok": True})
+        self.assertEqual(open_request.call_count, 2)
+
+    @patch("demo.mcp_server._connection")
+    @patch("demo.mcp_server._OPENER.open")
+    def test_an_unknown_repo_on_either_side_does_not_block_the_retry(
+            self, open_request, connection):
+        """A dev override carries no repo. Refusing there would break the
+        development path over a comparison that was never available."""
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_a): return False
+            def read(self): return b'{"ok":true}'
+
+        open_request.side_effect = [self._forbidden(), Response()]
+        connection.side_effect = [self._connection(None), self._connection(None)]
+
+        self.assertEqual(mcp_server._request("/ask", {"q": 1}), {"ok": True})
+        self.assertEqual(open_request.call_count, 2)
+
+
 class TransportSecurityTests(unittest.TestCase):
     def test_redirects_are_refused_before_authorization_can_be_forwarded(self):
         original = urllib.request.Request(

@@ -28,6 +28,16 @@ jobs:
         run: |
           python3 -m unittest discover -t . -s evals
           python3 -m unittest discover -t . -s demo
+      # The index is what lets a reader -- human or coding agent -- reference
+      # real names instead of guessing. Unchecked it accumulated three
+      # references to functions that do not exist. Verifies what the index
+      # CLAIMS, never that a module has been written up -- an undocumented
+      # module is reported, not failed. --selftest first, because a checker
+      # that cannot fail is worse than none.
+      - name: detailed_index.md matches the code
+        run: |
+          python3 scripts/check_detailed_index.py --selftest
+          python3 scripts/check_detailed_index.py
 
   swift:
     # macos-15 for its Xcode 16.3+/Swift 6.1 toolchain: the app targets Swift 6
