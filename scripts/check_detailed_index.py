@@ -15,11 +15,17 @@ Each of those would have sent someone to call a function that isn't there.
 `CLAUDE.md` already says to regenerate after any structural change; nothing
 checked, so the instruction quietly stopped being followed.
 
-Three checks, all stdlib, no network:
+Two checks, all stdlib, no network. Both are about what the index ALREADY
+CLAIMS -- neither demands that anything be written:
 
   1. every `## <path>.py` section names a file that exists
   2. every backticked symbol in a section appears in that module's source
-  3. every non-test module under evals/ and demo/ has a section
+
+Deliberately NOT checked: whether every module HAS a section. Requiring one
+would fail the build on every new file until someone wrote prose for it, which
+is a real tax on ordinary work; the count is reported instead, so drift stays
+visible without blocking anyone. Both broken-reference classes this was written
+for are still caught. (Decided 2026-08-15, Alankrit.)
 
 Disclosed limits, so nobody reads a pass as more than it is:
 
@@ -77,16 +83,20 @@ def check(index_text, root=ROOT):
             if symbol not in source:
                 problems.append(f"{path_str}: `{symbol}` is documented but not in the source")
 
+    return problems
+
+
+def coverage(index_text, root=ROOT):
+    """(documented, total) modules. REPORTED, never enforced -- see the module
+    docstring for why requiring a section would tax every new file."""
+    documented = {path for path, _ in _sections(index_text)}
     present = {
         f"{package}/{f.name}"
         for package in PACKAGES
         for f in sorted((root / package).glob("*.py"))
         if not f.name.startswith("test_")
     }
-    for missing in sorted(present - documented):
-        problems.append(f"{missing}: exists but has no section in detailed_index.md")
-
-    return problems
+    return len(documented & present), len(present)
 
 
 def _selftest():
@@ -106,15 +116,18 @@ def _selftest():
         ("invented symbol",
          f"## {real_module}\n- `a_function_nobody_wrote()` — x\n",
          "not in the source"),
-        ("undocumented module",
-         f"## {real_module}\n- `gate()` — x\n",
-         "no section"),
     ]
     failures = []
     for name, text, expected in cases:
         found = check(text)
         if not any(expected in p for p in found):
             failures.append(f"selftest: {name!r} was not detected (got {found[:2]})")
+
+    # The dropped check, pinned as dropped: a module with no section is
+    # REPORTED, never a failure. Without this, "coverage is advisory" would be a
+    # comment rather than a property.
+    if check(f"## {real_module}\n- `gate()` — x\n"):
+        failures.append("selftest: an undocumented module must not fail the build")
 
     # And the converse: the REAL index must pass, or the checker is just noisy.
     if INDEX.exists() and check(INDEX.read_text()):
@@ -142,8 +155,10 @@ def main(argv):
               "structural change). It is what stops an agent citing a function "
               "that does not exist.", file=sys.stderr)
         return 1
-    documented = len(_sections(INDEX.read_text()))
-    print(f"detailed_index.md: {documented} modules, every symbol resolves.")
+    have, total = coverage(INDEX.read_text())
+    note = "" if have == total else f" ({total - have} undocumented, advisory)"
+    print(f"detailed_index.md: {have}/{total} modules documented{note}; "
+          "every symbol resolves.")
     return 0
 
 

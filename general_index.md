@@ -49,16 +49,20 @@ removing, or renaming files). For class/function-level detail see
   hit so it can block a commit/build.
 - `scripts/install_hooks.sh` — one-time wire of `core.hooksPath` → `.githooks`.
 - `scripts/check_detailed_index.py` — CI gate that fails when
-  `detailed_index.md` stops describing the real code: every documented module
-  exists, every backticked symbol appears in that module's source, and every
-  non-test `evals/`/`demo/` module has a section. Written after the index was
-  found documenting 31 of 52 modules plus three functions that do not exist
+  `detailed_index.md` stops describing the real code. TWO checks, both about
+  what the index already CLAIMS: every documented module exists, and every
+  backticked symbol appears in that module's source. Written after the index
+  was found carrying three references to functions that do not exist
   (`_extract_json`, judge.py's `_JSON`, `_checked_public_repo`) — each one an
-  API name an agent would have cited confidently. `--selftest` proves the
-  checker can FAIL before its pass means anything. Disclosed limits: the symbol
-  test is a substring match (catches renames/typos/deletions, not `foo` vs
-  `_foo`), Swift sections are unchecked, and nothing verifies a DESCRIPTION is
-  true — only that the symbol is real.
+  API name an agent would have cited confidently. Whether every module HAS a
+  section is deliberately NOT enforced (2026-08-15, Alankrit): requiring it
+  would fail the build on every new file until someone wrote prose for it, so
+  the count is reported instead and a selftest case pins that an undocumented
+  module does not fail. `--selftest` proves the checker can FAIL before its
+  pass means anything. Disclosed limits: the symbol test is a substring match
+  (catches renames/typos/deletions, not `foo` vs `_foo`), Swift sections are
+  unchecked, and nothing verifies a DESCRIPTION is true — only that the symbol
+  is real.
 - `scripts/private_flow_smoke.py` — manual, leak-safe live smoke of the brain's
   PRIVATE-repo HTTP path (/status→/connect→/ask→/disconnect) the Mac app drives;
   token from `GH_BEARER` env (never argv/logs), repo from `ICARUS_PRIVATE_REPO`.

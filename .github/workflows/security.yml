@@ -29,9 +29,11 @@ jobs:
           python3 -m unittest discover -t . -s evals
           python3 -m unittest discover -t . -s demo
       # The index is what lets a reader -- human or coding agent -- reference
-      # real names instead of guessing. Unchecked it rotted to 31 of 52 modules
-      # and three functions that do not exist. --selftest first, because a
-      # checker that cannot fail is worse than none.
+      # real names instead of guessing. Unchecked it accumulated three
+      # references to functions that do not exist. Verifies what the index
+      # CLAIMS, never that a module has been written up -- an undocumented
+      # module is reported, not failed. --selftest first, because a checker
+      # that cannot fail is worse than none.
       - name: detailed_index.md matches the code
         run: |
           python3 scripts/check_detailed_index.py --selftest
