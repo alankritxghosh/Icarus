@@ -17,8 +17,12 @@ enum AppConfig {
     /// effect on the very next request.
     static let tokenReader: @Sendable () -> String? = { (try? tokenStore.load()) ?? nil }
 
+    /// Backs the Settings "help improve Icarus" toggle (SharePreferences reads
+    /// the same UserDefaults key SettingsView's @AppStorage writes).
+    static let shareContentReader: @Sendable () -> Bool = { SharePreferences().shareContent }
+
     /// An authorized client for the connected brain.
     static func client() -> BrainClient {
-        BrainClient(base: brainBaseURL, token: tokenReader)
+        BrainClient(base: brainBaseURL, token: tokenReader, shareContent: shareContentReader)
     }
 }
