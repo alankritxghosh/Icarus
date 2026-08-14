@@ -228,6 +228,11 @@ class _Connection:
     token: str
     managed: bool
     expires_at: float | None = None
+    # The repository this grant is bound to, as the app reported it. Carried so
+    # a remint that lands somewhere ELSE can be caught before the original
+    # request is resent -- see the 403 branch in `_request`. None whenever it is
+    # not known (a dev override), which never blocks a retry.
+    repo: str | None = None
 
 
 def _validated_base(raw):
@@ -337,6 +342,7 @@ def _connection():
         token=token.strip(),
         managed=True,
         expires_at=expires_at,
+        repo=repo,
     )
     return _cached_agent_session
 
@@ -361,8 +367,36 @@ def _request(path, body=None):
     """Call the Icarus HTTP brain without logging or persisting its token."""
     global _cached_agent_session
 
+    previous_repo = None
     for attempt in range(2):
         connection = _connection()
+        # A retry is only ever meant to replace an EXPIRED grant for the same
+        # repository. If reminting landed on a different one -- the user
+        # switched the app between the preflight and now -- resending the body
+        # would run retrieval, the writer and analytics inside a repository the
+        # caller never asked about, and on a private repo that is evidence
+        # crossing a boundary meant to be fail-closed. Each tool's postflight
+        # catches the wrong ANSWER; this catches the wrong WORK, before it runs.
+        #
+        # Scoped to requests that CARRY A BODY (/ask, /context, /explain).
+        # `/status` has none: it asks what is connected right now, and a
+        # deliberate switch A -> B is precisely when it must be allowed to
+        # remint. Guarding it too failed the user's first correctly-named call
+        # after every intentional switch, which then succeeded on a manual
+        # retry -- found in review.
+        #
+        # Compared case-insensitively, the same way `_checked_repo` and the
+        # rest of this file compare GitHub repository names: `Octo/Repo` and
+        # `octo/repo` are one repository, and refusing on casing alone was a
+        # pure false positive.
+        #
+        # Costs no extra request: the grant already names its repository. An
+        # unknown repo on either side (a dev override) never blocks the retry.
+        if (attempt and body is not None and previous_repo and connection.repo
+                and connection.repo.casefold() != previous_repo.casefold()):
+            raise _ToolError(
+                f"Icarus switched to {connection.repo} while answering about "
+                f"{previous_repo}; retry the request")
         headers = {
             "Accept": "application/json",
             "User-Agent": f"{_SERVER_NAME}/{_SERVER_VERSION}",
@@ -390,6 +424,7 @@ def _request(path, body=None):
             # returned on the second attempt rather than looped over.
             if error.code in (401, 403) and connection.managed and attempt == 0:
                 error.close()
+                previous_repo = connection.repo
                 _cached_agent_session = None
                 continue
             try:

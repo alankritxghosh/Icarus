@@ -76,6 +76,7 @@ enum McpCommand {
     ) -> McpServer.Transport {
         let cache = SessionCache(create: sessionFactory)
         return { path, body in
+            var previousRepo: String?
             for attempt in 0..<2 {
                 let agentSession: AgentSession
                 do {
@@ -91,6 +92,33 @@ enum McpCommand {
                 } catch {
                     throw McpServer.ToolError(
                         "Icarus could not create an agent session. Open the app and try again.")
+                }
+
+                // A retry is only ever meant to replace an EXPIRED grant for
+                // the same repository. If reminting landed on a DIFFERENT one
+                // -- the user switched the app between the preflight and now
+                // -- resending the body would run retrieval, the writer and
+                // analytics inside a repository the caller never asked about,
+                // and on a private repo that is evidence crossing a boundary
+                // meant to be fail-closed. The tool's postflight catches the
+                // wrong ANSWER; this catches the wrong WORK, before it runs.
+                //
+                // Scoped to requests that CARRY A BODY (/ask, /context,
+                // /explain). `/status` has none: it asks what is connected
+                // right now, and a deliberate switch A -> B is exactly when it
+                // must be allowed to remint. Guarding it too failed the user's
+                // first correctly-named call after every intentional switch.
+                //
+                // Compared case-insensitively, as GitHub repository names are
+                // everywhere else here -- refusing `Octo/Repo` -> `octo/repo`
+                // was a pure false positive. Both found in review.
+                //
+                // Costs no extra request: the grant already names its repo.
+                if attempt > 0, body != nil, let previousRepo,
+                   agentSession.repo.caseInsensitiveCompare(previousRepo) != .orderedSame {
+                    throw McpServer.ToolError(
+                        "Icarus switched to \(agentSession.repo) while answering "
+                        + "about \(previousRepo); retry the request.")
                 }
 
                 var request = URLRequest(
@@ -124,6 +152,7 @@ enum McpCommand {
                 // grant before its wall-clock expiry. Remint once, then surface
                 // a real persistent refusal instead of looping.
                 if (code == 401 || code == 403), attempt == 0 {
+                    previousRepo = agentSession.repo
                     await cache.invalidate()
                     continue
                 }
