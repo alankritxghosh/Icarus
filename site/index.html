@@ -301,6 +301,10 @@
     .caret{display:none}
   }
 </style>
+<script>
+  !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.uploadQueue.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+  posthog.init('phc_mFPjv5vcnpZUA7Bgp967YT86vbsvVeDUBx9JDtWiovSL', { api_host: 'https://us.i.posthog.com', person_profiles: 'identified_only' })
+</script>
 </head>
 <body>
 
@@ -331,23 +335,15 @@
     questions about <strong>why</strong> things were built the way they were. Every answer shows the
     evidence it came from. When the reason was never written down, it says so instead of inventing one.
   </p>
-  <p class="eyebrow" id="get-started" style="margin-top:34px">Get started · macOS, Apple Silicon · ~2 minutes</p>
-  <div class="steps" style="margin-top:14px">
-    <div class="step"><div class="n">01</div><h3>Install</h3>
-      <pre style="margin:10px 0 8px">curl -fsSL https://icarus-website-kappa.vercel.app/install.sh | sh</pre>
-      <p>One command. Installs Icarus and, if you have Claude Code, connects it automatically.</p></div>
-    <div class="step"><div class="n">02</div><h3>Sign in</h3>
-      <p>Open Icarus, click "Sign in with GitHub." Asks for your identity only — nothing else, yet.</p></div>
-    <div class="step"><div class="n">03</div><h3>Connect a repo</h3>
-      <p>Type <code>owner/repo</code> and press Connect. Icarus indexes it — seconds to a few minutes.</p></div>
-    <div class="step"><div class="n">04</div><h3>Claude Code — one time</h3>
-      <p>Open Icarus → Settings and click <strong>Connect</strong>. Approve Keychain access if macOS
-      asks. Skip this if you don't use Claude Code.</p></div>
+  <div class="ctarow" style="margin-top:32px">
+    <a class="cta" href="Icarus.dmg" download>&darr; Download for macOS</a>
+    <span class="meta">Apple silicon &middot; ~2352 KB &middot; free alpha</span>
   </div>
-  <div class="ctarow" style="margin-top:20px">
-    <a class="cta" href="Icarus.dmg" download>↓ Or just download the .dmg</a>
-    <span class="meta">~2349 KB · free alpha</span>
-  </div>
+  <p class="meta" style="margin-top:16px;max-width:52ch;line-height:1.8">
+    Apple has not notarized this alpha, so the first launch takes one extra click.
+    Better you hear that here. <a href="#install">Homebrew, the terminal paths,
+    that click, and the checksum</a> are all below.
+  </p>
 
   <!-- Live replay of a REAL exchange. Every string below is verbatim output from
        Icarus answering about psf/requests, a repo it had not seen before. -->
@@ -510,15 +506,28 @@ It is probably still blocked by the support of HTTP/2.0 in `urllib3` — the tra
   </p>
 </section>
 
-<section class="wrap art descent">
+<section class="wrap art descent" id="install">
   <p class="arc">VI · The descent</p>
   <h2>Install</h2>
   <p>
-    Fastest path is <a href="#get-started">the four steps at the top of this page</a>. What follows is
-    the detail behind them: Icarus is not notarized by Apple — notarization requires a paid Developer ID
-    this alpha does not have yet, so macOS cannot vouch for it. Rather than paper over that, every
-    install path is below, along with the checksum, so you can verify what you downloaded yourself.
+    Four steps, about two minutes. Icarus is not notarized by Apple — notarization requires a paid
+    Developer ID this alpha does not have yet, so macOS cannot vouch for it. Rather than paper over
+    that, every install path is below, along with the checksum, so you can verify what you downloaded
+    yourself.
   </p>
+
+  <p class="eyebrow" id="get-started" style="margin-top:28px">Get started &middot; macOS, Apple Silicon &middot; ~2 minutes</p>
+  <div class="steps" style="margin-top:14px">
+    <div class="step"><div class="n">01</div><h3>Install</h3>
+      <p>Download the .dmg below, or use one of the terminal paths that follow.</p></div>
+    <div class="step"><div class="n">02</div><h3>Sign in</h3>
+      <p>Open Icarus, click "Sign in with GitHub." Asks for your identity only — nothing else, yet.</p></div>
+    <div class="step"><div class="n">03</div><h3>Connect a repo</h3>
+      <p>Type <code>owner/repo</code> and press Connect. Icarus indexes it — seconds to a few minutes.</p></div>
+    <div class="step"><div class="n">04</div><h3>Claude Code — one time</h3>
+      <p>Open Icarus → Settings and click <strong>Connect</strong>. Approve Keychain access if macOS
+      asks. Skip this if you don't use Claude Code.</p></div>
+  </div>
 
   <p class="eyebrow" style="margin-top:28px">Terminal — recommended</p>
   <pre>curl -fsSLO https://icarus-website-kappa.vercel.app/install.sh
