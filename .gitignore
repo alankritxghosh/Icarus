@@ -37,3 +37,17 @@ vectors.json
 
 # Per-user corpora (public caches AND private code) — never committed
 data/
+
+# Sales lead pipeline output — prospect corpora (large) and contact details
+outputs/leads/
+
+# Sales/prospect working output — screenshots, logs, spreadsheets of contact
+# details. outputs/growth/ is deliberately NOT ignored: those are drafts the
+# index documents.
+outputs/ui/
+outputs/*/*.xlsx
+outputs/*/*.ndjson
+
+# macOS + Python noise
+.DS_Store
+__pycache__/
