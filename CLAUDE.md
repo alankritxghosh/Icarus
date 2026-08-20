@@ -52,6 +52,41 @@ This index may or may not be up to date — verify before relying on it, and
 **regenerate it after any structural change** (adding/removing/renaming files or
 functions).
 
+## The Obsidian vault (working memory + historical context)
+`~/Documents/Obsidian Vault/Icarus/` is the distilled thinking layer over this
+repo: what was learnt, what was decided and why, what is still open, and what
+content has actually been posted. **Scope is that `Icarus/` folder only** — see
+the hard constraint below.
+
+**Read it for historical context** before work that turns on a past decision, a
+prior failure, or product voice — it answers "why did we settle this" faster
+than grepping `docs/`. Start at `Icarus.md`; it carries the routing table.
+
+| Note | Holds |
+|---|---|
+| `Icarus.md` | Hub + routing rules |
+| `Learning.md` | Reproduced failures and what each cost |
+| `Decision History.md` | Settled calls with reasons; the reversals |
+| `Unknowns.md` | Genuinely open, blocking and not |
+| `Agent Mode.md` | The measured experiments, incl. negative results |
+| `Product Philosophy.md` | The non-negotiable, stated precisely |
+| `X Content.md` | Posted vs drafted, observed voice, what landed |
+| `Ideas.md` | Unbuilt, unowned |
+
+**Write to it when work produces something durable**, in the same pass — route
+by where the item is *actionable*, not where it was found (a learning
+discovered while writing about content still belongs in `Learning.md`). One home
+per item; cross-link, never copy. Answering an Unknown moves it out.
+
+**Direction of truth:** the repo is authoritative for code, plans, and
+experiment write-ups. The vault distils and links out; it never becomes the
+place a technical fact lives first. When they disagree, the repo wins and the
+vault gets corrected.
+
+**Before drafting any X/social post**, read `X Content.md` — voice comes from
+posts that actually went out; *claims* stay governed by the guardrails in
+`outputs/growth/2026-08-12-social-content.md`. Two separate authorities.
+
 ## Product identity
 Icarus is a privacy-first conversational engineering brain a company can buy: it
 learns a company's codebase and the decisions around it, and answers *why*,
@@ -82,7 +117,16 @@ and auditable**. Be precise (and honest) about what that guarantees:
 - Never bluff / break cite-or-unknown.
 - Never capture the screen silently — opt-in and explicit, always.
 - Personal and commercial stay isolated — never read, ingest, or depend on any
-  personal memory system (e.g. anything under `../brain/`).
+  personal memory system (e.g. anything under `../brain/`). **One narrow,
+  deliberate exception (2026-08-17, Alankrit): the `Icarus/` folder of
+  `~/Documents/Obsidian Vault/`**, which is Icarus working memory that happens
+  to live in a personal app. Nothing else in that vault is in scope — do not
+  read, index, or reason from sibling folders or the vault root, and never
+  treat "it's in the vault" as permission. The isolation this protects is
+  *personal notes vs. commercial work*, not *which app stores the file*. This
+  is a READ/WRITE surface for the human-facing record only: it is never
+  ingested into a corpus, never reaches the writer, never touches the honesty
+  gate, and no customer's code or questions are ever written into it.
 - Never train on customer code; discard after each request.
 - One unified cloud, but **per-tenant data isolation** — never pool one company's
   code or decisions with another's; isolated stores + keys per tenant.
@@ -169,11 +213,29 @@ yet. To fight token limits, hallucinations, and context decay:
 
 ## Required workflow
 Before and after every change, follow [docs/WORKFLOWS.md](docs/WORKFLOWS.md):
+- **Open with historical context — READ THE VAULT FIRST, THEN PLAN.** Before
+  writing anything in a session, consult `~/Documents/Obsidian Vault/Icarus/`:
+  **`Work Queue.md` for what must be done** (status, gates, definitions of done),
+  then `Icarus.md` and whichever notes the task touches for what was already
+  learnt, decided, tried, or refused. Then state a plan for the session before
+  producing work. This is not optional and does not scale with task size: the
+  failures it prevents (rebuilding something already deleted, re-deciding
+  something already settled, repeating an approach already measured as failing)
+  are exactly the ones that feel like fresh work. If the vault says nothing about
+  the task, say so and continue.
 - Prove the gap with a failing eval before changing the brain (red → green).
 - Never weaken the eval to pass.
 - Keep edits scoped to the current phase.
 - After changes: run evals/tests, then report files changed, results, risks, and
   the next recommended brick. No success claims without evidence.
+- **Close by writing back — UPDATE THE VAULT.** At the end of a session, or
+  whenever work produces something durable, route it into the right note in the
+  same pass: a reproduced failure and what it cost → `Learning.md`; a settled
+  call and its reason → `Decision History.md`; a question you could not answer →
+  `Unknowns.md`; an email sent or a reply → `Outreach.md`; a post or evidence
+  about what landed → `X Content.md`. One home per item, cross-link never copy,
+  and answering an Unknown moves it out. Say what you wrote. **This is the point
+  of the vault: an unwritten lesson is one someone pays for twice.**
 
 ## Do not build yet (unless a task, tester feedback, or a design partner says so)
 - Data sources beyond GitHub (Slack, Linear, Notion, org-wide ingestion).

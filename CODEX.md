@@ -34,7 +34,10 @@ security, or trust guard merely to reduce line count.
 
 ## Starting a task
 
-1. Read `AGENTS.md`, then `general_index.md`.
+1. Read `AGENTS.md`, then the Obsidian vault
+   (`~/Documents/Obsidian Vault/Icarus/`, start at `Icarus.md`) for what was
+   already learnt, decided, tried, or refused about this task, then
+   `general_index.md`.
 2. Read only the task-relevant docs and code. Use `detailed_index.md` on demand.
 3. Inspect `git status` before editing; assume existing changes belong to
    Alankrit unless proven otherwise.

@@ -95,10 +95,17 @@ for simplicity, model quality, latency, or cost.
 Read only what the task needs, in this order:
 
 1. `AGENTS.md` and, in Codex, `CODEX.md`.
-2. `general_index.md` for the file map.
-3. `docs/VISION.md` and the task-relevant workflow/decision document.
-4. The real implementation and tests—indexes and docs may be stale.
-5. `detailed_index.md` only when class/function discovery needs it.
+2. **`~/Documents/Obsidian Vault/Icarus/` — the live queue and the historical
+   record.** `Work Queue.md` first (what must be done, its gates and definition
+   of done), then `Icarus.md` and the notes the task touches. What was already
+   learnt, decided, tried, or refused. Read it BEFORE the code: the code shows
+   what exists, never what was attempted and abandoned. Plan the session from it
+   before producing work. Local, human-maintained, never ingested into any
+   corpus. If it says nothing about the task, say so and continue.
+3. `general_index.md` for the file map.
+4. `docs/VISION.md` and the task-relevant workflow/decision document.
+5. The real implementation and tests—indexes and docs may be stale.
+6. `detailed_index.md` only when class/function discovery needs it.
 
 If code, docs, indexes, and instructions disagree, name the conflict. Verify
 against code before making an implementation claim; ask Alankrit when the
@@ -116,6 +123,12 @@ Follow `docs/WORKFLOWS.md` before and after every change.
   `detailed_index.md` after adding/removing/renaming indexed classes/functions.
 - After changes, run proportionate verification and report files changed,
   commands/results, remaining risks, and the next smallest brick.
+- **Write the durable part back to the vault before the session ends.** Route by
+  where the item is actionable, not where it was found: reproduced failure →
+  `Learning.md`; settled call + reason → `Decision History.md`; unanswered
+  question → `Unknowns.md`; email/reply → `Outreach.md`; post or what landed →
+  `X Content.md`. One home per item, cross-link never copy, answering an Unknown
+  moves it out. Say what you wrote. An unwritten lesson is paid for twice.
 
 ## Verification commands
 
