@@ -7,6 +7,17 @@ removing, or renaming files). For class/function-level detail see
 
 ## Repo root
 - `CLAUDE.md` — Claude Code's project instructions and working context.
+- `ICARUS.md` — this repository's OWN engineering context, in the convention
+  Icarus proposes: only what cannot be derived from the code. Why the system
+  exists, the constraints, decisions as pointers to `docs/decisions/`, the known
+  unknowns, where context is repeatedly lost, and the highest-value section —
+  what must not be changed casually (the gate's fail-safe direction, the trust
+  interlock, the ledger/visits separation, three-valued unknowns, the frozen
+  eval board). Carries a `last-verified-against:` commit stamp because a stale
+  line here produces a confident, fully cited, wrong answer — the citation
+  resolves, so groundedness passes it. Ingested as ordinary `doc:ICARUS.md`
+  evidence with NO privileged status; where it and the code disagree, the code
+  wins, and Icarus never writes to it.
 - `AGENTS.md` — canonical shared engineering constitution: collaboration rules,
   honesty/trust boundaries, codebase entry path, workflow, and verification.
 - `CODEX.md` — thin Codex-specific adapter covering collaboration style, task
@@ -20,7 +31,8 @@ removing, or renaming files). For class/function-level detail see
   committed `.env.example` is explicitly un-ignored.
 - `.env.example` — committed template (NO real keys) to copy to a gitignored
   `.env`; separates the one serving credential from optional eval-provider keys.
-- `requirements.txt` — the sole Python dependency: `fastembed` (local, free,
+- `requirements.txt` — three lazily-imported dependencies, everything else is
+  stdlib: `fastembed` (local, free,
   offline semantic-retrieval embeddings; ONNX Runtime + tokenizers, no PyTorch). Lazily
   imported, so everything else runs pure-stdlib without it. Install into a venv.
 
@@ -922,6 +934,17 @@ claim. A negative result is kept exactly like a positive one.
   phrasing and closes messy-phrasing recall@5 up to the clean baseline in
   aggregate (same-run boards, gates 100% throughout). Self-skips without
   fastembed/the corpus/comprehension set.
+- `evals/test_doc_evidence_truncation.py` — the doc-evidence truncation found
+  2026-08-21 while dogfooding `ICARUS.md`, written RED before the fix. `doc`
+  chunks were shown to the writer under a 1,500-char cap while
+  code/pr/issue/commit/diff got 10,000 — and `ingest` sizes chunks against
+  10,000, importing that very constant — so a 9,549-char single-chunk file
+  reached the writer at 16%: one section survived, seven were cut, and nothing
+  reported it, because a citation to the surviving 16% resolves and the gate
+  passes it. Three tests are the gap (a doc chunk's tail, the real `ICARUS.md`
+  losing 7 of 8 sections, the two budgets disagreeing); two are guards that must
+  STAY green — a chunk past the cap is still truncated with a visible marker and
+  the code budget is untouched — so the fix can never be "remove the cap".
 - `evals/test_code_answering_gap.py` — regression guard for the two code-answering
   gaps found+fixed 2026-07-13: the gate grounds a code citation the writer
   reformatted (dropped `code:` prefix / display brackets / narrowed a chunk's
