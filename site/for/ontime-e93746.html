@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Icarus on cpvalente/ontime</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--paper:#F7F6F2;--card:#FFF;--ink:#16181D;--muted:#6B7280;--line:#16181D;
+--hair:#E4E2DB;--accent:#2F6BFF;--grounded:#0F7B53;--unknown:#9A6B00;
+--mono:"Berkeley Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);}
+.wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px;}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:18px;margin-bottom:26px;}
+.mark{display:inline-flex;align-items:flex-end;gap:2px;height:22px;}
+.mark i{width:3px;background:var(--ink);border-radius:1px;}
+.mark .b1{height:11px}.mark .b2{height:18px}.mark .stem{height:22px;background:var(--accent)}
+.mark .b4{height:14px}.mark .b5{height:8px}
+h1{font-size:27px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+h1 .repo{font-family:var(--mono);font-size:24px;}
+.sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
+.panel{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:14px 16px;margin:0 0 30px;}
+.panel .row{font:12px var(--mono);margin:0 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+.panel .row:last-child{margin-bottom:0}
+.tag{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 6px;border-radius:3px;flex:none;}
+.tag.ok{background:var(--grounded)}
+.label{font:600 11px var(--sans);letter-spacing:.10em;text-transform:uppercase;margin:0 0 10px;color:var(--muted);}
+details{border:1.5px solid var(--line);border-radius:4px;background:var(--card);
+box-shadow:5px 5px 0 var(--line);margin:0 0 18px;}
+details[data-verdict="unknown"]{background:#FBF7EC}
+summary{cursor:pointer;list-style:none;padding:17px 20px;font-size:17px;font-weight:600;
+display:flex;gap:12px;align-items:flex-start;}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:#EFEEE8}
+details[data-verdict="unknown"] summary:hover{background:#F6EFDF}
+.pill{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;flex:none;
+padding:3px 7px;border-radius:3px;border:1.5px solid var(--grounded);color:var(--grounded);margin-top:3px;}
+.pill.unknown{border-color:var(--unknown);color:var(--unknown)}
+.body{padding:0 20px 20px;border-top:1.5px solid var(--hair);}
+.prose{font-size:17px;line-height:1.6;margin:16px 0 18px;white-space:pre-wrap;}
+.prose code{font-family:var(--mono);font-size:.92em;background:#EFEEE8;padding:1px 5px;border-radius:3px;}
+.hero{font-size:26px;font-weight:650;margin:16px 0 8px;line-height:1.2;}
+.heronote{color:var(--muted);font-size:14px;margin:0 0 16px;max-width:540px;}
+.cites{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:13px;
+border:1.5px solid var(--line);border-radius:4px;padding:5px 10px;background:#fff;
+color:var(--ink);text-decoration:none;}
+.chip:hover{box-shadow:2px 2px 0 var(--accent)}
+.chip .src{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 5px;border-radius:3px;}
+.chip.pr .src{background:var(--accent)}.chip.issue .src{background:var(--unknown)}
+.chip.code .src,.chip.doc .src,.chip.config .src{background:var(--grounded)}
+.chip.commit .src{background:#5B4B8A}
+.searched{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:12px 14px;}
+.searched .k{font:600 11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.searched .v{font-family:var(--mono);font-size:12.5px;margin-top:7px;line-height:1.9;word-break:break-word;}
+.ask{margin-top:34px;border-top:1.5px solid var(--hair);padding-top:26px;}
+.askrow{display:flex;gap:10px;}
+.askrow input{flex:1;padding:13px 15px;border:1.5px solid var(--line);border-radius:4px;
+background:#fff;font-size:16px;font-family:var(--sans);color:var(--muted);}
+.askrow button{padding:13px 22px;border:1.5px solid var(--line);border-radius:4px;
+background:var(--accent);color:#fff;font-weight:650;font-size:15px;box-shadow:3px 3px 0 var(--line);}
+.askrow input:disabled,.askrow button:disabled{opacity:.55}
+.asknote{font-size:14px;color:var(--muted);margin:12px 0 0;}
+footer{margin-top:40px;border-top:1.5px solid var(--hair);padding-top:16px;
+font-size:13px;color:var(--muted);line-height:1.7;}
+@media (max-width:560px){.wrap{padding:28px 16px 70px}h1{font-size:22px}h1 .repo{font-size:18px}}
+</style></head><body><div class="wrap">
+<div class="brand"><span class="mark"><i class="b1"></i><i class="b2"></i><i class="stem"></i><i class="b4"></i><i class="b5"></i></span><span>Icarus</span></div>
+<h1>Icarus, reading <span class="repo">cpvalente/ontime</span></h1>
+<p class="sub">Real questions, answered from your own repository. Every answer links to the
+evidence it used. 10 of 10 were answerable — the rest say so.</p>
+<div class="panel">
+  <div class="row"><span class="tag ok">indexed</span><span>1,575 pr  ·  501 issue  ·  2,193 commit  ·  3,460 code  ·  15 doc  ·  56 config</span></div>
+  <div class="row"><span class="tag">commit</span><span>fb559ed9daff</span></div>
+</div>
+<p class="label">Questions a new contributor would ask</p>
+<details data-verdict="answer"><summary><span class="pill">answered</span><span>What was causing a countToEnd to lead to incorrect expected times?</span></summary><div class="body"><p class="prose">The server incorrectly calculated expected end times by using <code>expectedStart + duration</code> while ignoring the <code>countToEnd</code> property, which caused projected end times to drift significantly when events ran in overtime. Additionally, the system failed to break the link chain after a <code>countToEnd</code> event, leading to further calculation errors.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2108" target="_blank" rel="noopener"><span class="src">pr</span><span>2108</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was the time-linking model inverted so that editing a start stretches the previous event?</span></summary><div class="body"><p class="prose">The model was inverted to change the mental model to &#x27;an event&#x27;s end flows into the next event&#x27;s start,&#x27; replacing the previous system where events were chained forward and start inputs were disabled when linked.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2096" target="_blank" rel="noopener"><span class="src">pr</span><span>2096</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was a self-contained legacy timer viewer added for old browsers?</span></summary><div class="body"><p class="prose">The self-contained legacy timer viewer was added to support browsers that do not support <code>Promise.any</code> and cannot parse the Vite-built React bundle.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2070" target="_blank" rel="noopener"><span class="src">pr</span><span>2070</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was the timer-legacy view not served in desktop distributions?</span></summary><div class="body"><p class="prose">The timer-legacy view was not served in desktop distributions because the electron packaging failed to copy the necessary HTML files, causing a 404 error. Additionally, on Linux, the AppImage mount point contained a hidden directory, and Express&#x27;s sendFile method refused paths with dot-segments by default.</p><p class="label">Evidence</p><div class="cites"><a class="chip commit" href="https://github.com/cpvalente/ontime/commit/5f040092cb065134e7821125e7abb32f8eba00fc" target="_blank" rel="noopener"><span class="src">commit</span><span>5f04009</span></a><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2148" target="_blank" rel="noopener"><span class="src">pr</span><span>2148</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why were storage key conflicts between stages happening?</span></summary><div class="body"><p class="prose">Storage key conflicts occurred because the keys did not differentiate between stages, and the stage differentiation hash was not part of the origin.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/1731" target="_blank" rel="noopener"><span class="src">pr</span><span>1731</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What was the boundary condition bug in applyDelay?</span></summary><div class="body"><p class="prose">The <code>applyDelay</code> function incorrectly used <code>rundown.order.length</code> instead of <code>rundownMetadata.flatEntryOrder.length</code> to determine if a delay entry was the last in the sequence.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/1637" target="_blank" rel="noopener"><span class="src">pr</span><span>1637</span></a><a class="chip commit" href="https://github.com/cpvalente/ontime/commit/b640e0e181145aac14d5b303562362e845af8bda" target="_blank" rel="noopener"><span class="src">commit</span><span>b640e0e</span></a><a class="chip commit" href="https://github.com/cpvalente/ontime/commit/02c30c9681de142540bc48fa96a648b08462a27e" target="_blank" rel="noopener"><span class="src">commit</span><span>02c30c9</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was filename sanitation added to all routes?</span></summary><div class="body"><p class="prose">Filename sanitation was added to all routes to fix an issue where unescaped characters in a filename caused the file load to break.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/1732" target="_blank" rel="noopener"><span class="src">pr</span><span>1732</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why are progress bars interpolated on the client?</span></summary><div class="body"><p class="prose">Progress bars are interpolated on the client to remove a visual lag of approximately one second and ensure the progress fill tracks real time, reaching 100% exactly when the timer hits zero.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2133" target="_blank" rel="noopener"><span class="src">pr</span><span>2133</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was Zod request validation introduced starting with the MCP tools?</span></summary><div class="body"><p class="prose">Zod request validation was introduced to replace hand-written JSON Schema literals that lacked runtime validation, ensuring that tool arguments are parsed and validated before being used in business logic.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/cpvalente/ontime/pull/2146" target="_blank" rel="noopener"><span class="src">pr</span><span>2146</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why is ontime built as a self-hosted server rather than a cloud service?</span></summary><div class="body"><p class="prose">Ontime is built as a node server that can run as a standalone application, which allows it to be hosted on a headless machine for fixed installations in venues or complex systems, or hosted in the cloud as an online service.</p><p class="label">Evidence</p><div class="cites"><a class="chip issue" href="https://github.com/cpvalente/ontime/issues/114" target="_blank" rel="noopener"><span class="src">issue</span><span>114</span></a></div></div></details>
+<div class="ask">
+  <div class="askrow">
+    <input disabled placeholder="Ask something else about cpvalente/ontime…">
+    <button disabled>Ask</button>
+  </div>
+  <p class="asknote">This page is pre-computed, so it opens instantly and costs you nothing.
+  Reply to my email and I&rsquo;ll open a live session against your repo where you can
+  ask it anything.</p>
+</div>
+<footer>
+Answers on this page are unedited output from the same pipeline the product runs —
+retrieve, cite-or-abstain, then a deterministic gate that drops any answer whose citations
+aren&rsquo;t genuinely retrieved. Nothing here was written by hand.<br>
+Your code was read to answer these questions and discarded. It was not used for training.
+</footer>
+</div></body></html>

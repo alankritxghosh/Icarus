@@ -4,3 +4,9 @@ tldraw    https://icarus.alankrit.dev/for/tldraw-fa0166.html
 mockoon   https://icarus-website-kappa.vercel.app/for/mockoon-da269a.html
 letta     https://icarus-website-kappa.vercel.app/for/letta-728562.html
 paseo     https://icarus-website-kappa.vercel.app/for/paseo-43698d.html
+videohub  https://icarus-website-kappa.vercel.app/for/videohub-6113e3.html
+uv        https://icarus-website-kappa.vercel.app/for/uv-5c75f5.html
+ngxgallery https://icarus-website-kappa.vercel.app/for/ngxgallery-6548c6.html
+plyrreact https://icarus-website-kappa.vercel.app/for/plyrreact-7c5f4c.html
+ontime    https://icarus-website-kappa.vercel.app/for/ontime-e93746.html
+rxplayer  https://icarus-website-kappa.vercel.app/for/rxplayer-8d13ad.html
