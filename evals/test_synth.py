@@ -150,31 +150,45 @@ class BuildPromptTests(unittest.TestCase):
         self.assertIn("not a reason to abstain", low)      # messy phrasing != insufficient evidence
 
     def test_truncates_very_long_prose_chunks(self):
-        # doc/config keep the small prose cap.
-        big = Chunk("doc:a.md", "doc", "x" * 5000)
-        self.assertLess(len(build_prompt("q", [big])), 4000)
-
-    def test_pr_issue_discussion_gets_the_larger_budget(self):
-        # A live-fetched PR (body + comments = the "why") must reach the writer,
-        # not be cut at the small prose cap.
+        # Still truncated -- the cap was raised on 2026-08-21, not removed.
+        # (Before that date doc/config kept a separate 1,500-char prose cap;
+        # see evals/test_doc_evidence_truncation.py for why it went.)
         from .synth import _MAX_CHUNK_CHARS
-        pr = Chunk("pr:400", "pr", "x" * 5000)
-        self.assertGreater(len(build_prompt("q", [pr])), _MAX_CHUNK_CHARS + 2000)
+        big = Chunk("doc:a.md", "doc", "x" * (_MAX_CHUNK_CHARS + 5000))
+        self.assertLess(len(build_prompt("q", [big])), _MAX_CHUNK_CHARS + 2000)
 
-    def test_code_chunks_get_a_larger_but_still_bounded_budget(self):
-        # Code chunks get _MAX_CODE_CHUNK_CHARS (so a 300-line window is visible),
-        # more than the prose cap but STILL bounded -- a pathological giant chunk
-        # can't blow the prompt open. Locks the cap so it can't silently balloon.
+    def test_every_source_gets_the_same_budget(self):
+        # A live-fetched PR (body + comments = the "why") must reach the writer,
+        # and so must a real engineering-context doc: both are legitimately
+        # large evidence, and the budget no longer depends on the source.
+        from .synth import _MAX_CHUNK_CHARS
+        body = "x" * 5000
+        lengths = {
+            src: len(build_prompt("q", [Chunk(f"{src}:a", src, body)]))
+            for src in ("pr", "issue", "doc", "config", "code")
+        }
+        for src, n in lengths.items():
+            self.assertGreater(n, 5000, f"{src} evidence was cut below its own size")
+        self.assertLess(max(lengths.values()) - min(lengths.values()), 40,
+                        f"budget still varies by source: {lengths}")
+
+    def test_chunks_get_a_large_but_still_bounded_budget(self):
+        # A 300-line code window is visible, and so is a whole engineering-context
+        # doc, but a pathological giant chunk still cannot blow the prompt open.
+        # Locks the cap so it can't silently balloon.
+        #
+        # This test used to end on `assertGreater(code_len, prose_len)`, proving
+        # code got the larger budget. With one shared budget that comparison is
+        # not merely obsolete, it is VACUOUS: both truncate to the same length
+        # and the only remaining difference is that "code:a.py#L1-L400" is nine
+        # characters longer than "doc:a.md". It passed for that reason alone.
         from .synth import _MAX_CHUNK_CHARS, _MAX_CODE_CHUNK_CHARS
-        oversize = "x" * (_MAX_CODE_CHUNK_CHARS + 5000)   # bigger than the code cap
+        oversize = "x" * (_MAX_CODE_CHUNK_CHARS + 5000)
         code_len = len(build_prompt("q", [Chunk("code:a.py#L1-L400", "code", oversize)]))
         prose_len = len(build_prompt("q", [Chunk("doc:a.md", "doc", oversize)]))
-        # code was truncated to the code cap (not the full oversize length)...
-        self.assertGreater(code_len, _MAX_CODE_CHUNK_CHARS)          # got the larger code budget
-        self.assertLess(code_len, _MAX_CODE_CHUNK_CHARS + 2000)      # but bounded (instruction overhead only)
-        # ...and prose of the SAME size got only the small cap
-        self.assertLess(prose_len, _MAX_CHUNK_CHARS + 2000)
-        self.assertGreater(code_len, prose_len)                     # code budget strictly larger
+        for n in (code_len, prose_len):
+            self.assertGreater(n, _MAX_CHUNK_CHARS)              # the full budget was used
+            self.assertLess(n, _MAX_CHUNK_CHARS + 2000)          # but bounded (instruction overhead)
 
 
 if __name__ == "__main__":

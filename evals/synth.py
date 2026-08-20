@@ -71,7 +71,6 @@ _SELECTION_INSTRUCTION = (
     "does; rules 1-4 still bind, so do not invent a reason it does not state."
 )
 
-_MAX_CHUNK_CHARS = 1500
 # Code chunks are ingested as 300-line windows (evals/ingest.py) -- far larger
 # than a prose PR/issue snippet. Truncating them to _MAX_CHUNK_CHARS hid the
 # answer from the writer whenever it sat past ~40 lines into a window: the chunk
@@ -81,6 +80,25 @@ _MAX_CHUNK_CHARS = 1500
 # a full standard window to the writer while still bounding a pathological
 # whole-file chunk (the committed corpus has code chunks up to ~131k chars).
 _MAX_CODE_CHUNK_CHARS = 10000
+
+# ONE budget for every source since 2026-08-21. `doc`/`config` used to keep a
+# separate 1,500-char prose cap, on the reasoning that a doc snippet is small.
+# A real one is not: this repository's own ICARUS.md is 9,549 chars and a single
+# chunk, so 16% of it reached the writer and seven of its eight sections -- the
+# one the design called highest-value among them -- were cut. Nothing reported
+# the loss, because a citation to the surviving 16% resolves and the gate passes
+# it exactly as it would pass the whole file.
+#
+# The deciding argument is that ingest ALREADY sizes every chunk against
+# _MAX_CODE_CHUNK_CHARS (it imports this constant as _CHUNK_MAX_CHARS), so the
+# two halves disagreed: the ingester emitted whole what the prompt showed in
+# part, and "the retriever can find it" was a different property from "the
+# writer can read it" for doc evidence alone.
+#
+# The cap stays -- raised, not removed, and still leaving a visible "…" -- since
+# an unbounded prompt is a different defect. See
+# evals/test_doc_evidence_truncation.py, written RED before this change.
+_MAX_CHUNK_CHARS = _MAX_CODE_CHUNK_CHARS
 
 
 # Appended to the instruction ONLY when `per_claim=True`. Asks the writer to say,
@@ -159,15 +177,9 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
     blocks = []
     for c in chunks:
         text = c.text.strip()
-        # code AND pr/issue discussion get the larger budget: a live-fetched PR
-        # (title + body + its comments -- the "why") is legitimately large
-        # evidence, and truncating it to the small prose cap hid the discussion
-        # the user actually asked about. doc/config keep the small cap.
-        cap = (_MAX_CODE_CHUNK_CHARS
-               if c.source in ("code", "pr", "issue", "commit", "diff")
-               else _MAX_CHUNK_CHARS)
-        if len(text) > cap:
-            text = text[:cap] + " …"
+        # One budget for every source -- see _MAX_CHUNK_CHARS above.
+        if len(text) > _MAX_CHUNK_CHARS:
+            text = text[:_MAX_CHUNK_CHARS] + " …"
         if c.ref in selected:
             marked_any = True
             blocks.append(f"[{c.ref}]{_SELECTION_MARKER}\n{text}")
@@ -293,10 +305,9 @@ def _evidence_blocks(texts) -> str:
     blocks = []
     for ref, text in texts.items():
         body = (text or "").strip()
-        cap = _MAX_CODE_CHUNK_CHARS if ref.split(":", 1)[0] in (
-            "code", "pr", "issue", "commit", "diff") else _MAX_CHUNK_CHARS
-        if len(body) > cap:
-            body = body[:cap] + " …"
+        # One budget for every source -- see _MAX_CHUNK_CHARS above.
+        if len(body) > _MAX_CHUNK_CHARS:
+            body = body[:_MAX_CHUNK_CHARS] + " …"
         blocks.append(f"[{ref}]\n{body}")
     return "\n\n".join(blocks)
 
