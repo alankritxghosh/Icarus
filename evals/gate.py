@@ -389,6 +389,18 @@ ABSTAIN_MALFORMED_CITATIONS = "malformed_citations"
 ABSTAIN_UNGROUNDED = "ungrounded_citations"    # cited nothing we actually retrieved
 ABSTAIN_ENTITY_ABSENT = "entity_absent"        # guard (c): the named thing isn't here
 ABSTAIN_NO_RECORDED_REASON = "no_recorded_reason"  # guard (b): evidence records no why
+# The writer declined a rationale-seeking question outright, so guard (b) never
+# ran. Deliberately a SEPARATE value from ABSTAIN_NO_RECORDED_REASON: that one
+# is code-PROVEN (the grounded evidence demonstrably records no reason), this
+# one is the writer's semantic judgement, which CLAUDE.md's honesty boundary
+# already describes as writer-reliant. Both are documentation gaps a team can
+# act on; only one of them is provable, and the ledger must be able to say
+# which. Added 2026-08-08 -- before it, every real-world abstention landed on
+# ABSTAIN_WRITER, which the ledger read as "unclear" and therefore NOT
+# actionable, leaving the engineering-memory loop unreachable by the exact
+# journey it was built for (measured: onboarding_probe's first run, 24/70
+# abstentions, all writer_abstained).
+ABSTAIN_WRITER_NO_REASON = "writer_found_no_reason"
 ABSTAIN_SELF_DISCLAIMED = "self_disclaimed"    # guard (d): the prose disclaims knowing
 
 def _entity_is_absent(question, evidence) -> bool:
@@ -422,7 +434,17 @@ def gate(raw: str, retrieved: List[str], question: str = None, evidence: dict = 
         elif _entity_is_absent(question, evidence):
             # The writer declined first, so guard (c) never ran -- but the more
             # informative truth is available and is not "nobody documented it".
+            # Checked BEFORE the rationale case on purpose: a "why" about a
+            # symbol that isn't in the repo is not documentation debt, and
+            # offering to record rationale for code that does not exist would
+            # be worse than saying nothing.
             reason = ABSTAIN_ENTITY_ABSENT
+        elif _seeks_rationale(question):
+            # A why the writer looked at real evidence and declined. Guard (b)
+            # never ran (it only inspects a CLAIMED answer's citations), so
+            # this is the writer's judgement rather than a proof -- hence its
+            # own reason value. See ABSTAIN_WRITER_NO_REASON.
+            reason = ABSTAIN_WRITER_NO_REASON
         else:
             reason = ABSTAIN_WRITER
         return Result(verdict="unknown", abstention_reason=reason)

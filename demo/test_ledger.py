@@ -222,6 +222,27 @@ class MemoryGapLifecycleTests(unittest.TestCase):
 
         self.assertFalse(any(g["actionable"] for g in self.ledger.gaps("o/r")))
 
+    def test_a_writer_declining_a_why_is_recordable_debt(self):
+        """The reason the loop was unreachable in practice until 2026-08-08.
+
+        `writer_found_no_reason` is the writer's own judgement that a
+        rationale-seeking question has no recorded answer -- the ONLY
+        classification real-world abstentions produced (onboarding_probe:
+        24/70, every one of them). It has to be actionable or the whole
+        record-engineering-memory path is dead code. It stays a distinct
+        REASON from the code-proven `no_recorded_reason` so the ledger can
+        still tell proof from judgement.
+        """
+        self.ledger.record(
+            "o/r", question="Why is auth synchronous?", verdict="unknown",
+            reason="writer_found_no_reason",
+        )
+
+        gap = self.ledger.gaps("o/r")[0]
+
+        self.assertTrue(gap["actionable"])
+        self.assertEqual(gap["kind"], "undocumented")
+
     def test_open_filter_excludes_resolved_but_preserves_recurring_counts(self):
         for _ in range(3):
             self.ledger.record(
