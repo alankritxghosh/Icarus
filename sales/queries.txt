@@ -1,0 +1,9 @@
+# One GitHub search query per line. The nightly run takes the least-recently-used.
+# Tight star bands on purpose: search sorts by stars descending, so a wide band
+# returns the most famous repos, which the outreach skill disqualifies anyway.
+language:TypeScript stars:1000..15000 pushed:>2026-06-01 topic:video
+language:TypeScript stars:2000..20000 pushed:>2026-06-01 topic:editor
+language:TypeScript stars:1500..15000 pushed:>2026-06-01 topic:collaboration
+language:TypeScript stars:1000..12000 pushed:>2026-06-01 topic:design-tools
+language:TypeScript stars:2000..20000 pushed:>2026-06-01 topic:canvas
+language:TypeScript stars:1000..15000 pushed:>2026-06-01 topic:developer-tools

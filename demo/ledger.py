@@ -229,7 +229,15 @@ class Ledger:
                     gap["status"] = "open"
                     gap["resolution_citations"] = []
                     gap["proposal"] = None
-                    if reason == "no_recorded_reason":
+                    # Two ways to learn a why was never written down: guard
+                    # (b) PROVED it from the cited evidence, or the writer
+                    # looked and said so. Both are recordable debt; only the
+                    # first is a proof, and the REASON on each entry keeps
+                    # that distinction (see evals/gate.py). Before
+                    # writer_found_no_reason existed, real abstentions all
+                    # landed on "writer_abstained" -> unclear -> not
+                    # actionable, so this loop could never be reached.
+                    if reason in ("no_recorded_reason", "writer_found_no_reason"):
                         gap["kind"] = "undocumented"
                         gap["actionable"] = True
                     elif reason == "entity_absent":

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Icarus on whyboris/Video-Hub-App</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--paper:#F7F6F2;--card:#FFF;--ink:#16181D;--muted:#6B7280;--line:#16181D;
+--hair:#E4E2DB;--accent:#2F6BFF;--grounded:#0F7B53;--unknown:#9A6B00;
+--mono:"Berkeley Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);}
+.wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px;}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:18px;margin-bottom:26px;}
+.mark{display:inline-flex;align-items:flex-end;gap:2px;height:22px;}
+.mark i{width:3px;background:var(--ink);border-radius:1px;}
+.mark .b1{height:11px}.mark .b2{height:18px}.mark .stem{height:22px;background:var(--accent)}
+.mark .b4{height:14px}.mark .b5{height:8px}
+h1{font-size:27px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+h1 .repo{font-family:var(--mono);font-size:24px;}
+.sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
+.panel{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:14px 16px;margin:0 0 30px;}
+.panel .row{font:12px var(--mono);margin:0 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+.panel .row:last-child{margin-bottom:0}
+.tag{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 6px;border-radius:3px;flex:none;}
+.tag.ok{background:var(--grounded)}
+.label{font:600 11px var(--sans);letter-spacing:.10em;text-transform:uppercase;margin:0 0 10px;color:var(--muted);}
+details{border:1.5px solid var(--line);border-radius:4px;background:var(--card);
+box-shadow:5px 5px 0 var(--line);margin:0 0 18px;}
+details[data-verdict="unknown"]{background:#FBF7EC}
+summary{cursor:pointer;list-style:none;padding:17px 20px;font-size:17px;font-weight:600;
+display:flex;gap:12px;align-items:flex-start;}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:#EFEEE8}
+details[data-verdict="unknown"] summary:hover{background:#F6EFDF}
+.pill{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;flex:none;
+padding:3px 7px;border-radius:3px;border:1.5px solid var(--grounded);color:var(--grounded);margin-top:3px;}
+.pill.unknown{border-color:var(--unknown);color:var(--unknown)}
+.body{padding:0 20px 20px;border-top:1.5px solid var(--hair);}
+.prose{font-size:17px;line-height:1.6;margin:16px 0 18px;white-space:pre-wrap;}
+.prose code{font-family:var(--mono);font-size:.92em;background:#EFEEE8;padding:1px 5px;border-radius:3px;}
+.hero{font-size:26px;font-weight:650;margin:16px 0 8px;line-height:1.2;}
+.heronote{color:var(--muted);font-size:14px;margin:0 0 16px;max-width:540px;}
+.cites{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:13px;
+border:1.5px solid var(--line);border-radius:4px;padding:5px 10px;background:#fff;
+color:var(--ink);text-decoration:none;}
+.chip:hover{box-shadow:2px 2px 0 var(--accent)}
+.chip .src{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 5px;border-radius:3px;}
+.chip.pr .src{background:var(--accent)}.chip.issue .src{background:var(--unknown)}
+.chip.code .src,.chip.doc .src,.chip.config .src{background:var(--grounded)}
+.chip.commit .src{background:#5B4B8A}
+.searched{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:12px 14px;}
+.searched .k{font:600 11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.searched .v{font-family:var(--mono);font-size:12.5px;margin-top:7px;line-height:1.9;word-break:break-word;}
+.ask{margin-top:34px;border-top:1.5px solid var(--hair);padding-top:26px;}
+.askrow{display:flex;gap:10px;}
+.askrow input{flex:1;padding:13px 15px;border:1.5px solid var(--line);border-radius:4px;
+background:#fff;font-size:16px;font-family:var(--sans);color:var(--muted);}
+.askrow button{padding:13px 22px;border:1.5px solid var(--line);border-radius:4px;
+background:var(--accent);color:#fff;font-weight:650;font-size:15px;box-shadow:3px 3px 0 var(--line);}
+.askrow input:disabled,.askrow button:disabled{opacity:.55}
+.asknote{font-size:14px;color:var(--muted);margin:12px 0 0;}
+footer{margin-top:40px;border-top:1.5px solid var(--hair);padding-top:16px;
+font-size:13px;color:var(--muted);line-height:1.7;}
+@media (max-width:560px){.wrap{padding:28px 16px 70px}h1{font-size:22px}h1 .repo{font-size:18px}}
+</style></head><body><div class="wrap">
+<div class="brand"><span class="mark"><i class="b1"></i><i class="b2"></i><i class="stem"></i><i class="b4"></i><i class="b5"></i></span><span>Icarus</span></div>
+<h1>Icarus, reading <span class="repo">whyboris/Video-Hub-App</span></h1>
+<p class="sub">Real questions, answered from your own repository. Every answer links to the
+evidence it used. 8 of 10 were answerable — the rest say so.</p>
+<div class="panel">
+  <div class="row"><span class="tag ok">indexed</span><span>547 pr  ·  424 issue  ·  1,779 commit  ·  750 code  ·  11 doc  ·  2 config</span></div>
+  <div class="row"><span class="tag">commit</span><span>dcb3229c549d</span></div>
+</div>
+<p class="label">Questions a new contributor would ask</p>
+<details data-verdict="answer"><summary><span class="pill">answered</span><span>Why does the thumbnail component use an img element instead of a background-image?</span></summary><div class="body"><p class="prose">The thumbnail component uses an <code>img</code> element because <code>background-image</code> often failed to render correctly with wide filmstrips due to how Electron and Chrome handle image rendering. This issue caused thumbnails to appear as empty boxes or flicker when resizing the window.</p><p class="label">Evidence</p><div class="cites"><a class="chip commit" href="https://github.com/whyboris/Video-Hub-App/commit/fcc1a93ed2533461670d35ea07bb334f192dc151" target="_blank" rel="noopener"><span class="src">commit</span><span>fcc1a93</span></a><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/974" target="_blank" rel="noopener"><span class="src">pr</span><span>974</span></a></div></div></details><details data-verdict="unknown"><summary><span class="pill unknown">unknown</span><span>Why was Video Hub App built on Electron rather than as a web app?</span></summary><div class="body"><p class="hero">No one wrote this down.</p><p class="heronote">Icarus found no recorded reason, so it did not invent one. This is the whole point: it answers from evidence or it abstains.</p><div class="searched"><div class="k">What it searched</div><div class="v"></div></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why does the app use birthtimeMs instead of ctimeMs as the file created time?</span></summary><div class="body"><p class="prose">The app uses <code>birthtimeMs</code> because <code>ctime</code> stands for &quot;change time&quot; rather than &quot;created time,&quot; and <code>birthtimeMs</code> is the correct property for file creation time according to Node.js documentation.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/549" target="_blank" rel="noopener"><span class="src">pr</span><span>549</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why does the app hash a subfile rather than the whole video file?</span></summary><div class="body"><p class="prose">The app hashes parts of the file (the beginning, middle, and end) combined with the file size so that the hash is based on the actual content rather than metadata. This allows files to be renamed or moved without losing their thumbnails, ensures the same file with different names uses the same thumbnails, and enables easy duplicate detection.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/98" target="_blank" rel="noopener"><span class="src">pr</span><span>98</span></a><a class="chip issue" href="https://github.com/whyboris/Video-Hub-App/issues/5" target="_blank" rel="noopener"><span class="src">issue</span><span>5</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why were ffmpeg and ffprobe added manually instead of through a package?</span></summary><div class="body"><p class="prose">FFmpeg and ffprobe were added manually to allow for choosing which specific version of FFmpeg to include.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/805" target="_blank" rel="noopener"><span class="src">pr</span><span>805</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was an express transcode server added?</span></summary><div class="body"><p class="prose">The express transcode server was added to support remote functionality.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/611" target="_blank" rel="noopener"><span class="src">pr</span><span>611</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What was causing the window position to be wrong on Windows 10 after maximize, close and reopen?</span></summary><div class="body"><p class="prose">The issue was caused by using <code>getBounds()</code> to save the window position, which included the coordinates of the hidden frame (-8px, -8px) when using a frameless <code>BrowserWindow</code>. This was resolved by switching to <code>getContentBounds()</code> to export the correct coordinates.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/425" target="_blank" rel="noopener"><span class="src">pr</span><span>425</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why did the project replace npm with yarn?</span></summary><div class="body"><p class="prose">The project replaced npm with yarn because yarn behaves better across different execution environments, specifically resolving issues where npm failed to install dependencies like &#x27;fsevents&#x27; in GitHub Actions.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/698" target="_blank" rel="noopener"><span class="src">pr</span><span>698</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What was the reason for releasing off-screen media during autoplay?</span></summary><div class="body"><p class="prose">Releasing off-screen media was implemented to reduce sustained heat and stuttering during gallery autoplay on machines with a finite hardware video-decode pool.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/whyboris/Video-Hub-App/pull/981" target="_blank" rel="noopener"><span class="src">pr</span><span>981</span></a></div></div></details><details data-verdict="unknown"><summary><span class="pill unknown">unknown</span><span>Why is the project called Video Hub App?</span></summary><div class="body"><p class="hero">No one wrote this down.</p><p class="heronote">Icarus found no recorded reason, so it did not invent one. This is the whole point: it answers from evidence or it abstains.</p><div class="searched"><div class="k">What it searched</div><div class="v"></div></div></div></details>
+<div class="ask">
+  <div class="askrow">
+    <input disabled placeholder="Ask something else about whyboris/Video-Hub-App…">
+    <button disabled>Ask</button>
+  </div>
+  <p class="asknote">This page is pre-computed, so it opens instantly and costs you nothing.
+  Reply to my email and I&rsquo;ll open a live session against your repo where you can
+  ask it anything.</p>
+</div>
+<footer>
+Answers on this page are unedited output from the same pipeline the product runs —
+retrieve, cite-or-abstain, then a deterministic gate that drops any answer whose citations
+aren&rsquo;t genuinely retrieved. Nothing here was written by hand.<br>
+Your code was read to answer these questions and discarded. It was not used for training.
+</footer>
+</div></body></html>

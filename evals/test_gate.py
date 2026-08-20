@@ -351,17 +351,62 @@ class WriterAbstentionIsClassifiedTests(unittest.TestCase):
         self.assertEqual(r.verdict, "unknown")
         self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_ENTITY_ABSENT)
 
-    def test_a_writer_abstention_about_a_REAL_thing_is_still_writer_abstained(self):
-        # The thing exists; the writer just had nothing to say. That IS debt.
+    def test_a_writer_abstention_on_a_WHY_is_an_actionable_documentation_gap(self):
+        """The thing exists, the writer looked, and found no recorded reason.
+
+        Changed 2026-08-08. This used to read ABSTAIN_WRITER, which the ledger
+        classified as "unclear" and therefore NOT actionable -- so the
+        engineering-memory loop could never be reached by the journey it was
+        built for. Measured: `evals/onboarding_probe.py`'s first run abstained
+        24/70 times and EVERY abstention was writer_abstained, so in practice
+        no gap was ever recordable.
+
+        A rationale-seeking question the writer declined IS a documentation
+        gap. It stays a SEPARATE value from guard (b)'s ABSTAIN_NO_RECORDED_
+        REASON because that one is code-PROVEN and this one is writer-reliant;
+        collapsing them would overclaim (see CLAUDE.md's honesty boundary).
+        """
         r = gate(json.dumps({"verdict": "unknown"}), ["code:db.py"],
                  question="Why does BTree rebalance eagerly?",
                  evidence={"code:db.py": "class BTree: pass  # rebalance"})
+        self.assertEqual(r.verdict, "unknown")
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER_NO_REASON)
+
+    def test_a_writer_abstention_on_a_NON_why_stays_plain_writer_abstained(self):
+        # The control. Only rationale-seeking questions become recordable gaps;
+        # "what does this do" going unanswered is not documentation debt.
+        r = gate(json.dumps({"verdict": "unknown"}), ["code:db.py"],
+                 question="What does BTree.rebalance return?",
+                 evidence={"code:db.py": "class BTree: pass  # rebalance"})
         self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER)
 
-    def test_a_question_naming_no_identifier_is_unaffected(self):
+    def test_a_missing_symbol_outranks_the_undocumented_why(self):
+        # A why about something that isn't in the repo at all is NOT a
+        # documentation gap -- "nobody wrote this down" would invite recording
+        # rationale for code that does not exist.
+        r = gate(json.dumps({"verdict": "unknown"}), ["code:db.py"],
+                 question="Why does QuantumIndexShard rebalance eagerly?",
+                 evidence={"code:db.py": "class BTree: pass"})
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_ENTITY_ABSENT)
+
+    def test_the_proven_and_writer_reliant_reasons_stay_distinct(self):
+        # If these collapse, the ledger can no longer tell a code-proven
+        # documentation gap from one asserted by the writer.
+        self.assertNotEqual(gate_mod.ABSTAIN_WRITER_NO_REASON,
+                            gate_mod.ABSTAIN_NO_RECORDED_REASON)
+        self.assertNotEqual(gate_mod.ABSTAIN_WRITER_NO_REASON,
+                            gate_mod.ABSTAIN_WRITER)
+
+    def test_a_question_naming_no_identifier_is_never_entity_absent(self):
+        # Guard (c) needs a DISTINCTIVE identifier; "it" is not one, so this
+        # must never be blamed on a missing symbol. (This question is also a
+        # "why", so since 2026-08-08 it lands on the undocumented-gap reason
+        # rather than plain writer_abstained -- asserted exactly, so the two
+        # classifications can't quietly swap.)
         r = gate(json.dumps({"verdict": "unknown"}), [],
                  question="why is it slow?", evidence={"code:a": "x"})
-        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER)
+        self.assertNotEqual(r.abstention_reason, gate_mod.ABSTAIN_ENTITY_ABSENT)
+        self.assertEqual(r.abstention_reason, gate_mod.ABSTAIN_WRITER_NO_REASON)
 
     def test_callers_passing_no_evidence_are_unaffected(self):
         r = gate(json.dumps({"verdict": "unknown"}), [],

@@ -128,6 +128,34 @@ anything about CI here.
 - `docs/DISTRIBUTION.md` — runbook to share Icarus without an Apple Developer ID:
   host the brain on Azure Container Apps (minimal serving secrets + OAuth
   callback), build the DMG, and pass Gatekeeper once; lists alpha tradeoffs.
+- `docs/2026-08-12-x-linkedin-growth-handoff.md` — scoped growth handoff: X
+  content, X/LinkedIn lead-sourcing method, and distribution strategy
+  synthesized from the two failed cold-email batches; now includes the
+  authorized session's completion record and links to the finished growth
+  artifacts. Flags that this work required explicit authorization outside
+  `CODEX.md`'s default quality-enforcement mandate.
+- `docs/2026-08-14-icarus-claude-plugin-handoff.md` — next-session execution
+  handoff for packaging the already-shipped Mac-app MCP connector as a
+  Figma-style Claude Code plugin with focused skills and evals, including the
+  verified release state and the explicit no-unapproved-pipeline-change rule.
+
+## outputs/growth/ (draft growth artifacts, never proof of a send)
+- `outputs/growth/2026-08-12-social-content.md` — approved-scope X and
+  LinkedIn-native post drafts that introduce the full current product for
+  people and coding agents, plus verified demo choice, supporting
+  human-workflow/memory-loop posts, and product-claim guardrails.
+- `outputs/growth/2026-08-12-x-outreach-audit.md` — corrected 50-account X
+  partition, ownership and duplicate-channel findings, and a current-evidence
+  first outreach cohort; no messages sent.
+- `outputs/growth/2026-08-12-linkedin-leads.md` — independent twelve-person
+  LinkedIn engineering-leader batch with verified live profile URLs/headlines,
+  full-product qualification criteria, and explicit pre-contact verification
+  work.
+- `outputs/growth/2026-08-12-distribution-plan.md` — bounded four-week X and
+  LinkedIn sequence from whole-product introduction through human workflows,
+  Agent Mode, investigation evidence, and the reviewed memory loop; includes
+  engagement bounds, qualified-conversation measurement, decision rules, and
+  the HN-as-lead-source recommendation.
 
 ## docs/decisions/
 - `docs/decisions/2026-06-30-unified-cloud-per-tenant-isolation.md` — the hosting
@@ -1671,7 +1699,8 @@ claim. A negative result is kept exactly like a positive one.
   user scope, migrates only the known checkout-only Python adapter, and refuses
   to overwrite an unrelated same-name server.
 - `SettingsView.swift` — native Settings UI for explicit Claude Code
-  install/repair without hand-editing configuration files.
+  install/repair and the user-controlled product-improvement content-sharing
+  preference; both take effect without hand-editing configuration files.
 - `ExtensionBridgeCommand.swift` — one-process/one-request Chrome native host;
   reads the Keychain-backed credential, proxies only `ping`, `status`, and
   `explain`, reports signed-out status honestly, and returns framed JSON without
