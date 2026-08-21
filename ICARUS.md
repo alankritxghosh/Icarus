@@ -79,8 +79,9 @@ several look like ordinary defaults.
   `fastembed` (semantic retrieval) and `tree-sitter` + `tree-sitter-language-pack`
   (AST chunking). All three are imported inside the functions that need them, so
   everything else runs pure-stdlib. Adding a dependency is a decision, not an
-  implementation detail. Note that `general_index.md` still calls `fastembed`
-  "the sole Python dependency" — it has been wrong since `0a76ba7` (2026-07-18).
+  implementation detail. (`general_index.md` called `fastembed` "the sole Python
+  dependency" until 2026-08-21 — wrong since `0a76ba7` on 2026-07-18, and found
+  by writing this file.)
 - **The Mac app is the credential broker** for the MCP surface. Anything
   claiming to work without it needs a credential story first (see the open
   universal-connector question).

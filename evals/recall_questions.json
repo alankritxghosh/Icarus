@@ -1,0 +1,61 @@
+{
+  "_about": [
+    "Description-shaped recall. Every case below is a REAL question asked during",
+    "live dogfooding on 2026-08-21, against a repository Icarus had just indexed,",
+    "and every gold ref was confirmed present in the fixture corpus before being",
+    "written down.",
+    "",
+    "The property under test is NOT honesty. Both live misses abstained or",
+    "answered from lesser evidence rather than bluffing, and the gate never passed",
+    "a false claim. The property is RECALL: an agent about to do work asks in",
+    "prose, never by identifier, so evidence reachable only by number is evidence",
+    "the product cannot deliver on the journey it advertises.",
+    "",
+    "`phrasing` is the axis: `identifier` names the ref outright, `task` describes",
+    "the work in the repository's own vocabulary, `intent` asks what the caller",
+    "actually wants to know and shares no vocabulary with the evidence at all."
+  ],
+  "corpus": "evals/fixtures/recall/sqlite_utils_chunks.jsonl",
+  "cases": [
+    {
+      "id": "r01",
+      "phrasing": "identifier",
+      "question": "What does issue 841 say about rows_where and delete_where?",
+      "gold_refs": ["issue:841"],
+      "expected": "hit",
+      "note": "The control. Exact-identifier lookup is the path measured to work, and it is what makes the misses below a ranking result rather than an ingest result: the evidence is provably in the corpus."
+    },
+    {
+      "id": "r02",
+      "phrasing": "task",
+      "question": "Should I fix rows_where and delete_where to raise an error on a non-existent table?",
+      "gold_refs": ["issue:841"],
+      "expected": "hit",
+      "note": "The question an agent asks before starting the work. Retrieval ranks issue:841 first here -- yet the LIVE brain answered from issue:315 and db.py and never surfaced the maintainer's instruction, so the failure on this case is downstream of retrieval. Kept as a guard: if this ever stops ranking, the harder cases below cannot be diagnosed."
+    },
+    {
+      "id": "r03",
+      "phrasing": "intent",
+      "question": "Is there any work the maintainer has asked contributors not to do?",
+      "gold_refs": ["issue:841"],
+      "expected": "hit",
+      "note": "THE RED CASE. simonw wrote on issue 841: 'So don't let your agent work on this, I'll do this if and when 5 becomes a thing in the future.' Nothing in the code or git log records it. The question shares no vocabulary with the evidence -- no method name, no issue number -- which is exactly how a caller asks when they do not already know the answer."
+    },
+    {
+      "id": "r04",
+      "phrasing": "intent",
+      "question": "Which planned changes are being held back for a future major version?",
+      "gold_refs": ["issue:841"],
+      "expected": "hit",
+      "note": "Same evidence, a second intent-shaped phrasing, so one lucky or unlucky wording cannot decide the measurement. issue:841 states the change is held for v5."
+    },
+    {
+      "id": "r05",
+      "phrasing": "task",
+      "question": "Does delete_where commit its changes in the 3.x series?",
+      "gold_refs": ["issue:815"],
+      "expected": "hit",
+      "note": "A second real case from the same session, with a different gold ref, so the board does not rest on one issue. issue:815 records that the 3.x commit bug is fixed in 4.0 and deserves a dot-release backport."
+    }
+  ]
+}
