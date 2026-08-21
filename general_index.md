@@ -934,6 +934,36 @@ claim. A negative result is kept exactly like a positive one.
   phrasing and closes messy-phrasing recall@5 up to the clean baseline in
   aggregate (same-run boards, gates 100% throughout). Self-skips without
   fastembed/the corpus/comprehension set.
+- `evals/test_description_recall.py` — the description-recall board, from two
+  live misses on 2026-08-21. Measures ONE thing: the rank of a gold ref in the
+  serving retrieval stack (BM25 + local semantic, RRF-fused, behind the query
+  normalizer), never whether the answer then uses it. Cases are tagged by
+  PHRASING — `identifier` names the ref, `task` describes the work in the repo's
+  vocabulary, `intent` shares no vocabulary with the evidence at all — because
+  that axis is the result: identifier and task rank the gold ref **1st**, intent
+  MISSES entirely. Building this corrected the original diagnosis, which had
+  blamed ranking for a case ranking got right. A guard asserts every gold ref is
+  really in the fixture, so a miss can never be read as "never ingested". Prints
+  the board on every run, since rank improves gradually and pass/fail cannot show
+  40th becoming 11th. Self-skips without fastembed.
+- `evals/recall_questions.json` — the five real cases, each gold ref confirmed
+  present before being written down, with the phrasing axis and a note per case
+  explaining what it is for.
+- `evals/fixtures/recall/` — the untrimmed 2,294-chunk `simonw/sqlite-utils`
+  corpus @ `56dd0970` the two boards run against, plus its provenance README and
+  the reason it must stay frozen.
+- `evals/test_writer_uses_evidence.py` — the writer-side board: when retrieval
+  DOES deliver the decisive chunk, does the answer use it? Separate from the
+  recall board because the two fail independently and need opposite fixes.
+  Measures `cited` (deterministic) beside `conveyed` (the existing judge against
+  a reference answer), and the split earned itself immediately: measured
+  2026-08-21, all three cases CITE the gold ref while one fails to convey it —
+  "Yes, the project maintainer intends to update rows_where()…" answering a
+  question whose answer in the cited chunk is *don't*. Every clause true, the
+  citation resolves, the gate passes it, and an agent acts on the first word.
+  A `test_the_evidence_was_retrieved` diagnostic keeps the board honest: if it
+  fails, the failure is retrieval's and belongs in the other board. Live, costs
+  money, self-skips without `GEMINI_PAID_API_KEY`.
 - `evals/test_doc_evidence_truncation.py` — the doc-evidence truncation found
   2026-08-21 while dogfooding `ICARUS.md`, written RED before the fix. `doc`
   chunks were shown to the writer under a 1,500-char cap while

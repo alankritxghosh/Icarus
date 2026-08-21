@@ -1,0 +1,17 @@
+{
+  "repo": "simonw/sqlite-utils",
+  "commit": "56dd09702fdb9e899f577ffd51693c1f2176cb08",
+  "code_dir": ".",
+  "counts": {
+    "pr": 250,
+    "issue": 590,
+    "commit": 1199,
+    "config": 13,
+    "code": 154,
+    "doc": 88
+  },
+  "chunking": "chunk_text",
+  "corpus_version": 4,
+  "truncated": false,
+  "generated_at": "2026-08-21T12:55:48.981896+00:00"
+}
