@@ -193,3 +193,48 @@ class BuildPromptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DecisionShapedQuestionTests(unittest.TestCase):
+    """The 2026-08-21 writer inversion: a question asking whether to DO something,
+    answered with the state of the topic instead. See
+    evals/test_writer_uses_evidence.py for the live case."""
+
+    def test_detector_fires_on_asking_permission(self):
+        from .synth import seeks_decision
+        for q in ("Should I fix rows_where and delete_where?",
+                  "should we backport this to 3.x?",
+                  "Is it safe to change how delete_where handles a missing table?",
+                  "Can I remove this flag?",
+                  "Do we need to update the Dockerfile pin?",
+                  "Is there any reason not to merge this?"):
+            self.assertTrue(seeks_decision(q), q)
+
+    def test_detector_ignores_questions_about_what_is_true(self):
+        """A false positive changes the emphasis of an answer that did not need
+        it, so the patterns require an explicit actor rather than the mere word
+        'should' -- including when the EVIDENCE-style prose contains it."""
+        from .synth import seeks_decision
+        for q in ("Why is the redirect limit 30?",
+                  "What does delete_where do?",
+                  "Does delete_where commit its changes in the 3.x series?",
+                  "The docs say you should install it first",
+                  "What should the timeout be set to in production?",
+                  None, ""):
+            self.assertFalse(seeks_decision(q), repr(q))
+
+    def test_prompt_is_byte_identical_for_every_other_question(self):
+        """The guarantee that keeps the eval board comparable across this change,
+        the same one `selection` and `audience` carry."""
+        chunk = Chunk("pr:1", "pr", "some evidence")
+        before = build_prompt("Why is the redirect limit 30?", [chunk])
+        self.assertNotIn("asks whether to DO something", before)
+
+    def test_decision_prompt_names_the_failure_it_exists_to_stop(self):
+        """An unexplained rule is inert -- the writer has to be told that a plan
+        to do something later is not permission to do it now, because that is
+        exactly the inference the live failure made."""
+        chunk = Chunk("issue:841", "issue", "some evidence")
+        prompt = build_prompt("Should I fix rows_where and delete_where?", [chunk])
+        self.assertIn("asks whether to DO something", prompt)
+        self.assertIn("not permission to make it now", prompt)
