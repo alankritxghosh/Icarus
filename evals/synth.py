@@ -6,6 +6,7 @@ answer with the refs it relied on, or an explicit unknown. The deterministic
 gate (evals/gate.py) enforces this afterwards; the prompt just asks for it.
 """
 
+import re
 from typing import List
 
 from .corpus import Chunk
@@ -61,6 +62,60 @@ _AUDIENCE_INSTRUCTIONS = {
         "evidence does not support an answer."
     ),
 }
+
+# --- decision-shaped questions -------------------------------------------------
+# "Should I fix X?" is not "what is the state of X?", and answering the second
+# while the caller asked the first is how a true summary becomes a wrong
+# instruction. Measured 2026-08-21 on simonw/sqlite-utils issue 841, which
+# carries the maintainer comment "So don't let your agent work on this, I'll do
+# this if and when 5 becomes a thing in the future." Retrieval ranked it FIRST
+# and the writer cited it, then answered:
+#
+#   "Yes, the project maintainer intends to update rows_where() and
+#    delete_where() to raise an error when called on a non-existent table,
+#    though this change is being held for a future v5 release..."
+#
+# Every clause true, the citation resolves, the honesty gate passes it -- and it
+# opens with "Yes" to a question whose answer in that very chunk is don't. An
+# agent acts on the first word. See evals/test_writer_uses_evidence.py.
+#
+# Deliberately a QUESTION-SHAPE trigger, not a general rule: adding this to
+# every prompt would change the wording of every answer on the board to fix a
+# case that only arises when the caller is asking permission to act.
+_SEEKS_DECISION = re.compile(
+    r"(?:^|\b)(?:should|shall)\s+(?:i|we|they|it|one)\b"
+    r"|\b(?:can|could|may)\s+(?:i|we)\b"
+    r"|\bis\s+it\s+(?:safe|ok|okay|fine|wise|worth|advisable)\b"
+    r"|\b(?:do|does)\s+(?:i|we)\s+need\s+to\b"
+    r"|\bwould\s+it\s+be\s+(?:safe|ok|okay|fine|wise|worth)\b"
+    r"|\b(?:is|are)\s+there\s+any\s+reason\s+not\s+to\b",
+    re.I,
+)
+
+
+def seeks_decision(question) -> bool:
+    """Is the caller asking whether to DO something, rather than what is true?
+
+    Deterministic and deliberately narrow. A false negative costs the old
+    behaviour; a false positive changes an answer's emphasis on a question that
+    did not need it, so the patterns require an explicit actor ("should I",
+    "can we") rather than matching the word "should" anywhere.
+    """
+    return isinstance(question, str) and _SEEKS_DECISION.search(question) is not None
+
+
+_DECISION_INSTRUCTION = (
+    "This question asks whether to DO something, so answer the decision, not the "
+    "topic. Lead with what the evidence indicates about doing it.\n"
+    "If any evidence records a decision, an instruction, a deferral, or a request "
+    "concerning this work -- including one addressed to contributors or to agents "
+    "-- state that FIRST and in plain words, before describing what the change "
+    "would be. An intention to make a change eventually is not permission to make "
+    "it now, and a plan to do it later is a reason to say so rather than a reason "
+    "to agree. If the evidence records nothing either way, say that the evidence "
+    "does not settle it rather than inferring approval from the change being "
+    "described or wanted."
+)
 
 _SELECTION_INSTRUCTION = (
     "The user selected the evidence marked above as their subject. Answer about "
@@ -204,6 +259,11 @@ def build_prompt(question: str, chunks: List[Chunk], notes=None, selection=None,
     # unchanged, which is what keeps /ask and the eval board untouched.
     if marked_any:
         prompt += "\n\n" + _SELECTION_INSTRUCTION
+    # Only for decision-shaped questions -- every other prompt stays
+    # BYTE-IDENTICAL, the same guarantee `selection` and `audience` carry, and
+    # what keeps the eval board comparable across this change.
+    if seeks_decision(question):
+        prompt += "\n\n" + _DECISION_INSTRUCTION
     if audience in _AUDIENCE_INSTRUCTIONS:
         prompt += "\n\n" + _AUDIENCE_INSTRUCTIONS[audience]
     return prompt
