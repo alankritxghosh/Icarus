@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Icarus — answers why your codebase is the way it is</title>
 <!-- The mark: spread wings rising from a downward V. Inline as a data URI so the
-     page keeps making ZERO external requests. The same geometry is drawn in Core
+     page makes no request to load. (Since 2026-08-23 there is exactly one
+     network call on the whole page, to /api/ask, and only when a visitor presses
+     Ask. Nothing is fetched on load.) The same geometry is drawn in Core
      Graphics by mac/Icarus/Sources/Icarus/IconArt.swift (Dock icon, menu bar,
      sidebar, and the browser-extension PNGs); one wing is defined and mirrored.
      If a parameter changes there, regenerate this path — they cannot be diffed. -->
@@ -318,6 +320,34 @@
      always the side the artwork is on, never the side the text is on.
      background-position picks WHICH detail of the plate you get, so four files
      carry seven bands. */
+
+  /* The anonymous try box. Added 2026-08-23 so a stranger can see an answer and
+     an honest unknown before being asked for anything. Same-origin POST to
+     /api/ask, which vercel.json rewrites onto the brain, so there is no CORS
+     path and the brain's hostname is not the thing people copy around. */
+  .try{margin-top:34px;max-width:60ch}
+  .tryrow{display:flex;gap:10px;margin-top:10px}
+  .tryrow input{flex:1;min-width:0;background:var(--card);border:1px solid var(--hair);
+    color:var(--ink);font:15px/1.5 var(--sans);padding:13px 15px;border-radius:9px}
+  .tryrow input:focus{outline:none;border-color:var(--signal)}
+  .tryrow button{background:var(--ink);color:var(--paper);border:0;border-radius:9px;
+    font:600 15px var(--sans);padding:13px 22px;cursor:pointer}
+  .tryrow button[disabled]{opacity:.45;cursor:default}
+  .egs{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .eg{background:none;border:1px solid var(--hair);color:var(--muted);border-radius:20px;
+    font:12px/1.4 var(--sans);padding:7px 13px;cursor:pointer;text-align:left;max-width:100%}
+  .eg:hover{border-color:var(--signal);color:var(--ink)}
+  #out{margin-top:18px;border-radius:11px;padding:17px 19px;font:15px/1.65 var(--sans)}
+  #out.answer{background:var(--cited-bg);border:1px solid rgba(111,211,168,.34)}
+  #out.unknown{background:var(--unknown-bg);border:1px solid rgba(224,162,60,.34)}
+  #out.err{background:var(--card);border:1px solid var(--hair);color:var(--muted)}
+  #out .verdict{font:600 11px var(--mono);letter-spacing:.09em;text-transform:uppercase;
+    display:block;margin-bottom:9px}
+  #out.answer .verdict{color:var(--cited)} #out.unknown .verdict{color:var(--unknown)}
+  #out .cites{margin-top:13px;display:flex;flex-wrap:wrap;gap:7px}
+  #out .cites a{font:12px var(--mono);color:var(--signal);text-decoration:none;
+    border:1px solid var(--hair);border-radius:6px;padding:4px 9px}
+
   .sun::before     {--fx:82%;--fy:22%;background-image:url("art/icarus-flight.jpg");
                     background-position:46% 4%}
   .wings::before   {--fx:86%;--fy:38%;background-image:url("art/icarus-wings.jpg");
@@ -421,6 +451,21 @@
     pull requests and issues, shows the evidence, and says <strong>"no one wrote this down"</strong>
     when nobody did.
   </p>
+
+  <div class="try" id="try">
+    <label class="meta" for="q">Ask it something about <code>simonw/llm</code>, indexed here: 526 pull requests, 964 issues, 1,091 commits, 470 code windows. No sign-in.</label>
+    <div class="tryrow">
+      <input id="q" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Why did llm implement the Responses API as a new model class?" />
+      <button id="askbtn" type="button">Ask</button>
+    </div>
+    <div class="egs">
+      <button class="eg" type="button">Why did llm implement the OpenAI Responses API as a new model class instead of modifying the existing one?</button>
+      <button class="eg" type="button">What concrete use case drove the PauseChain primitive in llm?</button>
+      <button class="eg" type="button">Why is the maximum conversation-name length set to 32 characters specifically?</button>
+    </div>
+    <div id="out" hidden></div>
+  </div>
   <div class="ctarow" style="margin-top:32px">
     <a class="cta" href="Icarus.dmg" download>&darr; Download for macOS</a>
     <span class="meta">Apple silicon &middot; ~2352 KB &middot; free alpha</span>
@@ -752,6 +797,64 @@ xattr -dr com.apple.quarantine /Applications/Icarus.app</pre>
 </footer>
 
 <script>
+// The try box. One request, on click only. Deliberately renders the honest
+// unknown as prominently as an answer: the refusal is the product, and a demo
+// that only ever shows the happy path is selling something else.
+(function () {
+  var q = document.getElementById("q"), btn = document.getElementById("askbtn"),
+      out = document.getElementById("out");
+  if (!q || !btn || !out) return;
+  function show(cls, verdict, text, cites) {
+    out.hidden = false; out.className = cls;
+    out.textContent = "";
+    var v = document.createElement("span"); v.className = "verdict"; v.textContent = verdict;
+    out.appendChild(v);
+    var p = document.createElement("div"); p.textContent = text; out.appendChild(p);
+    if (cites && cites.length) {
+      var row = document.createElement("div"); row.className = "cites";
+      cites.forEach(function (c) {
+        var el = c.url ? document.createElement("a") : document.createElement("span");
+        if (c.url) { el.href = c.url; el.target = "_blank"; el.rel = "noopener noreferrer"; }
+        el.textContent = c.ref || String(c);
+        row.appendChild(el);
+      });
+      out.appendChild(row);
+    }
+  }
+  function ask() {
+    var text = (q.value || "").trim();
+    if (!text) return;
+    btn.disabled = true; btn.textContent = "Reading";
+    show("err", "working", "Retrieving evidence from the repository.", null);
+    fetch("/api/ask", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: text })
+    }).then(function (r) {
+      return r.json().then(function (b) { return { status: r.status, body: b }; });
+    }).then(function (res) {
+      var b = res.body || {};
+      if (res.status === 429) {
+        show("err", "at capacity", "The public demo has hit its hourly limit. It is capped on purpose, because every answer costs money. Download the app to keep going.", null);
+      } else if (res.status !== 200) {
+        show("err", "unavailable", b.error || "The brain did not answer. Try again shortly.", null);
+      } else if (b.verdict === "answer") {
+        show("answer", "answered, with citations", b.answer, b.citations);
+      } else {
+        show("unknown", "no one wrote this down", "Icarus found the code but no recorded reason, so it will not invent one. This is the refusal working, not a failure.", b.citations);
+      }
+    }).catch(function () {
+      show("err", "unavailable", "Could not reach the brain from this browser.", null);
+    }).then(function () {
+      btn.disabled = false; btn.textContent = "Ask";
+    });
+  }
+  btn.addEventListener("click", ask);
+  q.addEventListener("keydown", function (e) { if (e.key === "Enter") ask(); });
+  Array.prototype.forEach.call(document.querySelectorAll(".eg"), function (b) {
+    b.addEventListener("click", function () { q.value = b.textContent.trim(); ask(); });
+  });
+})();
+
 (function () {
   "use strict";
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

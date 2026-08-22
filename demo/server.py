@@ -146,7 +146,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  commits_since=None, agent_sessions=None, agent_repo_info=None,
                  agent_session_limiter=None, memory_writer=None,
                  memory_limiter=None, conversations=None, entity_index=None,
-                 investigate_limiter=None):
+                 investigate_limiter=None, public_demo: bool = False,
+                 demo_limiter=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -223,6 +224,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     # 30 investigations a minute is ~300 provider calls, not 30. Its own, much
     # smaller allowance keeps the billed rate in the same place /ask puts it.
     investigate_limiter = investigate_limiter or RateLimiter(3, 60)   # 3/min
+    # ONE global bucket for every anonymous demo caller. Not per-identity,
+    # because the whole point is that there is no identity: a per-caller
+    # limiter keyed on nothing would be an unbounded budget, and every ask
+    # here spends real money at the writer. This is the cost ceiling on a
+    # front-page day, so it is meant to be tuned deliberately rather than
+    # left generous like the authenticated limits above.
+    demo_limiter = demo_limiter or RateLimiter(
+        int(os.environ.get("ICARUS_DEMO_ASKS_PER_HOUR", "300")), 3600)
 
     if entity_index is None:
         # The relationship index an investigation traverses. Derived from the
@@ -303,8 +312,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             # else is GitHub-authenticated the same way, so a client-supplied
             # header is what tells the Mac app apart from the extension; a
             # caller that sends neither (the plain web demo) is "web".
-            surface = "mcp" if kind == "agent" else (
-                self.headers.get("X-Icarus-Client") or "web")
+            # public_demo is its own surface, never "web". An anonymous
+            # stranger trying one question and a signed-in engineer asking about
+            # their own repo are different events, and a launch day would
+            # otherwise bury the second inside the first.
+            if getattr(self, "_demo_request", False):
+                surface = "public_demo"
+            else:
+                surface = "mcp" if kind == "agent" else (
+                    self.headers.get("X-Icarus-Client") or "web")
             repo = obj.get("repo") if isinstance(obj, dict) else None
             properties = {
                 "surface": surface,
@@ -377,7 +393,20 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             In cloud mode (allowed_hosts contains '*') this check is skipped: the
             platform terminates TLS on a hostname we don't control, and /ask +
             /connect are already gated by the GitHub bearer token — which a cross-
-            site script cannot forge — so the Host/Origin guard adds nothing."""
+            site script cannot forge — so the Host/Origin guard adds nothing.
+
+            THAT REASONING IS NARROWER SINCE `public_demo` (2026-08-23). With the
+            anonymous demo on, /ask no longer requires a bearer, so a script on
+            any site CAN drive it cross-origin and there is no Origin check left
+            to stop it. What contains that is deliberately NOT this guard:
+            - it is read-only, and only ever against the built-in public repo,
+              so no private corpus, identity or credential is reachable;
+            - the cost is bounded by ONE global `demo_limiter` bucket, which is
+              the actual ceiling on a hostile caller and on a front-page day
+              alike.
+            The exposure that remains is somebody burning the public demo's
+            budget so real visitors see 429. Accepted for a launch; the fix if
+            it happens is to turn `public_demo` off, which costs nothing else."""
             if wildcard:
                 return True
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0]
@@ -747,7 +776,24 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 )
                 return
             identity = self._identity()
-            if identity is None:
+            if (identity is None and public_demo and self.path == "/ask"
+                    and bearer_token(self.headers) is None):
+                # The anonymous public demo. One question, no login, and only
+                # ever the built-in repo: identity stays None, so
+                # registry.library_for(None) returns the SHARED anonymous
+                # library, which starts on the default repo and cannot be moved
+                # off it because /connect is not opened here.
+                #
+                # Gated on there being NO credential at all rather than on a
+                # failed one. A wrong or expired token must keep failing loudly;
+                # silently downgrading it into the shared demo would answer a
+                # signed-in caller's question about THEIR repo from somebody
+                # else's index.
+                if not demo_limiter.allow("public"):
+                    self._send_json(429, {"error": "the public demo is at its limit right now. Sign in with GitHub to keep going."})
+                    return
+                self._demo_request = True
+            elif identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
             if self._principal()[1] == "agent" and self.path not in ("/ask", "/explain", "/context"):
@@ -995,7 +1041,8 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     posthog_capture.capture("$ai_generation", identity_for_ai, ai_properties)
                 except Exception as e:
                     print(f"posthog $ai_generation capture failed: {type(e).__name__}: {e}", file=sys.stderr)
-                if ledger is not None and not include_evidence:
+                if (ledger is not None and not include_evidence
+                        and not getattr(self, "_demo_request", False)):
                     # Recorded against the REPO, and deliberately WITHOUT the
                     # asking identity -- a map of what the organisation never
                     # wrote down, not a record of who asked what. Never allowed
@@ -1571,9 +1618,14 @@ def serve(host: str = None, port: int = None):
     # through STAGE 1 and embed in the background (see make_handler's use). Only
     # meaningful together with sync_connect.
     background_upgrade = bool(os.environ.get("ICARUS_BACKGROUND_UPGRADE"))
+    # Anonymous, read-only, default-repo-only /ask. OFF unless asked for:
+    # every deployment that does not set this keeps the pre-2026-08-23
+    # behaviour, where /ask always required a GitHub bearer.
+    public_demo = bool(os.environ.get("ICARUS_PUBLIC_DEMO"))
     handler = make_handler(registry, str(INDEX_HTML), require_auth=require_auth,
                            verifier=verifier, oauth=oauth, allowed_hosts=allowed_hosts,
                            sync_connect=sync_connect, background_upgrade=background_upgrade,
+                           public_demo=public_demo,
                            access_verifier=access_verifier, default_repo=default_repo,
                            ledger=ledger, freshness=FreshnessChecker(),
                            agent_sessions=agent_sessions,
