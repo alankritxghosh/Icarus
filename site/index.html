@@ -456,11 +456,16 @@
     <label class="meta" for="q">Ask it something about <code>simonw/llm</code>, indexed here: 526 pull requests, 964 issues, 1,091 commits, 470 code windows. No sign-in.</label>
     <div class="tryrow">
       <input id="q" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Why did llm implement the Responses API as a new model class?" />
+             placeholder="Why was hide_reasoning added when -R already existed?" />
       <button id="askbtn" type="button">Ask</button>
     </div>
     <div class="egs">
-      <button class="eg" type="button">Why did llm implement the OpenAI Responses API as a new model class instead of modifying the existing one?</button>
+      <!-- Every question here is verified against PRODUCTION, not a laptop.
+           The first draft led with a Responses API question that answered
+           locally and abstained live, because the deployed index does not
+           retrieve pr:1435 for that phrasing. The gate was right to refuse;
+           the example was wrong. Re-verify these after any re-ingest. -->
+      <button class="eg" type="button">Why was a new hide_reasoning parameter added when there was already a -R/--no-reasoning option?</button>
       <button class="eg" type="button">What concrete use case drove the PauseChain primitive in llm?</button>
       <button class="eg" type="button">Why is the maximum conversation-name length set to 32 characters specifically?</button>
     </div>
