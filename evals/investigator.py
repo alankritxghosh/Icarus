@@ -31,6 +31,7 @@ passed a weaker check than `/ask` applies.
 """
 
 import json
+import re
 from typing import List, Optional
 
 from .gate import extract_json, gate
@@ -96,6 +97,59 @@ _STEP_SCHEMA = {
     "trace": {"required": ("ref", "edge"), "optional": ()},
     "compare": {"required": ("pr",), "optional": ()},
 }
+
+
+
+# Model-proposed unknowns accumulate across rounds, and each round proposes
+# without being shown what earlier rounds already said, so the list restates
+# itself. The exact-match guard this replaces caught only byte-identical
+# repeats. Measured live on world-model-mcp 2026-08-24: 19 unknowns, of which
+# FIVE were phrasings of "where is the evidence_type -> decay-window mapping
+# defined" -- while a chunk the same package CITED contained `EVIDENCE_TTL_DAYS`
+# (docs/experiments/2026-08-24-agent-mode-matched-pair-results.md). It also got
+# WORSE with better retrieval: 12 unknowns lexical-only, 19 once semantic
+# retrieval was live.
+#
+# Jaccard over word sets, and deliberately NOT a similarity score against
+# evidence: this compares unknowns to EACH OTHER, so it is a property of the
+# list alone and has nothing to be anti-correlated with. That distinction is
+# what separates it from the deleted `evals/attribution.py`
+# (docs/experiments/2026-08-10-quotation-vs-composition-negative-result.md).
+#
+# THRESHOLD FROM MEASUREMENT, and no stopword list -- measured as unnecessary
+# (removing stopwords changed nothing that mattered and caught strictly less).
+# Genuinely distinct unknowns drawn from the SAME run score 0.00-0.06 against
+# each other; restatements score 0.55-0.88. The gap is wide enough that the
+# exact value carries little weight, but the final pick was made by READING the
+# output at each setting, not by the number: at 0.20 the sweep starts dropping
+# real questions ("whether adding a new evidence_type requires modifications to
+# files other than decay.py"), and at 0.35 three phrasings of the decay-mapping
+# question still survive. At 0.25 every drop is a true restatement.
+# On the recorded 20-unknown list: 20 -> 10.
+_UNKNOWN_DUP_THRESHOLD = 0.25
+_UNKNOWN_WORD = re.compile(r"[a-z_]+")
+
+
+def _restates_a_known_unknown(text: str, existing) -> bool:
+    """Is `text` a repeat, or a rephrasing, of something already recorded?
+
+    Applied ONLY to model-proposed unknowns. Deterministic probe notes keep the
+    exact-match guard on purpose: measured, two trace notes differing only in
+    which ref or edge found nothing score 0.44-0.80 against each other, so
+    deduping them would silently merge findings about DIFFERENT parts of the
+    repository into one. Prose restates itself; a factual note about another ref
+    is not a restatement, it is another fact.
+    """
+    words = {w for w in _UNKNOWN_WORD.findall(text.lower()) if len(w) > 2}
+    if not words:
+        return text in existing
+    for other in existing:
+        seen = {w for w in _UNKNOWN_WORD.findall(other.lower()) if len(w) > 2}
+        if not seen:
+            continue
+        if len(words & seen) / len(words | seen) >= _UNKNOWN_DUP_THRESHOLD:
+            return True
+    return False
 
 
 def _clip_to_budget(out, remaining: int) -> int:
@@ -294,7 +348,7 @@ def _read(inv: Investigation, provider, texts, note, counter) -> None:
                             verified=True))
     for unknown in unknowns[:5]:
         if isinstance(unknown, str) and unknown.strip() \
-                and unknown.strip() not in inv.unknowns:
+                and not _restates_a_known_unknown(unknown.strip(), inv.unknowns):
             inv.unknowns.append(unknown.strip())
 
 

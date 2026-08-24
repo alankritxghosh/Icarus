@@ -853,6 +853,18 @@ claim. A negative result is kept exactly like a positive one.
   live over 60 `meilisearch-swift` PRs: of 11 closed-unmerged, 6
   `review_required`, 3 `approved`, only 2 `changes_requested` carrying
   evidence of a reviewer pushing back.
+  **A closed PR that a MERGED one says it REPLACES is not reported**
+  (2026-08-24, `_superseded_numbers`): measured live on world-model-mcp, where
+  `pr:23` was auto-closed by GitHub when its base branch `#22` merged and was
+  deleted and the same work landed as `pr:24`, whose body says "Replaces #23" —
+  so one payload said "replaced and shipped" in prose and "tried and refused" in
+  the field a client renders. Reads one sentence a DIFFERENT, merged pull
+  request wrote about itself, so it still never judges WHY anything closed.
+  Honoured only from a `[MERGED ` header, since body text is author-controlled
+  (the same threat `_REVIEW_IN_HEADER` hardened against); with no successor in
+  evidence nothing is inferred and the attempt is reported as before.
+  `unlanded_prs` is deliberately UNCHANGED — `pr:23` genuinely never landed.
+  Pinned by `evals/test_rejection_conflation.py`.
   Also `unlanded_prs(evidence)` (2026-08-14): the refs that do NOT show a
   change having landed — a pull request still OPEN or closed unmerged, plus a
   `diff:N` inheriting `pr:N`'s state (unknown when that PR is absent, so it is
@@ -883,6 +895,38 @@ claim. A negative result is kept exactly like a positive one.
   newlines passed while the parser found nothing on real `gh` output, because
   ingest joins sections with a BLANK line and the field sat outside the
   scanned window.
+- `evals/test_rejection_conflation.py` — the `pr:23` → `pr:24` board: an
+  auto-close read as a refusal, fixed 2026-08-24 by the successor check. Pins
+  the fix's boundaries — a real `changes_requested` still reported WITH its
+  value, `review` still ABSENT rather than defaulted, no successor in evidence
+  means report as before, an UNMERGED PR claiming "Replaces #23" suppresses
+  nothing (the forgery bound), `Replaces #234` does not prefix-match #23, and
+  `unlanded_prs` still flags `pr:23` because it is genuinely unlanded.
+- `evals/test_fabricated_terms.py` — the `signed events` case: a term real in
+  NINE of sixteen retrieved chunks (incl. one the same answer cited for its
+  other sentence) migrating onto a claim whose own two citations do not support
+  it. Offline classes pin the case and prove `gate()` passes it, so no fix is
+  attempted by "tightening the gate". The live class is an honestly-labelled
+  FAILED reproduction: green at 5 and 16 chunks, so the defect is deterministic
+  against the production index and NOT reproducible offline.
+- `evals/investigator.py` — `_restates_a_known_unknown` (2026-08-24) dedups
+  MODEL-PROPOSED unknowns by Jaccard over word sets, replacing an exact-match
+  guard that only caught byte-identical repeats. Compares unknowns to EACH
+  OTHER, never to evidence, so it is a property of the list alone and has
+  nothing to be anti-correlated with — the distinction from the deleted
+  `evals/attribution.py`. Threshold 0.25 picked by READING the output at each
+  setting (0.20 drops real questions, 0.35 leaves three phrasings of one
+  question); distinct unknowns from the same run score 0.00–0.06, restatements
+  0.55–0.88. Recorded list: 20 → 10. Deterministic probe notes deliberately KEEP
+  the exact-match guard — two trace notes differing only in ref or edge score
+  0.44–0.80, so deduping them would merge findings about different parts of the
+  repository.
+- `evals/test_unknown_over_citation.py` — 19 unknowns published beside a chunk
+  citing `EVIDENCE_TTL_DAYS`. Signals ranked by honesty: redundancy (a property
+  of the list alone; threshold set from measurement — restatements 0.33–0.56,
+  distinct control 0.00), unknowns naming the file they claim not to know, and a
+  leaked internal string. "The citations answer it" is measured but deliberately
+  NOT asserted as a detector.
 - `evals/test_claim_selfreport.py` — the writer's per-sentence self-report (18
   tests, stdlib only): the prompt is BYTE-IDENTICAL with `per_claim=False` (the
   guarantee that lets this ship without re-baselining the board), a claim citing
