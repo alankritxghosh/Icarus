@@ -85,8 +85,9 @@ TRIALS = 3
 
 # A real task over the committed simonw/llm board -- the corpus every other eval
 # uses, so this is reproducible by anyone with the paid key.
-TASK = ("Add a new model provider plugin, wiring it through the plugin registry "
-        "and the command line interface")
+TASK = os.environ.get("STABILITY_TASK") or (
+    "Add a new model provider plugin, wiring it through the plugin registry "
+    "and the command line interface")
 
 # demo.structure's output is pure and deterministic, so it cannot contribute
 # variance. Fixed here rather than computed, which also keeps `evals` from
@@ -181,6 +182,42 @@ class ContextDecisionsAreStable(unittest.TestCase):
             self.fail(
                 f"{len(unstable)} of {len(set.union(*sets))} decisions are not "
                 f"stable across {TRIALS} identical calls:\n" + "\n".join(detail))
+
+    def test_the_same_decision_TEXTS_appear_in_every_trial(self):
+        """THE SECOND GATE, added after the first one gave a FALSE GREEN.
+
+        `_decision_key` compares CITATION SETS, justified on the grounds that two
+        runs may word one finding differently and mean the same thing. On the
+        layered arm (2026-08-25) that justification broke: trial 1 said the
+        schema "uses a `conversation_tools` table or JSON column", trials 2-3
+        said it "uses a `ToolCall` data class with a `tool_call_id`". Same
+        citations, materially different claims, and the citation-keyed gate
+        passed it.
+
+        So text is compared too. The disclosed cost is the opposite error: a
+        trivial rewording fails this. That is the cheaper mistake — a false green
+        on a substantive divergence is exactly what this board exists to prevent,
+        and it already happened once."""
+        norm = lambda t: " ".join((t or "").lower().split())
+        sets = [{norm(d["text"]) for d in t["decisions"]} for t in self.trials]
+        shared = set.intersection(*sets) if sets else set()
+        unstable = (set.union(*sets) - shared) if sets else set()
+        if unstable:
+            detail = []
+            for text in sorted(unstable):
+                seen = [i + 1 for i, st in enumerate(sets) if text in st]
+                detail.append(f"    trials {seen} only: {text[:110]}")
+            self.fail(
+                f"{len(unstable)} decision texts are not stable across {TRIALS} "
+                f"identical calls:\n" + "\n".join(detail))
+
+    def test_the_unknowns_count_is_stable(self):
+        """Reported separately because it moves independently: on the layered arm
+        the counts were 6 / 11 / 11 while the citation-keyed decision gate stayed
+        green. An unknowns list that nearly doubles between identical calls is
+        the same instability wearing a different field."""
+        counts = [len(t["unknowns"]) for t in self.trials]
+        self.assertEqual(len(set(counts)), 1, f"unknowns count varied: {counts}")
 
     def test_every_trial_reaches_a_verdict_and_cites_something(self):
         """Diagnostic, kept separate: if this fails, the board above is measuring
