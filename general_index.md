@@ -865,6 +865,25 @@ claim. A negative result is kept exactly like a positive one.
   evidence nothing is inferred and the attempt is reported as before.
   `unlanded_prs` is deliberately UNCHANGED — `pr:23` genuinely never landed.
   Pinned by `evals/test_rejection_conflation.py`.
+  **`deferred_claims(evidence)`** (2026-08-25): refs whose own text DEFERS
+  something, where later MERGED work is also in evidence. Built after the
+  three-trial variance run measured instability tracking evidence that records
+  SUCCESSIVE STATES of one feature — `pr:22`'s "## Consumer wiring — deferred"
+  became "consumers do NOT CURRENTLY have wiring" at support `explicit` in 3 of
+  4 draws, citing a PR that resolves perfectly, after `pr:24` had merged it.
+  No existing guard sees this: groundedness proves the citation real,
+  `unlanded_prs` is silent because `pr:22` MERGED, and nothing was refused.
+  Reports that a claim is TIME-INDEXED and names what merged after it; never
+  claims the deferral was RESOLVED, which would need the semantic judgment this
+  module refuses. Conservative — a deferral with no later merged PR is not
+  reported, since "not yet" is said constantly. Successors are nearest-first and
+  capped at 3 with a `later_merged_count`, the honest strength indicator (1 means
+  the resolver is probably named; 154 means ancient) — a flaw found by running it
+  corpus-wide, where an old deferral listed every later PR. Fires on 3 of 526 PR
+  chunks in the committed corpus (0.6%). Surfaced as `rests_on_deferred` +
+  `later_merged` on a `get_task_context` decision (`evals/context_package.py`),
+  ABSENT rather than false when it does not apply. Pinned by
+  `evals/test_temporal_claims.py`.
   Also `unlanded_prs(evidence)` (2026-08-14): the refs that do NOT show a
   change having landed — a pull request still OPEN or closed unmerged, plus a
   `diff:N` inheriting `pr:N`'s state (unknown when that PR is absent, so it is
@@ -895,6 +914,18 @@ claim. A negative result is kept exactly like a positive one.
   newlines passed while the parser found nothing on real `gh` output, because
   ingest joins sections with a BLANK line and the field sat outside the
   scanned window.
+- `evals/test_temporal_claims.py` — the `pr:22` → `pr:24` board: a decision
+  resting on a deferral that later merged work overtook. 16 tests, red→green
+  (verified by reverting the wiring). Pins that no EXISTING guard catches it,
+  that the flag ANNOTATES rather than suppressing or downgrading the decision,
+  that a deferral with nothing later is not reported, that an earlier or unmerged
+  PR does not count, and that the key is ABSENT rather than false.
+- `evals/test_context_stability.py` — the stability gate: TRIALS full
+  investigations, decisions compared by citation set AND normalized text, plus an
+  unknowns-count check. Opt-in (`RUN_STABILITY_BOARD=1` + paid key). Its first
+  version keyed on citation set alone and PASSED the run containing the defect;
+  hardened after. Measured: layered subject unstable, flat control stable, same
+  corpus and regime.
 - `evals/test_rejection_conflation.py` — the `pr:23` → `pr:24` board: an
   auto-close read as a refusal, fixed 2026-08-24 by the successor check. Pins
   the fix's boundaries — a real `changes_requested` still reported WITH its

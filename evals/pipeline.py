@@ -118,6 +118,15 @@ class Result:
     # refs only. Lets a caller show the proof itself rather than a pointer to it.
     # Never an input to the honesty gate -- purely what was already used.
     evidence: Dict[str, str] = field(default_factory=dict)
+    # shown: {retrieved ref -> the chunk text the writer saw}, for EVERY ref
+    # shown to the writer rather than only the cited ones. `evidence` above is
+    # deliberately cited-only, because it backs the citation block a reader
+    # treats as proof. This one backs the evidence LIST, which on an `unknown`
+    # is the only thing a caller gets -- and until 2026-08-21 it arrived as
+    # bare refs with empty excerpts, because the payload read it from the
+    # cited-only map. Two agents independently discarded a 21-ref list as
+    # noise; one of them contained the commit that later became the fix.
+    shown: Dict[str, str] = field(default_factory=dict)
     # anchored: which refs were looked up because the caller NAMED them, split
     # out from the ones search merely suggested. Both already sat in `retrieved`
     # (anchor-first), but a flat list makes a correctly-anchored abstention look
@@ -436,7 +445,8 @@ class GatedPipeline(Pipeline):
         there did the USER point at specific lines."""
         from .synth import build_prompt   # local imports avoid a circular import
         from .gate import gate, attribute_claims, extract_json
-        from .attempts import rejected_attempts, unlanded_prs
+        from .attempts import (_claim_rests_on_past_state, past_state_only,
+                               rejected_attempts, unlanded_prs)
         anchored = list(dict.fromkeys(anchored or ()))
         # Icarus's own index, offered as ordinary evidence (evals/index_facts).
         #
@@ -479,6 +489,11 @@ class GatedPipeline(Pipeline):
         # the writer and gate saw -- it cannot surface anything that wasn't already
         # grounded, so this adds no new honesty surface.
         result.evidence = {ref: evidence[ref] for ref in result.citations if ref in evidence}
+        # Same map, unfiltered: what was SHOWN, so an unknown can hand back
+        # readable evidence instead of pointers. Adds no honesty surface --
+        # these are the chunks the writer already saw and the gate already
+        # ruled on; nothing here is newly trusted.
+        result.shown = dict(evidence)
         # Parsed a second time rather than threading the decode out of gate():
         # keeping gate()'s signature and return untouched is worth one cheap
         # re-parse, since every honesty number in the repo is measured through it.
@@ -565,4 +580,16 @@ class GatedPipeline(Pipeline):
                 continue
             if all(ref in unlanded or ref.startswith("issue:") for ref in cits):
                 claim["rests_on_unlanded"] = True
+
+        # A commit records a change AT A POINT IN TIME. Icarus's first measured
+        # wrong answer (firecrawl #4375, 2026-08-21) cited a real commit whose
+        # work was removed the next day and read it as ongoing intent -- true
+        # about the past, false about the present, and the gate cannot see the
+        # difference because the citation resolves either way. Deliberately
+        # separate from `rests_on_unlanded`: that one means nothing cited shows
+        # the change LANDED, this means nothing cited shows it SURVIVED.
+        past_state = past_state_only(evidence)
+        for claim in result.claims:
+            if _claim_rests_on_past_state(claim.get("citations"), past_state):
+                claim["rests_on_past_state"] = True
         return result

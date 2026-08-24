@@ -36,7 +36,7 @@ def build_context_package(investigation, result, structure: Dict, texts: Dict[st
     (see investigator.py's docstring on why this cannot be rebuilt from the
     index afterwards -- a live-fetched PR/commit/diff would go missing).
     """
-    from .attempts import rejected_attempts
+    from .attempts import deferred_claims, rejected_attempts
 
     summary = investigation.summary()
 
@@ -45,11 +45,33 @@ def build_context_package(investigation, result, structure: Dict, texts: Dict[st
     # never WHY -- see evals/investigation.py's own SUPPORT_HEADLINES -- so it
     # does not belong in a package a caller reads for "why is it built this
     # way". summary()["claims"] already excludes unverified claims.
-    decisions = [
-        {"text": c["text"], "support": c["support"], "citations": list(c["citations"])}
-        for c in summary["claims"]
-        if c["support"] in ("explicit", "strong")
-    ]
+    # A decision resting on evidence that DEFERRED something, where later merged
+    # work is also in evidence, is time-indexed: it described a moment, and the
+    # moment may have passed. Measured 2026-08-25 -- `pr:22` deferred consumer
+    # wiring "to follow-up patches", `pr:24` merged it, and the writer produced
+    # "consumers do NOT CURRENTLY have wiring" at support `explicit` in 3 of 4
+    # draws, citing a pull request that resolves perfectly so no gate could see
+    # it. See docs/experiments/2026-08-25-agent-mode-three-trial-variance.md.
+    #
+    # The flag says the claim is time-indexed and names what came later. It does
+    # NOT say the deferral was resolved -- see `deferred_claims`' own docstring
+    # for why that judgment is deliberately not made here.
+    deferred = deferred_claims(texts or {})
+    decisions = []
+    for c in summary["claims"]:
+        if c["support"] not in ("explicit", "strong"):
+            continue
+        cites = list(c["citations"])
+        entry = {"text": c["text"], "support": c["support"], "citations": cites}
+        superseding = sorted({r for ref in cites
+                              for r in deferred.get(ref, {}).get("later_merged", ())})
+        # ABSENT unless it applies, like every other optional key in this
+        # schema: a `false` on every decision would be noise a reader learns to
+        # skip, and this must stay noticeable.
+        if superseding:
+            entry["rests_on_deferred"] = True
+            entry["later_merged"] = superseding
+        decisions.append(entry)
 
     # Every ref this task's investigation actually gathered, in absorption
     # order -- NOT just what made it into the final cited answer. A rejected-
