@@ -159,7 +159,9 @@ class ContextDecisionsAreStable(unittest.TestCase):
                   f"{len(pkg['risks']):>2} risks  "
                   f"{len(pkg['citations']):>2} citations")
             for d in pkg["decisions"]:
-                print(f"      [{d['support']}] {d['text'][:88]}")
+                mark = (" <TIME-INDEXED, later: "
+                        + ",".join(d["later_merged"]) + ">") if d.get("rests_on_deferred") else ""
+                print(f"      [{d['support']}] {d['text'][:80]}{mark}")
 
     def test_the_same_decisions_appear_in_every_trial(self):
         """THE GATE. A decision that appears in some trials and not others means

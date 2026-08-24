@@ -134,6 +134,10 @@ _REVIEW_IN_HEADER = re.compile(
 _SUPERSEDES = re.compile(r"\b(?:replaces|supersedes)\s+#(\d+)\b", re.I)
 _MERGED_STATE = "[MERGED "
 
+# How many nearest successors to name. Three, because the point is to give a
+# reader somewhere to look, not to enumerate the repository's history.
+_LATER_MERGED_SHOWN = 3
+
 
 def _superseded_numbers(evidence: Mapping[str, str]) -> set:
     """PR numbers that some MERGED pull request in `evidence` says it replaces.
@@ -210,6 +214,94 @@ def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
     return out
 
 
+# Text that indexes a claim to the MOMENT IT WAS WRITTEN. Not "this is false"
+# -- when written each of these was true. The defect is that a later reader,
+# and a writer summarising for one, has no way to see that time has passed.
+#
+# Measured (docs/experiments/2026-08-25-agent-mode-three-trial-variance.md):
+# instability in `get_task_context` tracks evidence recording SUCCESSIVE STATES
+# of one feature. On `world-model-mcp`, `pr:22` carries a literal section
+# "## Consumer wiring -- deferred" saying the work "land[s] in follow-up
+# patches"; `pr:24` then merged it. Asked about that area, the writer produced
+# "the retrieval consumers do NOT CURRENTLY have wiring" -- support `explicit`,
+# citing `pr:22`, which resolves perfectly -- in 3 of 4 draws.
+_DEFERRAL = re.compile(
+    r"\b(deferred|defers|deferring|follow[- ]?up patch(?:es)?|"
+    r"not yet implemented|not yet wired|in a future (?:patch|release|version)|"
+    r"lands? in v?\d)\b", re.I)
+
+
+def deferred_claims(evidence: Mapping[str, str]) -> Dict[str, Dict]:
+    """Refs that DEFER something, where later merged work is also in evidence.
+
+    Returns `{ref: {"phrase": <the literal matched text>, "later_merged":
+    [refs]}}`.
+
+    Conservative in the same way as everything else here, and the conservatism is
+    the design: a deferral is reported ONLY when the evidence also holds a
+    LATER-numbered MERGED pull request. Without one there is no reason to think
+    time has moved, and flagging every "not yet" would bury the signal in a repo
+    that says it constantly.
+
+    **It reports that the claim is TIME-INDEXED and that later work exists. It
+    never claims the deferral was resolved.** Deciding that `pr:24` delivered
+    what `pr:22` deferred needs the semantic judgment this module refuses to
+    make -- the same line `rejected_attempts` draws by reporting WHAT was closed
+    and never WHY. A caller is told to go and look.
+
+    `later_merged_count` is the honest strength indicator: 1-3 successors and the
+    resolver is probably among them; hundreds and the deferral is ancient, the
+    flag is near-meaningless, and the reader is told so rather than left to infer
+    a link from a long list. Measured over the committed 526-PR corpus, exactly 3
+    refs fire at all -- 0.6% -- so this is a narrow signal, not a klaxon.
+
+    Pull request NUMBERS order this, not dates: ingest writes no date into a
+    `pr:` header, and GitHub numbers are monotonic per repository, so "later" is
+    decidable from the ref alone. Non-numeric refs are skipped rather than
+    guessed at.
+    """
+    def _number(ref):
+        tail = ref.split(":", 1)[1] if ":" in ref else ""
+        return int(tail) if tail.isdigit() else None
+
+    merged_later = []
+    deferrals = {}
+    for ref, text in (evidence or {}).items():
+        if not isinstance(ref, str) or not ref.startswith(_REJECTED_SOURCE):
+            continue
+        if not isinstance(text, str):
+            continue
+        n = _number(ref)
+        if n is None:
+            continue
+        lines = text.split("\n", _HEADER_SCAN_LINES)
+        header = next((l for l in lines[:_HEADER_SCAN_LINES] if l.startswith("[")), None)
+        if header is None:
+            continue
+        if header.startswith(_MERGED_STATE):
+            merged_later.append((n, ref))
+        found = _DEFERRAL.search(text)
+        if found:
+            deferrals[ref] = (n, found.group(0))
+
+    out = {}
+    for ref, (n, phrase) in deferrals.items():
+        later = sorted(((m, r) for m, r in merged_later if m > n), key=lambda x: x[0])
+        if later:
+            # NEAREST first, and bounded. Found by running this over the whole
+            # committed corpus: `pr:14`'s deferral listed essentially every
+            # later merged pull request in the repository -- each one true, the
+            # set worthless. The nearest successors are the plausible resolvers;
+            # the COUNT is what tells a reader how much time passed, and it is
+            # the honest measure of how weak the signal is. A deferral with 400
+            # merged pull requests after it is ancient, and this says so instead
+            # of implying a link.
+            out[ref] = {"phrase": phrase,
+                        "later_merged": [r for _, r in later[:_LATER_MERGED_SHOWN]],
+                        "later_merged_count": len(later)}
+    return out
+
+
 def unlanded_prs(evidence: Mapping[str, str]) -> set:
     """Refs among `evidence` that do NOT show a change having landed.
 
@@ -261,3 +353,50 @@ def _review_decision(header):
     """
     match = _REVIEW_IN_HEADER.match(header or "")
     return match.group(1) if match else None
+
+_PAST_STATE_SOURCES = ("commit:",)
+
+
+def past_state_only(evidence) -> set:
+    """Refs among `evidence` that record a change AT A POINT IN TIME.
+
+    A commit is evidence something happened once. It is never evidence that it
+    is still true: the next commit may undo it, and the indexed message says
+    nothing either way.
+
+    Measured 2026-08-21 on firecrawl/firecrawl #4375, Agent Mode's first WRONG
+    answer. Asked whether swallowing search failures was deliberate, the answer
+    said it was not -- "developers have actively worked to surface these
+    failures" -- citing commit 229141a (2026-06-18). Commit 2fc41237 removed
+    that work the following day and HEAD holds none of it. The commit is real,
+    the citation resolves, the honesty gate passed it correctly, and the answer
+    was the opposite of what the repository had decided.
+
+    Deliberately NOT a revert detector. Proving a commit was undone needs its
+    diff matched against HEAD, and that misreads any line that was moved,
+    renamed or reformatted -- a false "this was reverted" is worse than the
+    weaker statement, which is never wrong: nothing cited establishes that this
+    is still true today.
+
+    Issues and pull requests are left alone. `unlanded_prs` above already
+    covers them, and two overlapping warnings on one sentence make both easier
+    to ignore.
+    """
+    return {
+        ref for ref in (evidence or {})
+        if isinstance(ref, str) and ref.startswith(_PAST_STATE_SOURCES)
+    }
+
+
+def _claim_rests_on_past_state(citations, past_state) -> bool:
+    """Does this sentence rest ONLY on point-in-time records?
+
+    One citation to code -- the repository as indexed, i.e. today -- anchors the
+    sentence to the present and the flag stays off. An uncited sentence never
+    fires: there is nothing to be wrong about.
+    """
+    cits = [c for c in (citations or []) if isinstance(c, str)]
+    if not cits:
+        return False
+    return all(c in past_state for c in cits)
+

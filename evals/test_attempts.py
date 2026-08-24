@@ -11,7 +11,8 @@ import json
 import os
 import unittest
 
-from evals.attempts import _REVIEW_VALUES, rejected_attempts
+from evals.attempts import (_REVIEW_VALUES, _claim_rests_on_past_state,
+                            past_state_only, rejected_attempts)
 
 CLOSED_PR = "PR #20754: Clean up stale Python temp dirs\n[CLOSED by someone]\nBody."
 MERGED_PR = "PR #20752: allow temp_dir to clean up on drop\n[MERGED by simonw]\nBody."
@@ -270,3 +271,70 @@ class RealCorpusFormatTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PastStateOnlyClaimTests(unittest.TestCase):
+    """A commit is evidence something happened ONCE, never that it is true now.
+
+    Measured 2026-08-21 on firecrawl/firecrawl #4375, the first WRONG answer
+    Agent Mode has produced. Asked whether swallowing search failures was
+    deliberate, Icarus answered that it was not and that "developers have
+    actively worked to surface these failures", citing commit 229141a
+    ("surface real search failures instead of silent no-changes", 2026-06-18).
+
+    Verified: commit 2fc41237 REMOVED that work the next day, and HEAD contains
+    none of it. Nothing was bluffed -- the commit is real, its message says what
+    was claimed, the citation resolves, and the gate passed it correctly. The
+    evidence is true about the past and false about the present.
+
+    The MCP tool description already carries exactly this warning for ISSUES
+    ("evidence that somebody WANTED something, never that anybody built it").
+    There is no equivalent for commits, and these tests are it.
+
+    What is deliberately NOT claimed: that a flagged commit WAS reverted.
+    Proving that needs the commit's diff and a match against HEAD, which fails
+    on any line that was merely moved or reformatted. The honest claim is the
+    weaker one, and it is never wrong: nothing cited establishes that this is
+    still true.
+    """
+
+    def test_a_claim_resting_only_on_commits_is_flagged(self):
+        self.assertEqual(
+            {"commit:229141a"},
+            past_state_only({"commit:229141a": "surface real search failures"}))
+
+    def test_several_commits_are_all_flagged(self):
+        ev = {"commit:aaa": "did a thing", "commit:bbb": "did another"}
+        self.assertEqual(set(ev), past_state_only(ev))
+
+    def test_code_is_not_past_state(self):
+        """Code chunks ARE the repository at the indexed commit, so a claim
+        citing code alongside a commit is anchored to today."""
+        ev = {"commit:aaa": "did a thing", "code:src/x.ts#L1-L20": "current source"}
+        self.assertEqual({"commit:aaa"}, past_state_only(ev))
+
+    def test_issues_and_prs_are_left_to_the_existing_flag(self):
+        """rests_on_unlanded already covers those, and double-flagging one
+        sentence with two overlapping warnings makes both easier to ignore."""
+        ev = {"issue:4375": "[OPEN] bug report", "pr:4376": "[OPEN by x]"}
+        self.assertEqual(set(), past_state_only(ev))
+
+    def test_hostile_input_does_not_raise(self):
+        for bad in (None, {}, {None: "x"}, {"commit:a": None}, {123: 456}):
+            past_state_only(bad)
+
+
+class PastStateClaimFlagTests(unittest.TestCase):
+    """The pipeline-level rule: the flag fires only when EVERY citation on the
+    sentence is a point-in-time record."""
+
+    def test_commit_only_claim_fires(self):
+        self.assertTrue(_claim_rests_on_past_state(
+            ["commit:229141a"], {"commit:229141a"}))
+
+    def test_a_single_code_citation_is_enough_to_anchor_it(self):
+        self.assertFalse(_claim_rests_on_past_state(
+            ["commit:229141a", "code:src/x.ts"], {"commit:229141a"}))
+
+    def test_an_uncited_claim_never_fires(self):
+        self.assertFalse(_claim_rests_on_past_state([], {"commit:a"}))
+
