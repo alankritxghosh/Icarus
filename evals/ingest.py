@@ -123,7 +123,20 @@ _EXTENSION_SOURCES = {
 
 # Path segments that exclude a file regardless of extension (vendored/build/VCS
 # noise -- never signal, just volume).
-_DENY_DIR_SEGMENTS = {".git", "node_modules", "vendor", "dist", "build", ".venv"}
+#
+# `fixtures` added 2026-08-24, the first time Icarus indexed its OWN repository
+# (Work Queue 7a). 383 of 1,568 chunks -- 24.4% of the corpus -- came from
+# `evals/fixtures/`, which holds source copied verbatim from simonw/llm,
+# facebook/react-native and bluesky-social/social-app so the chunking evals stay
+# deterministic. It was not harmless volume at the bottom of the ranking: asking
+# "is there a free-tier serving path" put `fixtures/ast_chunking_eval/llm/cli.py`
+# TWICE in the top eight, while this repository's own ICARUS.md was not retrieved
+# at all. Same judgment already made for `vendor` -- a committed copy of another
+# project's source is volume, not signal about the project that copied it.
+# Every fixture is read by its tests through a direct path, never through this
+# walk, so nothing loses an input.
+_DENY_DIR_SEGMENTS = {".git", "node_modules", "vendor", "dist", "build", ".venv",
+                      "fixtures"}
 
 # Specific noisy filenames/patterns skipped even though their extension would
 # otherwise pass: generated lockfiles (huge, machine-authored, zero "why"
