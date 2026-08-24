@@ -150,3 +150,109 @@ production.
    is byte-stable; the deterministic fields (`rejected_attempts`, `unlanded_prs`,
    citation resolution) cannot vary at all. Those are claimable. Anything derived
    from a multi-call investigation is not, at n=1.
+
+---
+
+# FOLLOW-UP: is instability a property of the EVIDENCE? (registered before running)
+
+The gate came back green on the committed board, so it did not reproduce the
+defect. Rather than deploy over the only corpus where the defect lives, the
+hypothesis gets tested first — Alankrit's call, 2026-08-25.
+
+**Hypothesis.** The unstable case rests on evidence describing SUCCESSIVE STATES
+of one feature (a dense CHANGELOG plus the stacked `#22`/`#23`/`#24` pull
+requests), where several claims that contradict each other *over time* are each
+individually true and individually citable. Sampling then picks between them. The
+stable case has no such layering.
+
+**Design — corpus and retrieval regime held CONSTANT, only evidence shape varies.**
+Both tasks run on the committed `simonw/llm` board, lexical-only, TRIALS=3, via
+`STABILITY_TASK`. Subjects chosen by a deterministic offline count over
+`chunks.jsonl`, before either was run:
+
+| subject | pr | issue | commit | chunks with "not yet / deferred / superseded" |
+|---|---|---|---|---|
+| **tools/tool-use** (LAYERED) | 74 | 148 | 50 | **17** |
+| **embeddings** (FLAT control) | 37 | 89 | 26 | **0** |
+
+Comparable volume, opposite layering. That is what makes this a control rather
+than two arbitrary questions.
+
+**Predictions, registered before either run:**
+
+| # | prediction | confidence |
+|---|---|---|
+| L1 | the LAYERED task shows ≥1 decision present in some trials and not others | 65% |
+| L2 | the FLAT task shows zero unstable decisions | 75% |
+| L3 | if BOTH are stable, the hypothesis is unsupported and the world-model-mcp instability is explained by corpus or regime, not evidence shape — and the next suspect is hybrid retrieval, which this board cannot run here | — |
+
+A third data point already exists: the plugins task, 3/3 stable, measured before
+this hypothesis was formed.
+
+## RESULT — hypothesis SUPPORTED, with corpus and regime held constant
+
+Same committed `simonw/llm` board, same lexical-only retrieval, TRIALS=3 each.
+
+| arm | temporal chunks | decisions | unknowns | stable? |
+|---|---|---|---|---|
+| **LAYERED** (tools/tool-use) | 17 | 6 / 6 / 6, **texts diverge** | **6 / 11 / 11** | **NO** |
+| **FLAT control** (embeddings) | 0 | 3 / 3 / 3, identical | 9 / 9 / 9 | **YES** |
+| plugins (measured earlier) | — | 3 / 3 / 3, identical | 6 / 6 / 6 | YES |
+
+**L1 HIT. L2 HIT.** Two stable arms and one unstable one, on one corpus, in one
+retrieval regime, differing in the layering of the evidence. The world-model-mcp
+instability is therefore not explained away by corpus or regime.
+
+### The substantive divergence
+
+Not wording. Trial 1 and trials 2–3 make **different claims about the schema**:
+
+> T1: "…uses a `conversation_tools` table or JSON column on the `conversations`
+> table to persist tool…"
+> T2/T3: "…uses a `ToolCall` data class with a `tool_call_id` to track individual
+> tool calls…"
+
+An agent asking how tools are persisted gets one or the other, by draw, both at
+support `explicit`, both cited.
+
+Of the 8 diverging texts the hardened gate reports, **4 are substantive** (the
+schema pair above, and "uses a `Conversation` class" vs "the `Conversation` class
+has been **extended with a `chain` method**" — existence versus change). The other
+4 are near-trivial rewordings (`the repository` → `the system`). Stated so the 8
+is not read as 8 real contradictions.
+
+### My own gate gave a FALSE GREEN first, and that is the more useful finding
+
+The first version keyed decisions on CITATION SET, reasoning that two runs may
+word one finding differently and mean the same thing. On the layered arm that
+reasoning broke exactly where it mattered: same citations, different schema
+claims, **gate passed**. It was green on the run that contained the defect.
+
+Hardened with two more assertions — normalized decision TEXT, and unknowns count.
+Re-run: layered arm RED (8 texts, 6/11/11 unknowns), flat control still GREEN.
+The gate now discriminates rather than merely passing.
+
+Disclosed cost of the text check: a trivial rewording fails it. That is the
+cheaper error, and it is why the near-trivial four are reported rather than
+filtered — filtering them would need a semantic judgment this repo refuses to
+fake.
+
+### What this changes
+
+**The fix is temporal, not statistical.** Instability tracks evidence that
+records successive states of one feature, where several mutually-inconsistent-
+over-time claims are each individually true and citable. More trials, a different
+threshold, or a steadier writer do not address that. Knowing that `pr:22`'s
+"deferred to follow-up" was **superseded** does — the same shape as the
+`pr:23`→`pr:24` successor check already shipped in `evals/attempts.py`.
+
+That is now a concrete, testable direction rather than a hunch, and it was two
+model-minutes to establish.
+
+### Deploy status
+
+**HELD**, per Alankrit 2026-08-25. `deploy/dedup-fix` is cut from `main`, carries
+only the two reviewed commits (the unreviewed `c434b4a` ingest change is
+excluded), and both suites pass on it: 967 evals / 664 demo. Not pushed, not
+triggered. The world-model-mcp corpus survives, which is what made this
+measurement possible.
