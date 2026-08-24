@@ -120,6 +120,40 @@ _REVIEW_IN_HEADER = re.compile(
     r"^\[[^\]]*\] review: (approved|changes_requested|review_required)(?:\s|$)")
 
 
+# A MERGED pull request saying it replaces another one. Author-written BODY
+# text, unlike `_REVIEW_IN_HEADER` above -- so it is honoured ONLY from a pull
+# request whose own state header says MERGED. Writing this sentence into a body
+# is free; getting that body merged needs write access, and anyone with write
+# access has stronger ways to hide a refusal than editing prose. Disclosed
+# rather than defended further.
+#
+# Direction is deliberate: the SUCCESSOR names the PR it replaces. The reverse
+# ("superseded by #N" in the closed PR's own text) is not read, because the
+# measured case cannot produce it -- pr:23 was auto-closed by GitHub AFTER it
+# was written, so nothing was ever added to it.
+_SUPERSEDES = re.compile(r"\b(?:replaces|supersedes)\s+#(\d+)\b", re.I)
+_MERGED_STATE = "[MERGED "
+
+
+def _superseded_numbers(evidence: Mapping[str, str]) -> set:
+    """PR numbers that some MERGED pull request in `evidence` says it replaces.
+
+    One pass over the evidence, so this stays linear in the number of chunks.
+    """
+    out = set()
+    for ref, text in (evidence or {}).items():
+        if not isinstance(ref, str) or not ref.startswith(_REJECTED_SOURCE):
+            continue
+        if not isinstance(text, str):
+            continue
+        lines = text.split("\n", _HEADER_SCAN_LINES)
+        header = next((l for l in lines[:_HEADER_SCAN_LINES] if l.startswith("[")), None)
+        if header is None or not header.startswith(_MERGED_STATE):
+            continue
+        out.update(_SUPERSEDES.findall(text))
+    return out
+
+
 def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
     """Pull requests among `evidence` that were closed WITHOUT being merged.
 
@@ -130,7 +164,26 @@ def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
     Conservative at every step: a chunk with no parseable header, or one whose
     state is anything other than CLOSED, is skipped. Nothing is inferred from
     the ref alone -- the indexed TEXT has to say it.
+
+    **A closed pull request that a MERGED one says it REPLACES is not reported**
+    (added 2026-08-24). Measured live on `SaravananJaichandar/world-model-mcp`:
+    `pr:23` was auto-closed by GitHub when its base branch `#22` merged and was
+    deleted, and the identical work landed as `pr:24`, whose body says "Replaces
+    #23". The same payload therefore told a reader "replaced and shipped" in
+    prose and "tried and refused" in this field, and a client renders the field.
+    See docs/experiments/2026-08-24-agent-mode-matched-pair-results.md.
+
+    This does NOT start judging why a pull request closed -- the line this module
+    refuses to cross. It reads one sentence a DIFFERENT, merged pull request
+    wrote about itself, which is still "the indexed TEXT has to say it". When no
+    such successor is in evidence nothing is inferred and the attempt is reported
+    exactly as before, because absence of a successor is not evidence of refusal.
+
+    `unlanded_prs` below is deliberately UNCHANGED by this: `pr:23` genuinely
+    never landed, so a claim resting on it still carries `rests_on_unlanded`.
+    The two questions are different and only one of them was wrong.
     """
+    superseded = _superseded_numbers(evidence)
     out = []
     for ref, text in (evidence or {}).items():
         if not isinstance(ref, str) or not ref.startswith(_REJECTED_SOURCE):
@@ -140,6 +193,8 @@ def rejected_attempts(evidence: Mapping[str, str]) -> List[Dict[str, str]]:
         lines = text.split("\n", _HEADER_SCAN_LINES)
         header = next((l for l in lines[:_HEADER_SCAN_LINES] if l.startswith("[")), None)
         if header is None or not header.startswith(_REJECTED_STATE):
+            continue
+        if ref.split(":", 1)[1] in superseded:
             continue
         # Title from the "PR #N: <title>" line; absent rather than guessed.
         title = ""
