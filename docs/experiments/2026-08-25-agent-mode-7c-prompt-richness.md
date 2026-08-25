@@ -215,3 +215,26 @@ run, not an ingest.
   and the 400 most recent issues of 1,528; older ones are indexed by description
   and fetch their thread on demand. The refused pull requests here are recent and
   were reachable, as the capability check shows.
+
+### Correction, found while setting up the follow-up: "bare C2-style" was wrong
+
+7b's write-up describes C2's prompts as bare one-liners. Reading them again in
+`2026-08-11-agent-mode-exp-c2-plan.md`, they are not quite:
+
+    In this repo, schema_dsl() crashes with an IndexError when a field has no
+    name before the colon, e.g. "name, : int". Fix it.
+
+C2 gave the symptom **and one example input**. 7c gave the symptom and nothing
+else. **So 7c's prompts are leaner than C2's, not equal to them** — the label
+"C2-style" above is inaccurate and stays as written, because the prediction was
+registered with it.
+
+The direction matters and it favours the conclusion, which is why it is stated
+rather than left out: 7c gave its agents *less* to go on than C2 did, so *more*
+ambiguity, and the tool was still never reached for. The tidier reading — that
+7c under-tested the hypothesis by handing over too much — is not available.
+
+What this does cost is the clean prompt-parity claim against C2. The gap between
+7c and C2 is now repository, harness, **and** a small prompt difference in the
+direction of less information. The follow-up on `simonw/llm` will use C2's four
+prompts verbatim, which removes the third.
