@@ -238,3 +238,32 @@ What this does cost is the clean prompt-parity claim against C2. The gap between
 7c and C2 is now repository, harness, **and** a small prompt difference in the
 direction of less information. The follow-up on `simonw/llm` will use C2's four
 prompts verbatim, which removes the third.
+
+---
+
+## WITHDRAWN 2026-08-25, same day, by the run that followed it
+
+**The two agents in this run never had the Icarus tools.** `mcp__icarus__`
+appears nowhere in either transcript — not as a call, not in the tool catalogue
+Claude Code writes into the session. Headless `claude -p` did not load the
+project's MCP server, and four separate outside-the-session checks all said it
+was working.
+
+Full evidence and the four confirmations are in
+`2026-08-25-agent-mode-7d-repo-vs-harness.md`.
+
+**Everything in the Result section above that depends on an agent's choice is
+withdrawn**: the 0 of 2, the finding that 7b's ambiguity hypothesis "is not
+supported", and the table putting a burden on C2's 4/4. The hypothesis was never
+tested. A zero from an agent that was never offered the tool is not a zero.
+
+What stands, because it never depended on the agents:
+
+- the capability check — the brain does surface the six refused CRLF pull
+  requests, cited, on a direct ask;
+- T2 independently reproducing #4142's exact diagnosis and shipping it, having
+  reached commit history through `git log` and never the refused attempt;
+- the correction to the "C2-style bare prompt" label.
+
+`scripts/agent_call_audit.py` now refuses to score a session that never held the
+tool, so this specific mistake cannot be made silently again.

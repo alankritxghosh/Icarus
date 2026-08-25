@@ -170,3 +170,30 @@ Until that runs, **the honest public position is unchanged from what
 `Work Queue` §7b already required: the 4/4 rests on four tasks, one session,
 one repository.** Nothing here licenses softening it and nothing here licenses
 repeating it more confidently.
+
+---
+
+## WITHDRAWN 2026-08-25 — the agents never had the tool
+
+Appended, not edited, per the append-only rule.
+
+Both sessions in this run (`81869950`, `f523902e`) show **zero** occurrences of
+`mcp__icarus__` anywhere in their transcripts, including the tool catalogue
+Claude Code records. Headless `claude -p` did not load the project's MCP server.
+The same defect silently invalidated 7c and 7d; the evidence, four independent
+confirmations and a validated positive control are in
+`2026-08-25-agent-mode-7d-repo-vs-harness.md`.
+
+**So the 0 of 2 above is not a measurement**, and neither is the design-flaw
+analysis built on it. This run's own verdict — "it does NOT refute 4/4" — was
+right for a reason it did not know: there was nothing in it to refute anything
+with.
+
+The live hypothesis it proposed ("the description fires on ambiguity, not on the
+observable events it names") remains **completely untested**. 7c set out to test
+it and failed the same way.
+
+What still stands: both tasks were genuinely §2-validated, both agents did
+competent first-principles work, and Task 1's fix was the seventh attempt at a
+bug six people had already had closed — none of which depends on which tools the
+sessions held.
