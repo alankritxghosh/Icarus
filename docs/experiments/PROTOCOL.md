@@ -107,3 +107,17 @@ do not interpret it.
 would have looked again, and the run was invalid. Confirmation is not
 verification: run §5's read-the-state check on a result you expected, not only on
 one that disappoints.
+
+## 9. One task per session, and verify the tree is clean between them
+
+C2 reported 4 of 4 and its own plan listed session reuse as invalidating; all
+four tasks had in fact run in one session. Re-run with four fresh sessions
+(2026-08-25) it measured **1 of 4**. Session reuse was worth three calls.
+
+    ls ~/.claude/projects/<slug>/*.jsonl   # one file per task, or it was one session
+
+Resetting the working tree between tasks is not enough on its own. In the re-run,
+task 1 verified its fix by stashing it and never restored it; task 2's agent
+found the stash, popped it, and worked with another agent's edit in its tree —
+and task 2 was the one session that called the tool. Check `git stash list` as
+well as `git status`, and record the tree state per task.

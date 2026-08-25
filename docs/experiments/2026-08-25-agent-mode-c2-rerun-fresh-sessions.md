@@ -107,3 +107,113 @@ disclosed rather than fixed:
 ## Result
 
 *(written after the run — nothing above this line changes)*
+
+**1 of 4. The prediction (3 of 4) was wrong, and the correction is material.**
+
+    0079ad0e    1 calls  unprompted get_change_context   <- T2
+    18df29bd    0 calls  unprompted -                    <- T4
+    488b6589    0 calls  unprompted -                    <- T3
+    694c6ef8    0 calls  unprompted -                    <- T1
+    9886c123    1 calls  directed   get_change_context   <- setup probe, excluded
+    5 sessions, 5 held the tool, 4 of those undirected;
+    1 of those called Icarus (1 calls total)
+
+**All four sessions held the tool** — the new availability check confirms it, so
+these are real zeros, not the empty ones from 7b/7c/7d.
+
+| | C2 (one session) | this run (four fresh sessions) |
+|---|---|---|
+| T1 `schema_dsl` | called | **no call** |
+| T2 `logs -f` fragment filter | called | **called** |
+| T3 template `schema_object` | called | **no call** |
+| T4 `llm tools` output | called | **no call** |
+
+### What this does to the public number
+
+The pre-registered meaning of a 1–3 result was fixed before the run: *the effect
+is real and partial; quote the fraction from THIS run, since it is the one with
+independent sessions, and stop quoting 4/4.*
+
+That is the outcome. **4 of 4 was a single session's behaviour after the first
+call paid off. With one task per session, one agent in four reached for the tool
+unprompted.**
+
+The honest sentence, and it should replace 4/4 everywhere — the site, X, and the
+shipped MCP tool description's own "in three verified trials" framing deserves
+the same audit:
+
+> Across four independent sessions on a repository with real refused pull
+> requests, one agent consulted Icarus unprompted. In an earlier run where all
+> four tasks shared one session, it consulted it on all four — after the first
+> call had already paid off.
+
+Both halves are true and the second is not the headline.
+
+### The one call was the most valuable thing in the run
+
+T2's agent asked, unprompted:
+
+> Why does `llm logs -f` (fragment filter) return no results on newer SQLite
+> versions, and has the EXISTS/UNION fragment filter SQL in llm/cli.py been
+> changed or reported broken?
+
+and reported back:
+
+> Checking the repo's engineering history first was what made this quick: three
+> prior PRs (#1512, #1549, #1571) proposed this same rewrite. They show as
+> closed, but they weren't rejected — Simon consolidated on #1571 and landed it
+> as `9efdfa6`. That commit is in this repo but on a divergent branch where the
+> code has moved to `llm/logs.py`; it's not an ancestor of your HEAD.
+
+That is the product working exactly as advertised, including the disclosed
+caveat that closed ≠ rejected — the agent read the closures correctly rather
+than concluding the approach was refused. **A 1-in-4 call rate with that payload
+is a different argument from a 4-in-4 rate**, and it is the argument the evidence
+supports: not "agents always consult it", but "when one does, it can change the
+work".
+
+### Contamination on the one session that fired — disclosed, not buried
+
+T1 verified its fix by stashing its own change and did not restore it. The tree
+was clean when T2 launched (`git diff` captured 0 bytes). **T2's agent then
+popped that stash** — its log mentions `stash`, and its final diff carries T1's
+`schema_dsl` guard verbatim, which it flagged in its own report:
+
+> Your working tree has unrelated uncommitted edits in `llm/utils.py` and
+> `tests/test_utils.py` ... Not mine — I left them untouched.
+
+So the single session that called Icarus is also the single session that
+encountered an unexplained third-party edit in its working tree. Its Icarus
+question was about the fragment-filter SQL and had nothing to do with
+`schema_dsl`, so the two are probably unrelated — **but "someone has been here
+before" is precisely the salience the tool description trades on, and I cannot
+rule out that it contributed.** T3 and T4 ran on verified-clean trees; T1 was
+clean by construction.
+
+This weakens the 1, it does not strengthen it. The corrected claim is therefore
+*at most* 1 of 4.
+
+### Prediction versus outcome
+
+| # | Registered | Outcome |
+|---|---|---|
+| 1 | 3 of 4, low-to-medium | **WRONG — 1 of 4** |
+| 3 | if any misses, expect T4 to | T4 missed, and so did T1 and T3 |
+| 4 | 1–3 means quote this run's fraction, stop quoting 4/4 | doing that |
+| 6 | does not settle interactive-vs-headless | holds |
+
+### What it settles, and what it does not
+
+**Settles:** headless agents DO call the tool (7d's fear that Agent Mode can only
+be measured interactively is retired), and C2's four calls were not four
+independent observations.
+
+**Does not settle:** whether the gap between 4/4 and 1/4 is priming or
+interactivity. Both changed. The next run that would separate them is four fresh
+*interactive* sessions, which is manual work.
+
+**A live hypothesis, n=1, offered as a hypothesis:** the only prompt that fired
+is the only one phrased as an investigation — *"Work out why and fix it"* —
+against three that say *"Fix it."* That is 7b's ambiguity hypothesis again,
+arriving from the opposite direction and on a run where the tool was actually
+present. It is worth a designed test and is not evidence yet.
