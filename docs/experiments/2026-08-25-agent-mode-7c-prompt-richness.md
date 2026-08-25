@@ -101,3 +101,117 @@ pinned commit on 2026-08-25 rather than trusting 7b's record:
 ## Result
 
 *(written after the run — nothing above this line changes)*
+
+**0 of 2. The prediction was wrong, and this is the consequential branch.**
+
+    297d464a    0 calls  unprompted -      <- 7c T2 (bare prompt)
+    2cae0553    0 calls  unprompted -      <- 7c T1 (bare prompt)
+    81869950    0 calls  unprompted -      <- 7b T1 (rich prompt)
+    f523902e    0 calls  unprompted -      <- 7b T2 (rich prompt)
+    4 sessions, 4 undirected; 0 of those called Icarus (0 calls total)
+
+Transcript-verified, `scripts/agent_call_audit.py --project experiment-7b-rich`.
+All four sessions flagged undirected, so no prompt leaked the tool's name.
+
+### The one variable moved and the outcome did not
+
+| | prompt | result |
+|---|---|---|
+| 7b | reproduction, exact wrong output, span offsets | 0 of 2 |
+| 7c | bare one-liner, nothing else | **0 of 2** |
+
+**7b's live hypothesis is not supported.** Removing the reproduction restored
+exactly the ambiguity C2's prompts had, and nothing fired. Prompt richness was
+not the explanation for 7b's zero, which means 7b's own most generous reading of
+itself was wrong.
+
+Not *refuted* — two tasks cannot refute anything, as §5 of the prediction says.
+But the hypothesis was the reason 7b's 0/2 could be set aside, and it no longer
+does that work.
+
+### What the agents did, both competent, neither aided
+
+- **T1** traced the fault to `AnsiDecoder.decode` stripping only `"\n"`, leaving
+  a trailing `"\r"` that `decode_line`'s `rsplit("\r", 1)[-1]` then treats as an
+  overwrite and discards the line. Fixed it, checked mid-line CR still
+  overwrites, added `test_decode_crlf`, ran the suite and correctly separated 9
+  pre-existing Pygments-drift failures from its own change. **It is the seventh
+  attempt.** Six closed-unmerged pull requests sat one tool call away.
+- **T2** identified the greedy `[\w\W]*` in `tag_contents` crossing its own `>`,
+  found via `git log` that the greediness was deliberate (`ce55112`, to keep
+  `<foo: <bar: 23>>` balanced), and replaced it with a nesting-aware pattern
+  rather than a plain revert. It also disclosed a real remaining limit (depth > 1
+  still unbalanced).
+
+  **T2 independently reproduced the exact diagnosis of #4142** — same greedy
+  group, same merge mechanism — which a human submitted and had closed unmerged
+  on 2026-05-23. The agent reached commit history through `git log` and never
+  reached the refused attempt, because `git log` structurally cannot show it.
+
+### The check 7b never ran: the arm was capable of firing
+
+Before either task launched, the connected brain was asked directly:
+
+    "Has anyone tried to fix CRLF line ending handling in Text.from_ansi before?"
+    verdict: answer
+    citations: pr:4099, pr:4145, pr:4138, pr:4091, pr:4159, pr:4103
+
+Five of the six §2b refused pull requests, cited, plus a sixth (#4091) the task
+validation had not listed. **So 0 of 2 is a statement about the agent not
+reaching for the tool, not about the brain having nothing to give it.** 7b left
+that ambiguous; it is closed now.
+
+### What this leaves, stated as a burden rather than a conclusion
+
+With the description as shipped, the measurements now stand at:
+
+| run | repo | harness | prompts | nudge | calls |
+|---|---|---|---|---|---|
+| C | `simonw/llm` | interactive | bare | strong `CLAUDE.md` | 0 of 4 (old description) |
+| C2 | `simonw/llm` | interactive | bare | none | **4 of 4** |
+| 7b | `Textualize/rich` | headless | rich | none | 0 of 2 |
+| 7c | `Textualize/rich` | headless | bare | none | 0 of 2 |
+
+**Two candidate explanations survive, and 7c cannot separate them:**
+
+1. **Repository familiarity** — C2 ran on the repository the description was
+   tuned against and that Experiment C used. Every zero is on a repository
+   Icarus had never indexed.
+2. **Harness** — C2 used fresh interactive sessions; both zeros are headless
+   `claude -p`. Tool-exploration behaviour under `-p` is measured nowhere.
+
+**The public position does not change and does not get repeated more
+confidently.** 4/4 stands as what it always was: four tasks, one session, one
+repository. What 7c adds is that four undirected sessions on an unseen
+repository, across both prompt styles, produced zero — with the tool provably
+able to answer. That is pressure on how far 4/4 generalises, and it is not a
+refutation.
+
+### The next run, and it is cheap
+
+Bare prompts, **headless**, on **`simonw/llm`** — C2's own repository and C2's
+own tasks. One variable against C2 (harness) and one against 7c (repository), so
+whichever way it lands it removes one of the two survivors:
+
+- fires → repository familiarity is the variable, and the description does less
+  work on unseen code than 4/4 implies.
+- zero → the harness is the prime suspect, and C2's 4/4 may be a property of
+  interactive sessions rather than of the description.
+
+The corpus is already built (it is the committed board), so this costs an agent
+run, not an ingest.
+
+### Disclosed, so it is not discovered later
+
+- Both 7c agents hit a broken sandbox Python: T1 reported 9 pre-existing test
+  failures from Pygments drift, T2 could not install pytest at all and ran the
+  highlighter test table directly. Neither affects a call count, which is read
+  from transcripts, but it means "ran the suite" is weaker here than it sounds.
+- 7b and 7c share a corpus that was **re-ingested today**, not the one 7b ran
+  against (that cache was gone). Same repository, same pinned commit, freshly
+  indexed: 8,262 chunks (1,503 pr · 1,528 issue · 4,460 commit · 431 code ·
+  326 doc · 14 config), semantic index built before either task launched.
+- Ingest attached full discussion to the 50 most recent pull requests of 1,503
+  and the 400 most recent issues of 1,528; older ones are indexed by description
+  and fetch their thread on demand. The refused pull requests here are recent and
+  were reachable, as the capability check shows.
