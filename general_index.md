@@ -884,6 +884,26 @@ claim. A negative result is kept exactly like a positive one.
   `later_merged` on a `get_task_context` decision (`evals/context_package.py`),
   ABSENT rather than false when it does not apply. Pinned by
   `evals/test_temporal_claims.py`.
+  **`lookup=` (2026-08-25) resolves a successor retrieval did not deliver.**
+  Measured over three live trials the flag NEVER FIRED in production
+  (`docs/experiments/2026-08-25-temporal-flag-production-measurement.md`): the
+  investigation gathered `pr:22` alone, so the precondition — a later MERGED PR
+  IN EVIDENCE — was never met, while `pr:24` was ingested, merged, and returned
+  rank 1 the moment a question named it. The logic was green against a fixture
+  that handed it both; the live path handed it one. `_probe_successors` asks for
+  numbers `n+1..n+3` (`_SUCCESSOR_PROBE`) and only once a deferral is already
+  found, so ordinary pull requests cost zero fetches; evidence WINS and is never
+  probed; `_merged_pr_number` requires the text to say both `PR #N:` (an ISSUE at
+  that number never landed anything) and `[MERGED `; a failing fetch falls back
+  to no-successor rather than raising into a request. A probed result carries
+  **`later_merged_probed: true`**, because `later_merged_count` is a strength
+  indicator (1 = resolver probably named, 154 = ancient) and a bounded window can
+  only return a small number — which would read as STRONG for an ancient
+  deferral. Default `lookup=None` leaves behaviour byte-identical. Verified live
+  against the real repository: probing 23/24/25 rejects the closed `pr:23` and
+  finds `pr:24`. The general lesson: a guard whose input comes from retrieval
+  inherits retrieval's recall as its own ceiling, and its silence is
+  indistinguishable from having nothing to flag.
   Also `unlanded_prs(evidence)` (2026-08-14): the refs that do NOT show a
   change having landed — a pull request still OPEN or closed unmerged, plus a
   `diff:N` inheriting `pr:N`'s state (unknown when that PR is absent, so it is

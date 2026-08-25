@@ -39,6 +39,7 @@ import json
 import unittest
 from pathlib import Path
 
+from . import attempts
 from .attempts import deferred_claims, unlanded_prs
 from .context_package import build_context_package
 from .investigation import Claim, EvidenceRef, Investigation
@@ -63,14 +64,14 @@ def _texts():
             for l in _CORPUS.read_text().splitlines() if l.strip()}
 
 
-def _package(texts, citations=(DEFERRING,)):
+def _package(texts, citations=(DEFERRING,), successor_lookup=None):
     inv = Investigation(objective="wire a new evidence_type", question="wire a new evidence_type")
     for ref in texts:
         inv.evidence[ref] = EvidenceRef(ref=ref, source="pr", via="t1", states_reason=True)
     inv.claims = [Claim(id="c1", text=RECORDED_DECISION, citations=list(citations),
                         support="explicit", verified=True)]
     return build_context_package(inv, Result(verdict="answer", citations=list(citations)),
-                                 _STRUCTURE, texts)
+                                 _STRUCTURE, texts, successor_lookup=successor_lookup)
 
 
 class TheFixtureIsTheRealCase(unittest.TestCase):
@@ -194,3 +195,162 @@ class ThePackageMarksTheDecision(unittest.TestCase):
         noise a reader learns to skip past, and this has to stay noticeable."""
         decision = _package(self.texts, citations=(LATER,))["decisions"][0]
         self.assertNotIn("rests_on_deferred", decision.keys())
+
+
+# ---------------------------------------------------------------------------
+# The successor LOOKUP (2026-08-25). Measured live over three trials
+# (docs/experiments/2026-08-25-temporal-flag-production-measurement.md): the
+# flag never fired in production because the investigation gathered `pr:22`
+# alone and `pr:24` -- ingested, merged, rank 1 when named -- was never
+# retrieved. The logic was green; its input never arrived. These tests are the
+# red half of letting it resolve a successor it was not handed.
+# ---------------------------------------------------------------------------
+
+class SuccessorLookupTests(unittest.TestCase):
+    """A deferral with no successor IN EVIDENCE can still find one on demand."""
+
+    DEFERRING = ("PR #22: v0.12.2 decay platform\n"
+                 "[MERGED by someone]\n"
+                 "## Consumer wiring -- deferred\n"
+                 "Consumer wiring lands in follow-up patches.")
+    # Exactly what ingest writes for the real pr:24.
+    SUCCESSOR = ("PR #24: v0.12.3 universal content-type routing consumers\n"
+                 "[MERGED by SaravananJaichandar]\n"
+                 "Replaces #23 (auto-closed when its base branch #22 merged).")
+    CLOSED_23 = ("PR #23: superseded\n"
+                 "[CLOSED by SaravananJaichandar]\n"
+                 "body")
+
+    def test_without_a_lookup_nothing_is_reported(self):
+        """The measured production behaviour, pinned so the fix is visibly a
+        change: evidence holding only the deferring PR reports nothing."""
+        self.assertEqual(attempts.deferred_claims({"pr:22": self.DEFERRING}), {})
+
+    def test_a_lookup_finds_the_merged_successor(self):
+        calls = []
+
+        def lookup(n):
+            calls.append(n)
+            return {23: self.CLOSED_23, 24: self.SUCCESSOR}.get(n)
+
+        out = attempts.deferred_claims({"pr:22": self.DEFERRING}, lookup=lookup)
+        self.assertIn("pr:22", out)
+        self.assertEqual(out["pr:22"]["later_merged"], ["pr:24"])
+        # pr:23 is CLOSED, not merged -- probed and correctly rejected.
+        self.assertIn(23, calls)
+
+    def test_a_probed_count_is_MARKED_as_a_window_count(self):
+        """`later_merged_count`'s documented meaning is a strength indicator --
+        1 means the resolver is probably named, 154 means ancient. A probe of a
+        bounded window can only ever return a small number, which would read as
+        STRONG for an ancient deferral. The key says the count came from a
+        window so a reader cannot mistake it for a total."""
+        out = attempts.deferred_claims(
+            {"pr:22": self.DEFERRING},
+            lookup=lambda n: self.SUCCESSOR if n == 24 else None)
+        self.assertTrue(out["pr:22"]["later_merged_probed"])
+
+    def test_evidence_wins_and_is_never_probed(self):
+        """A successor already in evidence is stronger AND free. Probing anyway
+        would spend live fetches for a worse answer."""
+        calls = []
+        out = attempts.deferred_claims(
+            {"pr:22": self.DEFERRING,
+             "pr:24": self.SUCCESSOR},
+            lookup=lambda n: calls.append(n))
+        self.assertEqual(out["pr:22"]["later_merged"], ["pr:24"])
+        self.assertNotIn("later_merged_probed", out["pr:22"])
+        self.assertEqual(calls, [])
+
+    def test_an_ISSUE_at_that_number_is_not_a_successor(self):
+        """`fetch_ref_detail` resolves a NUMBER, and returns an issue when the
+        number is an issue. An issue is not a pull request and never landed
+        anything."""
+        issue = "ISSUE #24: please wire the consumers\n[CLOSED by someone]\nbody"
+        self.assertEqual(
+            attempts.deferred_claims({"pr:22": self.DEFERRING},
+                                     lookup=lambda n: issue if n == 24 else None),
+            {})
+
+    def test_an_unmerged_successor_is_not_a_successor(self):
+        openpr = "PR #24: still open\n[OPEN by someone]\nbody"
+        self.assertEqual(
+            attempts.deferred_claims({"pr:22": self.DEFERRING},
+                                     lookup=lambda n: openpr if n == 24 else None),
+            {})
+
+    def test_the_probe_is_BOUNDED(self):
+        """A repo can have a thousand later pull requests. The probe must cost a
+        fixed, small number of live fetches per deferral, never a scan."""
+        calls = []
+
+        def lookup(n):
+            calls.append(n)
+            return None
+
+        attempts.deferred_claims({"pr:22": self.DEFERRING}, lookup=lookup)
+        self.assertLessEqual(len(calls), attempts._SUCCESSOR_PROBE)
+        self.assertEqual(calls, sorted(calls), "probes nearest-first")
+
+    def test_a_ref_with_no_deferral_is_never_probed(self):
+        """The probe is gated on a deferral already being found. A repo full of
+        ordinary pull requests must cost zero fetches."""
+        calls = []
+        attempts.deferred_claims(
+            {"pr:22": "PR #22: ordinary\n[MERGED by x]\nrenames a variable"},
+            lookup=lambda n: calls.append(n))
+        self.assertEqual(calls, [])
+
+    def test_a_raising_lookup_never_breaks_the_caller(self):
+        """A live fetch fails. Failing safe means reporting no successor, the
+        same as today's behaviour -- never an exception into a request."""
+        def boom(n):
+            raise RuntimeError("network")
+        self.assertEqual(
+            attempts.deferred_claims({"pr:22": self.DEFERRING}, lookup=boom), {})
+
+
+class TheProductionShapeIsNowCovered(unittest.TestCase):
+    """The exact arrangement measured live three times on 2026-08-25: the
+    investigation gathered `pr:22` ALONE, so the flag had no successor to find
+    and the false decision was published unflagged. Uses the real fixture text
+    for both pull requests, so this cannot pass on a hand-made fixture that the
+    live path would never produce."""
+
+    @classmethod
+    def setUpClass(cls):
+        if not _CORPUS.exists():                        # pragma: no cover
+            raise unittest.SkipTest("temporal fixture missing")
+        cls.texts = _texts()
+
+    def _only_the_deferring_pr(self):
+        return {DEFERRING: self.texts[DEFERRING]}
+
+    def test_RED_without_a_lookup_the_production_defect_reproduces(self):
+        """Pinned, because this is what three live trials returned. If this ever
+        starts passing on its own, the measurement it records is stale."""
+        decision = _package(self._only_the_deferring_pr())["decisions"][0]
+        self.assertNotIn("rests_on_deferred", decision)
+
+    def test_GREEN_with_a_lookup_the_successor_is_found_and_named(self):
+        looked_up = []
+
+        def lookup(n):
+            looked_up.append(n)
+            return self.texts.get(f"pr:{n}")
+
+        decision = _package(self._only_the_deferring_pr(),
+                            successor_lookup=lookup)["decisions"][0]
+        self.assertTrue(decision.get("rests_on_deferred"))
+        self.assertEqual(decision.get("later_merged"), [LATER])
+        # It reached pr:24 by probing forward from 22, not by being handed it.
+        self.assertIn(int(LATER.split(":")[1]), looked_up)
+
+    def test_the_decision_is_still_only_ANNOTATED(self):
+        """Same guarantee as the evidence path: the flag must not rewrite,
+        downgrade or drop a decision that may well still be true."""
+        decision = _package(self._only_the_deferring_pr(),
+                            successor_lookup=lambda n: self.texts.get(f"pr:{n}"))["decisions"][0]
+        self.assertEqual(decision["text"], RECORDED_DECISION)
+        self.assertEqual(decision["support"], "explicit")
+        self.assertEqual(decision["citations"], [DEFERRING])

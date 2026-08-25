@@ -231,7 +231,62 @@ _DEFERRAL = re.compile(
     r"lands? in v?\d)\b", re.I)
 
 
-def deferred_claims(evidence: Mapping[str, str]) -> Dict[str, Dict]:
+# How many pull-request numbers after a deferral to probe when no successor is
+# in evidence. Bounded on purpose: a repository can have a thousand later pull
+# requests and this must cost a fixed, small number of live fetches per
+# deferral, never a scan. 3 covers the measured case (`pr:22` deferred,
+# `pr:23` auto-closed, `pr:24` merged the work) with one number of margin.
+_SUCCESSOR_PROBE = 3
+
+
+def _merged_pr_number(number: int, text) -> bool:
+    """Does `text` show pull request `number` as MERGED?
+
+    Same discipline as the rest of this module -- the indexed TEXT has to say
+    it. Two things are checked and neither is inferred:
+
+    * the first line is a PULL REQUEST header, not an issue's. `fetch_ref_detail`
+      resolves a NUMBER and returns whichever exists, so probing 24 can come
+      back with `ISSUE #24`. An issue is a request, never a landing.
+    * the state header says MERGED. OPEN and CLOSED both describe something
+      that did not land.
+    """
+    if not isinstance(text, str):
+        return False
+    lines = text.split("\n", _HEADER_SCAN_LINES)
+    if not lines or not lines[0].startswith(f"PR #{number}:"):
+        return False
+    header = next((l for l in lines[:_HEADER_SCAN_LINES] if l.startswith("[")), None)
+    return bool(header and header.startswith(_MERGED_STATE))
+
+
+def _probe_successors(n: int, lookup) -> list:
+    """The nearest MERGED pull requests after `n`, resolved on demand.
+
+    Exists because the flag was measured NOT firing in production for exactly
+    one reason: the successor was ingested, merged and reachable, and simply
+    was not retrieved into the investigation's evidence
+    (docs/experiments/2026-08-25-temporal-flag-production-measurement.md). The
+    logic was green against a fixture that handed it both pull requests; the
+    live path handed it one.
+
+    Fails safe to NO successor -- the pre-fix behaviour -- on any error. A live
+    fetch that fails must never become an exception inside a request, and must
+    never be reported as "nothing came later", which is why the caller marks a
+    probed result rather than presenting it like an evidence-derived one.
+    """
+    found = []
+    for m in range(n + 1, n + 1 + _SUCCESSOR_PROBE):
+        try:
+            text = lookup(m)
+        except Exception:
+            break  # the fetcher is unhealthy; stop rather than retry n more times
+        if _merged_pr_number(m, text):
+            found.append((m, f"{_REJECTED_SOURCE}{m}"))
+    return found
+
+
+def deferred_claims(evidence: Mapping[str, str], lookup=None) -> Dict[str, Dict]:
     """Refs that DEFER something, where later merged work is also in evidence.
 
     Returns `{ref: {"phrase": <the literal matched text>, "later_merged":
@@ -287,6 +342,13 @@ def deferred_claims(evidence: Mapping[str, str]) -> Dict[str, Dict]:
     out = {}
     for ref, (n, phrase) in deferrals.items():
         later = sorted(((m, r) for m, r in merged_later if m > n), key=lambda x: x[0])
+        probed = False
+        if not later and lookup is not None:
+            # Nothing in evidence came later. Ask. Gated on a deferral having
+            # ALREADY been found in this ref's text, so a repository of ordinary
+            # pull requests costs zero fetches.
+            later = _probe_successors(n, lookup)
+            probed = bool(later)
         if later:
             # NEAREST first, and bounded. Found by running this over the whole
             # committed corpus: `pr:14`'s deferral listed essentially every
@@ -299,6 +361,15 @@ def deferred_claims(evidence: Mapping[str, str]) -> Dict[str, Dict]:
             out[ref] = {"phrase": phrase,
                         "later_merged": [r for _, r in later[:_LATER_MERGED_SHOWN]],
                         "later_merged_count": len(later)}
+            # `later_merged_count` means "how much time passed" -- 1 says the
+            # resolver is probably named, 154 says the deferral is ancient. A
+            # bounded probe can only ever return a small number, which would
+            # read as STRONG for an ancient deferral. Say where the count came
+            # from rather than let a window count pass as a total. ABSENT when
+            # the successors came from evidence, like every other optional key
+            # here.
+            if probed:
+                out[ref]["later_merged_probed"] = True
     return out
 
 

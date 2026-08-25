@@ -41,7 +41,7 @@ from .freshness import FreshnessChecker
 from .ledger import Ledger
 from .memory_writer import GitHubMemoryWriter, MemoryWriteError
 from evals.entities import build_entity_index
-from evals.ingest import fetch_pr_diff
+from evals.ingest import fetch_pr_diff, fetch_ref_detail
 from evals import investigator as _investigator
 from .investigations import ConversationStore, refers_back
 from .structure import build_structure
@@ -1556,7 +1556,19 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 result = _investigator.conclude(
                     investigation, snapshot.provider, texts=texts)
                 structure = build_structure(snapshot.pipeline.indexed_chunks())
-                package = build_context_package(investigation, result, structure, texts)
+                # Let a deferral resolve a merged successor retrieval did not
+                # deliver. Bounded to a few fetches per deferral, and only when
+                # a deferral was already found -- see attempts._probe_successors
+                # and the 2026-08-25 production measurement that made it
+                # necessary.
+                ctx_token = self._github_token()
+                successor_lookup = None
+                if repo:
+                    def successor_lookup(number, _repo=repo, _tok=ctx_token):
+                        chunk = fetch_ref_detail(_repo, number, token=_tok)
+                        return chunk.text if chunk else None
+                package = build_context_package(investigation, result, structure, texts,
+                                                successor_lookup=successor_lookup)
                 still_indexing = snapshot.indexing
             except Exception as e:
                 print(f"/context failed: {type(e).__name__}: {e}", file=sys.stderr)

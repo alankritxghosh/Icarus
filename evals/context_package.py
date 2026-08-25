@@ -25,7 +25,8 @@ only when there is a real, gated source for it.
 from typing import Dict
 
 
-def build_context_package(investigation, result, structure: Dict, texts: Dict[str, str]) -> Dict:
+def build_context_package(investigation, result, structure: Dict, texts: Dict[str, str],
+                          successor_lookup=None) -> Dict:
     """
     `investigation` is the evals.investigation.Investigation a task's
     investigate() run produced. `result` is what conclude() returned for it --
@@ -56,7 +57,7 @@ def build_context_package(investigation, result, structure: Dict, texts: Dict[st
     # The flag says the claim is time-indexed and names what came later. It does
     # NOT say the deferral was resolved -- see `deferred_claims`' own docstring
     # for why that judgment is deliberately not made here.
-    deferred = deferred_claims(texts or {})
+    deferred = deferred_claims(texts or {}, lookup=successor_lookup)
     decisions = []
     for c in summary["claims"]:
         if c["support"] not in ("explicit", "strong"):
