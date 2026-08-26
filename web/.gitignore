@@ -47,3 +47,7 @@ next-env.d.ts
 # check below exists.
 /public/Icarus.dmg
 /public/icarus-extension.zip
+
+# Copied from the repo-root release.json by scripts/sync-release.mjs on every
+# build and dev run. Generated, so it is not committed -- the manifest itself is.
+/src/generated/
