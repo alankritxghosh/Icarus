@@ -24,12 +24,20 @@ echo "==> release check"
 python3 scripts/check_release.py
 
 echo "==> build"
-( cd web && npm run build >/dev/null )
+if ! ( cd web && npm run build >/tmp/icarus_site_build.log 2>&1 ); then
+  echo "  ✗  next build failed:"; tail -30 /tmp/icarus_site_build.log; exit 1
+fi
 echo "  ok  next build"
 
+# Never discard stderr here. The first version sent this to /dev/null 2>&1, the
+# deploy failed, the script exited on `set -e`, and the only evidence was that
+# the output stopped -- while the site kept serving the previous build and
+# looked fine. Capture it, and show it when it fails.
 echo "==> deploy"
-( cd web && vercel --prod --yes >/dev/null 2>&1 )
-echo "  ok  vercel --prod"
+if ! ( cd web && vercel --prod --yes >/tmp/icarus_vercel.log 2>&1 ); then
+  echo "  ✗  vercel --prod failed:"; tail -30 /tmp/icarus_vercel.log; exit 1
+fi
+echo "  ok  vercel --prod  ($(grep -o 'https://[^ ]*vercel.app' /tmp/icarus_vercel.log | tail -1))"
 
 echo "==> verify live: $BASE"
 fail=0
@@ -41,12 +49,15 @@ if [ "$code" = "200" ]; then echo "  ok  /  ($code)"; else
   fail=1
 fi
 
+# The site is no longer a file host: /Icarus.dmg redirects to the GitHub
+# release. Follow it and check the bytes that actually arrive, because a
+# redirect that resolves to the wrong file looks identical to one that works.
 expected_sha=$(python3 -c 'import json;print(json.load(open("release.json"))["dmg"]["sha256"])')
 tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
-code=$(curl -s -m 300 -o "$tmp" -w '%{http_code}' "$BASE/Icarus.dmg")
+code=$(curl -sL -m 300 -o "$tmp" -w '%{http_code}' "$BASE/Icarus.dmg")
 got=$(shasum -a 256 "$tmp" | cut -d' ' -f1)
 if [ "$code" = "200" ] && [ "$got" = "$expected_sha" ]; then
-  echo "  ok  /Icarus.dmg  ($(wc -c < "$tmp") bytes, sha matches)"
+  echo "  ok  /Icarus.dmg redirect -> release  ($(wc -c < "$tmp") bytes, sha matches)"
 else
   echo "  ✗  /Icarus.dmg  http=$code sha=${got:0:12}… expected=${expected_sha:0:12}…"
   fail=1

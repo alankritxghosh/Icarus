@@ -189,7 +189,7 @@ export function Install() {
       <Reveal delay={0.08}>
         <div className="glass mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 p-5">
           <a
-            href="/Icarus.dmg"
+            href={release.url}
             className="flex items-center gap-2 rounded-full bg-sun px-5 py-3 text-[14px] font-semibold text-deep transition hover:brightness-110"
           >
             ↓ Download for macOS

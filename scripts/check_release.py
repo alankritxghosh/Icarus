@@ -29,6 +29,7 @@ import json
 import pathlib
 import re
 import sys
+import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "web" / "public"
@@ -48,25 +49,45 @@ def check(quiet: bool = False) -> list[str]:
         return [f"{MANIFEST.name} is missing"]
     m = json.loads(MANIFEST.read_text())
 
+    # The binaries are no longer in the repo OR on the site: they live in
+    # GitHub Releases. So verify the thing the world actually downloads, not a
+    # local copy of it that may or may not be the same file.
+    base = m["assets_base"]
     for key in ("dmg", "extension"):
         spec = m[key]
-        f = PUBLIC / spec["name"]
-        if not f.exists():
-            problems.append(
-                f"{spec['name']} is missing from web/public/. It is gitignored on "
-                f"purpose; run scripts/fetch_release_assets.sh to pull the published "
-                f"one, or copy a fresh build in."
-            )
+        url = f"{base}/{spec['name']}"
+        try:
+            with urllib.request.urlopen(url, timeout=180) as r:
+                blob = r.read()
+        except Exception as e:                                  # noqa: BLE001
+            problems.append(f"{spec['name']}: cannot download {url} ({e})")
             continue
-        size, digest = f.stat().st_size, sha256(f)
+        size, digest = len(blob), hashlib.sha256(blob).hexdigest()
         if size != spec["bytes"]:
-            problems.append(f"{spec['name']}: {size} bytes on disk, release.json says {spec['bytes']}")
-        if digest != spec["sha256"]:
-            problems.append(f"{spec['name']}: sha256 {digest[:12]}… on disk, release.json says {spec['sha256'][:12]}…")
-        if not problems:
-            say(f"  ok  {spec['name']}  {size} bytes  {digest[:12]}…")
+            problems.append(f"{spec['name']}: release serves {size} bytes, release.json says {spec['bytes']}")
+        elif digest != spec["sha256"]:
+            problems.append(f"{spec['name']}: release sha256 {digest[:12]}…, release.json says {spec['sha256'][:12]}…")
+        else:
+            say(f"  ok  {spec['name']}  {size} bytes  {digest[:12]}…  (from the release)")
+
+    # The app ships a committed copy of this manifest, because a CLI deploy
+    # uploads only web/ and the build machine never sees the repo root. Assert
+    # the two are identical, or the website can quietly state a release fact
+    # that release.json disagrees with -- which is the whole thing this file
+    # exists to prevent.
+    generated = ROOT / "web" / "src" / "generated" / "release.json"
+    if not generated.exists():
+        problems.append("web/src/generated/release.json is missing; run web/scripts/sync-release.mjs")
+    elif json.loads(generated.read_text()) != m:
+        problems.append(
+            "web/src/generated/release.json differs from release.json. The site "
+            "would render stale release facts. Run: node web/scripts/sync-release.mjs"
+        )
+    else:
+        say("  ok  web/src/generated/release.json matches")
 
     appcast = (PUBLIC / "appcast.xml").read_text()
+    installer = installer_url_src = (PUBLIC / "install.sh").read_text()
     length = re.search(r'length="(\d+)"', appcast)
     if not length:
         problems.append("appcast.xml has no enclosure length")
@@ -79,11 +100,18 @@ def check(quiet: bool = False) -> list[str]:
         say(f"  ok  appcast.xml length={length.group(1)}")
 
     if m["url"] not in appcast:
-        problems.append(f"appcast.xml does not point at {m['url']}")
+        problems.append(
+            f"appcast.xml does not point at {m['url']}. Sparkle would fetch the "
+            f"wrong file, or none."
+        )
     else:
-        say("  ok  appcast.xml enclosure url")
+        say("  ok  appcast.xml enclosure url (GitHub Releases)")
 
-    installer = (PUBLIC / "install.sh").read_text()
+    if m["url"] not in installer_url_src:
+        problems.append(f"install.sh does not download from {m['url']}")
+    else:
+        say("  ok  install.sh DMG_URL")
+
     expected = re.search(r'EXPECTED_SHA="([0-9a-f]{64})"', installer)
     if not expected:
         problems.append("install.sh has no EXPECTED_SHA")
@@ -108,28 +136,30 @@ def write() -> None:
 
 
 def selftest() -> int:
-    """A passing checker means nothing until it has been shown to fail."""
-    import tempfile, shutil
-    problems = check(quiet=True)
-    if problems:
-        print("selftest: cannot run, the real tree already has problems:")
-        for p in problems:
-            print("   ", p)
+    """A passing checker means nothing until it has been shown to fail.
+
+    The binaries are remote now, so this cannot corrupt a file on disk. It
+    corrupts the MANIFEST instead -- one character of the expected sha -- and
+    asserts the check notices that what the release serves is not what
+    release.json claims.
+    """
+    original = MANIFEST.read_text()
+    m = json.loads(original)
+    if check(quiet=True):
+        print("selftest: cannot run, the real tree already has problems")
         return 1
-    backup = tempfile.mkdtemp()
-    dmg = PUBLIC / "Icarus.dmg"
-    shutil.copy2(dmg, backup)
     try:
-        dmg.write_bytes(dmg.read_bytes() + b"x")     # one byte of corruption
+        good = m["dmg"]["sha256"]
+        m["dmg"]["sha256"] = ("0" if good[0] != "0" else "1") + good[1:]
+        MANIFEST.write_text(json.dumps(m, indent=2) + "\n")
         after = check(quiet=True)
         if not after:
-            print("selftest FAILED: a corrupted DMG did not trip any check")
+            print("selftest FAILED: a wrong sha in release.json tripped nothing")
             return 1
-        print("selftest ok: a one-byte change to the DMG trips", len(after), "check(s)")
+        print("selftest ok: a one-character sha change trips", len(after), "check(s)")
         return 0
     finally:
-        shutil.copy2(pathlib.Path(backup) / "Icarus.dmg", dmg)
-        shutil.rmtree(backup, ignore_errors=True)
+        MANIFEST.write_text(original)
 
 
 if __name__ == "__main__":

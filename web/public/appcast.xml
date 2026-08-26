@@ -9,7 +9,7 @@
             <sparkle:shortVersionString>0.1.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://icarus-website-kappa.vercel.app/Icarus.dmg" length="2408673" type="application/octet-stream" sparkle:edSignature="zQn8Z013Fen6jlUGFNAwUOObsNfrA4fgADqecDxW9mRWSnuaiv1GLjPWG5iqiIbFc1EXotG7h9cEnOhT48GsAA=="/>
+            <enclosure url="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7/Icarus.dmg" length="2408673" type="application/octet-stream" sparkle:edSignature="zQn8Z013Fen6jlUGFNAwUOObsNfrA4fgADqecDxW9mRWSnuaiv1GLjPWG5iqiIbFc1EXotG7h9cEnOhT48GsAA=="/>
         </item>
     </channel>
 </rss>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { Download, Home, ShieldAlert, Terminal, Workflow, Bot } from "lucide-react";
+import release from "@/generated/release.json";
 
 /** The wings. Same geometry as the Mac app's mark and the favicon. */
 export function Mark({ className }: { className?: string }) {
@@ -76,7 +77,7 @@ export function Header() {
               download. The CTA was an #install anchor and the install section
               had no .dmg link at all, so the whole path dead-ended. */}
           <a
-            href="/Icarus.dmg"
+            href={release.url}
             className="group flex items-center gap-2 rounded-full bg-sun px-4 py-2 text-[13px] font-semibold text-deep transition hover:brightness-110"
           >
             <Download className="size-4" />
