@@ -346,6 +346,35 @@ class TheProductionShapeIsNowCovered(unittest.TestCase):
         # It reached pr:24 by probing forward from 22, not by being handed it.
         self.assertIn(int(LATER.split(":")[1]), looked_up)
 
+    def test_a_PROBED_successor_is_disclosed_as_probed_on_the_DECISION(self):
+        """The defect measured in production 2026-08-26: `deferred_claims` set
+        `later_merged_probed`, and `build_context_package` dropped it, so a
+        client saw a 3-wide window count with no sign it was a window. The
+        disclosure has to survive to the OUTERMOST surface a reader touches --
+        that is the only place it does any work."""
+        decision = _package(self._only_the_deferring_pr(),
+                            successor_lookup=lambda n: self.texts.get(f"pr:{n}"))["decisions"][0]
+        self.assertTrue(decision.get("later_merged_probed"))
+        self.assertEqual(decision.get("later_merged_count"), 1)
+
+    def test_an_EVIDENCE_successor_carries_the_count_but_is_not_marked_probed(self):
+        """`probed` is ABSENT, not False, when nothing was probed -- same rule
+        the producing module uses. The count still has to arrive: it is the
+        strength indicator, and 1 means something different from 154."""
+        decision = _package(self.texts)["decisions"][0]
+        self.assertTrue(decision.get("rests_on_deferred"))
+        self.assertEqual(decision.get("later_merged_count"), 1)
+        self.assertNotIn("later_merged_probed", decision)
+
+    def test_a_decision_with_no_deferral_carries_no_disclosure_keys(self):
+        """Every one of these keys stays ABSENT unless it applies, so a reader
+        never learns to skip them."""
+        decision = _package({DEFERRING: "PR #22: ordinary\n\n[MERGED by someone]\n\nBody."},
+                            )["decisions"][0]
+        for key in ("rests_on_deferred", "later_merged",
+                    "later_merged_count", "later_merged_probed"):
+            self.assertNotIn(key, decision)
+
     def test_the_decision_is_still_only_ANNOTATED(self):
         """Same guarantee as the evidence path: the flag must not rewrite,
         downgrade or drop a decision that may well still be true."""

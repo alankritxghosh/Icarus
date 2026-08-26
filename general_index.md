@@ -881,7 +881,11 @@ claim. A negative result is kept exactly like a positive one.
   the resolver is probably named; 154 means ancient) — a flaw found by running it
   corpus-wide, where an old deferral listed every later PR. Fires on 3 of 526 PR
   chunks in the committed corpus (0.6%). Surfaced as `rests_on_deferred` +
-  `later_merged` on a `get_task_context` decision (`evals/context_package.py`),
+  `later_merged` + `later_merged_count` (+ `later_merged_probed` when the
+  successor came from the bounded probe, not from evidence -- both disclosure
+  fields were DROPPED at this boundary until 2026-08-26, measured absent in
+  three production trials, so a 3-wide window count reached a client looking
+  like a total) on a `get_task_context` decision (`evals/context_package.py`),
   ABSENT rather than false when it does not apply. Pinned by
   `evals/test_temporal_claims.py`.
   **`lookup=` (2026-08-25) resolves a successor retrieval did not deliver.**
