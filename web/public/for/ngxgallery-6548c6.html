@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Icarus on MurhafSousli/ngx-gallery</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--paper:#F7F6F2;--card:#FFF;--ink:#16181D;--muted:#6B7280;--line:#16181D;
+--hair:#E4E2DB;--accent:#2F6BFF;--grounded:#0F7B53;--unknown:#9A6B00;
+--mono:"Berkeley Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 var(--sans);}
+.wrap{max-width:820px;margin:0 auto;padding:44px 24px 90px;}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:18px;margin-bottom:26px;}
+.mark{display:inline-flex;align-items:flex-end;gap:2px;height:22px;}
+.mark i{width:3px;background:var(--ink);border-radius:1px;}
+.mark .b1{height:11px}.mark .b2{height:18px}.mark .stem{height:22px;background:var(--accent)}
+.mark .b4{height:14px}.mark .b5{height:8px}
+h1{font-size:27px;font-weight:650;margin:0 0 6px;letter-spacing:-.01em;}
+h1 .repo{font-family:var(--mono);font-size:24px;}
+.sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
+.panel{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:14px 16px;margin:0 0 30px;}
+.panel .row{font:12px var(--mono);margin:0 0 7px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;}
+.panel .row:last-child{margin-bottom:0}
+.tag{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 6px;border-radius:3px;flex:none;}
+.tag.ok{background:var(--grounded)}
+.label{font:600 11px var(--sans);letter-spacing:.10em;text-transform:uppercase;margin:0 0 10px;color:var(--muted);}
+details{border:1.5px solid var(--line);border-radius:4px;background:var(--card);
+box-shadow:5px 5px 0 var(--line);margin:0 0 18px;}
+details[data-verdict="unknown"]{background:#FBF7EC}
+summary{cursor:pointer;list-style:none;padding:17px 20px;font-size:17px;font-weight:600;
+display:flex;gap:12px;align-items:flex-start;}
+summary::-webkit-details-marker{display:none}
+summary:hover{background:#EFEEE8}
+details[data-verdict="unknown"] summary:hover{background:#F6EFDF}
+.pill{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;flex:none;
+padding:3px 7px;border-radius:3px;border:1.5px solid var(--grounded);color:var(--grounded);margin-top:3px;}
+.pill.unknown{border-color:var(--unknown);color:var(--unknown)}
+.body{padding:0 20px 20px;border-top:1.5px solid var(--hair);}
+.prose{font-size:17px;line-height:1.6;margin:16px 0 18px;white-space:pre-wrap;}
+.prose code{font-family:var(--mono);font-size:.92em;background:#EFEEE8;padding:1px 5px;border-radius:3px;}
+.hero{font-size:26px;font-weight:650;margin:16px 0 8px;line-height:1.2;}
+.heronote{color:var(--muted);font-size:14px;margin:0 0 16px;max-width:540px;}
+.cites{display:flex;flex-wrap:wrap;gap:8px;}
+.chip{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:13px;
+border:1.5px solid var(--line);border-radius:4px;padding:5px 10px;background:#fff;
+color:var(--ink);text-decoration:none;}
+.chip:hover{box-shadow:2px 2px 0 var(--accent)}
+.chip .src{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:#fff;
+background:var(--ink);padding:1px 5px;border-radius:3px;}
+.chip.pr .src{background:var(--accent)}.chip.issue .src{background:var(--unknown)}
+.chip.code .src,.chip.doc .src,.chip.config .src{background:var(--grounded)}
+.chip.commit .src{background:#5B4B8A}
+.searched{border:1.5px solid var(--line);border-radius:4px;background:#fff;padding:12px 14px;}
+.searched .k{font:600 11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.searched .v{font-family:var(--mono);font-size:12.5px;margin-top:7px;line-height:1.9;word-break:break-word;}
+.ask{margin-top:34px;border-top:1.5px solid var(--hair);padding-top:26px;}
+.askrow{display:flex;gap:10px;}
+.askrow input{flex:1;padding:13px 15px;border:1.5px solid var(--line);border-radius:4px;
+background:#fff;font-size:16px;font-family:var(--sans);color:var(--muted);}
+.askrow button{padding:13px 22px;border:1.5px solid var(--line);border-radius:4px;
+background:var(--accent);color:#fff;font-weight:650;font-size:15px;box-shadow:3px 3px 0 var(--line);}
+.askrow input:disabled,.askrow button:disabled{opacity:.55}
+.asknote{font-size:14px;color:var(--muted);margin:12px 0 0;}
+footer{margin-top:40px;border-top:1.5px solid var(--hair);padding-top:16px;
+font-size:13px;color:var(--muted);line-height:1.7;}
+@media (max-width:560px){.wrap{padding:28px 16px 70px}h1{font-size:22px}h1 .repo{font-size:18px}}
+</style></head><body><div class="wrap">
+<div class="brand"><span class="mark"><i class="b1"></i><i class="b2"></i><i class="stem"></i><i class="b4"></i><i class="b5"></i></span><span>Icarus</span></div>
+<h1>Icarus, reading <span class="repo">MurhafSousli/ngx-gallery</span></h1>
+<p class="sub">Real questions, answered from your own repository. Every answer links to the
+evidence it used. 8 of 10 were answerable — the rest say so.</p>
+<div class="panel">
+  <div class="row"><span class="tag ok">indexed</span><span>230 pr  ·  400 issue  ·  880 commit  ·  356 code  ·  10 doc  ·  9 config</span></div>
+  <div class="row"><span class="tag">commit</span><span>74a4aee14371</span></div>
+</div>
+<p class="label">Questions a new contributor would ask</p>
+<details data-verdict="answer"><summary><span class="pill">answered</span><span>Why should the galleryItemDef directive override the gallery-item content?</span></summary><div class="body"><p class="prose">The <code>galleryItemDef</code> directive is intended to allow users to replace the default template of a gallery item with their own custom template, enabling them to define unique item templates while still using original templates for other types.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/MurhafSousli/ngx-gallery/pull/579" target="_blank" rel="noopener"><span class="src">pr</span><span>579</span></a></div></div></details><details data-verdict="unknown"><summary><span class="pill unknown">unknown</span><span>Why is ngx-gallery built for Angular rather than being framework agnostic?</span></summary><div class="body"><p class="hero">No one wrote this down.</p><p class="heronote">Icarus found no recorded reason, so it did not invent one. This is the whole point: it answers from evidence or it abstains.</p><div class="searched"><div class="k">What it searched</div><div class="v"></div></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was a loading attribute added to gallery-image in the gallery-thumb template?</span></summary><div class="body"><p class="prose">The loading attribute was added to the gallery-image in the gallery-thumb template to allow thumbnails to be lazy-loaded, ensuring images are only fetched when they are within the viewport.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/MurhafSousli/ngx-gallery/pull/612" target="_blank" rel="noopener"><span class="src">pr</span><span>612</span></a><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/513" target="_blank" rel="noopener"><span class="src">issue</span><span>513</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why does the gallery service preserve the ref config?</span></summary><div class="body"><p class="prose">The gallery service preserves the ref config to ensure that when updating the configuration of an existing gallery reference, the existing configuration is used as the basis instead of being overwritten by the service&#x27;s default configuration.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/MurhafSousli/ngx-gallery/pull/593" target="_blank" rel="noopener"><span class="src">pr</span><span>593</span></a><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/592" target="_blank" rel="noopener"><span class="src">issue</span><span>592</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why was a MutationObserver added to the gallery?</span></summary><div class="body"><p class="prose">A MutationObserver was added to improve performance, replace DOMSubtreeModified, and replace ngAfterContentChecked to prevent infinite loops in the default change detection strategy.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/MurhafSousli/ngx-gallery/pull/31" target="_blank" rel="noopener"><span class="src">pr</span><span>31</span></a><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/26" target="_blank" rel="noopener"><span class="src">issue</span><span>26</span></a><a class="chip commit" href="https://github.com/MurhafSousli/ngx-gallery/commit/82026f7be09dae4847e7eb0b5ee2904ca5e62a97" target="_blank" rel="noopener"><span class="src">commit</span><span>82026f7</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What was causing the lightbox gallery overlay close button to be clicked behind?</span></summary><div class="body"><p class="prose">The lightbox gallery overlay close button was clicking items behind it because the button press was passing through the overlay, and in some cases, frequent change detection caused the close icon to be rerendered, preventing it from being clicked.</p><p class="label">Evidence</p><div class="cites"><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/54" target="_blank" rel="noopener"><span class="src">issue</span><span>54</span></a><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/307" target="_blank" rel="noopener"><span class="src">issue</span><span>307</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What caused the endless loading when the gallery has only one image?</span></summary><div class="body"><p class="prose">The endless loading occurs because swiping left or right when there is only one image triggers navigation controls, which causes the gallery to enter a loading state on a blank screen.</p><p class="label">Evidence</p><div class="cites"><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/52" target="_blank" rel="noopener"><span class="src">issue</span><span>52</span></a><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/50" target="_blank" rel="noopener"><span class="src">issue</span><span>50</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>Why were strict null checks introduced?</span></summary><div class="body"><p class="prose">Strict null checks were introduced to fix build failures in codebases that have strict null checks enabled and to improve the quality of the project.</p><p class="label">Evidence</p><div class="cites"><a class="chip pr" href="https://github.com/MurhafSousli/ngx-gallery/pull/229" target="_blank" rel="noopener"><span class="src">pr</span><span>229</span></a></div></div></details><details data-verdict="answer"><summary><span class="pill">answered</span><span>What was causing the error resolving all parameters for GalleryService?</span></summary><div class="body"><p class="prose">The error was most likely caused by the &#x27;ngc&#x27; tool used for building the module.</p><p class="label">Evidence</p><div class="cites"><a class="chip issue" href="https://github.com/MurhafSousli/ngx-gallery/issues/21" target="_blank" rel="noopener"><span class="src">issue</span><span>21</span></a></div></div></details><details data-verdict="unknown"><summary><span class="pill unknown">unknown</span><span>Why is the project called ngx-gallery?</span></summary><div class="body"><p class="hero">No one wrote this down.</p><p class="heronote">Icarus found no recorded reason, so it did not invent one. This is the whole point: it answers from evidence or it abstains.</p><div class="searched"><div class="k">What it searched</div><div class="v"></div></div></div></details>
+<div class="ask">
+  <div class="askrow">
+    <input disabled placeholder="Ask something else about MurhafSousli/ngx-gallery…">
+    <button disabled>Ask</button>
+  </div>
+  <p class="asknote">This page is pre-computed, so it opens instantly and costs you nothing.
+  Reply to my email and I&rsquo;ll open a live session against your repo where you can
+  ask it anything.</p>
+</div>
+<footer>
+Answers on this page are unedited output from the same pipeline the product runs —
+retrieve, cite-or-abstain, then a deterministic gate that drops any answer whose citations
+aren&rsquo;t genuinely retrieved. Nothing here was written by hand.<br>
+Your code was read to answer these questions and discarded. It was not used for training.
+</footer>
+</div></body></html>
