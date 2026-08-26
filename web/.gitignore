@@ -48,6 +48,7 @@ next-env.d.ts
 /public/Icarus.dmg
 /public/icarus-extension.zip
 
-# Copied from the repo-root release.json by scripts/sync-release.mjs on every
-# build and dev run. Generated, so it is not committed -- the manifest itself is.
-/src/generated/
+# src/generated/release.json IS committed, deliberately. A CLI deploy uploads
+# only web/, so the repo-root manifest is absent on the build machine and the
+# build fails without a copy here. scripts/check_release.py asserts the two
+# stay identical, so the committed copy cannot drift.

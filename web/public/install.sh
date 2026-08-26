@@ -12,13 +12,13 @@
 # you pipe into a shell.
 #
 # Manual alternative, if you would rather not pipe to sh:
-#   curl -fLO https://icarus-website-kappa.vercel.app/Icarus.dmg
+#   curl -fLO https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7/Icarus.dmg
 #   shasum -a 256 Icarus.dmg          # compare with the checksum below
 #   open Icarus.dmg                   # drag Icarus to Applications
 
 set -eu
 
-DMG_URL="https://icarus-website-kappa.vercel.app/Icarus.dmg"
+DMG_URL="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7/Icarus.dmg"
 EXPECTED_SHA="c4d2837c847135823bd310a99f2662c71d957787d9b14490f97d8d33a69ec76e"
 DEST="${ICARUS_DEST:-/Applications}"
 APP="Icarus.app"
