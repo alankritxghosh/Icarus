@@ -3,7 +3,15 @@
 import { Reveal } from "./Reveal";
 import { Section } from "./Section";
 
-const DMG_SHA = "c4d2837c847135823bd310a99f2662c71d957787d9b14490f97d8d33a69ec76e";
+import release from "@/generated/release.json";
+
+// Every release fact on this page comes from release.json, which
+// scripts/check_release.py proves against the real binary. It used to be a
+// hardcoded sha and a hardcoded "~2352 KB", which meant a new release needed
+// the page edited by hand and nothing noticed when it wasn't.
+const DMG_SHA: string = release.dmg.sha256;
+const DMG_KB = Math.round(release.dmg.bytes / 1024);
+const VERSION: string = release.version;
 
 /* ---------------------------------------------------------------------------
    Every claim below is copied from the shipped site, which was itself checked
@@ -187,7 +195,7 @@ export function Install() {
             ↓ Download for macOS
           </a>
           <div className="font-mono text-[11px] leading-relaxed text-muted">
-            Apple silicon · ~2352 KB · free alpha
+            Apple silicon · v{VERSION} · ~{DMG_KB.toLocaleString()} KB · free alpha
             <span className="mt-1 block">
               Not notarized yet, so the first launch takes one extra click:
               right-click the app → Open.

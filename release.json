@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "The single source of truth for what a release IS. Everything that states a",
+    "release fact -- the website, install.sh, the Sparkle appcast -- is checked",
+    "against this by scripts/check_release.py, and the site reads it at build",
+    "time instead of hardcoding.",
+    "Written because the same sha and size were copy-pasted into five files and",
+    "nothing verified they agreed. This repo has already been bitten once by",
+    "exactly that: release-dmg.sh's unanchored regex overwrote the browser",
+    "extension's checksum with the DMG's for two releases running.",
+    "Regenerate with: python3 scripts/check_release.py --write"
+  ],
+  "version": "0.1.7",
+  "build": "10",
+  "url": "https://icarus-website-kappa.vercel.app/Icarus.dmg",
+  "dmg": {
+    "name": "Icarus.dmg",
+    "bytes": 2408673,
+    "sha256": "c4d2837c847135823bd310a99f2662c71d957787d9b14490f97d8d33a69ec76e"
+  },
+  "extension": {
+    "name": "icarus-extension.zip",
+    "bytes": 22465,
+    "sha256": "ef09faf4e5db1dfabfa924a7f1c845dab544e5558a21e6b6bdbd62da2f462e4f"
+  },
+  "appcast": {
+    "length": 2408673,
+    "edSignature": "zQn8Z013Fen6jlUGFNAwUOObsNfrA4fgADqecDxW9mRWSnuaiv1GLjPWG5iqiIbFc1EXotG7h9cEnOhT48GsAA=="
+  }
+}
