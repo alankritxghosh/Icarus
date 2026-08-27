@@ -157,3 +157,26 @@ T-crlf, T-template) — reused rather than re-run.
   a future batch if the pool needs to grow past 17.
 
 ## Execution — solo arms launching now, in parallel, no brain required
+
+## Disclosed: the "solo" arm was not actually tool-free
+
+All 13 solo-arm sessions show `TOOL AVAILABLE` under the new check —
+`mcp__icarus__` appears in each transcript's tool catalogue. Root cause: the
+user-scope `icarus` MCP server (pointed at production, restored after the
+smaller run) loads by default in any session with no project-level override,
+which none of these 13 clones had.
+
+**Zero of the 13 sessions made an actual call.** So behaviourally these are
+still valid observations of "an agent that did not consult Icarus," and the
+fix-rate scoring below is unaffected by this — a call that never happened
+can't have changed the diff. What is NOT valid: citing these 13 as "0 of 13,
+tool unavailable" for any pooled call-rate statistic across this run, since the
+tool was in fact reachable (against production, which was connected to an
+unrelated repository — any attempted call would have refused on repo mismatch,
+which may be part of why none fired, though that can't be established either
+way from a call that didn't happen).
+
+Fixed for the with-Icarus arm, which must be right: same swap-and-verify
+procedure as the smaller run (remove production registration, point user-scope
+`icarus` at the local dev brain, confirm a real call resolves against the
+correct repo before trusting anything).
