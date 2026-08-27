@@ -197,3 +197,52 @@ every task is being re-run from a clean checkout.
 Caught by checking every diff before scoring the first one, rather than
 scoring T-keys' empty result and moving on — the same discipline that found
 the wrong-repo and stale-`.mcp.json` mistakes in the smaller run.
+
+## The re-run's own unplanned finding: 4 of 13 reached for it anyway
+
+All 13 re-run sessions held the (production, wrong-repo) Icarus tool by the
+same inheritance as before. This time **4 of 13 (31%) called it unprompted**
+— T-keys, T-mimetype, T-nonascii, T-inputend — each with a real, on-topic
+question ("has this been proposed or rejected before", "why does this
+function return X directly"). Every call was correctly refused on repo
+mismatch (`"Icarus is connected to SaravananJaichandar/world-model-mcp, not
+simonw/llm"`), so no information reached any diff and the fix-rate scoring
+below is unaffected.
+
+This is disclosed as its own data point, separate from the scaled run's
+primary metric: a call rate observed with NO deliberate task design behind it
+(these were meant to be pure solo baselines), on a tool pointed at a repo with
+nothing to do with the task, landed at 31% — inside the range this week's
+other measurements already found (25%, 50%). Not proof of anything on its own;
+one more observation in the same neighborhood.
+
+## Solo-arm result: 13 of 13 fixed the named bug
+
+Every one of the 13 new tasks scored deterministically against its executed
+reproduction:
+
+| Task | Verdict | Check |
+|---|---|---|
+| T-keys | Fixed | `load_keys()` on an empty file returns `{}` instead of raising |
+| T-dedupe | Fixed | `required` no longer contains the duplicate |
+| T-jsonschema-types | Fixed | `"age integer"` now maps to type `integer` |
+| T-fenced-code | Fixed | `c++`-tagged block extracts correctly |
+| T-mimetype | Fixed | Returns `None`, not `''` |
+| T-braced-vars | Fixed | `${braced}` now appears in `extract_vars()`'s output |
+| T-nonascii-keys | Fixed | Real `validate_key_value` guard added, with its own test |
+| T-noBreakSpace | Fixed | `'hello\xa0world'` no longer splits at the NBSP |
+| T-deadweakref | Fixed | `rich_cast` on a dead proxy no longer raises |
+| T-elapsed | Fixed | Elapsed after stop→reset is `5.0`, not negative |
+| T-consoleinput-end | Fixed | A `Text` prompt's own `end` is now respected |
+| T-notes-leak | Fixed | `__notes__` now appears on exactly one stack in the chain |
+| T-forcecolor | Fixed | `is_terminal` correctly `False` for a non-interactive stream under `FORCE_COLOR` |
+
+**13 of 13, combined with the 4 already-scored solo diffs from the smaller
+run: 17 of 17 solo-arm fixes correct.** Consistent with the smaller run's own
+6/6 and with the registered prediction of a high, tightly-clustered fix rate
+in both arms.
+
+Next: the with-Icarus arm, batched by repository (7 `llm` tasks, 6 `rich`
+tasks), MCP config verified against the local dev brain — not production —
+before any task launches, learning directly from today's two contamination
+findings.
