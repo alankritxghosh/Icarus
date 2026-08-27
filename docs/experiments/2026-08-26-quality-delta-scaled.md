@@ -102,3 +102,58 @@ check as the smaller run, applied to every task rather than spot-checked.
 ## Result
 
 *(written after scoring — nothing above this line changes)*
+
+## Discovery — closed at n=17, logged honestly rather than padded to 20
+
+Target was 20-30. Discovery found **17 valid tasks** before the acceptance
+rate on remaining candidates dropped enough that forcing more in would mean
+weaker validation, not a bigger honest number. Reported as 17, not stretched.
+
+**4 already scored, both arms, from the smaller run** (T-schema, T-toolbox,
+T-crlf, T-template) — reused rather than re-run.
+
+**13 new, §2a executed today:**
+
+| Task | Repo | Bug | Validation |
+|---|---|---|---|
+| T-keys | `llm` | `load_keys()` crashes on empty/malformed `keys.json` | Executed: `JSONDecodeError` on empty file |
+| T-dedupe | `llm` | `schema_dsl()` puts duplicate field names in `required` twice | Executed: `required=['name','name']` |
+| T-jsonschema-types | `llm` | `schema_dsl()` doesn't map full JSON Schema type names (`integer`, `boolean`...) | Executed: `"age integer"` → type `string`, wrong |
+| T-fenced-code | `llm` | `extract_fenced_code_block` misses a language tag with non-word chars (e.g. `c++`) | Executed: returns `None` for a real fenced block |
+| T-mimetype | `llm` | `mimetype_from_path` returns `''` instead of `None` when detection fails | Executed with a faked empty-string return |
+| T-braced-vars | `llm` | `Template.extract_vars` only reads the `named` regex group, drops `${braced}` vars | Executed: `string.Template`'s own match groups confirm `braced` is a separate, ignored group |
+| T-nonascii-keys | `llm` | `llm keys set` accepts non-ASCII values with no upfront rejection | Read: no ASCII guard exists in `keys_set` |
+| T-noBreakSpace | `rich` | Word-wrap regex treats U+00A0 (no-break space) as a break point | Executed: `words('hello\xa0world')` splits at the NBSP |
+| T-deadweakref | `rich` | `rich_cast` raises uncaught `ReferenceError` on a dead `weakref.proxy` | Executed: `rich_cast(dead_proxy)` raises |
+| T-elapsed | `rich` | `stop_task()` then `reset(start=True)` leaves a stale `stop_time`, producing negative/frozen elapsed | Executed with a fake clock: elapsed = -10.0 |
+| T-consoleinput-end | `rich` | `Console.input()` hardcodes `end=""`, ignoring a custom `end` on the prompt `Text` | Read: `self.print(prompt, ..., end="")` is unconditional |
+| T-notes-leak | `rich` | `__notes__` captured once, applied to every stack in a chained-exception traceback | Read: one `notes` variable reused at two separate stack-construction sites |
+| T-forcecolor | `rich` | `FORCE_COLOR` alone makes `is_terminal` return `True` even for a non-interactive stream | Executed: `Console(file=StringIO())` with `FORCE_COLOR=1` reports `is_terminal=True` |
+
+**§2b, all 13**: closed, `mergedAt: null`, human-authored, checked via
+`gh pr view --json state,mergedAt`.
+
+## Rejected during discovery, and why — logged per PROTOCOL discipline
+
+- **`_guess_lexer`'s `str.index()` bug (rich #4009)** — the described function
+  name/pattern doesn't exist in this file at the pinned commit at all; the code
+  has been refactored past whatever version the PR was written against.
+- **`console.print()` ignoring `end` on empty args (rich #3983)** — tested
+  directly against the pinned commit: `c.print(end='!')` already outputs `'!'`
+  correctly. The bug is already fixed here by different code.
+- **`split_graphemes` infinite loop on ANSI escapes (rich #4002)** — the
+  linked issue says the regression is specific to Rich 14.3.2; tested with a
+  3-second alarm-based timeout against the actual reported input
+  (`'\x1b[31mred\x1b[0m'`), and it completes normally at this pinned commit.
+- **The tool-call-argument-parsing family (llm #1130, #1164, #1170)** — all
+  three describe a simpler direct-concatenation bug; the actual code at this
+  commit is a substantially different event-based streaming aggregator
+  (`args_str = "".join(e.chunk for e in evs if e.type == "tool_call_args")`)
+  that already guards the empty/falsy case. Set aside as too ambiguous to
+  validate quickly rather than forced in.
+- **`embed-multi`'s masked ValueError (llm #1578) and the attachment-integrity
+  crash (llm #1366)** — both need real database/migration state to reproduce
+  cleanly; deprioritized for time rather than rejected outright. Candidates for
+  a future batch if the pool needs to grow past 17.
+
+## Execution — solo arms launching now, in parallel, no brain required
