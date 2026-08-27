@@ -180,3 +180,20 @@ Fixed for the with-Icarus arm, which must be right: same swap-and-verify
 procedure as the smaller run (remove production registration, point user-scope
 `icarus` at the local dev brain, confirm a real call resolves against the
 correct repo before trusting anything).
+
+## All 13 solo-arm sessions VOID — a systemic setup failure, caught before scoring
+
+None of the 13 clones had `.claude/settings.local.json` with
+`defaultMode: bypassPermissions`. Headless `claude -p` cannot show an edit
+approval prompt, so every session that tried to write a fix was silently
+blocked and fell back to describing the fix in prose without ever touching
+disk. Confirmed across all 13: every diff is 0 lines.
+
+This is not a partial result to salvage — a "not fixed" verdict from a session
+that was never allowed to write is not a measurement of anything. All 13 are
+discarded in full. The missing config has been added to all 13 clones and
+every task is being re-run from a clean checkout.
+
+Caught by checking every diff before scoring the first one, rather than
+scoring T-keys' empty result and moving on — the same discipline that found
+the wrong-repo and stale-`.mcp.json` mistakes in the smaller run.
