@@ -688,8 +688,39 @@ def execute_arm(plan, out_root, *, cloner, agent_runner, check_runner,
     return meta
 
 
+def _latest_result(out_root, task_id, arm):
+    """The newest attempt's result.json for one arm, or None."""
+    arm_dir = Path(out_root) / task_id / arm
+    if not arm_dir.is_dir():
+        return None
+    for attempt in sorted(arm_dir.glob("attempt-*"), reverse=True):
+        path = attempt / "result.json"
+        if path.is_file():
+            try:
+                record = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return None
+            return record if record.get("valid") else None
+    return None
+
+
+def _pair_already_valid(out_root, task_id, arm_plans):
+    """Both arms of this task already recorded a valid result.
+
+    Needed because a batch can be interrupted -- the first live run died on a
+    full disk after one pair -- and re-running a completed pair both spends
+    money twice and creates an `attempt-02` that the blinding tool would
+    silently prefer over the arm actually scored.
+    """
+    return all(_latest_result(out_root, task_id, p.arm) for p in arm_plans)
+
+
+def _load_pair(out_root, task_id, arm_plans):
+    return [_latest_result(out_root, task_id, p.arm) for p in arm_plans]
+
+
 def execute_pilot(plans, out_root, *, cloner, agent_runner, check_runner,
-                  forbidden_strings=(), keep_clones=False):
+                  forbidden_strings=(), keep_clones=False, resume=False):
     """Run every arm, interleaved by task in the frozen arm order.
 
     If either arm of a task is invalid the whole pair is voided (a
@@ -701,6 +732,13 @@ def execute_pilot(plans, out_root, *, cloner, agent_runner, check_runner,
 
     summary = []
     for task_id, arm_plans in by_task.items():
+        if resume and _pair_already_valid(out_root, task_id, arm_plans):
+            print(f"resume: {task_id} already has a complete valid pair; skipping",
+                  file=sys.stderr)
+            summary.append({"task_id": task_id, "pair_valid": True,
+                            "arms": _load_pair(out_root, task_id, arm_plans),
+                            "resumed": True})
+            continue
         results = [
             execute_arm(plan, out_root, cloner=cloner, agent_runner=agent_runner,
                         check_runner=check_runner,
@@ -1014,6 +1052,9 @@ def main(argv=None):
     parser.add_argument("--execute", action="store_true",
                         help="the explicit real-launch flag; clones repos and "
                              "invokes the agent, spending quota")
+    parser.add_argument("--resume", action="store_true",
+                        help="skip any task whose pair already recorded valid "
+                             "results; use after an interrupted batch")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
 
@@ -1055,7 +1096,7 @@ def main(argv=None):
     summary = execute_pilot(plans, out_root, cloner=git_clone_at_commit,
                             agent_runner=claude_cli_runner,
                             check_runner=shell_check_runner,
-                            forbidden_strings=forbidden)
+                            forbidden_strings=forbidden, resume=args.resume)
     voided = [p["task_id"] for p in summary if not p["pair_valid"]]
     print(f"executed {len(summary)} pairs; {len(voided)} voided: {voided}")
     print(f"artifacts under {out_root}; history_failure is unscored by design.")
