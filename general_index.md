@@ -87,6 +87,58 @@ removing, or renaming files). For class/function-level detail see
   from asking the agent. Flags a session "directed" if a user message names
   Icarus, biased so the unprompted count under-claims. `--selftest` runs its
   own parser check with no transcripts needed.
+- `scripts/history_pilot_checks.py` — runs every pinned technical check of the
+  history-failure pilot in the frozen environment
+  (`docs/experiments/2026-08-27-history-pilot-check-env.md`) and confirms each
+  behaves as REGISTERED, which is two different things: a reproduction check is
+  red at its pin (by assertion, or by `TypeError`/`ImportError` where the
+  post-fix API is simply absent), a guardrail check (C01, C05, R05) is GREEN at
+  its pin by design and only fails if an agent violates the constraint. Clones
+  each repo at its exact commit, verifies HEAD, classifies, exits non-zero on any
+  deviation. Distinguishes a genuine red from an incomplete environment so a
+  missing dependency can never be miscounted as a reproduction. `--selftest`
+  offline. Never scores `history_failure`.
+- `scripts/history_pilot_freeze.py` — freezes the pilot's manifest and
+  treatment-context packet from the ledger plus the probe records, and prints
+  their SHA-256s. Copies ONLY the six agent-visible fields, so a reviewer-only
+  field cannot reach a prompt by construction; imports `derive_arm_order` from
+  the session runner rather than reimplementing it, so freezer and runner can
+  never disagree about arm order; writes the reviewer-only landmine texts to a
+  SEPARATE forbidden-strings file for the runner's leak scan. Refuses to freeze
+  unless the pool matches the expected strata, and a shape other than the
+  originally registered 12/6/6/6 must be passed explicitly and printed as an
+  amendment. A task may only be frozen if a human approved its probe — the
+  script never decides that a probe was faithful.
+- `scripts/history_pilot_blind.py` — builds the blinded two-reviewer scoring
+  packet, and unblinds it only once BOTH reviewers have submitted. Each item
+  carries an opaque id, repo/commit, the verbatim task, the agent's final
+  response, patch and technical-check output — never the arm, never a gold
+  field. The registered `failure_conditions` ride a SEPARATE per-item rubric
+  file, because blinding is about the ARM, not the rubric. Presentation order is
+  seeded and reproducible, and the two arms of one task are pushed apart so a
+  reviewer cannot diff a pair. **`strip_context_block` removes every verbatim
+  echo of the treatment context block**: an agent that restates its own prompt
+  would otherwise hand the reviewer the arm label outright — caught by this
+  script's own `_audit`, with a prompt-echoing fake agent, before any real
+  session ran. The irreducible residual is disclosed rather than hidden: an
+  agent that USED the history paraphrases it, which is unstrippable and is also
+  what `history_awareness` scores, so arm blinding is partial by construction.
+  `unblind` refuses a single reviewer and refuses a non-boolean verdict, and
+  reports raw agreement plus Cohen's kappa. Scores nothing; calls no model.
+- `scripts/history_pilot_score.py` — strict stdlib scorer for the paired
+  history-failure pilot: validates complete control/treatment pairs, reports
+  both arm percentages, absolute and relative failure reduction,
+  repository-clustered bootstrap confidence intervals, paired discordances,
+  and the exact McNemar p-value. Null-history tasks stay outside the primary
+  efficacy denominator. `--selftest` proves the formulas and fail-closed input
+  validation without needing experiment results.
+- `scripts/history_pilot_probe.py` — resumable pinned-corpus builder and live
+  Icarus probe runner for that pilot. It freezes GitHub discussion once per
+  repository, combines it with each exact commit's code and commit messages,
+  keeps runtime corpora outside source control, requires the production paid
+  provider interlock, and records whether gold evidence reached the writer for
+  later human review. `--ingest-only` prepares corpora without model calls;
+  `--selftest` checks deterministic ref and corpus-key handling.
 - `.githooks/pre-commit` — commit gate: a staged secret hard-blocks; failing
   tests only warn (never block).
 - `.github/workflows/security.yml` — CI backstop on push/PR: secrets scan +
@@ -189,6 +241,23 @@ claim. A negative result is kept exactly like a positive one.
   exact commands); the prediction is registered before launch; inconvenient
   results go in the result, not a footnote; `git remote -v` before any claim
   about repo state. Read before designing a run.
+- `2026-08-27-history-failure-reduction-pilot.md` — preregistered 30-task paired
+  pilot replacing saturated raw bug-fix pass rate with the product-shaped
+  endpoint: percentage reduction in recorded-history failures. Freezes four
+  task strata, directed-context versus tool-absent isolation, pair-level
+  invalidation, blinded human scoring, repository-clustered analysis, the
+  no-public-claim pilot boundary, and the path to a powered confirmatory run.
+- `2026-08-27-history-failure-pilot-candidates.jsonl` — reviewer-only candidate
+  ledger for the 30 technically validated proposed pilot slots and 19 retained
+  rejections; the final frozen manifest will contain 24 history-bearing and six
+  bounded-absence controls after every pinned Icarus probe passes. Each row pins the repository
+  commit, primary GitHub records, the historical landmine, and observable
+  failure conditions. It is never supplied to either experimental arm.
+- `2026-08-28-history-pilot-claude-handoff.md` — paste-ready parallel-work
+  handoff assigning Claude Code sole ownership of a fail-closed session runner
+  and its tests. It freezes conflict boundaries with Codex's probe/manifest
+  work, forbids real launches before the context gate, and specifies the 60-arm
+  isolation, transcript, artifact, and void-pair contract.
 - `2026-08-10-agent-mode-exp-a-run1.md` — Experiment A run 1 (`astral-sh/uv`
   #20477): Icarus inverted a wrong prior (absolute paths were a regression
   inside a PR titled "Preserve absolute/relative paths", not a design choice)
@@ -340,7 +409,15 @@ claim. A negative result is kept exactly like a positive one.
   `.yaml`/`.yml`/`.toml`/`.cfg`/`.ini`/`.sql`/`.gradle`/`.podspec` → "config").
   `.json` is deliberately EXCLUDED (2026-07-17) — on a real React Native app it
   is dominated by Xcode asset catalogs and i18n locale bundles, which would skew
-  BM25/IDF corpus-wide; allowlist the filename if `package.json` ever matters. Subprocess timeouts, per-file (512KB) + total-byte (100MB) + total-
+  BM25/IDF corpus-wide; allowlist the filename if `package.json` ever matters.
+  `_gh_json` retries a TRANSIENT `gh` failure (502/504/timeout/EOF) and, when the
+  bulk `gh pr/issue list --json` call fails outright -- as it does for cli/cli at
+  ANY `--limit`, even 90 for just `number`, because the query gh builds is too
+  costly for a ~14k-PR repo -- falls back to a `gh api graphql` fetch paginated
+  at 50 nodes (`_bulk_list_or_paginate` / `_paginate_graphql`), flattened by
+  `_flatten_graphql_node` to the shape the direct call returns. Fallback-only, so
+  every repo that ingests today is byte-identical.
+  Subprocess timeouts, per-file (512KB) + total-byte (100MB) + total-
   chunk (50k, bounds lexical stage-1 memory on a hostile many-short-lines repo)
   caps that log to stderr when they truncate, a `code_dir`
   path-traversal guard, and an optional caller `token` threaded leak-safe into
@@ -806,6 +883,20 @@ claim. A negative result is kept exactly like a positive one.
   rationale guard accepts a commit message as recorded rationale.
 - `evals/test_ingest_smoke.py` — skippable live ingest of a tiny public repo
   (`RUN_INGEST_SMOKE=1`).
+- `evals/test_ingest_retry.py` — `_gh_json` retries a TRANSIENT GitHub failure
+  (`TimeoutExpired`, or a `CalledProcessError` whose stderr names
+  502/503/504/gateway/timeout/EOF) up to 3x with backoff, and does NOT retry a
+  real one (bad repo, auth), which would turn a genuine error into a slow one.
+  Live-found on cli/cli's bulk `gh pr list`.
+- `evals/test_ingest_graphql_fallback.py` — the paginated-GraphQL fallback:
+  `gh pr/issue list --json` fails for cli/cli (~14k PRs) at ANY `--limit`,
+  even `--limit 90` for just `number`, because the query gh builds is too
+  costly for that repo; `gh api graphql` at `first: 50` pages through fine.
+  Pins that the direct call is tried first and NEVER touches graphql when it
+  works (so every repo that ingests today is byte-unchanged), that
+  disabled-issues still re-raises instead of falling back, that nodes are
+  flattened to exactly the shape `_pr_or_issue_text` consumes, and
+  `fetch_prs` end-to-end through the fallback.
 - `evals/test_env_file.py` — the `.env` loader: parses KEY=VALUE, doesn't override
   real env, tolerates comments/quotes/export, no-ops on a missing file.
 - `evals/test_retriever.py` — tokenization + BM25 ranking, truncation, zero-score
