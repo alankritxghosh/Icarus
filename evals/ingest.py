@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -439,13 +440,122 @@ def resolve_code_dir(repo: str, code_dir) -> str:
     return "."
 
 
+# GitHub's GraphQL endpoint intermittently 502/504s on a large bulk `gh pr list`
+# for a very big repo (measured on cli/cli, ~14k PRs, 2026-08-28) -- the same
+# call succeeds on an immediate retry. Retry transient failures a couple of
+# times with a short backoff before giving up. A non-transient failure (bad
+# repo, auth, a real GraphQL error) is not retried and propagates immediately.
+_GH_RETRY_ATTEMPTS = 3
+_GH_RETRY_BACKOFF = 4  # seconds, linear
+_GH_TRANSIENT_MARKERS = ("502", "503", "504", "gateway", "timeout", "timed out",
+                         "try again", "temporarily unavailable",
+                         "something went wrong", "eof", "connection reset")
+
+
+def _gh_transient(stderr):
+    low = (stderr or "").lower()
+    return any(marker in low for marker in _GH_TRANSIENT_MARKERS)
+
+
 def _gh_json(args, token=None, timeout=None):
-    out = subprocess.run(
-        ["gh", *args], check=True, capture_output=True, text=True,
-        timeout=timeout or _SUBPROCESS_TIMEOUT,
-        env=_gh_env(token),
-    ).stdout
-    return json.loads(out) if out.strip() else None
+    last = None
+    for attempt in range(_GH_RETRY_ATTEMPTS):
+        try:
+            out = subprocess.run(
+                ["gh", *args], check=True, capture_output=True, text=True,
+                timeout=timeout or _SUBPROCESS_TIMEOUT,
+                env=_gh_env(token),
+            ).stdout
+            return json.loads(out) if out.strip() else None
+        except subprocess.TimeoutExpired as e:
+            last = e
+        except subprocess.CalledProcessError as e:
+            if not _gh_transient(e.stderr):
+                raise
+            last = e
+        if attempt + 1 < _GH_RETRY_ATTEMPTS:
+            print(f"ingest: transient gh failure ({type(last).__name__}); "
+                  f"retry {attempt + 1}/{_GH_RETRY_ATTEMPTS - 1}", file=sys.stderr)
+            time.sleep(_GH_RETRY_BACKOFF * (attempt + 1))
+    raise last
+
+
+# `gh pr list --json` / `gh issue list --json` build one GraphQL query whose
+# per-page cost is fixed by gh, and on a very large repo (cli/cli, ~14k PRs)
+# GitHub's GraphQL endpoint returns an error for that query at ANY --limit,
+# even --limit 90 for just `number` (measured 2026-08-28). An explicit
+# `gh api graphql` paginated at a small page size succeeds where `gh * list`
+# cannot. This is the fallback the ingest.py comments have long pointed at
+# ("bounded nested page sizes and per-page retry"); it runs ONLY when the
+# direct bulk call fails, so every repo that works today is byte-unchanged.
+_GRAPHQL_PAGE = 50
+
+_GRAPHQL_PR_NODE = (
+    "number title body state mergedAt reviewDecision "
+    "author{login} labels(first:30){nodes{name}} "
+    "closingIssuesReferences(first:30){nodes{number}}"
+)
+_GRAPHQL_ISSUE_NODE = (
+    "number title body state author{login} labels(first:30){nodes{name}}"
+)
+
+
+def _flatten_graphql_node(node):
+    """One `gh api graphql` PR/issue node -> the shape `gh * list --json` emits
+    and `_pr_or_issue_text` expects: nested `{nodes:[...]}` connections become
+    plain lists, everything else is already identical."""
+    flat = dict(node)
+    for key in ("labels", "closingIssuesReferences"):
+        conn = node.get(key)
+        if isinstance(conn, dict):
+            flat[key] = conn.get("nodes") or []
+    return flat
+
+
+def _paginate_graphql(repo, token, connection, node_fields, cap):
+    """Fallback bulk fetch: page `repository.<connection>` via `gh api graphql`
+    at `_GRAPHQL_PAGE` nodes/request, newest first, up to `cap` nodes. Per-page
+    transient retry is inherited from `_gh_json`. Returns list in gh-list shape."""
+    owner, name = repo.split("/", 1)
+    query = (
+        "query($owner:String!,$name:String!,$page:Int!,$cursor:String){"
+        f"repository(owner:$owner,name:$name){{{connection}"
+        "(first:$page,after:$cursor,orderBy:{field:CREATED_AT,direction:DESC})"
+        f"{{pageInfo{{hasNextPage endCursor}} nodes{{{node_fields}}}}}}}}}"
+    )
+    out, cursor = [], None
+    while len(out) < cap:
+        args = ["api", "graphql", "-f", f"query={query}",
+                "-F", f"owner={owner}", "-F", f"name={name}",
+                "-F", f"page={min(_GRAPHQL_PAGE, cap - len(out))}"]
+        if cursor:
+            args += ["-F", f"cursor={cursor}"]
+        payload = _gh_json(args, token=token, timeout=_LIST_TIMEOUT)
+        conn = (((payload or {}).get("data") or {}).get("repository") or {}).get(connection)
+        if not conn:
+            break
+        out.extend(_flatten_graphql_node(n) for n in conn.get("nodes") or [])
+        page_info = conn.get("pageInfo") or {}
+        cursor = page_info.get("endCursor")
+        if not page_info.get("hasNextPage") or not cursor:
+            break
+    return out
+
+
+def _bulk_list_or_paginate(list_argv, token, repo, connection, node_fields, cap):
+    """Try the direct `gh * list --json` bulk call; on ANY failure fall back to
+    `_paginate_graphql`. The direct call is unchanged for every repo it already
+    handles."""
+    try:
+        return _gh_json(list_argv, token=token, timeout=_LIST_TIMEOUT) or []
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as exc:
+        if isinstance(exc, subprocess.CalledProcessError) and \
+                "has disabled issues" in (exc.stderr or ""):
+            raise
+        print(f"ingest: bulk `{list_argv[0]} {list_argv[1]}` failed for {repo} "
+              f"({type(exc).__name__}); falling back to paginated GraphQL",
+              file=sys.stderr)
+        return _paginate_graphql(repo, token, connection, node_fields, cap)
 
 
 def _fetch_discussion(argv_head, limit, token, kind):
@@ -713,11 +823,10 @@ def fetch_prs(repo, token=None, stats=None):
     See the measurements above `_PR_FIELDS_BASE` -- asking for comments/reviews/
     files across thousands of PRs makes GitHub's own GraphQL 502/504, so
     coverage and depth cannot come from the same call."""
-    prs = _gh_json(
+    prs = _bulk_list_or_paginate(
         ["pr", "list", "-R", repo, "--state", "all", "--limit", str(PR_LIMIT),
          "--json", _PR_FIELDS_BASE],
-        token=token, timeout=_LIST_TIMEOUT,
-    ) or []
+        token, repo, "pullRequests", _GRAPHQL_PR_NODE, PR_LIMIT)
     _note_truncation(stats, "PR", len(prs), PR_LIMIT)
     prs = _merge_discussion(
         prs,
@@ -751,10 +860,10 @@ def fetch_all_issue_ids(repo, token=None, stats=None):
     failure (auth, network, rate limit) propagate -- this must not become a
     blanket swallow."""
     try:
-        items = _gh_json(
-            ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT), "--json", "number"],
-            token=token, timeout=_LIST_TIMEOUT,
-        )
+        items = _bulk_list_or_paginate(
+            ["issue", "list", "-R", repo, "--state", "all",
+             "--limit", str(ISSUE_LIMIT), "--json", "number"],
+            token, repo, "issues", "number", ISSUE_LIMIT)
     except subprocess.CalledProcessError as e:
         if "has disabled issues" in (e.stderr or ""):
             print(f"issues disabled for {repo!r}; treating as zero issues", file=sys.stderr)
@@ -779,11 +888,10 @@ def fetch_issues(repo, issue_ids, token=None, stats=None):
     if not issue_ids:
         return []
     try:
-        items = _gh_json(
-            ["issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT),
-             "--json", _ISSUE_FIELDS_BASE],
-            token=token, timeout=_LIST_TIMEOUT,
-        ) or []
+        items = _bulk_list_or_paginate(
+            ["issue", "list", "-R", repo, "--state", "all",
+             "--limit", str(ISSUE_LIMIT), "--json", _ISSUE_FIELDS_BASE],
+            token, repo, "issues", _GRAPHQL_ISSUE_NODE, ISSUE_LIMIT)
         items = _merge_discussion(
             items,
             _fetch_discussion(["issue", "list", "-R", repo, "--state", "all",
