@@ -512,3 +512,66 @@ CURRENT     context-packet.json  SHA-256 84c652d7bf46251e8b40f0452598952592ef1a6
 
 Re-verified through the runner: 23 tasks → 46 isolated arm plans, 46 unique
 output paths, 0 of the 56 reviewer-only strings in any assembled prompt.
+
+### Amendment 5 — 2026-08-28/29: a quota refusal that reports success
+
+The single most dangerous defect found in this experiment, and the reason the
+session data is collected across several sittings rather than one.
+
+**What happens.** When the agent account's rolling session limit is reached,
+`claude -p` does not fail. It exits **0**, emits a terminating event with
+`subtype: "success"` and `is_error: false`, records **no** permission denial,
+and returns a one-line refusal — `"You've hit your session limit · resets
+7:10pm (Asia/Calcutta)"` — as its `result`. The working tree is untouched, so
+the captured patch is empty.
+
+An arm that **never ran** is therefore byte-indistinguishable from an arm that
+ran and deliberately changed nothing. Both are `valid`, both have an empty
+patch, both have a short final response. The second is a legitimate and
+important outcome in this experiment — declining to implement a refused feature
+is exactly what a history-safe agent should sometimes do — which is precisely
+why the first must never be allowed to imitate it.
+
+**Measured.** In the first post-reset batch, **41 of 45 arms** were quota
+refusals, mean 2.3 turns and 2.5 seconds each, every one initially recorded
+`valid: true`. A later batch added 56 more. Only C01 had a complete pair of
+genuine runs at that point. Had the packet been built from that batch, 97 blank
+refusals would have been handed to a reviewer as agent behaviour, and the
+resulting rate would have been reported as a measurement.
+
+This is `PROTOCOL.md` §7 one layer down. §7 was written because nine sessions
+were scored as "zero unprompted tool calls" when the agent had never been
+offered the tools: *a zero and a blank look identical in a results table and
+mean opposite things.* Same shape here, one layer further down — not "the agent
+did not use the tool" but "the agent did not exist".
+
+**Correction.** `looks_rate_limited` voids the arm and, per the standing rule,
+its pair. It is bounded to replies under 400 characters so a substantive answer
+that genuinely discusses HTTP 429 handling or backoff — entirely plausible on
+these repositories — is never voided as a refusal. The 97 arms already on disk
+were retroactively converted to `VOID.json` records with `void_reason:
+"rate_limited"`; their artifacts are preserved, as this preregistration
+requires. Four regression tests pin the behaviour.
+
+**Consequence for the run.** Collection proceeds across multiple quota windows.
+Each completed pair is banked and `--resume` skips it, so no pair is paid for
+twice and no pair is scored from a session that did not happen. Pairs whose
+arms were separated by a quota reset are re-run in full rather than mixed,
+preserving the registered pair-level isolation.
+
+**Also recorded, honestly:** two arms of the same pair may now be executed hours
+apart across different quota windows. The registered design interleaves arms by
+task specifically to limit model/provider time drift. Where a pair was
+completed in one continuous stretch that guarantee holds; where a pair was
+re-run after a reset, both of its arms were re-run together, so within-pair
+drift is bounded even though between-pair drift across the collection window is
+larger than originally intended.
+
+**Disk, recorded for completeness.** Agents legitimately build the repository
+under test to verify a fix. On `astral-sh/uv` that is `cargo`: one arm's
+checkout reached 4.6 GB. Cloning is now `git init` + `fetch --depth 1 <sha>`
+(measured 3 s / 35 MB for uv against a full clone that failed), each checkout is
+deleted once its artifacts are written and hashed, and heavy-repository tasks
+are run in their own rounds. `--only-task` prints a loud notice that a subset is
+a deviation requiring an amendment. Any task deferred at the close of collection
+will be named here.
