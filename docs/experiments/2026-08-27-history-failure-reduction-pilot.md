@@ -463,3 +463,52 @@ reduction, the paired discordance table, the exact McNemar p-value, the
 repository-clustered bootstrap intervals, and a discordance rate from which a
 confirmatory sample size can be calculated. Those are the pilot's actual stated
 purposes. What it does not produce is evidence.
+
+### Amendment 4 — 2026-08-28: aborted first batch, three harness defects, manifest re-frozen
+
+The first live batch was launched and **aborted after 4 arms**. Two of the four
+voided. No arm from it is used, and no outcome was observed for any task beyond
+the void reasons themselves. The batch is discarded in full rather than
+partially reused.
+
+Three defects, all in the harness rather than the design:
+
+1. **Permission mode was too narrow.** `--permission-mode acceptEdits`
+   auto-accepts file edits only; the agent still needs Bash to explore, build
+   and run a repository's tests, and each of those raises a prompt a headless
+   `claude -p` cannot display. `C03/treatment` recorded a permission denial and
+   voided. This is the identical failure that lost all 13 sessions of the
+   2026-08-27 solo arm ("missing bypassPermissions — redoing") before it reached
+   17/17. Corrected to `--permission-mode bypassPermissions`. **An arm that
+   cannot act is not evidence about history**, so this had to be right before
+   the batch rather than discovered in the results.
+2. **The disk filled.** `git clone --no-single-branch` per arm, across 46 arms
+   of uv/cli-cli/firecrawl-sized repositories, exhausted the volume (measured
+   with 133 MB free; `C03/control` voided `clone_failed`, git exit 128). The
+   cloner now does `git init` + `fetch --depth 1 <sha>` + detached checkout —
+   measured at **3 s and 35 MB for uv**, against a full clone that failed — and
+   each clone is deleted once its arm's artifacts are written and hashed. This
+   also removes a contaminant nobody had noticed: a full clone carries every
+   branch and tag, so an agent could have read the future (a later fix, a
+   revert) straight out of its own working repository.
+3. **A voided arm threw away its own evidence.** Artifacts were written after
+   the void checks, so `C03/treatment` voided with no transcript to diagnose
+   from. The preregistration requires invalid artifacts be preserved with their
+   reason; transcript, final response and patch are now written **before** the
+   void checks, and the recorded denial list is stored with the void.
+
+**Manifest re-frozen.** The agent configuration is part of the manifest, so
+correcting the permission flag necessarily changes its hash. The 23 tasks, their
+prompts, commits, strata, arm order and treatment contexts are **byte-identical**
+to the Amendment 1 freeze; only `agent.write_flags` differs.
+
+```text
+superseded  manifest.json        6b084f28…cc27f3   (acceptEdits — do not use)
+superseded  context-packet.json  06d09b3a…64b9ef
+
+CURRENT     manifest.json        SHA-256 df7748428e116e766cf4ab09027e5fc87aeaf4f29bd27553cff125c7a1acb0c2
+CURRENT     context-packet.json  SHA-256 84c652d7bf46251e8b40f0452598952592ef1a622888cc69759d6e1b6b0144ff
+```
+
+Re-verified through the runner: 23 tasks → 46 isolated arm plans, 46 unique
+output paths, 0 of the 56 reviewer-only strings in any assembled prompt.

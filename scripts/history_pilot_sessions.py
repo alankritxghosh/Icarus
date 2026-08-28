@@ -62,6 +62,7 @@ import dataclasses
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -417,12 +418,30 @@ class RunnerResult:
 
 
 def git_clone_at_commit(repo, commit, dest):
-    """Default cloner: fresh clone pinned to *commit*, its state reported back."""
+    """Fresh checkout pinned to *commit*: ONE commit, no history, no other refs.
+
+    A full `git clone` of every arm's repository exhausted the disk during the
+    first live batch (46 arms x uv/cli-cli/firecrawl-sized clones; measured with
+    133 MB free, C03/control voided `clone_failed` exit 128). Nothing in the
+    experiment reads history from the working tree -- the agent is asked about
+    the code AT the pin, and its recorded history is exactly what Icarus
+    supplies to the treatment arm -- so fetching a single commit at depth 1 is
+    both far smaller and closer to the registered design.
+
+    `git init` + `fetch --depth 1 <sha>` also removes a subtle contaminant: a
+    full clone carries every branch and tag, so an agent could read the future
+    (a later fix, a revert) straight out of the working repository.
+    """
     dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
     url = f"https://github.com/{repo}.git"
-    subprocess.run(["git", "clone", "--no-single-branch", url, str(dest)],
+    subprocess.run(["git", "init", "-q", str(dest)],
                    check=True, capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(dest), "checkout", "--detach", commit],
+    subprocess.run(["git", "-C", str(dest), "fetch", "-q", "--depth", "1",
+                    url, commit],
+                   check=True, capture_output=True, text=True, timeout=900)
+    subprocess.run(["git", "-C", str(dest), "checkout", "-q", "--detach",
+                    "FETCH_HEAD"],
                    check=True, capture_output=True, text=True)
     head = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"],
                           check=True, capture_output=True, text=True).stdout.strip()
@@ -489,7 +508,8 @@ def claude_cli_runner(plan, clone_dir):
     argv = [agent.get("cli", "claude"), "-p", plan.prompt,
             "--output-format", "json", "--verbose",
             "--strict-mcp-config", "--mcp-config", str(empty_mcp)]
-    argv += list(agent.get("write_flags", ["--permission-mode", "acceptEdits"]))
+    argv += list(agent.get("write_flags",
+                           ["--permission-mode", "bypassPermissions"]))
     if agent.get("model"):
         argv += ["--model", agent["model"]]
     argv += list(agent.get("args", []))
@@ -562,7 +582,7 @@ def scan_for_leak(text, forbidden):
 
 
 def execute_arm(plan, out_root, *, cloner, agent_runner, check_runner,
-                forbidden_strings=()):
+                forbidden_strings=(), keep_clones=False):
     """Run one arm end to end. Returns a result dict; ``valid`` False == void.
 
     Fails closed and voids on: dirty start, popped/present stash, commit
@@ -604,18 +624,29 @@ def execute_arm(plan, out_root, *, cloner, agent_runner, check_runner,
         result = agent_runner(plan, clone_dir)
     except Exception as exc:  # noqa: BLE001
         return void("agent_runner_raised", error=str(exc))
+
+    # Persist the evidence BEFORE the void checks. The first live batch voided
+    # C03/treatment for an unwritable session and threw the transcript away with
+    # it, leaving nothing to diagnose from -- the preregistration requires that
+    # invalid artifacts be PRESERVED with their reason, and a void whose cause
+    # cannot be read is a void nobody can fix.
+    if result is not None:
+        (attempt_dir / "transcript.jsonl").write_text(result.transcript_text or "")
+        (attempt_dir / "final_response.txt").write_text(result.final_response or "")
+        (attempt_dir / "patch.diff").write_text(result.diff or "")
+        _write_json(attempt_dir / "runner_summary.json",
+                    {k: v for k, v in (result.extra or {}).items()})
+
     if result is None or result.permission_blocked:
-        return void("unwritable_session")
+        return void("unwritable_session",
+                    denials=(result.extra or {}).get("permission_denials")
+                    if result else None)
     if not (result.transcript_text or "").strip():
         return void("missing_transcript")
     if result.icarus_tool_calls:
         return void("icarus_tool_used", count=result.icarus_tool_calls)
     if result.head_end and result.head_end != plan.commit:
         return void("ending_commit_moved", head_end=result.head_end)
-
-    (attempt_dir / "transcript.jsonl").write_text(result.transcript_text)
-    (attempt_dir / "final_response.txt").write_text(result.final_response or "")
-    (attempt_dir / "patch.diff").write_text(result.diff or "")
 
     check_exit = None
     if plan.technical_check:
@@ -647,11 +678,18 @@ def execute_arm(plan, out_root, *, cloner, agent_runner, check_runner,
     }
     _write_json(attempt_dir / "result.json", meta)
     _write_json(attempt_dir / "hashes.json", _hash_tree(attempt_dir))
+    # The clone is not evidence -- transcript, final response, patch and check
+    # output are, and they are already written and hashed. Keeping 46 checkouts
+    # of uv/cli-cli-sized repositories filled the disk mid-batch, so drop each
+    # one once its arm is recorded. `keep_clones=True` is available when a run
+    # is being debugged.
+    if not keep_clones:
+        shutil.rmtree(clone_dir, ignore_errors=True)
     return meta
 
 
 def execute_pilot(plans, out_root, *, cloner, agent_runner, check_runner,
-                  forbidden_strings=()):
+                  forbidden_strings=(), keep_clones=False):
     """Run every arm, interleaved by task in the frozen arm order.
 
     If either arm of a task is invalid the whole pair is voided (a
@@ -666,7 +704,8 @@ def execute_pilot(plans, out_root, *, cloner, agent_runner, check_runner,
         results = [
             execute_arm(plan, out_root, cloner=cloner, agent_runner=agent_runner,
                         check_runner=check_runner,
-                        forbidden_strings=forbidden_strings)
+                        forbidden_strings=forbidden_strings,
+                        keep_clones=keep_clones)
             for plan in arm_plans
         ]
         pair_valid = all(r.get("valid") for r in results)

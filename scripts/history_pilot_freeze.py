@@ -58,7 +58,16 @@ AGENT = {
     "cli": "claude",
     "model": "claude-sonnet-5",
     "args": [],
-    "write_flags": ["--permission-mode", "acceptEdits"],
+    # bypassPermissions, NOT acceptEdits. acceptEdits auto-accepts file edits
+    # only; the agent still needs Bash to explore, build and run the repo's
+    # tests, and each of those raises a prompt a headless `claude -p` cannot
+    # display -- the session then records a permission denial and the arm is
+    # void. Measured twice: the 2026-08-27 solo arm lost all 13 sessions this
+    # way ("missing bypassPermissions -- redoing") before reaching 17/17, and
+    # the first live batch here voided C03/treatment identically on 2026-08-28.
+    # An arm that cannot act is not evidence about history, so this must be
+    # right before the batch, not after.
+    "write_flags": ["--permission-mode", "bypassPermissions"],
     "timeout_seconds": 3600,
     "network": "default (no additional restriction); Icarus MCP absent in BOTH arms",
 }
