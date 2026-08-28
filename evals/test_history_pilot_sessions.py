@@ -437,5 +437,56 @@ class ParseTranscriptTests(unittest.TestCase):
         self.assertTrue(summary["permission_denials"])
 
 
+class RateLimitGuardTests(unittest.TestCase):
+    """A rate-limited session is the most dangerous input this harness takes:
+    the CLI exits 0, reports subtype "success", records no permission denial,
+    and returns a one-line quota refusal as its result -- so an arm that NEVER
+    RAN is byte-indistinguishable from one that ran and changed nothing.
+    Measured 2026-08-28: 41 of 45 arms in one batch, all recorded valid:true."""
+
+    def test_detects_the_real_refusal_text(self):
+        self.assertTrue(hps.looks_rate_limited(
+            "You've hit your session limit \u00b7 resets 7:10pm (Asia/Calcutta)"))
+        self.assertTrue(hps.looks_rate_limited("Usage limit reached."))
+
+    def test_a_real_answer_is_not_flagged(self):
+        self.assertFalse(hps.looks_rate_limited("Created SMOKE.txt containing ok."))
+        self.assertFalse(hps.looks_rate_limited(""))
+
+    def test_a_long_answer_discussing_rate_limits_survives(self):
+        """These repositories genuinely contain retry/429 code, so a substantive
+        answer may mention rate limiting. Only a SHORT reply can be a refusal."""
+        long_answer = ("The retry helper backs off on HTTP 429. " * 20
+                       + "This is not a rate limit refusal.")
+        self.assertFalse(hps.looks_rate_limited(long_answer))
+
+    def test_a_rate_limited_arm_voids_the_pair(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (_, _, _, manifest, _, packet) = _manifest_and_packet(tmp)
+            plans = [p for p in hps.build_plans(manifest, packet)
+                     if p.task_id == "T01"]
+            out = hps.resolve_output_dir(tmp / "runs")
+
+            def cloner(repo, commit, dest):
+                Path(dest).mkdir(parents=True)
+                return hps.CloneState(str(dest), commit, "", "")
+
+            def limited(plan, clone_dir):
+                return hps.RunnerResult(
+                    '[{"type":"result","subtype":"success","result":"x"}]',
+                    "You've hit your session limit", "", plan.commit, "",
+                    0, 2.5, "2.x", "m")
+
+            summary = hps.execute_pilot(plans, out, cloner=cloner,
+                                        agent_runner=limited,
+                                        check_runner=lambda c, d: ("", 0))
+            self.assertFalse(summary[0]["pair_valid"])
+            void = json.loads(next((out / "T01").glob("*/attempt-*/VOID.json"))
+                              .read_text())
+            self.assertEqual(void["void_reason"], "rate_limited")
+
+
 if __name__ == "__main__":
     unittest.main()

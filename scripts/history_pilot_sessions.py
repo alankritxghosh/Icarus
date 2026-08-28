@@ -453,6 +453,40 @@ def git_clone_at_commit(repo, commit, dest):
                       stash_list=stash.strip())
 
 
+# A rate-limited session is the most dangerous thing this harness can be handed.
+# The CLI exits 0, reports `subtype: "success"`, records no permission denial,
+# and returns a one-line refusal as its `result` -- so an arm that NEVER RAN is
+# byte-indistinguishable from an arm that ran and chose to change nothing, and
+# it lands in the review packet as a real output with an empty patch.
+#
+# Measured 2026-08-28: 41 of 45 arms in one batch were "You've hit your session
+# limit - resets 7:10pm", every one recorded valid:true, mean 2.3 turns, 2.5s.
+# This is PROTOCOL.md section 7 one layer down: a zero and a blank look identical
+# in a results table and mean opposite things. An arm that never ran must VOID,
+# never score, and the pair with it.
+_LIMIT_MARKERS = (
+    "hit your session limit",
+    "hit your usage limit",
+    "session limit reached",
+    "usage limit reached",
+    "rate limit",
+    "resets at",
+    "upgrade to increase your usage limit",
+)
+
+
+def looks_rate_limited(final_response, summary=None):
+    """True when the CLI returned a quota refusal instead of doing the task."""
+    text = (final_response or "").strip().lower()
+    if not text:
+        return False
+    # Only a SHORT reply can be a bare refusal; a real answer that happens to
+    # discuss rate limiting (plausible on these repositories) must not be voided.
+    if len(text) > 400:
+        return False
+    return any(marker in text for marker in _LIMIT_MARKERS)
+
+
 def parse_cli_transcript(transcript):
     """`claude -p --output-format json --verbose` -> (final text, summary dict).
 
@@ -641,6 +675,9 @@ def execute_arm(plan, out_root, *, cloner, agent_runner, check_runner,
         return void("unwritable_session",
                     denials=(result.extra or {}).get("permission_denials")
                     if result else None)
+    if looks_rate_limited(result.final_response, result.extra):
+        return void("rate_limited",
+                    reply=(result.final_response or "")[:200])
     if not (result.transcript_text or "").strip():
         return void("missing_transcript")
     if result.icarus_tool_calls:
