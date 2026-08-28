@@ -415,3 +415,51 @@ Consequences accepted:
 - any confirmatory run inherits this limitation. A design that removes it would
   need the treatment's advantage to be invisible in the output, which is
   incompatible with measuring whether the treatment was used at all.
+
+### Amendment 3 — 2026-08-28: single-reviewer scoring, registered before any outcome exists
+
+Registered **before the first agent session ran and before any outcome was
+observed**. Nothing in this amendment was chosen with knowledge of the results,
+which is the only reason it is legitimate rather than a rationalisation
+(`PROTOCOL.md` §3).
+
+The registered design requires **two independent reviewers**, disagreements
+adjudicated against the primary record before unblinding, and Cohen's kappa
+reported, with the rubric considered insufficiently reproducible below κ = 0.80.
+A second independent human reviewer is not available in the time this run has.
+
+**This run will therefore be scored by a single human reviewer.** The
+consequences are accepted in full and stated here rather than discovered later:
+
+1. **No inter-reviewer agreement can be computed.** κ is undefined for one
+   reviewer. The κ ≥ 0.80 rubric-reproducibility gate is therefore **not met —
+   not passed, not failed, unevaluated.** No statement may be made about the
+   rubric's reproducibility on the basis of this run.
+2. **This run is not confirmatory-eligible and can never be promoted.** It
+   cannot become the confirmatory run by later adding a second reviewer to the
+   same outputs, because that reviewer would not be independent of a rubric
+   already applied once. A confirmatory run needs fresh sessions and two
+   reviewers from the start.
+3. **The existing no-public-claim boundary is unchanged and now binds on a
+   second ground.** No "X% fewer recorded-history failures" statement may be
+   made publicly from this run, regardless of the point estimate.
+4. Single-reviewer scoring compounds Amendment 2: with arm blinding partial by
+   construction, reviewer independence was the main safeguard against
+   arm-guessing biasing the primary endpoint, and one reviewer removes it. The
+   frozen per-task failure conditions remain the only structural safeguard.
+5. The reviewer scores from the blinded packet with arm labels withheld, and the
+   unblind key is opened only after every verdict is submitted, exactly as the
+   two-reviewer flow would have. `scripts/history_pilot_blind.py` refuses a
+   single verdict file, so unblinding this run requires deliberately passing the
+   same reviewer's file twice — the refusal is left in place as friction rather
+   than removed, and the duplication is recorded in the result.
+
+**Supersession:** if a second independent reviewer is secured **before scoring
+begins**, this amendment is void, the two-reviewer flow applies unchanged, and κ
+is reported as originally registered. It cannot be voided after scoring starts.
+
+What this run still produces honestly: both arm rates, the absolute and relative
+reduction, the paired discordance table, the exact McNemar p-value, the
+repository-clustered bootstrap intervals, and a discordance rate from which a
+confirmatory sample size can be calculated. Those are the pilot's actual stated
+purposes. What it does not produce is evidence.
