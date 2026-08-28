@@ -1055,6 +1055,11 @@ def main(argv=None):
     parser.add_argument("--resume", action="store_true",
                         help="skip any task whose pair already recorded valid "
                              "results; use after an interrupted batch")
+    parser.add_argument("--only-task", action="append", default=[],
+                        help="run only these task ids (repeatable). Selecting a "
+                             "SUBSET is a deviation from the registered design "
+                             "and must be recorded as an amendment naming which "
+                             "tasks ran and why the rest did not.")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
 
@@ -1085,6 +1090,20 @@ def main(argv=None):
     except (HarnessError, OSError, json.JSONDecodeError) as exc:
         print(f"history_pilot_sessions: {exc}", file=sys.stderr)
         return 2
+
+    if args.only_task:
+        wanted = set(args.only_task)
+        unknown = sorted(wanted - {p.task_id for p in plans})
+        if unknown:
+            print(f"history_pilot_sessions: unknown --only-task ids: {unknown}",
+                  file=sys.stderr)
+            return 2
+        plans = [p for p in plans if p.task_id in wanted]
+        print(f"NOTE: running a SUBSET -- {len(wanted)} of "
+              f"{len(manifest['tasks'])} tasks ({len(plans)} arms). This is a "
+              f"deviation from the registered design and must be recorded as an "
+              f"amendment naming which tasks ran and why the rest did not.",
+              file=sys.stderr)
 
     if not args.execute:
         print(f"dry run OK: {len(plans)} arm plans across "
