@@ -40,10 +40,7 @@ struct SidebarView: View {
                     Text(repo)
                         .font(Theme.mono(13)).foregroundStyle(Theme.ink)
                         .padding(.top, 3)
-                    // Was hardcoded "PUBLIC REPOSITORY ALPHA" — false since
-                    // private repos were re-enabled 2026-07-16, and shown while
-                    // a private repo was connected. State the real one.
-                    Text(connect.isPrivate ? "PRIVATE REPOSITORY · ALPHA" : "PUBLIC REPOSITORY · ALPHA")
+                    Text(connect.isPrivate ? "PRIVATE REPOSITORY · CONNECTED" : "PUBLIC REPOSITORY · CONNECTED")
                         .font(Theme.mono(10))
                         .foregroundStyle(Theme.muted)
                         .padding(.top, 2)

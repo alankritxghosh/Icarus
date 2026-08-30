@@ -38,10 +38,13 @@ struct DecisionHistoryView: View {
 /// hidden, so nobody reads the ranking as more than it is.
 struct UnknownsView: View {
     let ledger: LedgerModel
+    let decisions: DecisionInboxModel
     @State private var selectedGap: MemoryGap?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            AgentModeInboxView(model: decisions)
+            Divider().background(Theme.border).padding(.vertical, 8)
             surfaceTitle("Engineering memory",
                          "Open gaps, recurring questions, and knowledge the team has recovered.")
             ShellCard {

@@ -1,15 +1,10 @@
 #!/bin/sh
 # Icarus installer.
 #
-# Why this exists: Icarus is not notarized by Apple (that needs a paid
-# Developer ID). A browser marks its downloads with com.apple.quarantine,
-# which is what makes macOS refuse to open the app. Files fetched with curl
-# are not marked, so installing from the terminal avoids that entirely.
-#
-# This script does nothing clever: it downloads the same disk image the
-# website serves, checks it against a known checksum, and copies the app
-# into /Applications. Read it before running it — you should read anything
-# you pipe into a shell.
+# This downloads the same notarized disk image the website serves, verifies
+# both the pinned checksum and Apple's distribution controls, then replaces the
+# installed app recoverably. Read it before running it — you should read
+# anything you pipe into a shell.
 #
 # Manual alternative, if you would rather not pipe to sh:
 #   curl -fLO https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7/Icarus.dmg
@@ -54,9 +49,33 @@ if [ "$ACTUAL" != "$EXPECTED_SHA" ]; then
   exit 1
 fi
 
-echo "Installing to $DEST ..."
+# The checksum catches changed bytes. These checks independently prove the
+# final-user trust properties: accepted/stapled notarization, Gatekeeper, and a
+# Developer ID app rather than the old self-signed alpha artifact.
+if ! xcrun stapler validate "$TMP/Icarus.dmg"; then
+  echo "Apple notarization ticket is missing or invalid - not installing." >&2
+  exit 1
+fi
+if ! spctl -a -vv -t open --context context:primary-signature "$TMP/Icarus.dmg"; then
+  echo "Gatekeeper rejected the disk image - not installing." >&2
+  exit 1
+fi
+
+echo "Inspecting signed application..."
 mkdir -p "$MNT"
-hdiutil attach "$TMP/Icarus.dmg" -nobrowse -quiet -mountpoint "$MNT"
+hdiutil attach -readonly "$TMP/Icarus.dmg" -nobrowse -quiet -mountpoint "$MNT"
+[ -d "$MNT/$APP" ] || { echo "Disk image contains no $APP - not installing." >&2; exit 1; }
+codesign --verify --deep --strict --verbose=2 "$MNT/$APP"
+DETAIL="$(codesign -dv --verbose=4 "$MNT/$APP" 2>&1)"
+AUTHORITY="$(printf '%s\n' "$DETAIL" | sed -n 's/^Authority=//p' | head -1)"
+case "$AUTHORITY" in
+  'Developer ID Application:'*) : ;;
+  *) echo "App is not signed by an Apple Developer ID - not installing." >&2; exit 1 ;;
+esac
+if ! spctl -a -vv -t exec "$MNT/$APP"; then
+  echo "Gatekeeper rejected the application - not installing." >&2
+  exit 1
+fi
 
 if [ ! -w "$DEST" ]; then
   echo "No write permission for $DEST." >&2
@@ -64,13 +83,19 @@ if [ ! -w "$DEST" ]; then
   exit 1
 fi
 
-rm -rf "${DEST:?}/$APP"
-cp -R "$MNT/$APP" "$DEST/"
-
-# Belt and braces: curl does not set the quarantine flag, but if this script
-# was ever run on an image obtained some other way, clear it so the copy in
-# /Applications opens without the Gatekeeper prompt.
-xattr -dr com.apple.quarantine "$DEST/$APP" 2>/dev/null || true
+echo "Installing to $DEST ..."
+CURRENT="$DEST/$APP"
+BACKUP="$TMP/Icarus.previous.app"
+if [ -e "$CURRENT" ]; then
+  mv "$CURRENT" "$BACKUP"
+fi
+if ! cp -R "$MNT/$APP" "$DEST/"; then
+  echo "Copy failed; restoring the previous installation." >&2
+  [ ! -e "$CURRENT" ] || rm -rf "$CURRENT"
+  [ ! -e "$BACKUP" ] || mv "$BACKUP" "$CURRENT"
+  exit 1
+fi
+rm -rf "$BACKUP"
 
 echo
 echo "Installed: $DEST/$APP"

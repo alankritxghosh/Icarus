@@ -243,7 +243,7 @@ def chunk_text(text: str, ref_prefix: str) -> List[dict]:
             # embedder truncates at 512 tokens regardless) -- so this makes an
             # EXISTING effective truncation honest and logged once at ingest,
             # instead of silently repeated by two different downstream layers.
-            print(f"ingest: line {start + 1} of {ref_prefix!r} is "
+            print(f"ingest: line {start + 1} is "
                   f"{len(joined)} chars, exceeds the {_CHUNK_MAX_CHARS}-char "
                   f"chunk budget alone; truncating", file=sys.stderr)
             joined = joined[:_CHUNK_MAX_CHARS] + " …[truncated]"
@@ -552,7 +552,7 @@ def _bulk_list_or_paginate(list_argv, token, repo, connection, node_fields, cap)
         if isinstance(exc, subprocess.CalledProcessError) and \
                 "has disabled issues" in (exc.stderr or ""):
             raise
-        print(f"ingest: bulk `{list_argv[0]} {list_argv[1]}` failed for {repo} "
+        print(f"ingest: bulk `{list_argv[0]} {list_argv[1]}` failed "
               f"({type(exc).__name__}); falling back to paginated GraphQL",
               file=sys.stderr)
         return _paginate_graphql(repo, token, connection, node_fields, cap)
@@ -866,7 +866,7 @@ def fetch_all_issue_ids(repo, token=None, stats=None):
             token, repo, "issues", "number", ISSUE_LIMIT)
     except subprocess.CalledProcessError as e:
         if "has disabled issues" in (e.stderr or ""):
-            print(f"issues disabled for {repo!r}; treating as zero issues", file=sys.stderr)
+            print("issues disabled; treating as zero issues", file=sys.stderr)
             return set()
         raise
     _note_truncation(stats, "issue", len(items), ISSUE_LIMIT)
@@ -1151,7 +1151,7 @@ def fetch_code(repo, commit, code_dir, token=None, stats=None):
                 # "covered everything" (esp. before sharing with testers) -- both
                 # logged to stderr AND flagged in `stats` so it reaches /status.
                 why = "byte" if total > _MAX_TOTAL_BYTES else "chunk"
-                print(f"ingest: {why} cap reached; truncating code walk of {repo!r} "
+                print(f"ingest: {why} cap reached; truncating code walk "
                       f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
                 if stats is not None:
                     stats["truncated"] = True
@@ -1174,7 +1174,7 @@ def fetch_code(repo, commit, code_dir, token=None, stats=None):
                 # stop the instant we hit it, so a truncated corpus never reads as
                 # "covered everything".
                 if len(chunks) >= _MAX_TOTAL_CHUNKS:
-                    print(f"ingest: chunk cap reached; truncating code walk of {repo!r} "
+                    print("ingest: chunk cap reached; truncating code walk "
                           f"at {len(chunks)} chunks / {total} bytes", file=sys.stderr)
                     if stats is not None:
                         stats["truncated"] = True

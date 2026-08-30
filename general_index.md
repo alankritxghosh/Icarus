@@ -37,8 +37,9 @@ removing, or renaming files). For class/function-level detail see
   imported, so everything else runs pure-stdlib without it. Install into a venv.
 
 ## Coding-agent integration
-- `.mcp.json` — Claude Code project registration for the read-only Icarus MCP
-  server shipped inside the installed Mac app; no credential lives in project
+- `.mcp.json` — Claude Code project registration for the Icarus MCP server
+  shipped inside the installed Mac app; its read tools plus bounded candidate
+  capture use a short-lived repo grant, and no credential lives in project
   configuration.
 - `.cursor/mcp.json` — Cursor IDE/CLI project registration for the same stdio
   adapter.
@@ -46,6 +47,22 @@ removing, or renaming files). For class/function-level detail see
   using the installed app binary rather than a checkout-specific virtualenv.
 
 ## Cloud deployment (host the brain on Azure Container Apps)
+- `infra/launch_canary.bicep` — subscription-scoped entry point for the isolated
+  launch canary; creates only the dedicated resource group and delegates its
+  locked-down foundation to the resource-group module.
+- `infra/launch_canary_foundation.bicep` — repeatable canary foundation: VNet
+  integration, private Storage/Key Vault endpoints and DNS, Azure Files with
+  14-day soft delete, Log Analytics, a dedicated managed identity with
+  least-privilege secret-read access, and a resource-group deletion lock. It
+  deliberately deploys no app and accepts no secret values.
+- `infra/launch_canary_app.bicep` — app-layer canary module: creates the
+  isolated Container App from a full pinned candidate image, managed-identity
+  registry pull configuration, Key Vault-backed secret references, fixed launch
+  capacity values, Azure Files `/data` mount, workspace-backed metrics
+  diagnostics, action group and
+  resource-group activity alert. It accepts secret URLs only, never secret
+  values; the least-privilege ACR `AcrPull` assignment remains an explicit
+  pre-deploy operation.
 - `Dockerfile` — container for the brain: `python:3.12-slim` + `git`/`gh` (for
   repo-switch ingest), non-root UID 1000 (required by some hosts, harmless on
   others), `RUN python -m demo.warm_cache` bakes the fastembed model + default
@@ -75,6 +92,20 @@ removing, or renaming files). For class/function-level detail see
   (catches renames/typos/deletions, not `foo` vs `_foo`), Swift sections are
   unchecked, and nothing verifies a DESCRIPTION is true — only that the symbol
   is real.
+- `scripts/prepare_release.py` — local, non-publishing final-release handoff:
+  reruns the notarized-distribution verifier, validates one signed Sparkle item,
+  and transactionally stamps the manifest, website copy, appcast and installer.
+- `scripts/canary_acceptance.py` — leak-safe live launch matrix for two GitHub
+  identities and four disposable repos; proves HTTP isolation, repo-scoped
+  agent grants, disconnect behavior and cite-or-unknown without printing data.
+- `scripts/canary_app_preflight.py` — local, no-mutation gate for the canary
+  app deployment inputs: requires a full ACR `sha256` candidate image, incident
+  email, public OAuth client id and Key Vault secret URLs, while printing only
+  fixed PASS/FAIL labels.
+- `scripts/canary_control_plane.py` — read-only Azure metadata acceptance gate
+  for immutable runtime configuration, secret references, durable storage,
+  private networking, recovery, Log Analytics, workspace-backed metrics
+  diagnostics, action-group alerts and locks.
 - `scripts/private_flow_smoke.py` — manual, leak-safe live smoke of the brain's
   PRIVATE-repo HTTP path (/status→/connect→/ask→/disconnect) the Mac app drives;
   token from `GH_BEARER` env (never argv/logs), repo from `ICARUS_PRIVATE_REPO`.
@@ -157,8 +188,12 @@ anything about CI here.
   polls `/health` until the new revision actually serves) → `package-dmg` (Mac
   app + Sparkle on a SaaS macOS runner; manual, or automatic on an `alpha-*`
   tag; deliberately does NOT sign the appcast — that private EdDSA key stays
-  in one login keychain). `deploy` is a MANUAL gate: every revision drops all
-  connected sessions and wipes per-user corpora. Gated on `.image_sources`, so
+  in one login keychain). `deploy` is a MANUAL gate: every revision drops
+  in-process sessions, while corpora and durable ledgers survive on the
+  pre-provisioned Azure Files mount at `/data`; the job refuses to deploy if
+  that mount is absent before or after the update. It also pins process-wide
+  writer ceilings and removes legacy Groq/free-Gemini credentials from the
+  runtime environment. Gated on `.image_sources`, so
   a docs-only commit cannot offer to deploy an image that was never built.
   Ship a change with `git push gitlab main` then
   `glab ci trigger deploy -R icarus-group4/Icarus -b main`.
@@ -192,6 +227,10 @@ anything about CI here.
 - `docs/DISTRIBUTION.md` — runbook to share Icarus without an Apple Developer ID:
   host the brain on Azure Container Apps (minimal serving secrets + OAuth
   callback), build the DMG, and pass Gatekeeper once; lists alpha tradeoffs.
+- `docs/LAUNCH_CANARY.md` — final-user limited-production release gate: immutable
+  artifact identity, isolated canary topology, provider/credential proof,
+  adversarial two-user privacy matrix, persistence/rate/failure tests,
+  observability, rollback, notarized distribution, and abort conditions.
 - `docs/2026-08-12-x-linkedin-growth-handoff.md` — scoped growth handoff: X
   content, X/LinkedIn lead-sourcing method, and distribution strategy
   synthesized from the two failed cold-email batches; now includes the
@@ -229,6 +268,10 @@ anything about CI here.
 - `docs/decisions/2026-08-07-engineering-memory-records.md` — accepted first
   closed-loop record path: one human-triggered repository Markdown proposal,
   one branch, one GitHub pull request, never an automatic merge.
+- `docs/decisions/2026-08-29-claude-agent-mode-capture-loop.md` — accepted
+  Claude-first vertical-slice boundary: explicit local observation, atomic
+  confirmation cards, agent-vs-human credential split, PR receipts, and the
+  deterministic proposal/not-indexed-to-merged/cited transition.
 
 ## docs/experiments/
 Append-only records of measured runs — the evidence base for every Agent Mode
@@ -700,7 +743,8 @@ claim. A negative result is kept exactly like a positive one.
 - `evals/provider.py` — the `Provider` abstraction for the rented writer/judge:
   `GroqProvider`, `GeminiProvider` (key in the `x-goog-api-key` header, not the
   URL), `OpenRouterProvider`, `StaticProvider`, and `PaidGeminiProvider` (a
-  billing-enabled, `private_safe=True` Gemini on its own `GEMINI_PAID_API_KEY`);
+  billing-enabled, `private_safe=True` Gemini on its own `GEMINI_PAID_API_KEY`),
+  plus `LaunchGeminiProvider` (explicit launch route using `GEMINI_API_KEY`);
   `make_provider` factory + 429 backoff. Stdlib `urllib`; keys from env. Also the
   `EmbeddingProvider` family for semantic retrieval: `StaticEmbeddingProvider`
   (test double) and **`LocalEmbeddingProvider`** (the decided FREE route: local
@@ -907,7 +951,8 @@ claim. A negative result is kept exactly like a positive one.
   abstains.
 - `evals/test_provider.py` — `StaticProvider` queuing, no-key errors, the retry
   budget, and the Gemini key going in the header not the URL; `private_safe`
-  flags per provider and `PaidGeminiProvider`'s dedicated key env.
+  flags per provider, `PaidGeminiProvider`'s dedicated key env, and the explicit
+  `LaunchGeminiProvider` route through `GEMINI_API_KEY`.
 - `evals/test_trust.py` — the trust interlock refuses every free provider and an
   undeclared one, and passes the private-safe/static providers.
 - `evals/test_github_access.py` — `repo_info` across 200 (public/private),
@@ -972,7 +1017,9 @@ claim. A negative result is kept exactly like a positive one.
   the resolver is probably named; 154 means ancient) — a flaw found by running it
   corpus-wide, where an old deferral listed every later PR. Fires on 3 of 526 PR
   chunks in the committed corpus (0.6%). Surfaced as `rests_on_deferred` +
-  `later_merged` on a `get_task_context` decision (`evals/context_package.py`),
+  `later_merged` + `later_merged_count` (+ `later_merged_probed` when the
+  successor came from the bounded probe rather than gathered evidence) on a
+  `get_task_context` decision (`evals/context_package.py`),
   ABSENT rather than false when it does not apply. Pinned by
   `evals/test_temporal_claims.py`.
   **`lookup=` (2026-08-25) resolves a successor retrieval did not deliver.**
@@ -1209,6 +1256,23 @@ claim. A negative result is kept exactly like a positive one.
   private text reaches only a genuinely private-safe provider, an unsafe one
   raises before any prompt is sent, the serve path never imports the judge, and
   the per-user private tree is git-ignored.
+- `evals/test_release_safety.py` — final-user installer regression gate:
+  requires stapled notarization, Gatekeeper and Developer ID verification,
+  forbids the alpha quarantine bypass, and preserves the previous app until a
+  replacement copy succeeds.
+- `evals/test_prepare_release.py` — proves release preparation updates every
+  committed consumer from one verified candidate and changes nothing when
+  notarization, appcast length or release-version invariants fail.
+- `evals/test_canary_acceptance.py` — hermetic proof that the live-canary
+  harness covers the complete two-user/four-repo matrix, catches uncited
+  answers and metadata leaks, and refuses unsafe configuration.
+- `evals/test_canary_app_preflight.py` — pins the canary app input preflight:
+  digest-only ACR image identity, matching registry host, valid incident/OAuth
+  syntax, valid Key Vault secret URL shape and content-free CLI output.
+- `evals/test_canary_control_plane.py` — pins the strict Azure acceptance
+  snapshot and proves each network/storage/runtime/observability regression
+  fails closed, including diagnostics without a workspace or metrics, without
+  inspecting secret values.
 
 ## evals/ data files
 - `evals/phase1_questions.json` — the verified labelled question set (pinned to
@@ -1388,10 +1452,20 @@ claim. A negative result is kept exactly like a positive one.
   later cited answer; entity-absent/unclear unknowns are visible but not
   actionable.
 - `demo/memory_writer.py` — `GitHubMemoryWriter`: caller-scoped, stdlib-only
-  bounded, idempotent write for one actionable gap. Verifies push permission;
-  uses the opaque gap ID to deterministically create or recover one branch, one
-  retrospective Markdown record under `docs/engineering-memory/`, and one pull
-  request; never merges or overwrites.
+  bounded, idempotent write for one actionable gap or one human-confirmed Agent
+  Mode decision. Verifies push permission; uses the opaque ID to deterministically
+  create or recover one branch, one Markdown record under
+  `docs/engineering-memory/`, and one pull request; never merges or overwrites.
+- `demo/decision_ledger.py` — append-only, repo-scoped Agent Mode candidate and
+  confirmation lifecycle. Hashes session IDs, refuses raw/unknown fields,
+  exposes only confirmed GitHub-backed proposals, and promotes/reconstructs a
+  merged decision only from its marked document in the active indexed corpus.
+- `demo/test_decision_ledger.py` — pure boundary tests for atomicity, bounds,
+  privacy, idempotency, confirmation states, merge-aware citations, and
+  post-restart corpus reconstruction.
+- `demo/test_agent_mode.py` — real HTTP vertical-slice tests for agent candidate
+  submission, GitHub-only confirmation, choices/Other/Not sure, PR-backed fresh
+  context, merged citation promotion, and counts-only funnel analytics.
 - `demo/test_memory_writer.py` — offline GitHub request-shape, permission,
   validation, deterministic replay, lost-response recovery, and partial-failure
   tests for the bounded writer.
@@ -1543,6 +1617,8 @@ claim. A negative result is kept exactly like a positive one.
   `refresh_limiter` (2/hour) checked only once `refresh: true` is parsed, since
   an ordinary connect to a cached repo is a ~1s cache hit while a refresh is a
   283s re-ingest that republishes a corpus concurrent readers are using —
+  plus process-wide connect-start and live-ingest bounds so multiple valid
+  identities cannot multiply repository work without limit —
   web-login endpoints), `resolve_provenance`,
   `serve` (ThreadingHTTPServer, loads `.env`, builds the registry from
   `ICARUS_STORAGE_ROOT`). `GET /`,`/health`,`/status`,`/map` (the repository
@@ -1761,27 +1837,27 @@ claim. A negative result is kept exactly like a positive one.
 - `mac/Icarus/Package.resolved` — pinned dependency versions.
 - `mac/Icarus/Icarus-Info.plist` — bundle Info.plist (mic + speech usage strings)
   assembled into `Icarus.app` for TCC.
-- `mac/Icarus/scripts/bundle.sh` — wraps the SwiftPM binary into an ad-hoc-signed
-  `Icarus.app` (required for microphone access).
+- `mac/Icarus/scripts/bundle.sh` — wraps the SwiftPM binary into a signed
+  `Icarus.app` (required for microphone access). Local builds use the existing
+  self-signed/ad-hoc fallback; final-user candidates provide an exact
+  `ICARUS_CODESIGN_IDENTITY`, which is required to exist and is applied with
+  hardened runtime plus a trusted timestamp when it is a Developer ID identity.
 - `mac/Icarus/scripts/package_dmg.sh` — builds a shareable `Icarus.dmg`: runs
   `bundle.sh`, stamps `ICARUS_BRAIN_URL` and (when configured) the Sparkle
   update feed `SUFeedURL`/`SUPublicEDKey` into the bundle Info.plist, re-signs
   with the SAME identity `bundle.sh` used (re-signing ad-hoc here would
   silently undo a stable certificate), and lays out a drag-to-Applications DMG
-  with a first-open `READ ME FIRST.txt`. Refuses a HALF-configured update feed
-  (one of the two vars). It does NOT refuse an ad-hoc signature -- that
-  refusal was deliberately removed in `4900025`, since ad-hoc packaging is the
-  accepted alpha model and a SaaS CI runner carries no identity -- but it
-  prints a loud **TEST ARTIFACT ONLY** warning when it falls back, because an
-  ad-hoc signature changes the app's Keychain identity on every update. The
-  gate is at PUBLISH instead (`site/release-dmg.sh`), which refuses an
-  ad-hoc build unless given `--allow-adhoc` and PINS the leaf certificate's
-  SHA-256 -- accepting any non-empty `Authority=` proved only that something
-  signed it, and a regenerated self-signed certificate with the same name
-  passes that while changing the designated requirement, which is the very
-  re-prompt this guards against. Rotation is deliberate via
-  `ICARUS_SIGNING_CERT_SHA256`. This entry and `.gitlab-ci.yml`'s comment both
-  described the removed refusal as still present until 2026-08-14.
+  with a first-open `READ ME FIRST.txt`. Refuses a HALF-configured update feed.
+  Local alpha packaging may still use a self-signed/ad-hoc identity, but the
+  `ICARUS_REQUIRE_DEVELOPER_ID=1` and `ICARUS_REQUIRE_NOTARIZATION=1` final-user
+  gates make either missing property fatal. `ICARUS_NOTARY_PROFILE` names a
+  notarytool Keychain profile; notarization credentials never enter argv.
+  Release preparation is the local `scripts/prepare_release.py` gate; external
+  upload and promotion remain separate authorized actions.
+- `mac/Icarus/scripts/verify_distribution.sh` — independently fails closed
+  unless a DMG has a valid stapled notarization ticket, passes Gatekeeper, and
+  contains a strict-valid Developer ID app with Team ID, hardened runtime,
+  trusted timestamp, and no debug `get-task-allow` entitlement.
 - `mac/Icarus/scripts/make_signing_cert.sh` — one-time, run interactively:
   creates the self-signed "Icarus Self-Signed" code-signing certificate in the
   login keychain. Ad-hoc signing makes the app's designated requirement its own
@@ -1804,13 +1880,21 @@ claim. A negative result is kept exactly like a positive one.
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
   `AskResponse`, `RepoStatus`, `MemoryGap`, `MemoryGapsResponse`,
-  `MemoryRecordResult`, and `IndexCounts` (real `/status` counts). Memory gaps
-  carry the server's opaque ID and `open`/`proposed`/`resolved` lifecycle.
+  `MemoryRecordResult`, Agent Mode candidate/confirmation models, and
+  `IndexCounts` (real `/status` counts). Memory gaps carry the server's opaque
+  ID and `open`/`proposed`/`resolved` lifecycle.
 - `BrainClient.swift` — the HTTP client to the brain (`/ask`,`/connect`,
   `/disconnect`,`/status`,`/auth/github/begin`,`/auth/github/redeem`,
-  `/auth/agent/session`,`/ledger?gaps=1`,`/memory-gaps/record`,`/explain`);
+  `/auth/agent/session`,`/ledger?gaps=1`,`/memory-gaps/record`,`/explain`, and
+  Agent Mode candidate/confirmation routes);
   attaches an `Authorization: Bearer` from a shared token; sends opaque gap IDs
   for memory proposals; injectable URLSession.
+- `ClaudeHook.swift` — pure SessionStart projection and Stop enforcement:
+  injects bounded unmerged PR or merged+cited intent, scans only the current
+  transcript turn for exactly one capture tool, and honors Claude's loop guard.
+- `McpServer.swift` / `McpContract.swift` — native JSON-RPC adapter plus the
+  generated five-tool contract: three evidence reads and two bounded,
+  append-only Agent Mode capture tools.
 - `NativeMessageCodec.swift` — bounded 64 KiB Chrome native-message framing,
   one-message-per-process reader, and the closed `ping`/`status`/`explain`
   request contract.
@@ -1926,13 +2010,23 @@ claim. A negative result is kept exactly like a positive one.
 - `KeychainTokenStore.swift` — the real `TokenStore`: the GitHub token in the login
   Keychain (`WhenUnlocked`), so sign-in persists across launches; Sign out deletes it.
 - `AgentSessionCommand.swift` — the headless `Icarus --agent-session` bridge:
-  uses the Keychain-backed app client to mint a short-lived read-only Icarus
+  uses the Keychain-backed app client to mint a short-lived repo-scoped Icarus
   credential and writes only that credential, expiry, repo, and brain URL to
   stdout.
 - `McpCommand.swift` — the production `Icarus --mcp` stdio server entry point:
   keeps JSON-RPC stdout clean, refuses redirects carrying an agent bearer,
   surfaces signed-out failures as tool errors after a successful handshake,
   and remints once after expiry, restart, or repository switching.
+- `ClaudeHookCommand.swift` — headless `--claude-hook --repo owner/name`
+  command. SessionStart fetches only confirmed intent; Stop restricts local
+  transcript reads to resolved JSONL files beneath `~/.claude/projects`.
+- `ClaudeAgentModeInstaller.swift` — explicit per-checkout installer that
+  parses and merges MCP/SessionStart/Stop JSON, writes atomically, is idempotent,
+  and refuses malformed or symlink-routed configuration.
+- `Shell/DecisionInboxModel.swift` / `Shell/AgentModeInboxView.swift` — Mac
+  confirmation state and cards: one-click recommendation/alternatives, Other
+  free text, Not sure, truthful PR receipts and recoverable failures, plus the
+  explicit local-checkout setup surface.
 - `ClaudeConnector.swift` — finds Claude Code even from a GUI app's minimal
   PATH, diagnoses the effective `icarus` MCP registration, installs the app at
   user scope, migrates only the known checkout-only Python adapter, and refuses
@@ -2061,6 +2155,11 @@ claim. A negative result is kept exactly like a positive one.
   `/auth/agent/session` uses the GitHub bearer and decodes the scoped short
   credential; memory recording sends `gap_id` and never display text
   (URLProtocol stub).
+- `ClaudeHookTests.swift` — bounded SessionStart text, cited merged receipts,
+  honest empty state, current-turn capture enforcement, loop guard, and proof
+  that block reasons never echo session content.
+- `McpServerTests.swift` — native five-tool contract, provenance checks, strict
+  candidate forwarding, raw-field refusal, and no-decision acknowledgement.
 - `LedgerTests.swift` — decodes the server-owned open/proposed/resolved Memory
   Gap contract, including the existing pull-request URL, and rejects unknown
   lifecycle states instead of inventing one.
@@ -2116,7 +2215,15 @@ claim. A negative result is kept exactly like a positive one.
   for signed-out status plus proxied status/explain response shapes without
   installing a host in the test browser.
 - `McpCommandTests.swift` — newline-delimited stdio framing and notification
-  silence, plus the stale repository-bound session remint/retry path.
+  silence, 2xx capture acceptance, plus the stale repository-bound session
+  remint/retry path.
+- `ClaudeHookCommandTests.swift` — command routing proves SessionStart makes one
+  bounded context request, Stop makes none, and production transcript paths
+  cannot escape Claude's project directory.
+- `ClaudeAgentModeInstallerTests.swift` — config preservation, exact hook/MCP
+  shape, idempotency, invalid-JSON refusal, and symlink escape refusal.
+- `DecisionInboxModelTests.swift` — loading and low-friction human resolution,
+  including Other text, Not sure, required PR receipts, and truthful failures.
 - `ClaudeConnectorTests.swift` — shipped-app detection, safe legacy migration,
   current Claude CLI command shape, and refusal to overwrite a same-name custom
   server.

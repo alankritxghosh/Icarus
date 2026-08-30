@@ -1,8 +1,10 @@
-"""Short-lived, read-only session tokens for coding-agent clients.
+"""Short-lived, repository-bound session tokens for coding-agent clients.
 
 The store holds only the verified GitHub user id and repository scope. The
 GitHub credential used to mint a session is never passed in, retained, logged,
-or written to disk.
+or written to disk. A grant can append only a bounded Agent Mode decision
+candidate/no-decision acknowledgement in addition to its read routes; it can
+never confirm a decision or mutate GitHub.
 
 Scope covers public AND private repositories since 2026-08-07 (see
 docs/decisions/2026-08-07-mcp-private-repository-access.md). A grant is still

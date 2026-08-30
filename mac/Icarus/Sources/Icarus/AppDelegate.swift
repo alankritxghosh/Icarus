@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The repo's SHARED ask ledger — what the whole TEAM asked, which is a
     /// different (and far more useful) thing than `history`'s per-session list.
     private lazy var ledger = LedgerModel(client: AppConfig.client())
+    /// Atomic coding-agent recommendations awaiting explicit human confirmation.
+    private lazy var decisions = DecisionInboxModel(client: AppConfig.client())
     /// "What changed since you were last here" -- fetched once per connected
     /// repo, never polled (see BriefingModel).
     private lazy var briefing = BriefingModel(client: AppConfig.client())
@@ -48,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var shell = MainWindowController {
         ShellView(auth: self.auth, connect: self.connect,
                   history: self.history, status: self.status, ledger: self.ledger,
+                  decisions: self.decisions,
                   briefing: self.briefing, investigation: self.investigation,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }

@@ -60,7 +60,8 @@ final class McpCommandTests: XCTestCase {
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            let body = status == 200 ? #"{"repo":"octo/repo"}"# : #"{"error":"stale"}"#
+            let body = (200...299).contains(status)
+                ? #"{"repo":"octo/repo"}"# : #"{"error":"stale"}"#
             client?.urlProtocol(self, didLoad: Data(body.utf8))
             client?.urlProtocolDidFinishLoading(self)
         }
@@ -120,7 +121,7 @@ final class McpCommandTests: XCTestCase {
         XCTAssertEqual(output.objects.first?["id"] as? Int, 1)
         let tools = (output.objects.last?["result"] as? [String: Any])?["tools"]
             as? [[String: Any]]
-        XCTAssertEqual(tools?.count, 3)
+        XCTAssertEqual(tools?.count, 5)
     }
 
     func testEveryLineIsNewlineTerminated() async {
@@ -232,6 +233,24 @@ final class McpCommandTests: XCTestCase {
 
         _ = try await transport("/ask", ["question": "why?"])
         XCTAssertEqual(RetryingProtocol.seenShareContent, ["0"])
+    }
+
+    func testBoundedCandidateCreationAcceptsCreatedResponse() async throws {
+        RetryingProtocol.reset(statuses: [201])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RetryingProtocol.self]
+        let factory = SessionFactory([
+            AgentSession(token: "a", expiresAt: Date().timeIntervalSince1970 + 10_000,
+                         repo: "octo/repo"),
+        ])
+        let transport = McpCommand.makeTransport(
+            baseURL: URL(string: "https://brain.example")!,
+            sessionFactory: { try await factory.next() },
+            urlSession: URLSession(configuration: configuration))
+
+        let payload = try await transport("/agent-mode/candidates", ["decision": "x"])
+
+        XCTAssertEqual(payload["repo"] as? String, "octo/repo")
     }
 
     func testTheStatusPreflightMayRemintAcrossRepositories() async throws {

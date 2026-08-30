@@ -70,8 +70,23 @@ def build_context_package(investigation, result, structure: Dict, texts: Dict[st
         # schema: a `false` on every decision would be noise a reader learns to
         # skip, and this must stay noticeable.
         if superseding:
+            contributing = [deferred[ref] for ref in cites if ref in deferred]
             entry["rests_on_deferred"] = True
             entry["later_merged"] = superseding
+            # Carry the strength indicator and the probe disclosure THROUGH.
+            # `deferred_claims` sets both deliberately -- a bounded probe can
+            # only return a small number, which reads as STRONG for an ancient
+            # deferral -- and dropping them here undid that silently, measured
+            # absent in all three production trials on 2026-08-26.
+            #
+            # A decision may rest on several deferrals. Report the largest
+            # count because the weakest contributor is what the reader must
+            # judge; OR `probed` because its caveat applies if any contributor
+            # came from the bounded successor probe.
+            entry["later_merged_count"] = max(
+                d.get("later_merged_count", 0) for d in contributing)
+            if any(d.get("later_merged_probed") for d in contributing):
+                entry["later_merged_probed"] = True
         decisions.append(entry)
 
     # Every ref this task's investigation actually gathered, in absorption

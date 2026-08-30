@@ -3,6 +3,8 @@
 
 GET  /        -> the static demo page (demo/index.html)
 GET  /health  -> {"ok": true, "repo": ..., "commit": ...} -- liveness + provenance
+GET  /ready   -> deployment readiness: writable durable storage, required
+                credentials, enforced auth, and a warm registry/default corpus
 GET  /status  -> the active repo + switch status, and a `freshness` block
                  saying whether the index still matches the repository
                  (demo/freshness.py; unknown is reported, never omitted)
@@ -12,21 +14,23 @@ GET  /briefing -> what changed since this caller was last here (pure);
                  POST /briefing acknowledges it and moves the anchor forward
                  (demo/visits.py; docs/decisions/2026-07-30-returning-user-state.md)
 POST /ask     -> {"question": "..."} -> the build_payload JSON for the page
-POST /auth/agent/session -> short-lived read-only token for the active repo
+POST /auth/agent/session -> short-lived repo-bound coding-agent token
+GET/POST /agent-mode/* -> bounded decision candidates and confirmed context
 POST /connect -> {"repo": "owner/name"[, "refresh": true]} -> index/switch to it
 POST /disconnect -> forget the caller's library and delete their on-disk storage
 
 The active pipeline lives in a Library (demo/library.py); the handler is a thin
 shell over it. /connect runs in a background thread so the request returns
 immediately and the page polls /status. No brain code changes -- packaging only.
-The public-repository alpha uses one Gemini writer.
-Run: GEMINI_PAID_API_KEY=... python3 -m demo.server
+The launch build uses the configured Gemini writer.
+Run: GEMINI_API_KEY=... python3 -m demo.server
 """
 
 import json
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +43,7 @@ from evals.env_file import load_env_file
 from . import posthog_capture
 from .freshness import FreshnessChecker
 from .ledger import Ledger
+from .decision_ledger import DecisionLedger, DecisionLedgerError
 from .memory_writer import GitHubMemoryWriter, MemoryWriteError
 from evals.entities import build_entity_index
 from evals.ingest import fetch_pr_diff, fetch_ref_detail
@@ -48,6 +53,7 @@ from .structure import build_structure
 from evals.context_package import build_context_package
 from .payload import (build_context_payload, build_investigation_payload,
                      build_payload)
+from .links import ref_to_url
 from .repo_map import build_map
 from .visits import VisitStore
 from . import onboarding
@@ -138,6 +144,46 @@ def _resolve_storage_root(raw, default):
     return Path(raw or default)
 
 
+def runtime_readiness(storage_root, require_auth, environ=None):
+    """Content-free readiness checks for the production service boundary.
+
+    This proves configuration and a real write/fsync/delete round-trip on the
+    selected storage root. It cannot prove that a key is paid, that Google ZDR
+    was approved, or that the directory is an Azure Files mount; those remain
+    deploy/canary gates rather than booleans inferred from secret names.
+    """
+    env = os.environ if environ is None else environ
+    root = Path(storage_root)
+    storage_writable = False
+    try:
+        if root.is_dir():
+            with tempfile.NamedTemporaryFile(
+                mode="wb", prefix=".icarus-ready-", dir=root, delete=True,
+            ) as probe:
+                probe.write(b"ready")
+                probe.flush()
+                os.fsync(probe.fileno())
+            storage_writable = True
+    except OSError:
+        storage_writable = False
+    checks = {
+        "storage_writable": storage_writable,
+        "writer_key": bool(env.get("GEMINI_API_KEY")),
+        "public_ingest_credential": bool(env.get("GH_TOKEN")),
+        "github_oauth": bool(
+            env.get("GITHUB_CLIENT_ID") and env.get("GITHUB_CLIENT_SECRET")),
+        "github_auth_required": bool(require_auth),
+    }
+    return {"ok": all(checks.values()), "checks": checks}
+
+
+def _positive_env_int(name, default):
+    value = int(os.environ.get(name, str(default)))
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
+
+
 def make_handler(registry, html_path: str, require_auth: bool = False, verifier=None,
                  oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
                  sync_connect: bool = False, background_upgrade: bool = False,
@@ -147,7 +193,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                  agent_session_limiter=None, memory_writer=None,
                  memory_limiter=None, conversations=None, entity_index=None,
                  investigate_limiter=None, public_demo: bool = False,
-                 demo_limiter=None):
+                 demo_limiter=None, decisions=None, agent_mode_limiter=None,
+                 global_ask_limiter=None, global_investigate_limiter=None,
+                 global_connect_limiter=None, writer_slots=None,
+                 ingest_slots=None, readiness=None):
     """Build a request handler bound to a library registry (resolves the active-
     repo state per caller identity; see `_identity`).
 
@@ -163,6 +212,11 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     (/ask) or spawn a clone/ingest (/connect); defaults are generous real-world
     limits so they never fire in normal use or in tests that make a handful of
     requests.
+
+    Process-wide ask, investigation and connect limiters prevent many identities
+    multiplying the per-caller allowance. Writer and ingest semaphores separately
+    bound work that remains alive concurrently; an async ingest holds its slot
+    until the background job finishes, not merely until HTTP returns 202.
 
     `sync_connect` changes how /connect is served -- see its use below. Default
     (False) matches every host tried before it: a real VM/box (local, Oracle)
@@ -198,13 +252,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     token)` computes how much moved between two commits; it defaults to
     `evals.github_access.commits_between` and is injectable for tests.
 
-    `agent_sessions` enables short-lived, read-only bearer tokens for coding
-    agents, covering public AND private repositories since 2026-08-07 (see
+    `agent_sessions` enables short-lived, repository-bound bearer tokens for
+    coding agents, covering public AND private repositories since 2026-08-07 (see
     docs/decisions/2026-08-07-mcp-private-repository-access.md).
     `agent_repo_info` verifies the signed-in GitHub caller can READ the active
     repository when they mint one -- authorization survived that decision, the
-    public-only requirement did not. Agent sessions are bound to that caller
-    and repository and can reach only /status, /ask, and /explain.
+    public-only requirement did not. Agent sessions can read the existing
+    context routes and append only a bounded decision candidate/no-decision
+    acknowledgement; they cannot confirm a candidate or write GitHub.
 
     `memory_writer` enables the explicit engineering-memory write: one branch,
     one new Markdown file, and one pull request. It receives the caller's
@@ -217,6 +272,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     refresh_limiter = refresh_limiter or RateLimiter(2, 3600)  # 2 re-ingests/hour
     agent_session_limiter = agent_session_limiter or RateLimiter(10, 60)
     memory_limiter = memory_limiter or RateLimiter(5, 3600)
+    agent_mode_limiter = agent_mode_limiter or RateLimiter(60, 60)
     commits_since = commits_since or github_access.commits_between
     conversations = conversations if conversations is not None else ConversationStore()
     # One investigation makes SEVERAL billed calls where an ask makes one, so it
@@ -224,6 +280,26 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
     # 30 investigations a minute is ~300 provider calls, not 30. Its own, much
     # smaller allowance keeps the billed rate in the same place /ask puts it.
     investigate_limiter = investigate_limiter or RateLimiter(3, 60)   # 3/min
+    # Per-identity limits prevent one signed-in caller from monopolising the
+    # provider. These two process-wide ceilings prevent MANY identities from
+    # multiplying that allowance without bound during a launch. They are
+    # deliberately configurable because the safe values depend on the paid
+    # provider quota, but fail to conservative defaults when unset.
+    global_ask_limiter = global_ask_limiter or RateLimiter(
+        _positive_env_int("ICARUS_GLOBAL_ASKS_PER_MINUTE", 120), 60)
+    global_investigate_limiter = global_investigate_limiter or RateLimiter(
+        _positive_env_int("ICARUS_GLOBAL_INVESTIGATIONS_PER_MINUTE", 12), 60)
+    # A repository connect can clone and ingest for minutes. Bound both starts
+    # over time and jobs alive at once; otherwise many valid identities can
+    # bypass the per-caller connect limit and exhaust CPU, disk and GitHub quota.
+    global_connect_limiter = global_connect_limiter or RateLimiter(
+        _positive_env_int("ICARUS_GLOBAL_CONNECTS_PER_10_MINUTES", 30), 600)
+    if writer_slots is None:
+        writer_slots = threading.BoundedSemaphore(
+            _positive_env_int("ICARUS_MAX_CONCURRENT_WRITERS", 8))
+    if ingest_slots is None:
+        ingest_slots = threading.BoundedSemaphore(
+            _positive_env_int("ICARUS_MAX_CONCURRENT_INGESTS", 2))
     # ONE global bucket for every anonymous demo caller. Not per-identity,
     # because the whole point is that there is no identity: a per-caller
     # limiter keyed on nothing would be an unbounded budget, and every ask
@@ -282,6 +358,47 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             self._capture_product_event(code, obj, capture_extra)
             self._send(code, json.dumps(obj).encode(), "application/json", headers)
 
+        def _take_budget(self, limiter, key, message):
+            """Spend one request budget or return a useful, retryable 429."""
+            if limiter.allow(key):
+                return True
+            self._send_json(
+                429,
+                {"error": message},
+                headers={"Retry-After": str(limiter.retry_after(key))},
+            )
+            return False
+
+        def _take_writer_slot(self):
+            """Bound simultaneous provider work across all request threads."""
+            if writer_slots.acquire(blocking=False):
+                return True
+            self._send_json(
+                503,
+                {"error": "Icarus is at answer capacity -- try again shortly"},
+                headers={"Retry-After": "1"},
+            )
+            return False
+
+        def _take_ingest_slot(self):
+            """Hold capacity until synchronous or background ingest finishes."""
+            if ingest_slots.acquire(blocking=False):
+                return True
+            self._send_json(
+                503,
+                {"error": "Icarus is at repository indexing capacity -- try again shortly"},
+                headers={"Retry-After": "1"},
+            )
+            return False
+
+        @staticmethod
+        def _public_decision(item):
+            """Session correlation is an internal dedupe primitive, never UI data."""
+            return {
+                key: value for key, value in item.items()
+                if key not in ("session_fingerprint", "event")
+            }
+
         # Path -> PostHog event name for the handful of real product actions.
         # Deliberately a small whitelist, not every response: a health check or
         # a validation error is not usage worth counting.
@@ -291,6 +408,9 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             "/investigate": "question_asked",
             "/context": "context_requested",
             "/connect": "repo_connected",
+            "/agent-mode/candidates": "decision_candidate_submitted",
+            "/agent-mode/no-decision": "agent_turn_no_decision",
+            "/agent-mode/confirm": "decision_candidate_resolved",
         }
         # Paths where the question + cited code evidence are shared by default
         # -- see CLAUDE.md's dated 2026-08-13 pre-customer-alpha exception.
@@ -342,6 +462,14 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     {"ref": c.get("ref"), "excerpt": c.get("excerpt")}
                     for c in obj.get("citations", []) or []
                 ]
+            # A fixed enum is enough to measure accept/correct/defer without
+            # exporting the candidate, explanation, or free-text Other value.
+            if self.path == "/agent-mode/confirm":
+                selection = (capture_extra or {}).get("selection")
+                if selection in {
+                    "recommended", "alternative", "other", "not_sure", "reject",
+                }:
+                    properties["selection"] = selection
             posthog_capture.capture(event, identity, properties)
 
         def _share_content(self) -> bool:
@@ -534,8 +662,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(403, {"error": "forbidden"})
                 return
             route = urlparse(self.path).path
-            if self._principal()[1] == "agent" and route != "/status":
-                self._send_json(403, {"error": "agent sessions are read-only and route-scoped"})
+            if self._principal()[1] == "agent" and route not in (
+                "/status", "/agent-mode/context",
+            ):
+                self._send_json(403, {"error": "agent session is route-scoped"})
                 return
             if route == "/":
                 self._send(200, Path(html_path).read_bytes(), "text/html; charset=utf-8")
@@ -549,6 +679,39 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # the default corpus -- a PaaS liveness check shouldn't flap
                     # (and possibly restart-loop the container) during normal warmup.
                     self._send_json(200, {"ok": True, "state": "starting"})
+            elif route == "/ready":
+                if readiness is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                registry_ready = True
+                try:
+                    registry.library_for(None)
+                except _RegistryWarming:
+                    registry_ready = False
+                except Exception as error:
+                    registry_ready = False
+                    print(f"readiness registry check failed: {type(error).__name__}",
+                          file=sys.stderr)
+                try:
+                    snapshot = readiness()
+                    if not isinstance(snapshot, dict) or not isinstance(
+                            snapshot.get("ok"), bool):
+                        raise ValueError("invalid readiness result")
+                except Exception as error:
+                    print(f"readiness check failed: {type(error).__name__}",
+                          file=sys.stderr)
+                    snapshot = {"ok": False, "checks": {"runtime_check": False}}
+                checks = snapshot.get("checks")
+                if not isinstance(checks, dict):
+                    checks = {}
+                    snapshot["checks"] = checks
+                checks["registry_ready"] = registry_ready
+                snapshot["ok"] = snapshot["ok"] and registry_ready
+                self._send_json(
+                    200 if snapshot["ok"] else 503,
+                    snapshot,
+                    headers={"Cache-Control": "no-store"},
+                )
             elif route == "/status":
                 try:
                     lib = registry.library_for(self._identity())
@@ -597,6 +760,60 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     "repo": repo,
                     "entries": ledger.entries(repo, unknowns_only=unknowns),
                 })
+            elif route in ("/agent-mode/candidates", "/agent-mode/context"):
+                identity = self._identity()
+                if require_auth and identity is None:
+                    self._send_json(401, {"error": "sign in with GitHub to continue"})
+                    return
+                if decisions is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                try:
+                    lib = registry.library_for(identity)
+                except _RegistryWarming:
+                    self._send_json(503, {"error": "starting up, try again shortly"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "access is not valid for the connected repo"})
+                    return
+                repo, _commit = lib.provenance()
+                if route == "/agent-mode/context":
+                    snapshot = lib.snapshot()
+                    _identity, kind, grant = self._principal()
+                    if (
+                        kind == "agent"
+                        and (
+                            grant is None
+                            or snapshot.repo.casefold() != grant.repo.casefold()
+                        )
+                    ):
+                        self._send_json(403, {
+                            "error": "agent session is not valid for the active repo",
+                        })
+                        return
+                    projected = decisions.project_context(
+                        snapshot.repo,
+                        indexed_chunks=snapshot.pipeline.indexed_chunks(),
+                        commit=snapshot.commit,
+                    )
+                    for decision in projected:
+                        ref = decision.get("citation_ref")
+                        if ref:
+                            decision["citation_url"] = ref_to_url(
+                                ref, snapshot.repo, snapshot.commit)
+                    self._send_json(200, {
+                        "repo": snapshot.repo,
+                        "commit": snapshot.commit,
+                        "decisions": projected,
+                    }, headers={"Cache-Control": "no-store"})
+                    return
+                self._send_json(200, {
+                    "repo": repo,
+                    "candidates": [
+                        self._public_decision(item)
+                        for item in decisions.candidates(repo)
+                    ],
+                }, headers={"Cache-Control": "no-store"})
             elif route == "/map":
                 # What Icarus INDEXED -- the first thing it says about a repo
                 # before anyone asks a question. Guarded exactly like /ledger:
@@ -655,10 +872,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             try:
                 session_id, mode, redirect_target = oauth.complete(state, code)
             except Exception as e:
-                # Surface the cause in the server log (safe: GitHub's error string
-                # or "unknown/expired state" — never the code or client secret) so a
-                # failed sign-in is diagnosable instead of a silent generic message.
-                print(f"github callback failed: {e!r}", file=sys.stderr, flush=True)
+                # Keep production logs content-free: OAuth exception text can
+                # change upstream and must not become an accidental code/state log.
+                print(f"github callback failed: {type(e).__name__}",
+                      file=sys.stderr, flush=True)
                 self._send(400, b"Sign-in failed or expired. Close this window and try again.",
                            "text/html; charset=utf-8")
                 return
@@ -742,8 +959,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 if agent_sessions is None or agent_repo_info is None:
                     self._send_json(404, {"error": "not found"})
                     return
-                if not agent_session_limiter.allow(identity):
-                    self._send_json(429, {"error": "slow down -- try again in a minute"})
+                if not self._take_budget(
+                    agent_session_limiter, identity,
+                    "slow down -- try again in a minute",
+                ):
                     return
                 try:
                     lib = registry.library_for(identity)
@@ -789,15 +1008,20 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # silently downgrading it into the shared demo would answer a
                 # signed-in caller's question about THEIR repo from somebody
                 # else's index.
-                if not demo_limiter.allow("public"):
-                    self._send_json(429, {"error": "the public demo is at its limit right now. Sign in with GitHub to keep going."})
+                if not self._take_budget(
+                    demo_limiter, "public",
+                    "the public demo is at its limit right now. Sign in with GitHub to keep going.",
+                ):
                     return
                 self._demo_request = True
             elif identity is None:
                 self._send_json(401, {"error": "sign in with GitHub to continue"})
                 return
-            if self._principal()[1] == "agent" and self.path not in ("/ask", "/explain", "/context"):
-                self._send_json(403, {"error": "agent sessions are read-only and route-scoped"})
+            if self._principal()[1] == "agent" and self.path not in (
+                "/ask", "/explain", "/context",
+                "/agent-mode/candidates", "/agent-mode/no-decision",
+            ):
+                self._send_json(403, {"error": "agent session is route-scoped"})
                 return
             if self.path == "/disconnect":
                 try:
@@ -811,7 +1035,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                             conversations.forget(
                                 identity, registry.library_for(identity).provenance()[0])
                         except Exception as e:
-                            print(f"conversation forget failed: {type(e).__name__}: {e}",
+                            print(f"conversation forget failed: {type(e).__name__}",
                                   file=sys.stderr)
                     registry.disconnect(identity)
                     self._send_json(200, registry.library_for(identity).status_snapshot())
@@ -825,13 +1049,211 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # honestly here instead of letting the exception drop the
                     # connection with no response -- never imply success on a
                     # failed delete.
-                    print(f"/disconnect failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    print(f"/disconnect failed: {type(e).__name__}", file=sys.stderr)
                     self._send_json(500, {"error": "couldn't fully remove your data -- some files may remain, try again"})
                 return
             try:
                 lib = registry.library_for(identity)
             except _RegistryWarming:
                 self._send_json(503, {"error": "starting up, try again shortly"})
+                return
+            if self.path in ("/agent-mode/candidates", "/agent-mode/no-decision"):
+                if decisions is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                if self._principal()[1] != "agent":
+                    self._send_json(403, {"error": "a coding-agent session is required"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "agent session is not valid for the active repo"})
+                    return
+                if not self._take_budget(
+                    agent_mode_limiter, identity,
+                    "too many agent events -- try again shortly",
+                ):
+                    return
+                try:
+                    body = self._body()
+                except (ValueError, TypeError):
+                    self._send_json(400, {"error": "invalid agent event"})
+                    return
+                if not isinstance(body, dict):
+                    self._send_json(400, {"error": "invalid agent event"})
+                    return
+                repo, _commit = lib.provenance()
+                expected_repo = body.get("repo")
+                if (
+                    not isinstance(expected_repo, str)
+                    or expected_repo.casefold() != repo.casefold()
+                ):
+                    self._send_json(409, {"error": f"Icarus is connected to {repo}"})
+                    return
+                if self.path == "/agent-mode/no-decision":
+                    if set(body) != {"repo", "session_id"}:
+                        self._send_json(400, {"error": "only repo and session_id are accepted"})
+                        return
+                    session_id = body.get("session_id")
+                    if (
+                        not isinstance(session_id, str)
+                        or not session_id.strip()
+                        or len(session_id.strip()) > 500
+                    ):
+                        self._send_json(400, {"error": "session_id is invalid"})
+                        return
+                    # This event exists only to make the Stop-hook contract
+                    # explicit.  There is no product value in retaining an
+                    # absence, so it is acknowledged and discarded.
+                    self._send_json(200, {"repo": repo, "recorded": False})
+                    return
+                allowed = {
+                    "repo", "session_id", "decision", "rationale",
+                    "alternatives", "affected_paths",
+                }
+                if set(body) - allowed:
+                    self._send_json(400, {"error": "unsupported decision candidate fields"})
+                    return
+                try:
+                    item = decisions.submit(
+                        repo,
+                        session_id=body.get("session_id"),
+                        decision=body.get("decision"),
+                        rationale=body.get("rationale"),
+                        alternatives=body.get("alternatives"),
+                        affected_paths=body.get("affected_paths", []),
+                    )
+                except DecisionLedgerError as error:
+                    self._send_json(400, {"error": str(error)})
+                    return
+                # Never return the session fingerprint to the model.  It is an
+                # internal dedupe primitive, not project memory.
+                public = self._public_decision(item)
+                self._send_json(201, public, headers={"Cache-Control": "no-store"})
+                return
+            if self.path == "/agent-mode/confirm":
+                if decisions is None or memory_writer is None:
+                    self._send_json(404, {"error": "not found"})
+                    return
+                if self._principal()[1] != "github":
+                    self._send_json(403, {"error": "a GitHub credential is required"})
+                    return
+                if not self._entitled(lib):
+                    self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
+                    return
+                try:
+                    body = self._body()
+                except (ValueError, TypeError):
+                    self._send_json(400, {"error": "invalid confirmation"})
+                    return
+                allowed = {"candidate_id", "selection", "alternative_index", "other_text"}
+                if not isinstance(body, dict) or set(body) - allowed:
+                    self._send_json(400, {"error": "invalid confirmation fields"})
+                    return
+                repo, _commit = lib.provenance()
+                candidate_id = body.get("candidate_id")
+                current = next((
+                    item for item in decisions.candidates(repo, statuses=None)
+                    if item.get("id") == candidate_id
+                ), None)
+                requested_selection = body.get("selection")
+                if (
+                    isinstance(current, dict)
+                    and current.get("status") in ("confirmed_proposal", "rejected")
+                ):
+                    if current.get("selection") == requested_selection:
+                        self._send_json(
+                            200, self._public_decision(current),
+                            headers={"Cache-Control": "no-store"},
+                            capture_extra={"selection": current.get("selection")},
+                        )
+                    else:
+                        self._send_json(409, {"error": "decision candidate is already resolved"})
+                    return
+                if (
+                    isinstance(current, dict)
+                    and current.get("status") == "not_sure"
+                    and requested_selection == "not_sure"
+                ):
+                    self._send_json(
+                        200, self._public_decision(current),
+                        headers={"Cache-Control": "no-store"},
+                        capture_extra={"selection": current.get("selection")},
+                    )
+                    return
+                try:
+                    preview = decisions.preview_confirmation(
+                        repo,
+                        candidate_id=candidate_id,
+                        selection=body.get("selection"),
+                        alternative_index=body.get("alternative_index"),
+                        other_text=body.get("other_text"),
+                    )
+                except DecisionLedgerError as error:
+                    self._send_json(409, {"error": str(error)})
+                    return
+                if preview["status"] != "confirmed_proposal":
+                    try:
+                        result = decisions.confirm(
+                            repo,
+                            candidate_id=candidate_id,
+                            selection=body.get("selection"),
+                            alternative_index=body.get("alternative_index"),
+                            other_text=body.get("other_text"),
+                        )
+                    except DecisionLedgerError as error:
+                        self._send_json(409, {"error": str(error)})
+                        return
+                    self._send_json(
+                        200, self._public_decision(result),
+                        headers={"Cache-Control": "no-store"},
+                        capture_extra={"selection": body.get("selection")},
+                    )
+                    return
+                if not self._take_budget(
+                    memory_limiter, identity,
+                    "too many memory proposals -- try again later",
+                ):
+                    return
+                try:
+                    proposal = memory_writer.record_decision(
+                        repo=repo,
+                        token=self._github_token(),
+                        decision_id=candidate_id,
+                        decision=preview["decision"],
+                        rationale=preview["rationale"],
+                        alternatives=preview["alternatives"],
+                        affected_paths=preview["affected_paths"],
+                    )
+                except MemoryWriteError as error:
+                    payload = {"error": str(error)}
+                    if error.recovery_url:
+                        payload["recovery_url"] = error.recovery_url
+                    self._send_json(error.status, payload)
+                    return
+                except Exception as error:
+                    print(f"decision proposal write failed: {type(error).__name__}",
+                          file=sys.stderr)
+                    self._send_json(502, {"error": "GitHub could not create the decision proposal"})
+                    return
+                try:
+                    result = decisions.confirm(
+                        repo,
+                        candidate_id=candidate_id,
+                        selection=body.get("selection"),
+                        alternative_index=body.get("alternative_index"),
+                        other_text=body.get("other_text"),
+                        proposal=proposal,
+                    )
+                except DecisionLedgerError as error:
+                    self._send_json(502, {
+                        "error": "GitHub created the proposal, but Icarus could not persist confirmation",
+                        "recovery_url": proposal.get("pull_request_url"),
+                    })
+                    return
+                self._send_json(
+                    201, self._public_decision(result),
+                    headers={"Cache-Control": "no-store"},
+                    capture_extra={"selection": body.get("selection")},
+                )
                 return
             if self.path == "/memory-gaps/record":
                 if memory_writer is None or ledger is None:
@@ -876,7 +1298,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         if item.get("id") == gap_id
                     ), None)
                 except Exception as error:
-                    print(f"memory gap read failed: {type(error).__name__}: {error}",
+                    print(f"memory gap read failed: {type(error).__name__}",
                           file=sys.stderr)
                     self._send_json(503, {"error": "the engineering-memory record is unavailable"})
                     return
@@ -890,8 +1312,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         headers={"Cache-Control": "no-store"},
                     )
                     return
-                if not memory_limiter.allow(identity):
-                    self._send_json(429, {"error": "too many memory proposals -- try again later"})
+                if not self._take_budget(
+                    memory_limiter, identity,
+                    "too many memory proposals -- try again later",
+                ):
                     return
                 if (
                     gap is None
@@ -920,7 +1344,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     self._send_json(error.status, payload)
                     return
                 except Exception as error:
-                    print(f"memory record write failed: {type(error).__name__}: {error}",
+                    print(f"memory record write failed: {type(error).__name__}",
                           file=sys.stderr)
                     self._send_json(502, {"error": "GitHub could not create the memory proposal"})
                     return
@@ -934,7 +1358,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 except Exception as error:
                     print(
                         f"memory proposal ledger write failed: "
-                        f"{type(error).__name__}: {error}",
+                        f"{type(error).__name__}",
                         file=sys.stderr,
                     )
                     self._send_json(502, {
@@ -951,8 +1375,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # be able to dodge the limiter by sending bodies that fail cheap
                 # validation, and this also saves us from ever reaching the real
                 # (billed) writer call below.
-                if not ask_limiter.allow(identity):
-                    self._send_json(429, {"error": "slow down -- try again in a minute"})
+                if not self._take_budget(
+                    ask_limiter, identity,
+                    "slow down -- try again in a minute",
+                ):
+                    return
+                if not self._take_budget(
+                    global_ask_limiter, "global",
+                    "Icarus is at its shared answer limit -- try again shortly",
+                ):
                     return
                 # Entitlement BEFORE the body is parsed and long before the
                 # writer: a caller who may not read this repo must cost nothing
@@ -979,31 +1410,36 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 snapshot = lib.snapshot()
                 repo, commit = snapshot.repo, snapshot.commit
-                try:
-                    # The caller's own token, so an exact "#N" they named in a
-                    # PRIVATE repo can be live-fetched AS THEM. Never stored --
-                    # it is read from this request's header and passed straight
-                    # through (see GatedPipeline.answer). Without it a private
-                    # repo's live fetch fails safe to None, as it always did.
-                    # Passed ONLY when asked for, so the default call is
-                    # byte-identical: `per_claim` is a GatedPipeline capability
-                    # and the base Pipeline interface (plus every stub) does not
-                    # take it. Sending it always would break every non-gated
-                    # pipeline with a TypeError.
-                    extra = {"per_claim": True} if per_claim else {}
-                    answer_started = time.monotonic()
-                    result = snapshot.pipeline.answer(
-                        question, token=self._github_token(), **extra)
-                    answer_latency = time.monotonic() - answer_started
-                    still_indexing = snapshot.indexing
-                except Exception as e:
-                    # The rented writer failed -- missing/invalid key, provider
-                    # outage, or exhausted retries. Return an honest JSON error
-                    # instead of letting the exception drop the connection with no
-                    # response. Logged server-side (never swallowed silently).
-                    print(f"/ask writer failed: {type(e).__name__}: {e}", file=sys.stderr)
-                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                if not self._take_writer_slot():
                     return
+                try:
+                    try:
+                        # The caller's own token, so an exact "#N" they named in a
+                        # PRIVATE repo can be live-fetched AS THEM. Never stored --
+                        # it is read from this request's header and passed straight
+                        # through (see GatedPipeline.answer). Without it a private
+                        # repo's live fetch fails safe to None, as it always did.
+                        # Passed ONLY when asked for, so the default call is
+                        # byte-identical: `per_claim` is a GatedPipeline capability
+                        # and the base Pipeline interface (plus every stub) does not
+                        # take it. Sending it always would break every non-gated
+                        # pipeline with a TypeError.
+                        extra = {"per_claim": True} if per_claim else {}
+                        answer_started = time.monotonic()
+                        result = snapshot.pipeline.answer(
+                            question, token=self._github_token(), **extra)
+                        answer_latency = time.monotonic() - answer_started
+                        still_indexing = snapshot.indexing
+                    except Exception as e:
+                        # The rented writer failed -- missing/invalid key, provider
+                        # outage, or exhausted retries. Return an honest JSON error
+                        # instead of letting the exception drop the connection with no
+                        # response. Logged server-side (never swallowed silently).
+                        print(f"/ask writer failed: {type(e).__name__}", file=sys.stderr)
+                        self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                        return
+                finally:
+                    writer_slots.release()
                 # PostHog AI Observability ($ai_generation): latency + model/
                 # provider are metadata, sent regardless of the content-share
                 # setting; the prompt/completion only when sharing is on --
@@ -1040,7 +1476,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         ]
                     posthog_capture.capture("$ai_generation", identity_for_ai, ai_properties)
                 except Exception as e:
-                    print(f"posthog $ai_generation capture failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    print(f"posthog $ai_generation capture failed: {type(e).__name__}", file=sys.stderr)
                 if (ledger is not None and not include_evidence
                         and not getattr(self, "_demo_request", False)):
                     # Recorded against the REPO, and deliberately WITHOUT the
@@ -1058,7 +1494,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                                       reason=result.abstention_reason,
                                       verdict=result.verdict, citations=result.citations)
                     except Exception as e:
-                        print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
+                        print(f"ledger write failed: {type(e).__name__}", file=sys.stderr)
                 self._send_json(
                     200,
                     build_payload(
@@ -1084,8 +1520,10 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # Same reasoning as /ask: check the limiter first, before the body
                 # is even parsed, so a rate-limited caller never reaches the real
                 # GitHub `repo_info` call or a background clone/ingest.
-                if not connect_limiter.allow(identity):
-                    self._send_json(429, {"error": "slow down -- try again later"})
+                if not self._take_budget(
+                    connect_limiter, identity,
+                    "slow down -- try again later",
+                ):
                     return
                 # Read the body ONCE: it comes off the socket and a second
                 # read blocks forever waiting for bytes that will never arrive.
@@ -1113,9 +1551,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # above. A refresh costs minutes of CPU (283s measured on
                 # production) and republishes a corpus concurrent readers are
                 # using, so it gets its own, much tighter allowance.
-                if refresh and not refresh_limiter.allow(identity):
-                    self._send_json(429, {"error": "a refresh re-reads the whole "
-                                                   "repository -- try again later"})
+                if refresh and not self._take_budget(
+                    refresh_limiter, identity,
+                    "a refresh re-reads the whole repository -- try again later",
+                ):
+                    return
+                if not self._take_budget(
+                    global_connect_limiter, "global",
+                    "repository indexing is at its launch limit -- try again later",
+                ):
                     return
                 token = self._github_token()
                 private = False
@@ -1130,15 +1574,19 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         self._send_json(403, {"error": "that repo doesn't exist or your GitHub account can't read it"})
                         return
                     private = bool(info["private"])
+                if not self._take_ingest_slot():
+                    return
                 # Access logging is suppressed below; record arrival, never the token.
-                print(f"connect received: repo={repo!r} private={private} "
-                      f"refresh={refresh} "
+                print(f"connect received: private={private} refresh={refresh} "
                       f"({'sync' if sync_connect else 'background'})", file=sys.stderr)
                 if sync_connect:
                     # Background upgrade is safe only while Azure keeps a replica warm.
-                    result = lib.connect_sync(
-                        repo, token=(token if private else None), private=private,
-                        background_upgrade=background_upgrade, refresh=refresh)
+                    try:
+                        result = lib.connect_sync(
+                            repo, token=(token if private else None), private=private,
+                            background_upgrade=background_upgrade, refresh=refresh)
+                    finally:
+                        ingest_slots.release()
                     self._send_json(200, result)
                 else:
                     # QUEUED: hand the ingest to a worker thread and answer now.
@@ -1155,12 +1603,38 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     # path backgrounded it -- the two routes disagreed about
                     # when a repo becomes answerable. Passed now, so the queued
                     # path publishes lexical search as early as the sync one.
-                    threading.Thread(
-                        target=lib.connect_sync, args=(repo,),
-                        kwargs={"token": token if private else None, "private": private,
-                                "background_upgrade": background_upgrade,
-                                "refresh": refresh},
-                        daemon=True).start()
+                    def run_connect():
+                        try:
+                            lib.connect_sync(
+                                repo, token=token if private else None,
+                                private=private,
+                                background_upgrade=background_upgrade,
+                                refresh=refresh,
+                            )
+                        except Exception as error:
+                            # Library.connect_sync normally records its own
+                            # user-visible error state. This backstop prevents an
+                            # unexpected exception (and its possibly sensitive
+                            # message/traceback) escaping the worker thread.
+                            print(f"connect worker failed: {type(error).__name__}",
+                                  file=sys.stderr)
+                        finally:
+                            ingest_slots.release()
+                    try:
+                        threading.Thread(
+                            target=run_connect,
+                            daemon=True,
+                        ).start()
+                    except Exception as error:
+                        ingest_slots.release()
+                        print(f"connect worker could not start: {type(error).__name__}",
+                              file=sys.stderr)
+                        self._send_json(
+                            503,
+                            {"error": "repository indexing could not start -- try again shortly"},
+                            headers={"Retry-After": "1"},
+                        )
+                        return
                     # `state` stays "indexing", NOT a new "queued" value: an
                     # installed Mac app decodes this field and an unknown state
                     # would break it. `connecting_to` is the additive part, and
@@ -1262,8 +1736,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             actually asked -- inventing documentation debt nobody was looking
             for. The tour reads the corpus; it does not speak for the team.
             """
-            if not ask_limiter.allow(identity):
-                self._send_json(429, {"error": "slow down -- try again in a minute"})
+            if not self._take_budget(
+                ask_limiter, identity,
+                "slow down -- try again in a minute",
+            ):
+                return
+            if not self._take_budget(
+                global_ask_limiter, "global",
+                "Icarus is at its shared answer limit -- try again shortly",
+            ):
                 return
             if not self._entitled(lib):
                 self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
@@ -1277,19 +1758,24 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(400, {"error": "missing step"})
                 return
             repo, commit = lib.provenance()
+            if not self._take_writer_slot():
+                return
             try:
-                result = onboarding.answer_step(
-                    lib.current_pipeline(), lib.status_snapshot(), step.strip(),
-                    token=self._github_token())
-            except ValueError:
-                # An unknown step id -- including one measurement CUT from the
-                # tour -- is a caller error, never a silently-invented question.
-                self._send_json(400, {"error": "unknown onboarding step"})
-                return
-            except Exception as e:
-                print(f"/onboarding writer failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
-                return
+                try:
+                    result = onboarding.answer_step(
+                        lib.current_pipeline(), lib.status_snapshot(), step.strip(),
+                        token=self._github_token())
+                except ValueError:
+                    # An unknown step id -- including one measurement CUT from the
+                    # tour -- is a caller error, never a silently-invented question.
+                    self._send_json(400, {"error": "unknown onboarding step"})
+                    return
+                except Exception as e:
+                    print(f"/onboarding writer failed: {type(e).__name__}", file=sys.stderr)
+                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                    return
+            finally:
+                writer_slots.release()
             payload = build_payload(result, repo, commit,
                                     indexing=bool(lib.status_snapshot().get("indexing")))
             payload["step"] = step.strip()
@@ -1308,8 +1794,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
 
             Guarded by the same read-entitlement check as /ask -- it reads the
             same corpus, so protecting /ask alone would leave a side door open."""
-            if not ask_limiter.allow(identity):
-                self._send_json(429, {"error": "slow down -- try again in a minute"})
+            if not self._take_budget(
+                ask_limiter, identity,
+                "slow down -- try again in a minute",
+            ):
+                return
+            if not self._take_budget(
+                global_ask_limiter, "global",
+                "Icarus is at its shared answer limit -- try again shortly",
+            ):
                 return
             if not self._entitled(lib):
                 self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
@@ -1355,15 +1848,20 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             if repo.strip() != active_repo:
                 self._send_json(409, {"error": "that repo isn't your currently connected repo"})
                 return
-            try:
-                extra = {"per_claim": True} if per_claim else {}
-                result = snapshot.pipeline.explain(
-                    path.strip(), start, end, question=question, **extra)
-                still_indexing = snapshot.indexing
-            except Exception as e:
-                print(f"/explain writer failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+            if not self._take_writer_slot():
                 return
+            try:
+                try:
+                    extra = {"per_claim": True} if per_claim else {}
+                    result = snapshot.pipeline.explain(
+                        path.strip(), start, end, question=question, **extra)
+                    still_indexing = snapshot.indexing
+                except Exception as e:
+                    print(f"/explain writer failed: {type(e).__name__}", file=sys.stderr)
+                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                    return
+            finally:
+                writer_slots.release()
             self._send_json(
                 200,
                 build_payload(
@@ -1394,9 +1892,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             """
             # Checked BEFORE the body is parsed and long before any provider
             # call, so a refused caller costs nothing at the model provider.
-            if not investigate_limiter.allow(identity):
-                self._send_json(429, {"error": "an investigation makes several model "
-                                               "calls -- try again in a minute"})
+            if not self._take_budget(
+                investigate_limiter, identity,
+                "an investigation makes several model calls -- try again in a minute",
+            ):
+                return
+            if not self._take_budget(
+                global_investigate_limiter, "global",
+                "Icarus is at its shared investigation limit -- try again shortly",
+            ):
                 return
             if not self._entitled(lib):
                 self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
@@ -1451,30 +1955,35 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 # re-deriving what the conversation already established.
                 carried = prior.claims
 
-            try:
-                # The diff fetcher is bound to the ACTIVE repo here rather than
-                # inside the pipeline: it is the only probe that reaches GitHub
-                # for something never indexed, and binding it per request keeps
-                # the caller's token out of any longer-lived object.
-                diff_fetch = (lambda number, tok=None:
-                              fetch_pr_diff(repo, number, token=tok)) if repo else None
-                # Filled BY the investigation, not rebuilt from the index
-                # afterwards: rebuilding loses every live-fetched piece of
-                # evidence (an unindexed pull request, a commit, a diff), which
-                # blanks its excerpt and leaves the gate checking empty text.
-                texts = {}
-                investigation = _investigator.investigate(
-                    question, snapshot.pipeline, entity_index(lib, snapshot),
-                    snapshot.provider, token=self._github_token(),
-                    subject=subject, objective=objective, carried=carried,
-                    diff_fetch=diff_fetch, texts=texts)
-                result = _investigator.conclude(
-                    investigation, snapshot.provider, texts=texts)
-                still_indexing = snapshot.indexing
-            except Exception as e:
-                print(f"/investigate failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+            if not self._take_writer_slot():
                 return
+            try:
+                try:
+                    # The diff fetcher is bound to the ACTIVE repo here rather than
+                    # inside the pipeline: it is the only probe that reaches GitHub
+                    # for something never indexed, and binding it per request keeps
+                    # the caller's token out of any longer-lived object.
+                    diff_fetch = (lambda number, tok=None:
+                                  fetch_pr_diff(repo, number, token=tok)) if repo else None
+                    # Filled BY the investigation, not rebuilt from the index
+                    # afterwards: rebuilding loses every live-fetched piece of
+                    # evidence (an unindexed pull request, a commit, a diff), which
+                    # blanks its excerpt and leaves the gate checking empty text.
+                    texts = {}
+                    investigation = _investigator.investigate(
+                        question, snapshot.pipeline, entity_index(lib, snapshot),
+                        snapshot.provider, token=self._github_token(),
+                        subject=subject, objective=objective, carried=carried,
+                        diff_fetch=diff_fetch, texts=texts)
+                    result = _investigator.conclude(
+                        investigation, snapshot.provider, texts=texts)
+                    still_indexing = snapshot.indexing
+                except Exception as e:
+                    print(f"/investigate failed: {type(e).__name__}", file=sys.stderr)
+                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                    return
+            finally:
+                writer_slots.release()
 
             if conversations is not None:
                 # Continuity is an improvement on a stateless answer, never a
@@ -1486,7 +1995,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                                            is_indexed=lambda ref: snapshot.pipeline.chunk_for(ref)
                                            is not None)
                 except Exception as e:
-                    print(f"conversation write failed: {type(e).__name__}: {e}",
+                    print(f"conversation write failed: {type(e).__name__}",
                           file=sys.stderr)
             if ledger is not None:
                 # Recorded exactly as /ask records an ask -- against the repo,
@@ -1498,7 +2007,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                                   reason=result.abstention_reason,
                                   verdict=result.verdict, citations=result.citations)
                 except Exception as e:
-                    print(f"ledger write failed: {type(e).__name__}: {e}", file=sys.stderr)
+                    print(f"ledger write failed: {type(e).__name__}", file=sys.stderr)
             self._send_json(200, build_investigation_payload(
                 result, investigation, repo, commit, indexing=still_indexing),
                 capture_extra={"question": question})
@@ -1526,9 +2035,15 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             /investigate is the point (see the module's own "do not
             over-engineer" brief).
             """
-            if not investigate_limiter.allow(identity):
-                self._send_json(429, {"error": "an investigation makes several model "
-                                               "calls -- try again in a minute"})
+            if not self._take_budget(
+                investigate_limiter, identity,
+                "an investigation makes several model calls -- try again in a minute",
+            ):
+                return
+            if not self._take_budget(
+                global_investigate_limiter, "global",
+                "Icarus is at its shared investigation limit -- try again shortly",
+            ):
                 return
             if not self._entitled(lib):
                 self._send_json(403, {"error": "your GitHub account can't read the connected repo"})
@@ -1545,35 +2060,40 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             task = task.strip()
             snapshot = lib.snapshot()
             repo, commit = snapshot.repo, snapshot.commit
-            try:
-                diff_fetch = (lambda number, tok=None:
-                              fetch_pr_diff(repo, number, token=tok)) if repo else None
-                texts = {}
-                investigation = _investigator.investigate(
-                    task, snapshot.pipeline, entity_index(lib, snapshot),
-                    snapshot.provider, token=self._github_token(), diff_fetch=diff_fetch,
-                    texts=texts)
-                result = _investigator.conclude(
-                    investigation, snapshot.provider, texts=texts)
-                structure = build_structure(snapshot.pipeline.indexed_chunks())
-                # Let a deferral resolve a merged successor retrieval did not
-                # deliver. Bounded to a few fetches per deferral, and only when
-                # a deferral was already found -- see attempts._probe_successors
-                # and the 2026-08-25 production measurement that made it
-                # necessary.
-                ctx_token = self._github_token()
-                successor_lookup = None
-                if repo:
-                    def successor_lookup(number, _repo=repo, _tok=ctx_token):
-                        chunk = fetch_ref_detail(_repo, number, token=_tok)
-                        return chunk.text if chunk else None
-                package = build_context_package(investigation, result, structure, texts,
-                                                successor_lookup=successor_lookup)
-                still_indexing = snapshot.indexing
-            except Exception as e:
-                print(f"/context failed: {type(e).__name__}: {e}", file=sys.stderr)
-                self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+            if not self._take_writer_slot():
                 return
+            try:
+                try:
+                    diff_fetch = (lambda number, tok=None:
+                                  fetch_pr_diff(repo, number, token=tok)) if repo else None
+                    texts = {}
+                    investigation = _investigator.investigate(
+                        task, snapshot.pipeline, entity_index(lib, snapshot),
+                        snapshot.provider, token=self._github_token(), diff_fetch=diff_fetch,
+                        texts=texts)
+                    result = _investigator.conclude(
+                        investigation, snapshot.provider, texts=texts)
+                    structure = build_structure(snapshot.pipeline.indexed_chunks())
+                    # Let a deferral resolve a merged successor retrieval did not
+                    # deliver. Bounded to a few fetches per deferral, and only when
+                    # a deferral was already found -- see attempts._probe_successors
+                    # and the 2026-08-25 production measurement that made it
+                    # necessary.
+                    ctx_token = self._github_token()
+                    successor_lookup = None
+                    if repo:
+                        def successor_lookup(number, _repo=repo, _tok=ctx_token):
+                            chunk = fetch_ref_detail(_repo, number, token=_tok)
+                            return chunk.text if chunk else None
+                    package = build_context_package(investigation, result, structure, texts,
+                                                    successor_lookup=successor_lookup)
+                    still_indexing = snapshot.indexing
+                except Exception as e:
+                    print(f"/context failed: {type(e).__name__}", file=sys.stderr)
+                    self._send_json(503, {"error": "the answering model is unavailable right now -- try again shortly"})
+                    return
+            finally:
+                writer_slots.release()
             self._send_json(200, build_context_payload(
                 package, repo, commit, indexing=still_indexing))
 
@@ -1592,8 +2112,8 @@ def resolve_provenance(meta_path, questions_path):
 
 def serve(host: str = None, port: int = None):
     load_env_file(REPO_ROOT / ".env")  # pick up keys from a gitignored .env
-    if not os.environ.get("GEMINI_PAID_API_KEY"):
-        print("WARNING: GEMINI_PAID_API_KEY is not set -- it is the alpha's writer; "
+    if not os.environ.get("GEMINI_API_KEY"):
+        print("WARNING: GEMINI_API_KEY is not set -- it is the serving writer; "
               "/ask and /explain will return "
               "503 until it is configured.", file=sys.stderr)
     # Bind from env so a PaaS (e.g. Render injects $PORT) can place us; loopback
@@ -1615,6 +2135,9 @@ def serve(host: str = None, port: int = None):
     # cache roots' convention: `registry._key` forbids '.', so no user id can
     # ever collide with or reach into it.
     ledger = Ledger(storage_root / "ask.ledger")
+    # Structured Agent Mode decisions live beside (never inside) replaceable
+    # corpora. Raw coding-session transcripts are never passed to this store.
+    decisions = DecisionLedger(storage_root / "decision.ledger")
     allowed_hosts = _parse_allowed_hosts(os.environ.get("ICARUS_ALLOWED_HOSTS"))
     # OAuth callback: a public HTTPS URL when hosted (ICARUS_PUBLIC_URL), else the
     # loopback callback for local dev. GitHub must have this exact URL registered.
@@ -1640,6 +2163,9 @@ def serve(host: str = None, port: int = None):
                            public_demo=public_demo,
                            access_verifier=access_verifier, default_repo=default_repo,
                            ledger=ledger, freshness=FreshnessChecker(),
+                           decisions=decisions,
+                           readiness=lambda: runtime_readiness(
+                               storage_root, require_auth),
                            agent_sessions=agent_sessions,
                            agent_repo_info=github_access.repo_info,
                            memory_writer=GitHubMemoryWriter(),
