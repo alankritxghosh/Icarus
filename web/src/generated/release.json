@@ -9,22 +9,22 @@
     "/Icarus.dmg as a redirect so every link already in the wild still resolves.",
     "Prepare a new release through Gate 6 of docs/LAUNCH_CANARY.md; the checker is read-only."
   ],
-  "version": "0.1.7",
-  "build": "10",
-  "url": "https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7/Icarus.dmg",
+  "version": "0.1.8",
+  "build": "11",
+  "url": "https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.8/Icarus.dmg",
   "dmg": {
     "name": "Icarus.dmg",
-    "bytes": 2408673,
-    "sha256": "c4d2837c847135823bd310a99f2662c71d957787d9b14490f97d8d33a69ec76e"
+    "bytes": 2603708,
+    "sha256": "e414a3452ff373720f44717d6900716735ea9a1ee30a41f900a26a8c1e4e95b4"
   },
   "extension": {
     "name": "icarus-extension.zip",
-    "bytes": 22465,
-    "sha256": "ef09faf4e5db1dfabfa924a7f1c845dab544e5558a21e6b6bdbd62da2f462e4f"
+    "bytes": 22492,
+    "sha256": "ef83e14e3e3494ccb308c1519ca1f8ad4c0c39275263c5cd4eb85caba374ee7a"
   },
   "appcast": {
-    "length": 2408673,
-    "edSignature": "zQn8Z013Fen6jlUGFNAwUOObsNfrA4fgADqecDxW9mRWSnuaiv1GLjPWG5iqiIbFc1EXotG7h9cEnOhT48GsAA=="
+    "length": 2603708,
+    "edSignature": "9bB2XcrqggjsifyIRPH9naURO4b/doVxMpLNeXykJHLG5Xx6moLa/rsqCH+EN7jqEPVMi95Zcp9Dgx9oSmaNBA=="
   },
-  "assets_base": "https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.7"
+  "assets_base": "https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.8"
 }
