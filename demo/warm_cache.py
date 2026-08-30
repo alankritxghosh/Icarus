@@ -19,6 +19,7 @@ exit) if the embedder is unavailable or no cache lands, so a broken warm-up fail
 the image build instead of silently shipping a cold container.
 """
 
+import os
 from pathlib import Path
 
 from evals.corpus import load_chunks
@@ -47,4 +48,12 @@ def warm(corpus_dir: Path = CORPUS_DIR) -> Path:
 
 if __name__ == "__main__":
     cache = warm()
-    print(f"warm_cache: baked embedding cache at {cache} ({cache.stat().st_size} bytes)")
+    print(
+        f"warm_cache: baked embedding cache at {cache} ({cache.stat().st_size} bytes)",
+        flush=True,
+    )
+    # ONNX Runtime/fastembed can leave non-daemon worker threads alive after the
+    # cache is written. During `docker build` that means the visible work is done
+    # but the RUN step can sit forever. warm() has already raised on failure and
+    # verified the cache exists, so the CLI may terminate the process directly.
+    os._exit(0)
