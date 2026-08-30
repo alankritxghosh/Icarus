@@ -21,6 +21,7 @@ CONFIG="release"
 BUILD_DIR=".build/${CONFIG}"
 APP="Icarus.app"
 CONTENTS="${APP}/Contents"
+ENTITLEMENTS="${ROOT}/Icarus.entitlements"
 
 echo "==> swift build -c ${CONFIG}"
 swift build -c "${CONFIG}"
@@ -108,9 +109,9 @@ sign_one() {
     if [[ "$1" == "Developer ID Application:"* ]]; then
         # Apple's notarization prerequisites: Developer ID, hardened runtime,
         # and a trusted timestamp on every executable bundle.
-        codesign --force --options runtime --timestamp --sign "$1" "$2"
+        codesign --force --options runtime --timestamp --entitlements "${ENTITLEMENTS}" --sign "$1" "$2"
     else
-        codesign --force --options runtime --sign "$1" "$2" 2>/dev/null \
+        codesign --force --options runtime --entitlements "${ENTITLEMENTS}" --sign "$1" "$2" 2>/dev/null \
             || codesign --force --sign "$1" "$2" 2>/dev/null
     fi
 }

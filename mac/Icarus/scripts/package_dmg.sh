@@ -21,6 +21,7 @@ ROOT="$(pwd)"
 APP="Icarus.app"
 PLIST="${APP}/Contents/Info.plist"
 DMG="Icarus.dmg"
+ENTITLEMENTS="${ROOT}/Icarus.entitlements"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Icarus-Info.plist 2>/dev/null || echo 0.1.0)"
 VOLNAME="Icarus ${VERSION}"
 
@@ -90,10 +91,10 @@ if [ -n "${NEEDS_RESIGN}" ]; then
                 exit 1
             }
         echo "==> re-signing after Info.plist edit (${IDENTITY})"
-        codesign --force --options runtime --timestamp --sign "${IDENTITY}" "${APP}"
+        codesign --force --options runtime --timestamp --entitlements "${ENTITLEMENTS}" --sign "${IDENTITY}" "${APP}"
     elif security find-certificate -c "${IDENTITY}" >/dev/null 2>&1; then
         echo "==> re-signing after Info.plist edit (${IDENTITY})"
-        codesign --force --options runtime --sign "${IDENTITY}" "${APP}" 2>/dev/null \
+        codesign --force --options runtime --entitlements "${ENTITLEMENTS}" --sign "${IDENTITY}" "${APP}" 2>/dev/null \
             || codesign --force --sign "${IDENTITY}" "${APP}"
     else
         echo "==> re-signing after Info.plist edit (ad-hoc)"

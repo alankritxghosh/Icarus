@@ -42,6 +42,16 @@ class InstallerSafetyTests(unittest.TestCase):
         self.assertIn("verify_distribution.sh", script)
         self.assertNotIn('"${ROOT}/../../site/release-dmg.sh"', script)
 
+    def test_self_signed_hardened_app_allows_bundled_sparkle_framework(self):
+        entitlements = (ROOT / "mac" / "Icarus" / "Icarus.entitlements").read_text()
+        bundle = (ROOT / "mac" / "Icarus" / "scripts" / "bundle.sh").read_text()
+        package = (ROOT / "mac" / "Icarus" / "scripts" / "package_dmg.sh").read_text()
+        self.assertIn("com.apple.security.cs.disable-library-validation", entitlements)
+        self.assertIn("--entitlements", bundle)
+        self.assertIn("Icarus.entitlements", bundle)
+        self.assertIn("--entitlements", package)
+        self.assertIn("Icarus.entitlements", package)
+
     def test_remote_release_checker_cannot_stamp_from_nonexistent_local_assets(self):
         script = (ROOT / "scripts" / "check_release.py").read_text()
         self.assertNotIn("def write()", script)
