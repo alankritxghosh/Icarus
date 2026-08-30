@@ -1,4 +1,4 @@
-"""Final-user distribution must never regress to the alpha bypass path."""
+"""Release distribution must be honest about the current unsigned launch path."""
 
 import unittest
 from pathlib import Path
@@ -8,18 +8,27 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class InstallerSafetyTests(unittest.TestCase):
-    def test_installer_requires_apple_and_developer_id_verification(self):
+    def test_unsigned_launch_installer_is_explicit_about_the_alpha_path(self):
         script = (ROOT / "web" / "public" / "install.sh").read_text()
-        self.assertIn("stapler validate", script)
-        self.assertIn("spctl -a", script)
-        self.assertIn("codesign --verify", script)
-        self.assertIn("Developer ID Application:", script)
+        self.assertIn("not notarized by Apple", script)
+        self.assertIn("Developer ID", script)
+        self.assertIn("Read it before running it", script)
+        self.assertNotIn("stapler validate", script)
+        self.assertNotIn("spctl -a", script)
+        self.assertNotIn("codesign --verify", script)
+        self.assertNotIn("Developer ID Application:", script)
 
-    def test_installer_does_not_bypass_gatekeeper_or_delete_the_old_app_first(self):
+    def test_unsigned_installer_checks_checksum_before_installing(self):
         script = (ROOT / "web" / "public" / "install.sh").read_text()
-        self.assertNotIn("xattr -dr", script)
-        self.assertNotIn('rm -rf "${DEST:?}/$APP"', script)
-        self.assertIn("Icarus.previous.app", script)
+        expected = script.index('EXPECTED_SHA="')
+        actual = script.index('ACTUAL="$(shasum -a 256 "$TMP/Icarus.dmg"')
+        mismatch = script.index("Checksum mismatch - not installing.")
+        attach = script.index('hdiutil attach "$TMP/Icarus.dmg"')
+        copy = script.index('cp -R "$MNT/$APP" "$DEST/"')
+        self.assertLess(expected, actual)
+        self.assertLess(actual, mismatch)
+        self.assertLess(mismatch, attach)
+        self.assertLess(mismatch, copy)
 
     def test_old_vercel_release_script_fails_before_mutating_anything(self):
         script = (ROOT / "site" / "release-dmg.sh").read_text()
