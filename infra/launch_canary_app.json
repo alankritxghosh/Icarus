@@ -1,0 +1,290 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.46.1.21595",
+      "templateHash": "5295977365120487191"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for the canary application resources."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "icarus-canary",
+      "minLength": 3,
+      "metadata": {
+        "description": "Stable prefix used for canary resource names."
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-env', parameters('namePrefix'))]",
+      "metadata": {
+        "description": "Existing Container Apps managed environment created by launch_canary_foundation.bicep."
+      }
+    },
+    "identityName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-identity', parameters('namePrefix'))]",
+      "metadata": {
+        "description": "Existing user-assigned identity created by launch_canary_foundation.bicep."
+      }
+    },
+    "workspaceName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-logs', parameters('namePrefix'))]",
+      "metadata": {
+        "description": "Existing Log Analytics workspace created by launch_canary_foundation.bicep."
+      }
+    },
+    "acrLoginServer": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Azure Container Registry login server that holds the immutable launch candidate image."
+      }
+    },
+    "candidateImage": {
+      "type": "string",
+      "minLength": 7,
+      "metadata": {
+        "description": "Full pinned candidate image, preferably an ACR digest. Must not be latest."
+      }
+    },
+    "githubClientId": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Public GitHub OAuth client id for the isolated canary callback."
+      }
+    },
+    "incidentEmail": {
+      "type": "string",
+      "minLength": 3,
+      "metadata": {
+        "description": "Incident response email for the canary action group."
+      }
+    },
+    "geminiApiKeyVaultUrl": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Key Vault secret URL for the configured Gemini serving key. The secret value is never supplied to this template."
+      }
+    },
+    "ghTokenKeyVaultUrl": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Key Vault secret URL for the dedicated public-ingest GitHub token. The secret value is never supplied to this template."
+      }
+    },
+    "githubClientSecretKeyVaultUrl": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Key Vault secret URL for the canary GitHub OAuth client secret. The secret value is never supplied to this template."
+      }
+    },
+    "posthogProjectTokenKeyVaultUrl": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional Key Vault secret URL for PostHog product analytics. Empty disables analytics."
+      }
+    },
+    "icarusAnalyticsSaltKeyVaultUrl": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional Key Vault secret URL for the analytics pseudonymization salt. Empty collapses analytics identity to anonymous and omits repository identity."
+      }
+    }
+  },
+  "variables": {
+    "copy": [
+      {
+        "name": "secretEnv",
+        "count": "[length(variables('allSecretRefs'))]",
+        "input": {
+          "name": "[variables('allSecretRefs')[copyIndex('secretEnv')].envName]",
+          "secretRef": "[variables('allSecretRefs')[copyIndex('secretEnv')].secretName]"
+        }
+      }
+    ],
+    "appName": "[format('{0}-brain', parameters('namePrefix'))]",
+    "requiredSecretRefs": [
+      {
+        "envName": "GEMINI_API_KEY",
+        "secretName": "gemini-api-key",
+        "keyVaultUrl": "[parameters('geminiApiKeyVaultUrl')]"
+      },
+      {
+        "envName": "GH_TOKEN",
+        "secretName": "gh-token",
+        "keyVaultUrl": "[parameters('ghTokenKeyVaultUrl')]"
+      },
+      {
+        "envName": "GITHUB_CLIENT_SECRET",
+        "secretName": "github-client-secret",
+        "keyVaultUrl": "[parameters('githubClientSecretKeyVaultUrl')]"
+      }
+    ],
+    "enabledOptionalSecretRefs": "[concat(if(not(empty(parameters('posthogProjectTokenKeyVaultUrl'))), createArray(createObject('envName', 'POSTHOG_PROJECT_TOKEN', 'secretName', 'posthog-project-token', 'keyVaultUrl', parameters('posthogProjectTokenKeyVaultUrl'))), createArray()), if(not(empty(parameters('icarusAnalyticsSaltKeyVaultUrl'))), createArray(createObject('envName', 'ICARUS_ANALYTICS_SALT', 'secretName', 'icarus-analytics-salt', 'keyVaultUrl', parameters('icarusAnalyticsSaltKeyVaultUrl'))), createArray()))]",
+    "allSecretRefs": "[concat(variables('requiredSecretRefs'), variables('enabledOptionalSecretRefs'))]",
+    "runtimeEnv": "[concat(createArray(createObject('name', 'ICARUS_REQUIRE_GITHUB_AUTH', 'value', '1'), createObject('name', 'ICARUS_ALLOWED_HOSTS', 'value', '*'), createObject('name', 'ICARUS_STORAGE_ROOT', 'value', '/data'), createObject('name', 'ICARUS_GLOBAL_ASKS_PER_MINUTE', 'value', '120'), createObject('name', 'ICARUS_GLOBAL_INVESTIGATIONS_PER_MINUTE', 'value', '12'), createObject('name', 'ICARUS_GLOBAL_CONNECTS_PER_10_MINUTES', 'value', '30'), createObject('name', 'ICARUS_MAX_CONCURRENT_WRITERS', 'value', '8'), createObject('name', 'ICARUS_MAX_CONCURRENT_INGESTS', 'value', '2'), createObject('name', 'GITHUB_CLIENT_ID', 'value', parameters('githubClientId'))), variables('secretEnv'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2024-10-02-preview",
+      "name": "[variables('appName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('identityName')))]": {}
+        }
+      },
+      "properties": {
+        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]",
+        "configuration": {
+          "copy": [
+            {
+              "name": "secrets",
+              "count": "[length(variables('allSecretRefs'))]",
+              "input": {
+                "name": "[variables('allSecretRefs')[copyIndex('secrets')].secretName]",
+                "keyVaultUrl": "[variables('allSecretRefs')[copyIndex('secrets')].keyVaultUrl]",
+                "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('identityName'))]"
+              }
+            }
+          ],
+          "activeRevisionsMode": "Single",
+          "ingress": {
+            "external": true,
+            "targetPort": 8000,
+            "transport": "Auto"
+          },
+          "registries": [
+            {
+              "server": "[parameters('acrLoginServer')]",
+              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('identityName'))]"
+            }
+          ]
+        },
+        "template": {
+          "scale": {
+            "minReplicas": 1,
+            "maxReplicas": 1
+          },
+          "containers": [
+            {
+              "name": "icarus-brain",
+              "image": "[parameters('candidateImage')]",
+              "env": "[variables('runtimeEnv')]",
+              "volumeMounts": [
+                {
+                  "volumeName": "cache",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "cache",
+              "storageType": "AzureFile",
+              "storageName": "icarus-data"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.App/containerApps', variables('appName'))]",
+      "name": "[format('{0}-diagnostics', variables('appName'))]",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]",
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.App/containerApps', variables('appName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/actionGroups",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-incident-action-group', parameters('namePrefix'))]",
+      "location": "global",
+      "properties": {
+        "groupShortName": "icaruscan",
+        "enabled": true,
+        "emailReceivers": [
+          {
+            "name": "canary-incident-email",
+            "emailAddress": "[parameters('incidentEmail')]",
+            "useCommonAlertSchema": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Insights/activityLogAlerts",
+      "apiVersion": "2020-10-01",
+      "name": "[format('{0}-resource-activity', parameters('namePrefix'))]",
+      "location": "global",
+      "properties": {
+        "enabled": true,
+        "scopes": [
+          "[resourceGroup().id]"
+        ],
+        "condition": {
+          "allOf": [
+            {
+              "field": "category",
+              "equals": "Administrative"
+            }
+          ]
+        },
+        "actions": {
+          "actionGroups": [
+            {
+              "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-incident-action-group', parameters('namePrefix')))]"
+            }
+          ]
+        },
+        "description": "Alert the canary incident contact on administrative activity in the isolated Icarus canary resource group."
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/actionGroups', format('{0}-incident-action-group', parameters('namePrefix')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "appName": {
+      "type": "string",
+      "value": "[variables('appName')]"
+    },
+    "appFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.App/containerApps', variables('appName')), '2024-10-02-preview').configuration.ingress.fqdn]"
+    },
+    "actionGroupName": {
+      "type": "string",
+      "value": "[format('{0}-incident-action-group', parameters('namePrefix'))]"
+    }
+  }
+}

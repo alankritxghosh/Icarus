@@ -77,3 +77,47 @@ directed, the write-up says directed. `agent_call_audit.py` flags a session as
 directed when a user message mentions Icarus by name — coarse, and deliberately
 biased toward calling a session directed, so the unprompted number under-claims
 rather than over-claims.
+
+## 7. Prove the agent HELD the tool before scoring it as not using one
+
+Nine sessions across three runs (7b, 7c, 7d, 2026-08-24 and 2026-08-25) were
+reported as zero unprompted calls. In every one of them the agent had never been
+offered the Icarus tools at all: headless `claude -p` did not load the project's
+MCP server. Three write-ups, two of them reasoning at length about why agents do
+not reach for the tool, rested on agents that could not have.
+
+    python3 scripts/agent_call_audit.py --project <slug>
+    # a session that never held the tool now prints
+    #   TOOL NOT AVAILABLE — not a measurement
+    # and is excluded from the denominator
+
+**Every check from outside the session said it was fine** — `claude mcp list`
+printed `icarus: ✔ Connected`, and the server answered a hand-piped
+`initialize`/`tools/list` handshake correctly. Only the transcript was right.
+That is rule §1 one layer down: the authoritative record of what an agent held
+is the same file as the record of what it did.
+
+A zero and a blank look identical in a results table and mean opposite things.
+If the transcript never names the tool, the run measured nothing — say that, and
+do not interpret it.
+
+## 8. A result that matches the prediction gets the same scrutiny as one that does not
+
+7d predicted 0 of 3 and returned 0 of 3. The agreement is exactly why nobody
+would have looked again, and the run was invalid. Confirmation is not
+verification: run §5's read-the-state check on a result you expected, not only on
+one that disappoints.
+
+## 9. One task per session, and verify the tree is clean between them
+
+C2 reported 4 of 4 and its own plan listed session reuse as invalidating; all
+four tasks had in fact run in one session. Re-run with four fresh sessions
+(2026-08-25) it measured **1 of 4**. Session reuse was worth three calls.
+
+    ls ~/.claude/projects/<slug>/*.jsonl   # one file per task, or it was one session
+
+Resetting the working tree between tasks is not enough on its own. In the re-run,
+task 1 verified its fix by stashing it and never restored it; task 2's agent
+found the stash, popped it, and worked with another agent's edit in its tree —
+and task 2 was the one session that called the tool. Check `git stash list` as
+well as `git status`, and record the tree state per task.

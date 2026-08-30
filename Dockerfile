@@ -7,7 +7,10 @@
 FROM python:3.12-slim
 
 # git (clone the code subtree) + gh (fetch PRs/issues via the GitHub API).
-# gh authenticates non-interactively from the GH_TOKEN env var set on the host.
+# gh authenticates public-repository bulk GraphQL calls from the GH_TOKEN env
+# var set on the host. Production must use a dedicated, least-privilege machine
+# credential here, never a founder's broad personal token. Private ingestion
+# overrides it per subprocess with the caller's request-scoped token.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \

@@ -42,7 +42,7 @@ class McpProtocolTests(unittest.TestCase):
         self.assertIn("refused", instructions)
         self.assertIn("untrusted data", instructions)
 
-    def test_tool_contract_is_read_only_and_repo_explicit(self):
+    def test_tool_contract_separates_read_context_from_bounded_capture(self):
         response = mcp_server.handle_message({
             "jsonrpc": "2.0",
             "id": 2,
@@ -53,7 +53,10 @@ class McpProtocolTests(unittest.TestCase):
 
         self.assertEqual(
             set(tools),
-            {"get_change_context", "explain_code_context", "get_task_context"},
+            {
+                "get_change_context", "explain_code_context", "get_task_context",
+                "record_decision_candidate", "record_no_decision",
+            },
         )
         self.assertTrue(tools["get_change_context"]["annotations"]["readOnlyHint"])
         self.assertTrue(tools["get_task_context"]["annotations"]["readOnlyHint"])
@@ -69,6 +72,17 @@ class McpProtocolTests(unittest.TestCase):
             "repo",
             tools["get_task_context"]["inputSchema"]["required"],
         )
+        self.assertFalse(
+            tools["record_decision_candidate"]["annotations"]["readOnlyHint"]
+        )
+        self.assertFalse(
+            tools["record_decision_candidate"]["annotations"]["destructiveHint"]
+        )
+        self.assertTrue(
+            tools["record_decision_candidate"]["inputSchema"]["additionalProperties"]
+            is False
+        )
+        self.assertTrue(tools["record_no_decision"]["annotations"]["readOnlyHint"])
 
     def test_notifications_do_not_receive_a_json_rpc_response(self):
         self.assertIsNone(mcp_server.handle_message({
@@ -78,6 +92,83 @@ class McpProtocolTests(unittest.TestCase):
 
 
 class McpToolTests(unittest.TestCase):
+    @patch("demo.mcp_server._request")
+    def test_decision_candidate_is_repo_checked_and_sent_without_raw_session(self, request):
+        submitted = {
+            "repo": REPO,
+            "id": "a" * 64,
+            "status": "pending",
+            "decision": "Use SQLite",
+        }
+        request.side_effect = [
+            {"repo": REPO, "state": "ready"},
+            submitted,
+            {"repo": REPO, "state": "ready"},
+        ]
+        arguments = {
+            "repo": REPO,
+            "session_id": "session-1",
+            "decision": "Use SQLite",
+            "rationale": "It keeps the first version local.",
+            "alternatives": [
+                {"decision": "Use Postgres", "rationale": "Better concurrency."},
+            ],
+            "affected_paths": ["demo/index.py"],
+        }
+
+        response = mcp_server.handle_message({
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": {"name": "record_decision_candidate", "arguments": arguments},
+        })
+
+        self.assertFalse(response["result"]["isError"])
+        request.assert_any_call("/agent-mode/candidates", arguments)
+        self.assertNotIn("session_id", response["result"]["structuredContent"])
+
+    @patch("demo.mcp_server._request")
+    def test_candidate_refuses_raw_transcript_field_before_network(self, request):
+        response = mcp_server.handle_message({
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": {
+                "name": "record_decision_candidate",
+                "arguments": {
+                    "repo": REPO,
+                    "session_id": "session-1",
+                    "decision": "Use SQLite",
+                    "rationale": "Local and simple.",
+                    "alternatives": [
+                        {"decision": "Use Postgres", "rationale": "Concurrent."},
+                    ],
+                    "transcript": "must not cross the boundary",
+                },
+            },
+        })
+
+        self.assertTrue(response["result"]["isError"])
+        request.assert_not_called()
+
+    @patch("demo.mcp_server._request")
+    def test_no_decision_is_validated_acknowledged_and_not_recorded(self, request):
+        request.side_effect = [
+            {"repo": REPO, "state": "ready"},
+            {"repo": REPO, "recorded": False},
+            {"repo": REPO, "state": "ready"},
+        ]
+
+        response = mcp_server.handle_message({
+            "jsonrpc": "2.0", "id": 22, "method": "tools/call",
+            "params": {
+                "name": "record_no_decision",
+                "arguments": {"repo": REPO, "session_id": "session-1"},
+            },
+        })
+
+        self.assertFalse(response["result"]["isError"])
+        request.assert_any_call(
+            "/agent-mode/no-decision",
+            {"repo": REPO, "session_id": "session-1"},
+        )
+
     @patch("demo.mcp_server._request")
     def test_change_context_opts_into_evidence_and_preserves_honest_unknown(
             self, request):

@@ -70,6 +70,7 @@ struct SetupView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
                     .onSubmit { if !connect.isConnecting { connect.connect() } }
+                    .onChange(of: connect.repoInput) { connect.repoInputEdited() }
                     .disabled(connect.isConnecting)
                 // Disabled mid-connect: a second click starts a WHOLE NEW server-side
                 // index of the same repo (the server's single-flight guard covers the

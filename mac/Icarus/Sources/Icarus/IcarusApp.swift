@@ -13,6 +13,12 @@ struct IcarusApp: App {
 struct Main {
     @MainActor
     static func main() async {
+        if ClaudeAgentModeInstallCommand.isRequested {
+            exit(ClaudeAgentModeInstallCommand.run())
+        }
+        if ClaudeHookCommand.isRequested {
+            exit(await ClaudeHookCommand.run())
+        }
         if ExtensionBridgeCommand.requestedOrigin != nil {
             exit(await ExtensionBridgeCommand.run())
         }

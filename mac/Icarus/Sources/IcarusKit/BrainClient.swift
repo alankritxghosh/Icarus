@@ -373,6 +373,72 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(MemoryRecordResult.self, from: data)
     }
 
+    /// Pending Agent Mode recommendations for the connected repository. The
+    /// response contains no raw transcript or session correlation identifier.
+    public func decisionCandidates() async throws -> DecisionCandidatesResponse {
+        var request = URLRequest(url: base.appending(path: "agent-mode/candidates"))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(DecisionCandidatesResponse.self, from: data)
+    }
+
+    /// One lightweight human choice. Only recommended/alternative/Other can
+    /// create a reviewed GitHub proposal; Not sure and reject remain outside
+    /// fresh-session project intent.
+    public func confirmDecision(
+        candidateID: String,
+        selection: DecisionSelection
+    ) async throws -> DecisionConfirmationResult {
+        var body: [String: Any] = ["candidate_id": candidateID]
+        switch selection {
+        case .recommended:
+            body["selection"] = "recommended"
+        case .alternative(let index):
+            body["selection"] = "alternative"
+            body["alternative_index"] = index
+        case .other(let text):
+            body["selection"] = "other"
+            body["other_text"] = text
+        case .notSure:
+            body["selection"] = "not_sure"
+        case .reject:
+            body["selection"] = "reject"
+        }
+        var request = URLRequest(url: base.appending(path: "agent-mode/confirm"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            switch http.statusCode {
+            case 401: throw BrainError.unauthorized
+            case 403: throw BrainError.forbidden
+            case 429: throw BrainError.rateLimited
+            default:
+                struct FailureBody: Decodable {
+                    let error: String?
+                    let recoveryURL: URL?
+                    enum CodingKeys: String, CodingKey {
+                        case error
+                        case recoveryURL = "recovery_url"
+                    }
+                }
+                let failure = try? JSONDecoder().decode(FailureBody.self, from: data)
+                throw MemoryRecordFailure(
+                    status: http.statusCode,
+                    message: failure?.error ?? "Icarus could not confirm this decision",
+                    recoveryURL: failure?.recoveryURL
+                )
+            }
+        }
+        return try JSONDecoder().decode(DecisionConfirmationResult.self, from: data)
+    }
+
     public func status() async throws -> RepoStatus {
         var request = URLRequest(url: base.appending(path: "status"))
         authorize(&request)

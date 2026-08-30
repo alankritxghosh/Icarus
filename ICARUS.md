@@ -125,8 +125,11 @@ Stated because "no one wrote this down" is the product's own standard.
   see before connecting a private repository has never been written down.
 - **One active repo, or answers across repos?** Multi-repo is explicitly last
   and untouched until this is answered.
-- **Are unprompted MCP calls durable?** 4/4 on four tasks in one measured
-  session; outside that window, unknown.
+- **Are unprompted MCP calls durable?** **1 of 4** across four independent
+  sessions (2026-08-25 re-run). The earlier 4/4 ran all four tasks in ONE
+  session, which that experiment's own plan listed as invalidating, so three of
+  those calls followed a call that had just paid off. The effect is real and
+  partial; outside that window, unknown.
 - **The q07 edge case** — one in sixty on the paid writer trips the
   weak-verdict-trust path. A grounded, non-fabricating *what*-answer, not a
   bluff, but a decision is owed.

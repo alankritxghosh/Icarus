@@ -149,5 +149,76 @@ class ClassifyFileTests(unittest.TestCase):
                 classify_file(outside_path, other_root)
 
 
+class VendoredFixtureExclusionTests(unittest.TestCase):
+    """A directory of third-party source committed as test data is not this
+    project's code, and must not be retrieved as if it were.
+
+    Found live 2026-08-24 (Work Queue 7a) the first time Icarus indexed its own
+    repository: 383 of 1,568 chunks -- 24.4% of the corpus -- came from
+    `evals/fixtures/`, which holds files copied verbatim from simonw/llm,
+    facebook/react-native and bluesky-social/social-app so the chunking evals
+    are deterministic. They were not noise sitting harmlessly at the bottom of
+    the ranking: asking "is there a free-tier serving path" retrieved
+    `evals/fixtures/ast_chunking_eval/llm/cli.py` TWICE inside the top eight,
+    outranking this repository's own `ICARUS.md`, which was not retrieved at
+    all.
+
+    Same judgment already made for `vendor` in `_DENY_DIR_SEGMENTS`. Every
+    fixture is read by its tests through a direct path (`ROOT / "fixtures"`),
+    never through the ingest walk, so excluding them costs no test an input.
+
+    Every case below writes a REAL file. A first draft used bare paths that did
+    not exist, so `classify_file` returned None from the `stat()` failure rather
+    than from the rule under test -- vacuous, and caught only because the
+    negative case then failed too. See [[Learning]] section Guards can be vacuous.
+    """
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, rel_path, content="x = 1\n"):
+        path = self.root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        return path
+
+    def test_fixture_source_is_not_ingested(self):
+        tsx = self._write("evals/fixtures/ts_chunk_eval/tsx/Foo.tsx", "export const a = 1;\n")
+        py = self._write("evals/fixtures/ast_chunking_eval/llm/cli.py")
+        self.assertIsNone(classify_file(tsx, self.root))
+        self.assertIsNone(classify_file(py, self.root))
+
+    def test_fixtures_excluded_at_any_depth(self):
+        top = self._write("fixtures/a.py")
+        deep = self._write("tests/fixtures/deep/b.py")
+        self.assertIsNone(classify_file(top, self.root))
+        self.assertIsNone(classify_file(deep, self.root))
+
+    def test_a_file_merely_named_fixtures_is_still_ingested(self):
+        """The rule matches a path SEGMENT, never a substring of a filename.
+        `fixtures.py` is ordinary source and stays evidence. This case must pass
+        both before and after the change -- it is the guard, not the gap."""
+        named = self._write("demo/fixtures.py")
+        test_named = self._write("demo/test_fixtures.py")
+        self.assertEqual(classify_file(named, self.root), "code")
+        self.assertEqual(classify_file(test_named, self.root), "code")
+
+    def test_an_ordinary_sibling_is_untouched(self):
+        """Proves the exclusion is scoped: a real source file beside the
+        fixtures tree still classifies."""
+        real = self._write("evals/ingest.py")
+        self.assertEqual(classify_file(real, self.root), "code")
+
+    def test_rule_is_published_in_the_map(self):
+        """demo/repo_map.py derives its exclusion_rules from this constant, so
+        a rule that is APPLIED is also a rule that is DISCLOSED."""
+        from .ingest import _DENY_DIR_SEGMENTS
+        self.assertIn("fixtures", _DENY_DIR_SEGMENTS)
+
+
 if __name__ == "__main__":
     unittest.main()

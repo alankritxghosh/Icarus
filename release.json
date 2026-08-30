@@ -7,7 +7,7 @@
     "this repo is private and a private repo's release assets require auth. They",
     "are not in git history and are no longer served by the site: the site keeps",
     "/Icarus.dmg as a redirect so every link already in the wild still resolves.",
-    "Regenerate with: python3 scripts/check_release.py --write"
+    "Prepare a new release through Gate 6 of docs/LAUNCH_CANARY.md; the checker is read-only."
   ],
   "version": "0.1.7",
   "build": "10",

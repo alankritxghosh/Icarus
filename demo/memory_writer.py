@@ -13,6 +13,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import PurePosixPath
 
 
 _API = "https://api.github.com/repos"
@@ -34,7 +35,7 @@ def _default_opener(request, timeout):
     return urllib.request.urlopen(request, timeout=timeout)
 
 
-def _clean_text(value, name, maximum, *, required=False):
+def _clean_text(value, name, maximum, *, required=False, single_line=False):
     if value is None:
         value = ""
     if not isinstance(value, str):
@@ -44,7 +45,7 @@ def _clean_text(value, name, maximum, *, required=False):
         raise MemoryWriteError(f"{name} is required", status=400)
     if len(value) > maximum:
         raise MemoryWriteError(f"{name} is too long", status=400)
-    if "\x00" in value:
+    if "\x00" in value or (single_line and ("\n" in value or "\r" in value)):
         raise MemoryWriteError(f"{name} contains unsupported characters", status=400)
     return value
 
@@ -102,11 +103,7 @@ class GitHubMemoryWriter:
     def record(self, *, repo, token, gap_id, question, rationale,
                tradeoffs="", references=()):
         """Create the bounded proposal and return only observed GitHub URLs."""
-        if not isinstance(repo, str) or not _REPO_RE.fullmatch(repo.strip()):
-            raise MemoryWriteError("repo must look like owner/name", status=400)
-        repo = repo.strip()
-        if not isinstance(token, str) or not token:
-            raise MemoryWriteError("sign in with GitHub to continue", status=401)
+        repo, token = self._validated_target(repo, token)
         if not isinstance(gap_id, str) or not _GAP_ID_RE.fullmatch(gap_id):
             raise MemoryWriteError("invalid engineering-memory gap", status=400)
         question = _clean_text(question, "question", 500, required=True)
@@ -121,12 +118,159 @@ class GitHubMemoryWriter:
         if sum(map(len, cleaned_refs)) > 4_000:
             raise MemoryWriteError("references are too long", status=400)
 
+        sections = [
+            f"# {question}",
+            "",
+            "> Retrospective record: this rationale was recorded after the original decision.",
+            "",
+            "## Recorded rationale",
+            "",
+            rationale,
+            "",
+            "## Accepted tradeoffs and consequences",
+            "",
+            tradeoffs or "Not recorded.",
+            "",
+            "## Related evidence",
+            "",
+        ]
+        sections.extend(
+            [f"- {reference}" for reference in cleaned_refs]
+            or ["No related evidence was supplied with this record."]
+        )
+        sections.extend([
+            "",
+            "---",
+            "",
+            "Proposed through Icarus Engineering Memory. Review and merge history in GitHub are authoritative.",
+            "",
+        ])
+        markdown = "\n".join(sections)
+
         question_id = hashlib.sha256(question.casefold().encode()).hexdigest()[:12]
-        slug = re.sub(r"[^a-z0-9]+", "-", question.casefold()).strip("-")[:48] or "decision"
-        proposal_id = gap_id[:20]
-        branch = f"icarus/memory-{proposal_id}"
+        return self._record_document(
+            repo=repo,
+            token=token,
+            record_id=gap_id,
+            branch_kind="memory",
+            title=question,
+            markdown=markdown,
+            commit_message=f"docs: record engineering memory for {question_id}",
+            pull_title=f"Record engineering memory: {question[:72]}",
+            pull_body=(
+                "This pull request records previously undocumented "
+                "engineering rationale identified as an Icarus Memory Gap.\n\n"
+                "Review the rationale as a team before merging. Icarus will "
+                "not treat it as accepted memory until it is merged and "
+                "re-indexed."
+            ),
+            result_fields={"question": question},
+        )
+
+    def record_decision(self, *, repo, token, decision_id, decision,
+                        rationale=None, alternatives=(), affected_paths=()):
+        """Propose one human-confirmed live decision for repository review."""
+        repo, token = self._validated_target(repo, token)
+        if not isinstance(decision_id, str) or not _GAP_ID_RE.fullmatch(decision_id):
+            raise MemoryWriteError("invalid decision candidate", status=400)
+        decision = _clean_text(
+            decision, "decision", 280, required=True, single_line=True)
+        rationale = _clean_text(
+            rationale, "rationale", 1000, single_line=True)
+        if not isinstance(alternatives, list | tuple) or len(alternatives) > 3:
+            raise MemoryWriteError("alternatives must be a short list", status=400)
+        alternatives = [
+            _clean_text(
+                value, "alternative", 280, required=True, single_line=True)
+            for value in alternatives
+        ]
+        if not isinstance(affected_paths, list | tuple) or len(affected_paths) > 20:
+            raise MemoryWriteError("affected_paths must be a short list", status=400)
+        paths = []
+        for value in affected_paths:
+            cleaned = _clean_text(
+                value, "affected path", 500, required=True, single_line=True)
+            parsed = PurePosixPath(cleaned)
+            if parsed.is_absolute() or ".." in parsed.parts:
+                raise MemoryWriteError(
+                    "affected paths must be repository-relative", status=400)
+            paths.append(cleaned)
+
+        sections = [
+            f"<!-- icarus-agent-mode-decision:v1 id={decision_id} -->",
+            "",
+            f"# {decision}",
+            "",
+            "> Human-confirmed decision proposal. This is not merged project truth.",
+            "",
+            "## Decision",
+            "",
+            decision,
+            "",
+            "## Confirmed rationale",
+            "",
+            rationale or "No rationale was confirmed.",
+            "",
+            "## Alternatives considered",
+            "",
+        ]
+        sections.extend([f"- {value}" for value in alternatives]
+                        or ["No alternatives were recorded."])
+        sections.extend(["", "## Affected paths", ""])
+        sections.extend([f"- `{value}`" for value in paths]
+                        or ["No affected paths were recorded."])
+        sections.extend([
+            "",
+            "---",
+            "",
+            "Proposed through Icarus Agent Mode. GitHub review and merge history are authoritative.",
+            "",
+        ])
+        markdown = "\n".join(sections)
+        return self._record_document(
+            repo=repo,
+            token=token,
+            record_id=decision_id,
+            branch_kind="decision",
+            title=decision,
+            markdown=markdown,
+            commit_message=f"docs: propose project decision {decision_id[:12]}",
+            pull_title=f"Record project decision: {decision[:72]}",
+            pull_body=(
+                "This is a human-confirmed Icarus Agent Mode decision proposal.\n\n"
+                "It is not accepted project memory until repository review, "
+                "merge, and re-index complete."
+            ),
+            result_fields={"decision_id": decision_id},
+        )
+
+    @staticmethod
+    def _validated_target(repo, token):
+        if not isinstance(repo, str) or not _REPO_RE.fullmatch(repo.strip()):
+            raise MemoryWriteError("repo must look like owner/name", status=400)
+        if not isinstance(token, str) or not token:
+            raise MemoryWriteError("sign in with GitHub to continue", status=401)
+        return repo.strip(), token
+
+    def _record_document(self, *, repo, token, record_id, branch_kind, title,
+                         markdown, commit_message, pull_title, pull_body,
+                         result_fields):
+        """The single bounded GitHub mutation path shared by both record kinds."""
+        slug = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")[:48] or "decision"
+        proposal_id = record_id[:20]
+        branch = f"icarus/{branch_kind}-{proposal_id}"
         path = f"docs/engineering-memory/{proposal_id}-{slug}.md"
         repo_api = f"{_API}/{repo}"
+
+        def result(pull_url, current_file_url):
+            return {
+                "repo": repo,
+                **result_fields,
+                "branch": branch,
+                "path": path,
+                "file_url": current_file_url,
+                "pull_request_url": pull_url,
+            }
 
         _status, metadata = self._request("GET", repo_api, token, expected={200})
         default_branch = metadata.get("default_branch")
@@ -152,12 +296,9 @@ class GitHubMemoryWriter:
             f"{urllib.parse.quote(path, safe='/')}"
         )
         file_exists = False
-
         owner = repo.split("/", 1)[0]
         pull_query = urllib.parse.urlencode({
-            "state": "all",
-            "head": f"{owner}:{branch}",
-            "per_page": "1",
+            "state": "all", "head": f"{owner}:{branch}", "per_page": "1",
         })
         refs_url = (
             f"{repo_api}/git/matching-refs/heads/"
@@ -190,43 +331,7 @@ class GitHubMemoryWriter:
         if branch_exists:
             pull_url = existing_pull()
             if pull_url:
-                return {
-                    "repo": repo,
-                    "question": question,
-                    "branch": branch,
-                    "path": path,
-                    "file_url": file_url,
-                    "pull_request_url": pull_url,
-                }
-
-        sections = [
-            f"# {question}",
-            "",
-            "> Retrospective record: this rationale was recorded after the original decision.",
-            "",
-            "## Recorded rationale",
-            "",
-            rationale,
-            "",
-            "## Accepted tradeoffs and consequences",
-            "",
-            tradeoffs or "Not recorded.",
-            "",
-            "## Related evidence",
-            "",
-        ]
-        sections.extend(
-            [f"- {reference}" for reference in cleaned_refs]
-            or ["No related evidence was supplied with this record."]
-        )
-        sections.extend([
-            "",
-            "---",
-            "",
-            "Proposed through Icarus Engineering Memory. Review and merge history in GitHub are authoritative.",
-            "",
-        ])
-        markdown = "\n".join(sections)
+                return result(pull_url, file_url)
 
         try:
             if not branch_exists:
@@ -265,7 +370,7 @@ class GitHubMemoryWriter:
                     _code, created = self._request(
                         "PUT", f"{repo_api}/contents/{encoded_path}", token,
                         {
-                            "message": f"docs: record engineering memory for {question_id}",
+                            "message": commit_message,
                             "content": base64.b64encode(markdown.encode()).decode(),
                             "branch": branch,
                         },
@@ -309,16 +414,10 @@ class GitHubMemoryWriter:
                 _code, pull = self._request(
                     "POST", f"{repo_api}/pulls", token,
                     {
-                        "title": f"Record engineering memory: {question[:72]}",
+                        "title": pull_title,
                         "head": branch,
                         "base": default_branch,
-                        "body": (
-                            "This pull request records previously undocumented "
-                            "engineering rationale identified as an Icarus Memory Gap.\n\n"
-                            "Review the rationale as a team before merging. Icarus will "
-                            "not treat it as accepted memory until it is merged and "
-                            "re-indexed."
-                        ),
+                        "body": pull_body,
                     },
                     expected={201},
                 )
@@ -344,11 +443,4 @@ class GitHubMemoryWriter:
                 "GitHub created the proposal but did not return its pull request URL",
                 recovery_url=file_url or branch_url,
             )
-        return {
-            "repo": repo,
-            "question": question,
-            "branch": branch,
-            "path": path,
-            "file_url": file_url,
-            "pull_request_url": pull_url,
-        }
+        return result(pull_url, file_url)

@@ -21,6 +21,7 @@ venv/
 
 # Node / macOS app builds (added as those phases begin)
 node_modules/
+**/node_modules
 dist/
 build/
 

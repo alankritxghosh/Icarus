@@ -366,3 +366,77 @@ public struct MemoryRecordFailure: Error, Sendable, Equatable {
         self.recoveryURL = recoveryURL
     }
 }
+
+/// One agent recommendation is deliberately atomic: a primary choice and a
+/// small bounded set of alternatives. It is not project truth while pending.
+public struct DecisionAlternative: Decodable, Sendable, Equatable {
+    public let decision: String
+    public let rationale: String
+}
+
+public enum DecisionCandidateStatus: String, Decodable, Sendable {
+    case pending
+    case notSure = "not_sure"
+    case rejected
+    case confirmedProposal = "confirmed_proposal"
+}
+
+public struct DecisionCandidate: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let ts: Double
+    public let source: String
+    public let decision: String
+    public let rationale: String
+    public let alternatives: [DecisionAlternative]
+    public let affectedPaths: [String]
+    public let status: DecisionCandidateStatus
+
+    enum CodingKeys: String, CodingKey {
+        case id, ts, source, decision, rationale, alternatives, status
+        case affectedPaths = "affected_paths"
+    }
+}
+
+public struct DecisionCandidatesResponse: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let candidates: [DecisionCandidate]
+}
+
+public struct DecisionProposal: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let decisionID: String
+    public let branch: String
+    public let path: String
+    public let fileURL: URL?
+    public let pullRequestURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case repo, branch, path
+        case decisionID = "decision_id"
+        case fileURL = "file_url"
+        case pullRequestURL = "pull_request_url"
+    }
+}
+
+public struct DecisionConfirmationResult: Decodable, Sendable, Equatable {
+    public let id: String
+    public let status: DecisionCandidateStatus
+    public let selection: String
+    public let selectedDecision: String?
+    public let selectedRationale: String?
+    public let proposal: DecisionProposal?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, selection, proposal
+        case selectedDecision = "selected_decision"
+        case selectedRationale = "selected_rationale"
+    }
+}
+
+public enum DecisionSelection: Sendable, Equatable {
+    case recommended
+    case alternative(Int)
+    case other(String)
+    case notSure
+    case reject
+}

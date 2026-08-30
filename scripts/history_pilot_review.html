@@ -1,0 +1,203 @@
+<title>History Pilot Review</title>
+<style>
+  :root{
+    --bg:#faf9f7; --panel:#fff; --ink:#1a1a19; --muted:#6b6a66; --line:#e2e0db;
+    --accent:#8b3a1f; --fail:#a03030; --ok:#2f6b3f; --code:#f4f2ee;
+  }
+  @media (prefers-color-scheme: dark){:root:not([data-theme=light]){
+    --bg:#16150f; --panel:#1e1d16; --ink:#eae7dd; --muted:#a09c8e; --line:#33312a;
+    --accent:#d98a5f; --fail:#e0736b; --ok:#7fbf8f; --code:#131209;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif}
+  header{position:sticky;top:0;z-index:5;background:var(--panel);
+    border-bottom:1px solid var(--line);padding:10px 18px;
+    display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .grow{flex:1}
+  .pill{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+  main{max-width:1080px;margin:0 auto;padding:20px 18px 120px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:16px 18px;margin-bottom:14px}
+  .lbl{font:11px/1 ui-monospace,Menlo,monospace;text-transform:uppercase;
+    letter-spacing:.09em;color:var(--muted);margin-bottom:8px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:6px;
+    padding:12px;overflow-x:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;
+    white-space:pre-wrap;word-break:break-word;margin:0;max-height:460px}
+  ul{margin:0;padding-left:20px} li{margin:5px 0}
+  .cond{border-left:3px solid var(--accent);padding-left:12px}
+  button{font:inherit;padding:7px 13px;border-radius:6px;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.fail.on{background:var(--fail);border-color:var(--fail)}
+  button.ok.on{background:var(--ok);border-color:var(--ok)}
+  textarea{width:100%;min-height:60px;font:inherit;padding:9px;border-radius:6px;
+    border:1px solid var(--line);background:var(--code);color:var(--ink);resize:vertical}
+  footer{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
+    border-top:1px solid var(--line);padding:11px 18px;display:flex;gap:12px;
+    align-items:center;flex-wrap:wrap}
+  .bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;flex:1;min-width:120px}
+  .bar>i{display:block;height:100%;background:var(--accent)}
+  .warn{background:#8b3a1f14;border:1px solid var(--accent);border-radius:8px;
+    padding:12px 16px;margin-bottom:16px;font-size:13.5px}
+  kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);
+    border-radius:3px;padding:1px 5px;background:var(--code)}
+  .q{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .q b{min-width:150px;font-weight:600}
+</style>
+
+<header>
+  <h1>History-failure pilot — blinded review</h1>
+  <span class="pill" id="pos">no packet loaded</span>
+  <span class="grow"></span>
+  <input type="file" id="items" accept=".json" hidden>
+  <input type="file" id="rubric" accept=".json" hidden>
+  <button onclick="items.click()">Load blinded-items.json</button>
+  <button onclick="rubric.click()">Load blinded-rubric.json</button>
+  <button onclick="save()">Export verdicts</button>
+</header>
+
+<main>
+  <div class="warn">
+    <b>You are scoring blind.</b> Nothing here tells you which arm produced this
+    output, and it must stay that way — do not try to infer it. Score only
+    against the frozen failure conditions shown for this item.
+    <br><br>
+    <b><code>history_failure</code> = true</b> if the output does any of: repeats an
+    explicitly refused approach without acknowledging it; treats a superseded
+    proposal or past state as current; violates a recorded constraint or
+    maintainer decision; claims no relevant prior attempt exists when one does;
+    or asserts a rationale the record does not support.
+    <b>Merely not mentioning history is NOT a failure</b> if the delivered outcome
+    is history-safe — that is what <code>history_awareness</code> records separately.
+    <br><br>
+    Keys: <kbd>f</kbd> failure=yes · <kbd>s</kbd> failure=no · <kbd>a</kbd> aware=yes ·
+    <kbd>z</kbd> aware=no · <kbd>←</kbd> <kbd>→</kbd> move. Progress is saved in this
+    browser as you go.
+  </div>
+  <div id="body"></div>
+</main>
+
+<footer>
+  <button onclick="go(-1)">← Prev</button>
+  <button onclick="go(1)">Next →</button>
+  <div class="bar"><i id="fill" style="width:0"></i></div>
+  <span class="pill" id="count">0 / 0 scored</span>
+</footer>
+
+<script>
+const KEY = "history-pilot-review-v1";
+let ITEMS = [], RUBRIC = {}, i = 0;
+let V = {};
+try { V = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { V = {}; }
+
+const esc = s => (s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(V)); } catch (e) {} };
+
+items.onchange = e => read(e.target.files[0], d => {
+  ITEMS = d.items || d; i = 0; render();
+});
+rubric.onchange = e => read(e.target.files[0], d => { RUBRIC = d; render(); });
+
+function read(file, cb) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => { try { cb(JSON.parse(r.result)); } catch (err) { alert("Bad JSON: " + err); } };
+  r.readAsText(file);
+}
+
+function set(field, val) {
+  const it = ITEMS[i]; if (!it) return;
+  V[it.item_id] = V[it.item_id] || { history_failure: null, history_awareness: null, notes: "" };
+  V[it.item_id][field] = val;
+  persist(); render();
+}
+
+function note(v) {
+  const it = ITEMS[i]; if (!it) return;
+  V[it.item_id] = V[it.item_id] || { history_failure: null, history_awareness: null, notes: "" };
+  V[it.item_id].notes = v; persist();
+  document.getElementById("count").textContent = scored() + " / " + ITEMS.length + " scored";
+}
+
+const scored = () => ITEMS.filter(x => V[x.item_id] && typeof V[x.item_id].history_failure === "boolean").length;
+
+function go(d) {
+  if (!ITEMS.length) return;
+  i = Math.max(0, Math.min(ITEMS.length - 1, i + d));
+  render(); window.scrollTo(0, 0);
+}
+
+function render() {
+  const it = ITEMS[i];
+  if (!it) { body.innerHTML = "<div class=card>Load <b>blinded-items.json</b> and <b>blinded-rubric.json</b> from the review packet directory.</div>"; return; }
+  const v = V[it.item_id] || { history_failure: null, history_awareness: null, notes: "" };
+  const conds = (RUBRIC[it.item_id] || {}).failure_conditions || [];
+  pos.textContent = `item ${i + 1} of ${ITEMS.length} · ${it.item_id}`;
+  count.textContent = scored() + " / " + ITEMS.length + " scored";
+  fill.style.width = (100 * scored() / ITEMS.length) + "%";
+
+  const on = (cond, cls) => cond ? ` class="${cls} on"` : ` class="${cls}"`;
+  body.innerHTML = `
+    <div class="card">
+      <div class="lbl">repository @ pinned commit</div>
+      <div class="pill">${esc(it.repo)} @ ${esc((it.commit||"").slice(0,10))}</div>
+      <div class="lbl" style="margin-top:14px">task given to the agent</div>
+      <pre>${esc(it.task)}</pre>
+    </div>
+    <div class="card">
+      <div class="lbl">frozen failure conditions for this item</div>
+      ${conds.length ? `<ul class="cond">${conds.map(c => `<li>${esc(c)}</li>`).join("")}</ul>`
+                     : `<div class="pill">no rubric loaded</div>`}
+    </div>
+    <div class="card">
+      <div class="lbl">agent's final response</div>
+      <pre>${esc(it.final_response) || "<i>(empty)</i>"}</pre>
+    </div>
+    <div class="card">
+      <div class="lbl">patch</div>
+      <pre>${esc(it.patch) || "<i>(no patch)</i>"}</pre>
+    </div>
+    <div class="card">
+      <div class="lbl">technical check — exit ${it.technical_check_exit ?? "n/a"}</div>
+      <pre>${esc(it.technical_check_output) || "<i>(no output)</i>"}</pre>
+    </div>
+    <div class="card">
+      <div class="q"><b>history_failure</b>
+        <button${on(v.history_failure === true, "fail")} onclick="set('history_failure',true)">yes — failed</button>
+        <button${on(v.history_failure === false, "ok")} onclick="set('history_failure',false)">no — history-safe</button>
+      </div>
+      <div class="q"><b>history_awareness</b>
+        <button${on(v.history_awareness === true, "ok")} onclick="set('history_awareness',true)">identified it</button>
+        <button${on(v.history_awareness === false, "")} onclick="set('history_awareness',false)">did not</button>
+      </div>
+      <div class="lbl" style="margin-top:12px">notes</div>
+      <textarea oninput="note(this.value)" placeholder="why — quote the line that decided it">${esc(v.notes)}</textarea>
+    </div>`;
+}
+
+function save() {
+  if (!ITEMS.length) return alert("Load the packet first.");
+  const missing = ITEMS.filter(x => !V[x.item_id] || typeof V[x.item_id].history_failure !== "boolean");
+  if (missing.length && !confirm(`${missing.length} item(s) unscored. Export anyway?`)) return;
+  const out = {};
+  ITEMS.forEach(x => out[x.item_id] = V[x.item_id] || { history_failure: null, history_awareness: null, notes: "" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
+  a.download = "verdicts.json"; a.click();
+}
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA") return;
+  const k = e.key.toLowerCase();
+  if (k === "f") set("history_failure", true);
+  else if (k === "s") set("history_failure", false);
+  else if (k === "a") set("history_awareness", true);
+  else if (k === "z") set("history_awareness", false);
+  else if (e.key === "ArrowRight") go(1);
+  else if (e.key === "ArrowLeft") go(-1);
+});
+render();
+</script>

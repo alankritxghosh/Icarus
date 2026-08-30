@@ -172,3 +172,63 @@ class IndexingCaveatTests(unittest.TestCase):
         self.assertEqual(plain["verdict"], mid["verdict"])
         self.assertEqual(plain["citations"], mid["citations"])
         self.assertEqual(plain["answer"], mid["answer"])
+
+class EvidenceExcerptsOnAnUnknownTests(unittest.TestCase):
+    """The agent-facing evidence list must carry TEXT, not just refs.
+
+    Measured 2026-08-21 across two independent Claude Code sessions on
+    firecrawl/firecrawl. Both received `verdict: unknown` with ~21 evidence
+    refs and EVERY excerpt empty, and both discarded the list as noise. One of
+    them later found commit 4d2f303e by hand -- the precedent that became PR
+    #4382 -- and it had been in that first evidence list all along.
+
+    The cause is a seam, not a retrieval failure: `pipeline` populates
+    `Result.evidence` for CITED refs only, while `build_payload` builds its
+    evidence list over `retrieved`. On an answer the two mostly overlap; on an
+    UNKNOWN there are no citations, so every excerpt is "" -- the list is
+    emptiest exactly when it is the only thing the caller gets.
+
+    The tool description promises "an unknown verdict can still include related
+    evidence". A bare ref is not evidence; it is a pointer to evidence.
+    """
+
+    def _unknown_result(self):
+        r = Result(verdict="unknown", answer="", citations=[],
+                   retrieved=["commit:4d2f303e", "issue:4054"])
+        # What the writer actually saw, for every ref shown -- not just cited.
+        r.shown = {"commit:4d2f303e": "fix(api/monitor): accept origin field in create/update body",
+                   "issue:4054": "[OPEN] dify Create Monitor error type: HTTPError"}
+        return r
+
+    def test_unknown_verdict_still_carries_excerpts(self):
+        payload = build_payload(self._unknown_result(), "o/r", "abc123",
+                                include_evidence=True)
+        excerpts = [e["excerpt"] for e in payload["evidence"]]
+        self.assertTrue(all(excerpts),
+                        f"evidence arrived as bare refs with no text: {payload['evidence']}")
+        self.assertIn("accept origin field", excerpts[0])
+
+    def test_every_retrieved_ref_appears(self):
+        payload = build_payload(self._unknown_result(), "o/r", "abc123",
+                                include_evidence=True)
+        self.assertEqual(["commit:4d2f303e", "issue:4054"],
+                         [e["ref"] for e in payload["evidence"]])
+
+    def test_excerpts_are_still_bounded_and_marked(self):
+        """The cap is not negotiable -- an unmarked clip misrepresents proof."""
+        r = Result(verdict="unknown", answer="", citations=[], retrieved=["code:a.py"])
+        r.shown = {"code:a.py": "\n".join(f"line {i}" for i in range(200))}
+        payload = build_payload(r, "o/r", "abc123", include_evidence=True)
+        text = payload["evidence"][0]["excerpt"]
+        self.assertLess(len(text), 400)
+        self.assertIn("…", text)
+
+    def test_cited_evidence_is_unchanged(self):
+        """The citations block keeps reading from `evidence`, the cited-only map
+        the gate and writer saw. This change adds a display path, it does not
+        widen what counts as grounded."""
+        r = Result(verdict="answer", answer="Because X.", citations=["pr:1"],
+                   retrieved=["pr:1", "pr:2"])
+        r.evidence = {"pr:1": "the cited chunk"}
+        payload = build_payload(r, "o/r", "abc123")
+        self.assertIn("the cited chunk", payload["citations"][0]["excerpt"])

@@ -1,12 +1,12 @@
-# Distributing Icarus (no Apple Developer ID)
+# Distributing Icarus (current Azure service; final-user gate)
 
-How to put a working Icarus in someone else's hands without paying Apple. Two
-parts, in order: **host the brain** (so any recipient can reach it), then **build
-and share the app** (ad-hoc signed, past Gatekeeper by hand).
+How to put a working Icarus in someone else's hands. Two parts, in order:
+**host the brain** (so any recipient can reach it), then **build and verify a
+Developer ID-signed, notarized app**.
 
-This is a **controlled-demo posture**, not a hardened public service. Read the
-tradeoffs at the bottom before sharing widely. The current alpha accepts public
-repositories only; the server rejects private repositories before ingest.
+The cloud service supports public and private repositories behind caller-scoped
+GitHub authorization. Self-signed builds remain useful for local development,
+but they are not final-user artifacts and must not be published.
 
 **Hosting history:** Render (free tier) was the original host; its 0.1 CPU
 free tier could never finish embedding a real repo (docs/HANDOFF.md), so the
@@ -29,14 +29,21 @@ deleted. Its retired Blueprint was removed; Azure is the only shipping host.
 > glab ci trigger deploy -R icarus-group4/Icarus -b main
 > ```
 >
-> `deploy` is a MANUAL gate on purpose — every redeploy mints a new revision,
-> and a new revision drops every connected session and wipes every per-user
-> corpus (Azure storage is ephemeral). It is a deliberate click, not a side
-> effect of a push.
+> `deploy` is a MANUAL gate on purpose — every redeploy mints a new revision
+> and drops process-local sessions. Corpora, decision records and ledgers live
+> on the `icaruscache` Azure Files mount at `/data` and survive revisions. The
+> pipeline now checks that mount before and after updating; a missing mount is a
+> hard failure, never an apparently healthy ephemeral deployment.
+>
+> Azure control-plane login uses a service-principal certificate supplied as a
+> protected GitLab **file** variable (`AZURE_CLIENT_CERTIFICATE_FILE`). Do not
+> replace it with `az login --password "$AZURE_CLIENT_SECRET"`: that places a
+> reusable secret in process arguments. The ACR-only build credential is sent
+> to `docker login` on stdin.
 >
 > The pipeline is not merely a convenience wrapper around the manual commands:
-> it pins `--max-replicas 1` (a queued ingest lives in ONE replica's memory and
-> ephemeral disk) and **removes** `ICARUS_SYNC_CONNECT`, which made `/connect`
+> it pins `--max-replicas 1` (queued jobs and short-lived agent sessions still
+> live in ONE replica's memory) and **removes** `ICARUS_SYNC_CONNECT`, which made `/connect`
 > block past Azure's fixed 240s ingress timeout — measured live on
 > `astral-sh/uv`, 2026-08-10, where it never connected at all. A hand-run
 > `az containerapp update` copied from the setup commands below will happily
@@ -69,7 +76,7 @@ a real, documented restriction on new accounts) — build with local Docker inst
 ```bash
 az containerapp up --name icarus-brain --resource-group icarus-rg \
   --location centralindia --source . --ingress external --target-port 8000 \
-  --env-vars 'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1'
+  --env-vars 'ICARUS_ALLOWED_HOSTS=*'
 # ^ this WILL fail at the ACR Tasks build step on a new subscription -- it still
 #   creates the registry + environment first, which is what you need. Then:
 
@@ -83,9 +90,9 @@ az containerapp create --name icarus-brain --resource-group icarus-rg \
   --environment icarus-brain-env --image "$ACR.azurecr.io/icarus-brain:latest" \
   --registry-server "$ACR.azurecr.io" --registry-username "$ACR" \
   --registry-password "$(az acr credential show --name $ACR --query 'passwords[0].value' -o tsv)" \
-  --ingress external --target-port 8000 --min-replicas 1 --max-replicas 3 \
+  --ingress external --target-port 8000 --min-replicas 1 --max-replicas 1 \
   --cpu 1.0 --memory 2.0Gi \
-  --env-vars 'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1'
+  --env-vars 'ICARUS_ALLOWED_HOSTS=*'
 ```
 `--platform linux/amd64` matters on an Apple Silicon Mac — Azure's default node
 pool is x86.
@@ -104,32 +111,44 @@ credit expires 2026-08-10 regardless of remaining balance and the subscription
 gets **disabled** at that point unless upgraded to Pay-As-You-Go first — a
 real deadline, not urgent yet, but don't let it lapse silently.
 
-**`ICARUS_SYNC_CONNECT=1` is required on Azure/Cloud Run-style platforms.**
-Request-scoped-CPU hosts only reliably give a container CPU while a request is
-being processed — a background thread's embed work after the response returns
-isn't guaranteed resourced. This flag makes `/connect` block on the real embed
-and return its final status directly (200, not 202) instead of backgrounding
-it. See `demo/server.py`'s `sync_connect` docstring. Verified live: a genuine
-cold embed of a 219-chunk repo completed in **1.2s** on Azure's CPU
-(vs never-finishing on Render's 0.1 CPU) — confirmed as real semantic
-retrieval, not a lexical fallback, via a conceptual query with zero keyword
-overlap returning the correct evidence.
+**Do not set `ICARUS_SYNC_CONNECT` on Azure.** A live `astral-sh/uv` connect
+crossed Azure's fixed 240-second ingress timeout when this was enabled. The
+shipping configuration keeps one replica warm and runs connect asynchronously;
+`--max-replicas 1` keeps the job and the caller's process-local status/session
+on the same replica. The corpus itself is durable on Azure Files.
+
+Before serving users, provision the environment storage named `icaruscache`
+(`icarusbraindata` / `icarus-cache`, ReadWrite), mount it into the app as volume
+`cache` at `/data`, and set `ICARUS_STORAGE_ROOT=/data`. Never put the storage
+account key in a shell argument or this repository. The deploy pipeline assumes
+that infrastructure already exists and refuses to proceed when it does not.
 
 ### 1c. Wire secrets + GitHub OAuth
-```bash
-az containerapp secret set --name icarus-brain --resource-group icarus-rg --secrets \
-  gemini-paid-key="$GEMINI_PAID_API_KEY" gh-token="$(gh auth token)" \
-  github-client-secret="$GITHUB_CLIENT_SECRET"
+Create the three Azure Container Apps secrets (`gemini-api-key`, `gh-token`,
+`github-client-secret`) through the Azure Portal or an approved secret-injection
+workflow. Do not paste their values into a CLI argument, shell history, log, or
+repository. Then wire only their references:
 
+```bash
 FQDN=$(az containerapp show --name icarus-brain --resource-group icarus-rg \
   --query "properties.configuration.ingress.fqdn" -o tsv)
 
 az containerapp update --name icarus-brain --resource-group icarus-rg --set-env-vars \
-  'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_SYNC_CONNECT=1' 'ICARUS_REQUIRE_GITHUB_AUTH=1' \
+  'ICARUS_ALLOWED_HOSTS=*' 'ICARUS_REQUIRE_GITHUB_AUTH=1' \
+  'ICARUS_STORAGE_ROOT=/data' 'ICARUS_GLOBAL_ASKS_PER_MINUTE=120' \
+  'ICARUS_GLOBAL_INVESTIGATIONS_PER_MINUTE=12' \
+  'ICARUS_GLOBAL_CONNECTS_PER_10_MINUTES=30' \
+  'ICARUS_MAX_CONCURRENT_WRITERS=8' 'ICARUS_MAX_CONCURRENT_INGESTS=2' \
   "ICARUS_PUBLIC_URL=https://$FQDN" \
   "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" 'GITHUB_CLIENT_SECRET=secretref:github-client-secret' \
-  'GEMINI_PAID_API_KEY=secretref:gemini-paid-key' 'GH_TOKEN=secretref:gh-token'
+  'GEMINI_API_KEY=secretref:gemini-api-key' 'GH_TOKEN=secretref:gh-token'
 ```
+The ambient `GH_TOKEN` must belong to a dedicated machine identity and
+exist only to raise GitHub's rate limit for public-repository bulk ingestion.
+Do not reuse a founder's broad personal token. Private-repository calls replace
+the ambient credential per subprocess with the signed-in caller's request-time
+token; that token is never persisted. `GROQ_API_KEY` and `GEMINI_PAID_API_KEY`
+must not be injected into the launch runtime.
 Then in GitHub → Settings → Developer settings → OAuth Apps → your app, set the
 **Authorization callback URL** to `https://$FQDN/auth/github/callback` — an
 OAuth **App** (not a GitHub **App**) allows exactly **one** registered
@@ -150,31 +169,63 @@ baked into the image at build time, same as every host) — no cold-embed wait.
 
 ---
 
-## Part 2 — Build and share the app
+## Part 2 — Build, notarize, and verify the app
 
-### 2a. Build the DMG, stamped with your brain URL
+### 2a. One-time Apple setup
+
+Create a **Developer ID Application** certificate in the Apple Developer
+account and install it, including its private key, in the signing Mac's
+Keychain. Store notarization credentials as a named `notarytool` Keychain
+profile; never pass an Apple password or API private key on the command line.
+
+### 2b. Build the DMG, stamped with your brain URL
 ```bash
 cd mac/Icarus
-ICARUS_BRAIN_URL="https://$FQDN" ./scripts/package_dmg.sh
+ICARUS_BRAIN_URL="https://$FQDN" \
+ICARUS_CODESIGN_IDENTITY="Developer ID Application: <legal name> (<team id>)" \
+ICARUS_NOTARY_PROFILE="Icarus" \
+ICARUS_REQUIRE_DEVELOPER_ID=1 \
+ICARUS_REQUIRE_NOTARIZATION=1 \
+./scripts/package_dmg.sh
 # -> mac/Icarus/Icarus.dmg
 ```
-The script does a release build, ad-hoc signs, stamps `ICARUS_BRAIN_URL` into the
-bundle's Info.plist (so the app talks to your cloud brain — dev builds without the
-env var stay on `127.0.0.1:8000`), re-signs, and produces `Icarus.dmg` with a
-drag-to-Applications layout and a `READ ME FIRST.txt`.
+The script release-builds with hardened runtime and timestamp, stamps the hosted
+brain URL, submits the DMG to Apple's notary service, waits for acceptance, and
+staples the ticket. A missing signing identity, rejected notarization, or absent
+profile is a hard failure.
 
-### 2b. Share it
-Send `Icarus.dmg` (AirDrop, a file host, etc.). Tell recipients to read
-`READ ME FIRST.txt`. Because it isn't notarized, each recipient takes a one-time
-Gatekeeper step:
+### 2c. Independently verify, then publish
 
-- Open **System Settings → Privacy & Security**, scroll down, click **Open Anyway**
-  next to the Icarus message, confirm. (On older macOS: right-click Icarus → Open.)
-- If that button doesn't appear:
-  `xattr -dr com.apple.quarantine /Applications/Icarus.app`, then open normally.
+```bash
+./scripts/verify_distribution.sh ./Icarus.dmg
+```
 
-There is **no way to remove this first-open step without notarization** — it is the
-price of not paying Apple. It happens once per recipient.
+This independently checks the stapled ticket, Gatekeeper assessment, Developer
+ID authority and Team ID, hardened runtime, trusted timestamp, strict nested
+signatures, and absence of the debug entitlement. Only after this passes may the
+artifact enter Gate 6 of `docs/LAUNCH_CANARY.md`. `site/release-dmg.sh` is
+retired because it targets the old self-signed/Vercel-hosted asset path; the
+current website reads `release.json` and downloads from the public GitHub
+Release.
+
+After Sparkle's Keychain-backed `generate_appcast` has produced the signed
+single-item feed, prepare every committed release consumer in one local,
+reversible step:
+
+```bash
+python3 scripts/prepare_release.py \
+  --dmg mac/Icarus/Icarus.dmg \
+  --extension /absolute/path/icarus-extension.zip \
+  --signed-appcast /absolute/path/appcast.xml \
+  --version X.Y.Z --build N \
+  --assets-base https://github.com/alankritxghosh/Icarus-Website/releases/download/vX.Y.Z
+```
+
+The command reruns the independent distribution verifier, validates the signed
+feed's version, build, URL, length and 64-byte Ed25519 signature, then updates
+`release.json`, its website copy, `appcast.xml` and `install.sh` together. It
+does not upload, commit, deploy or publish anything. Inspect the diff before the
+separately authorized promotion.
 
 Then: **Sign in with GitHub** → connect a public repo (e.g. `simonw/llm`) →
 **⌘⇧I** to type, or hold **Right Option (⌥)** to speak.
@@ -243,22 +294,24 @@ from a checkout, and stays the SOURCE OF TRUTH for the tool contract: the
 Swift copy is generated from it by `scripts/gen_mcp_tools.py`, and
 `demo/test_mcp_tools_generated.py` fails if the two drift.
 
-## Tradeoffs you accepted (know these before sharing widely)
+## Launch boundaries (know these before sharing widely)
 
-- **Your quota, their questions.** Every ask spends your free Groq/Gemini quota
-  (capped; free tiers may train on inputs — that's why it's **public repos only**).
-- **No rate-limiting.** The stdlib server has none. This is safe only because
-  `/ask` and `/connect` require a real GitHub identity (`ICARUS_REQUIRE_GITHUB_AUTH`),
-  which is your throttle/ban lever. Don't hand the URL to the open internet.
+- **Your quota, their questions.** Every ask spends the service's Gemini
+  quota. Per-identity limits, process-wide ask/investigation ceilings, and a
+  writer-concurrency cap bound model use. Global connect starts and concurrent
+  ingests separately bound repository indexing; provider quotas and billing
+  alerts remain additional required controls.
 - **Always warm, not free.** `min-replicas 1` keeps a replica running always
   (no cold start), at ~$24/month once the free grant is used up — see the
   note above. Covered by the $200/30-day account credit for now.
 - **Repo-switching ingests on your server** on the user's input. Prompt-injection
   via ingested content is disclosed in `docs/EVALUATION.md`; the honesty gate
   proves provenance, not faithfulness. Prefer vetted repos for demos.
-- **Ad-hoc signature, not notarized.** The app opens on other Macs only via the
-  manual Gatekeeper step above, and rebuilding changes the signature (re-prompts
-  the Keychain). Notarization (needs the $99/yr Developer ID) removes both.
+- **Logical isolation, not operator blindness.** Repositories are isolated by
+  authenticated caller access and separate repo storage, but infrastructure
+  administrators can technically access storage and secrets. Do not claim
+  cryptographic operator blindness or per-tenant encryption until built and
+  independently verified.
 
 ## Rotate the keys
 The Groq/Gemini keys and the GitHub client secret were exposed in an earlier chat

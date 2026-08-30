@@ -9,6 +9,9 @@ This document is the north star. It is intentionally bigger than what exists
 today. Every brick we build is judged by one question: *does it move us toward
 this, without breaking the one thing that makes it trustworthy?*
 
+**Product promise:** *Icarus preserves the intent behind software, across
+people, agents, and time.*
+
 **Positioning:** *"Git remembers what changed. Icarus remembers why."* We do not sell
 "AI that explains repositories" — explanation is the **wedge** that earns trust. The
 product is **organizational memory**: the *why* behind a codebase, preserved against the
@@ -91,8 +94,63 @@ that context to improve its plan; Icarus never writes the code or silently
 changes repositories on its behalf. This is a second client of the same
 organizational memory, not a second product and not a retreat from the human
 conversation above. The engineer signs into the Mac app once; approved coding
-tools receive only a short-lived, public-read Icarus session, never the
-Keychain-held GitHub credential.
+tools receive only a short-lived, repository-scoped Icarus session, never the
+Keychain-held GitHub credential. That grant can read context and append a
+bounded recommendation, but cannot confirm intent or mutate GitHub.
+
+### The Agent Mode destination: confidence for the novice builder
+
+The thin read-only MCP client is the first brick, not the destination. Agent
+Mode is for a person who may not yet understand the technical decisions their
+coding agent is proposing. Icarus should give each new agent session the
+project's accumulated intent, constraints, accepted decisions, failed attempts,
+and honest gaps so the person does not have to reconstruct the project before
+they can continue building.
+
+When an agent recommends a meaningful choice, Icarus should make the choice
+legible at that person's level, distinguish repository fact from agent opinion,
+and offer a low-friction, atomic confirmation: a recommended decision and its
+reason, a small set of alternatives, **Other**, and **Not sure**. A confirmed
+choice becomes reviewable, repository-owned memory with provenance; it is then
+available to future people and agents. The person should not have to write a
+document to keep their project's intent alive.
+
+This is a judgment scaffold, not a demand for blind trust. Icarus must keep four
+states visibly distinct: **cited fact**, **agent recommendation**,
+**human-confirmed project decision**, and **unknown**. It may make the safe,
+reversible path easy, but it never promotes a model's suggestion into project
+truth without explicit human confirmation, silently captures an agent session,
+or claims that a stored decision was a good decision merely because it was
+recorded. The goal is ease of mind through continuity and honest boundaries:
+the builder can keep moving while their understanding catches up.
+
+The destination is a session-aware project model. With explicit, visible
+opt-in, Icarus observes coding-agent sessions for decision-shaped moments,
+extracts one atomic candidate at a time, and asks for the lightweight
+confirmation above. The raw session is not the memory: by default it is
+processed ephemerally and discarded, while only the confirmed decision,
+rationale, alternatives, provenance and status become durable project memory.
+An agent may also explicitly propose a decision card; neither path may silently
+promote an inference.
+
+The model has two layers that must never be collapsed:
+
+- **Observed project state** updates automatically from code, commits, pushes
+  and pull requests: what exists, what changed, and what landed.
+- **Confirmed project intent** changes only through explicit human confirmation
+  and, where the repository requires it, review: why a choice was made, which
+  alternative was refused, what tradeoff was accepted, or that the reason is
+  still unknown.
+
+Icarus links those layers into an inspectable decision graph and timeline:
+decisions, constraints, alternatives, unknowns, files, commits and pull requests;
+edges such as *implemented by*, *depends on*, *conflicts with*, *supersedes* and
+*reverted by*. Each node carries its evidence and status. After each push Icarus
+may flag that a change appears to affect an accepted decision and ask whether
+the intent changed; a diff alone can never answer that question. The interface
+should combine the navigability of a linked-note graph with the operational
+clarity of a project dashboard, while each new agent receives only the bounded
+context relevant to its task.
 
 ## 3. The non-negotiable: it cannot bluff
 
@@ -120,7 +178,7 @@ with "different product" is the trap.
 |------|-----------|-------|
 | **Core engine** (honest retrieval: cite-or-unknown) | the defensible core + grounded conversational synthesis | deeper structural understanding |
 | **Data sources** (what it knows) | **GitHub** (PRs, reviews, merges, reverts) | Slack, Linear, Notion, org-wide |
-| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay, browser extension, read-only coding-agent tools** | team surfaces, web |
+| **Interface** (how you talk to it) | **macOS app + voice (hotkey) + overlay, browser extension, coding-agent context + bounded intent capture** | team surfaces, web |
 | **Deployment** (where compute runs) | one unified cloud we operate, with **per-tenant data isolation** | true single-tenant / in-customer-cloud for the most regulated (enterprise upsell) |
 
 The core engine is the slow, defensible, expensive part — and it is
@@ -131,25 +189,52 @@ of bluffing.
 
 ## 5. Why this is a cloud product (and still private)
 
-The promise is **not** "nothing ever leaves the device." The promise is **"your
-code stays inside your trust boundary, and we never train on it."**
+The promise is **not** "nothing ever leaves the device" or "the operator is
+cryptographically unable to inspect the service." The honest promise for the
+unified cloud is: **customer code is access-isolated from other customers,
+Icarus never trains a model on it, and the paid writer's terms prohibit using
+prompts or responses to improve Google's products.**
 
 A big company codebase, a good language model, and fast voice are too heavy for
 one laptop — they would be slow and drain the battery, and every engineer would
 get a different experience based on their hardware. So the heavy thinking runs in
-the cloud. It runs in **one unified cloud we operate**, but every company's data
-is **isolated per tenant** — separate stores and keys, never pooled with another
-customer's.
+the cloud. It runs in **one unified cloud we operate**. The current boundary is
+logical repository isolation with caller authorization on every private read;
+separate tenant stores and keys are a target, not something already shipped.
 
-**True today, enforced in code, not just promised:**
+**True today:**
 
-- **Never trained on customer code.**
-- **Discarded after each request** (zero-data-retention).
+- The deterministic trust interlock refuses private code unless the dedicated
+  billed-provider configuration is selected. Current paid Gemini API terms say
+  prompts and responses are not used to improve Google's products; launch also
+  requires verifying that the production key's project has active billing.
+- Icarus does not train on customer code. Product analytics are counts plus
+  salted caller/repository pseudonyms by default; raw identifiers are not sent,
+  and question, answer and evidence content require explicit opt-in.
+- Application logs record operation/status categories, not repository names,
+  questions, answers, evidence, command arguments, or exception text.
+- Private repositories are stored per repository and checked against the
+  caller's GitHub read entitlement on every read. This is logical access
+  isolation on one Azure Files share, not separate encryption keys per tenant.
+- Corpora, confirmed decisions and bounded ledgers are deliberately durable
+  until deletion. They are the product's memory, so calling the service
+  "discard-after-request" would be false.
+
+**Not true today and therefore not a launch claim:**
+
+- Zero data retention. Paid Gemini may retain prompts and responses for limited
+  abuse monitoring unless Google approves ZDR for the project; Icarus also
+  retains the project memory described above.
+- Cryptographic operator blindness. Infrastructure administrators can
+  technically access the running service and storage; least privilege,
+  audited break-glass access and an explicit privacy policy are required until
+  customer-held keys or a local/single-tenant tier exists.
 
 **The target for the first security-conscious paying customer, not yet
 pursued:**
 
-- **Real compliance** (SOC 2, ISO 27001, and BAAs where needed).
+- **Real compliance** (SOC 2, ISO 27001, and BAAs where needed), physical
+  per-tenant stores/keys, and a customer-verifiable operator-access boundary.
 
 A **single-tenant tier — their own cloud, or fully local** — stays available for
 the most regulated / air-gapped customers (an enterprise upsell), degraded where

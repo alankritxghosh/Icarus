@@ -2,8 +2,10 @@
 #
 # Push to main -> secrets scan + full Python suites -> docker build -> push to
 # ACR -> `az containerapp update`. Deploy runs only if the tests pass, because
-# every redeploy drops every connected session (Azure storage is ephemeral);
-# shipping a red build costs users their session for nothing.
+# every redeploy drops in-process sessions. Corpora and durable ledgers survive
+# on the pre-provisioned Azure Files mount at /data; the deploy job verifies
+# that mount before and after updating so a missing volume cannot silently turn
+# production back into ephemeral storage.
 #
 # ACR Tasks is disabled on this registry, so the runner does the docker build
 # itself rather than calling `az acr build`.
@@ -12,6 +14,9 @@
 # Protected, from one service principal with AcrPush on the registry and
 # Contributor on the container app:
 #   AZURE_CLIENT_ID  AZURE_CLIENT_SECRET  AZURE_TENANT_ID
+#   AZURE_CLIENT_CERTIFICATE_FILE (Protected GitLab file variable containing
+#   the service principal PEM certificate + private key; deploy auth references
+#   its temporary path, never a reusable secret in process argv)
 
 stages: [test, build, package, deploy]
 
@@ -82,8 +87,9 @@ build:
 # private EdDSA key, which lives in one login keychain and is the entire
 # security of the update path — putting it in CI variables would make
 # pipeline-edit access equivalent to code execution on every installed Mac.
-# So publishing stays a local `site/release-dmg.sh` step, which accepts this
-# job's artifact directly (see that script's header) and re-signs the feed there.
+# So final signing/notarization, appcast signing and release preparation stay on
+# the trusted signing Mac. `scripts/prepare_release.py` then validates and stamps
+# the already-verified artifacts locally; it does not publish them.
 #
 # SIGNING, stated accurately. This comment used to claim the packaging script
 # REFUSES an ad-hoc signature. It does not -- that refusal was deliberately
@@ -97,13 +103,9 @@ build:
 # different app -- users are re-prompted for the GitHub token in their
 # Keychain, and a background MCP launch can wait on an invisible prompt.
 #
-# The gate is therefore at PUBLISH, not here: `site/release-dmg.sh` verifies
-# the signature, refuses an ad-hoc build unless given --allow-adhoc, and PINS
-# the leaf certificate's SHA-256 -- a different certificate with the same
-# display name changes the designated requirement and re-prompts every user,
-# so matching "Icarus Self-Signed" by name is not enough. Import that exact
-# identity on the runner to make this job produce a distributable artifact
-# instead of a test one.
+# This job's artifact is therefore a test input, never a final-user release.
+# Final packaging sets the strict Developer ID/notarization requirements on the
+# signing Mac and must pass `verify_distribution.sh` before release preparation.
 #
 # Manual, and gated on mac/ changing: SaaS macOS runners bill compute minutes at
 # a premium multiplier, and a Swift release build is not cheap. `needs: [tests]`
@@ -140,18 +142,24 @@ deploy:
   stage: deploy
   image: mcr.microsoft.com/azure-cli:latest
   script:
-    - az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
+    - test -r "$AZURE_CLIENT_CERTIFICATE_FILE"
+    - az login --service-principal -u "$AZURE_CLIENT_ID" --certificate "$AZURE_CLIENT_CERTIFICATE_FILE" --tenant "$AZURE_TENANT_ID"
+    # The volume is infrastructure created outside this pipeline. Refuse the
+    # deploy if it has drifted: serving without it would appear healthy while
+    # silently losing corpora, decisions and ledgers on the next revision.
+    - STORAGE_NAME=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query "properties.template.volumes[?name=='cache'].storageName | [0]" -o tsv)
+    - MOUNT_PATH=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query "properties.template.containers[0].volumeMounts[?volumeName=='cache'].mountPath | [0]" -o tsv)
+    - test "$STORAGE_NAME" = "icaruscache" && test "$MOUNT_PATH" = "/data"
     # Image, scale and env in ONE update: each `az containerapp update` mints a
-    # new revision and every revision drops every connected session, so doing
+    # new revision and every revision drops every in-process session, so doing
     # these separately would cost two drops to land one change.
     #
-    # --max-replicas 1: a queued ingest runs in ONE replica's memory and writes
-    # to THAT container's ephemeral disk. With several replicas, the caller's
-    # next /connect or /status can land on a replica that knows nothing about
-    # the job and cannot see its corpus. Pinning to one makes a queued job
-    # always visible to its own caller. Horizontal scaling is the deliberate
-    # cost, and it is currently unused. Lift this only once the corpus lives on
-    # shared persistent storage (docs/HANDOFF.md §6 phase 2).
+    # --max-replicas 1: corpora now live on shared Azure Files, but a queued
+    # ingest job and short-lived agent sessions still live in ONE replica's
+    # memory. With several replicas, the caller's next /status can land on a
+    # replica that knows nothing about the job or grant. Pinning to one keeps
+    # those process-local contracts coherent. Lift this only after jobs and
+    # agent sessions move to shared coordination storage.
     #
     # ICARUS_SYNC_CONNECT removed: it made /connect block on the full Stage 1
     # ingest, which Azure's fixed 240s ingress timeout then killed -- measured
@@ -162,12 +170,22 @@ deploy:
     - az containerapp update --name "$APP" --resource-group "$RESOURCE_GROUP"
       --image "$IMAGE:$CI_COMMIT_SHORT_SHA"
       --min-replicas 1 --max-replicas 1
-      --remove-env-vars ICARUS_SYNC_CONNECT
+      --set-env-vars ICARUS_GLOBAL_ASKS_PER_MINUTE=120
+      ICARUS_GLOBAL_INVESTIGATIONS_PER_MINUTE=12
+      ICARUS_GLOBAL_CONNECTS_PER_10_MINUTES=30
+      ICARUS_MAX_CONCURRENT_WRITERS=8
+      ICARUS_MAX_CONCURRENT_INGESTS=2
+      --remove-env-vars ICARUS_SYNC_CONNECT GROQ_API_KEY GEMINI_PAID_API_KEY
+    # The update must preserve the pre-provisioned mount too.
+    - STORAGE_NAME=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query "properties.template.volumes[?name=='cache'].storageName | [0]" -o tsv)
+    - MOUNT_PATH=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query "properties.template.containers[0].volumeMounts[?volumeName=='cache'].mountPath | [0]" -o tsv)
+    - test "$STORAGE_NAME" = "icaruscache" && test "$MOUNT_PATH" = "/data"
     - FQDN=$(az containerapp show --name "$APP" --resource-group "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
-    # Deploy is not done until the new revision actually serves.
-    - for i in $(seq 1 30); do curl -fsS "https://$FQDN/health" && exit 0; sleep 10; done; exit 1
+    # Deploy is not done until the new revision is alive AND its default corpus,
+    # persistent storage, auth and serving credentials are ready.
+    - for i in $(seq 1 30); do curl -fsS "https://$FQDN/health" >/dev/null && curl -fsS "https://$FQDN/ready" && exit 0; sleep 10; done; exit 1
   rules:
-    # Manual gate: a redeploy drops every connected session, so it stays a
+    # Manual gate: a redeploy drops every in-process session, so it stays a
     # deliberate click rather than a side effect of any commit to main. Change
     # to `when: on_success` once a staging environment exists.
     - if: $CI_COMMIT_BRANCH == "main"
