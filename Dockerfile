@@ -36,9 +36,14 @@ COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=user . .
 
-# Bake the embedding model and default corpus cache so runtime boots warm.
+# Do not embed the default corpus during CI image builds. The runtime already
+# publishes a lexical-ready pipeline first, then upgrades to semantic search in
+# the background; baking vectors here makes deployment depend on ONNX/fastembed
+# completing inside Docker, which can hang a runner before the image is pushed.
+#
+# Keep FASTEMBED_CACHE_PATH stable so runtime model/cache files land in the
+# image-owned app path instead of an arbitrary home cache.
 ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
-RUN python -m demo.warm_cache
 
 # Azure injects $PORT. Production also requires the GitHub bearer gate.
 ENV HOST=0.0.0.0 \
