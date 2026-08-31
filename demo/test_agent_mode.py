@@ -149,6 +149,45 @@ class AgentModeEndpointTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 403)
         raised.exception.close()
 
+    def test_every_candidate_response_identifies_its_repository(self):
+        """The MCP adapter REQUIRES this field, so omitting it is fatal.
+
+        Both shipped adapters end every agent-mode tool with the same check --
+        "the payload is authoritative about which corpus answered" -- and
+        refuse a body whose `repo` does not equal the one they asked about.  An
+        ABSENT field fails that comparison exactly like a changed one, so the
+        tool reports a repository switch that never happened.
+
+        Found live 2026-08-31: `record_decision_candidate` failed 100% of the
+        time in a real Claude Code session with "Icarus changed repositories
+        while answering", while `record_no_decision` -- whose handler does send
+        the field -- succeeded in the same session against the same repo.  The
+        capture half of Agent Mode could therefore never have worked once.
+
+        The existing adapter tests missed it because their fixtures hand-write
+        a `repo` key the server has never sent; they proved the client
+        self-consistent and nothing about this contract.
+        """
+        _status, submitted = self._post(
+            "/agent-mode/candidates", _candidate(), self.agent_token,
+        )
+
+        self.assertEqual(submitted.get("repo"), PRIVATE)
+
+    def test_every_confirmation_response_identifies_its_repository(self):
+        """The same contract, on the response the Mac app resolves against."""
+        _status, submitted = self._post(
+            "/agent-mode/candidates", _candidate(), self.agent_token,
+        )
+
+        _status, confirmed = self._post(
+            "/agent-mode/confirm",
+            {"candidate_id": submitted["id"], "selection": "recommended"},
+            GITHUB_TOKEN,
+        )
+
+        self.assertEqual(confirmed.get("repo"), PRIVATE)
+
     def test_raw_session_fields_are_rejected_and_never_written(self):
         with self.assertRaises(urllib.error.HTTPError) as raised:
             self._post(

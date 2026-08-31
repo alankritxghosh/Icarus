@@ -152,8 +152,13 @@ public enum ClaudeHook {
                   let event = object as? [String: Any],
                   let message = event["message"] as? [String: Any] else { continue }
 
-            if event["type"] as? String == "user", isHumanPrompt(message["content"]) {
-                result = Inspection(hasUserPrompt: true, captureCalls: [])
+            if event["type"] as? String == "user" {
+                if isHumanPrompt(message["content"]) {
+                    result = Inspection(hasUserPrompt: true, captureCalls: [])
+                } else if result.hasUserPrompt,
+                          let content = message["content"] as? [[String: Any]] {
+                    retractFailedCaptures(&result, content)
+                }
                 continue
             }
             guard result.hasUserPrompt,
@@ -173,6 +178,29 @@ public enum ClaudeHook {
             }
         }
         return result
+    }
+
+    /// A capture call that ERRORED recorded nothing, so it must not count
+    /// toward the one-per-turn contract.  Without this an agent that hit a
+    /// transient tool failure and then correctly retried was told it had
+    /// called "more than one" capture tool and blocked again -- which is what
+    /// a real session did on 2026-08-31, twice, while the underlying failure
+    /// was a server bug the agent could do nothing about.
+    ///
+    /// Only an explicit `true` retracts: a SUCCESSFUL result carries
+    /// `is_error: false` from some clients and omits the key entirely from
+    /// others (both shapes are present in one real transcript), so treating
+    /// anything-but-false as an error would erase every successful call.
+    private static func retractFailedCaptures(
+        _ result: inout Inspection, _ content: [[String: Any]]
+    ) {
+        for block in content where block["type"] as? String == "tool_result" {
+            guard block["is_error"] as? Bool == true,
+                  let id = block["tool_use_id"] as? String else { continue }
+            result.captureCalls = result.captureCalls.filter {
+                !$0.hasSuffix(":\(id)")
+            }
+        }
     }
 
     private static func isHumanPrompt(_ content: Any?) -> Bool {

@@ -31,6 +31,28 @@ final class ClaudeHookTests: XCTestCase {
         return ["type": "assistant", "message": ["content": content]]
     }
 
+    /// The real transcript shape: a tool_use carries an id, and its outcome
+    /// arrives as a tool_result block inside the NEXT user event.
+    private func assistant(tool: String, id: String) -> [String: Any] {
+        [
+            "type": "assistant",
+            "message": ["content": [
+                ["type": "text", "text": "calling"],
+                ["type": "tool_use", "name": tool, "id": id, "input": [:]],
+            ]],
+        ]
+    }
+
+    /// `error` nil reproduces the clients that omit `is_error` entirely on
+    /// success; both shapes appear in one real transcript.
+    private func toolResult(id: String, error: Bool?) -> [String: Any] {
+        var block: [String: Any] = [
+            "type": "tool_result", "tool_use_id": id, "content": "…",
+        ]
+        if let error { block["is_error"] = error }
+        return ["type": "user", "message": ["content": [block]]]
+    }
+
     func testSessionStartInjectsConfirmedProposalNotIndexedWithItsReceipt() throws {
         let output = try ClaudeHook.sessionStart(
             input: input("SessionStart"),
@@ -197,5 +219,76 @@ final class ClaudeHookTests: XCTestCase {
 
         XCTAssertEqual(output?["decision"] as? String, "block")
         XCTAssertTrue((output?["reason"] as? String ?? "").contains("exactly one"))
+    }
+
+    // MARK: - A failed capture call recorded nothing (live bug, 2026-08-31)
+
+    func testAFailedCaptureCallDoesNotCountAndTheRetryResolvesTheTurn() throws {
+        // Reproduces a real session: record_decision_candidate errored twice
+        // on a server bug, the agent retried with record_no_decision, and the
+        // hook blocked it for calling "more than one" capture tool.
+        let output = try ClaudeHook.stop(
+            input: input("Stop"),
+            expectedRepo: repo,
+            transcript: transcript([
+                user("fix agent mode"),
+                assistant(tool: "mcp__icarus__record_decision_candidate", id: "t1"),
+                toolResult(id: "t1", error: true),
+                assistant(tool: "mcp__icarus__record_decision_candidate", id: "t2"),
+                toolResult(id: "t2", error: true),
+                assistant(tool: "mcp__icarus__record_no_decision", id: "t3"),
+                toolResult(id: "t3", error: nil),
+            ])
+        )
+
+        XCTAssertNil(output)
+    }
+
+    func testAFailedCaptureCallWithNoRetryStillBlocksAsNothingRecorded() throws {
+        let output = try ClaudeHook.stop(
+            input: input("Stop"),
+            expectedRepo: repo,
+            transcript: transcript([
+                user("fix agent mode"),
+                assistant(tool: "mcp__icarus__record_no_decision", id: "t1"),
+                toolResult(id: "t1", error: true),
+            ])
+        )
+
+        XCTAssertEqual(
+            (output?["reason"] as? String)?.hasPrefix("No Agent Mode capture tool"), true)
+    }
+
+    func testTwoSUCCESSFULCaptureCallsAreStillRefused() throws {
+        // The guard this fix must not weaken.
+        let output = try ClaudeHook.stop(
+            input: input("Stop"),
+            expectedRepo: repo,
+            transcript: transcript([
+                user("fix agent mode"),
+                assistant(tool: "mcp__icarus__record_no_decision", id: "t1"),
+                toolResult(id: "t1", error: false),
+                assistant(tool: "mcp__icarus__record_decision_candidate", id: "t2"),
+                toolResult(id: "t2", error: nil),
+            ])
+        )
+
+        XCTAssertEqual(
+            (output?["reason"] as? String)?.hasPrefix("More than one"), true)
+    }
+
+    func testSuccessIsRecognisedWhetherIsErrorIsFalseOrAbsent() throws {
+        for error in [false, nil] as [Bool?] {
+            let output = try ClaudeHook.stop(
+                input: input("Stop"),
+                expectedRepo: repo,
+                transcript: transcript([
+                    user("fix agent mode"),
+                    assistant(tool: "mcp__icarus__record_no_decision", id: "t1"),
+                    toolResult(id: "t1", error: error),
+                ])
+            )
+            XCTAssertNil(output, "is_error \(String(describing: error)) must count as success")
+        }
     }
 }

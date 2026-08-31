@@ -392,12 +392,23 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
             return False
 
         @staticmethod
-        def _public_decision(item):
-            """Session correlation is an internal dedupe primitive, never UI data."""
-            return {
+        def _public_decision(item, repo):
+            """Session correlation is an internal dedupe primitive, never UI data.
+
+            The repo is stamped on because both MCP adapters end every
+            agent-mode tool by checking the payload names the repository they
+            asked about -- an ABSENT field fails that check exactly like a
+            changed one, which made `record_decision_candidate` report a
+            repository switch that never happened (found live 2026-08-31).
+            The ledger stores no repo per record; it is keyed by one file per
+            repo, so the caller's own provenance is the authority here.
+            """
+            public = {
                 key: value for key, value in item.items()
                 if key not in ("session_fingerprint", "event")
             }
+            public["repo"] = repo
+            return public
 
         # Path -> PostHog event name for the handful of real product actions.
         # Deliberately a small whitelist, not every response: a health check or
@@ -810,7 +821,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 self._send_json(200, {
                     "repo": repo,
                     "candidates": [
-                        self._public_decision(item)
+                        self._public_decision(item, repo)
                         for item in decisions.candidates(repo)
                     ],
                 }, headers={"Cache-Control": "no-store"})
@@ -1126,7 +1137,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     return
                 # Never return the session fingerprint to the model.  It is an
                 # internal dedupe primitive, not project memory.
-                public = self._public_decision(item)
+                public = self._public_decision(item, repo)
                 self._send_json(201, public, headers={"Cache-Control": "no-store"})
                 return
             if self.path == "/agent-mode/confirm":
@@ -1161,7 +1172,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                 ):
                     if current.get("selection") == requested_selection:
                         self._send_json(
-                            200, self._public_decision(current),
+                            200, self._public_decision(current, repo),
                             headers={"Cache-Control": "no-store"},
                             capture_extra={"selection": current.get("selection")},
                         )
@@ -1174,7 +1185,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     and requested_selection == "not_sure"
                 ):
                     self._send_json(
-                        200, self._public_decision(current),
+                        200, self._public_decision(current, repo),
                         headers={"Cache-Control": "no-store"},
                         capture_extra={"selection": current.get("selection")},
                     )
@@ -1203,7 +1214,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                         self._send_json(409, {"error": str(error)})
                         return
                     self._send_json(
-                        200, self._public_decision(result),
+                        200, self._public_decision(result, repo),
                         headers={"Cache-Control": "no-store"},
                         capture_extra={"selection": body.get("selection")},
                     )
@@ -1250,7 +1261,7 @@ def make_handler(registry, html_path: str, require_auth: bool = False, verifier=
                     })
                     return
                 self._send_json(
-                    201, self._public_decision(result),
+                    201, self._public_decision(result, repo),
                     headers={"Cache-Control": "no-store"},
                     capture_extra={"selection": body.get("selection")},
                 )
