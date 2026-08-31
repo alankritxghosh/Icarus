@@ -25,12 +25,25 @@ final class DecisionInboxModel {
         case failed(String, URL?)
     }
 
+    /// The confirmed-decision history (proposals + merged), distinct from the
+    /// pending inbox above. A transport failure is kept separate from "none",
+    /// same as everywhere else in the app — an empty log is not proof there
+    /// are no decisions, only that none have been confirmed yet.
+    enum LogState: Equatable {
+        case idle
+        case loading
+        case loaded([AgentDecision])
+        case failed(String)
+    }
+
     private(set) var state: State = .idle
     private(set) var confirmation: [String: ConfirmationState] = [:]
     private(set) var latestOutcome: Outcome?
+    private(set) var logState: LogState = .idle
 
     private let client: BrainClient
     private var loadTask: Task<Void, Never>?
+    private var logTask: Task<Void, Never>?
     private var confirmationTasks: [String: Task<Void, Never>] = [:]
 
     init(client: BrainClient = BrainClient()) {
@@ -51,6 +64,25 @@ final class DecisionInboxModel {
             } catch {
                 state = .failed(
                     "Icarus couldn't load decision confirmations. This is not the same as having none."
+                )
+            }
+        }
+    }
+
+    func loadLog() {
+        logTask?.cancel()
+        logState = .loading
+        logTask = Task {
+            do {
+                let response = try await client.agentDecisions()
+                logState = .loaded(response.decisions)
+            } catch is CancellationError {
+                return
+            } catch let error as BrainError {
+                logState = .failed(error.userMessage)
+            } catch {
+                logState = .failed(
+                    "Icarus couldn't load the decision history. This is not the same as having none."
                 )
             }
         }

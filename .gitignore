@@ -52,3 +52,5 @@ outputs/*/*.ndjson
 # macOS + Python noise
 .DS_Store
 __pycache__/
+.vercel
+.env*.local

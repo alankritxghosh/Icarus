@@ -1,24 +1,71 @@
 import SwiftUI
 import IcarusKit
 
-/// Full session history — every real ask, newest first. Honest empty state.
+/// Every decision your coding agent made that you confirmed — proposals whose
+/// PR exists but is not yet indexed, and merged decisions cited from the repo.
+/// Distinct from the pending inbox (which shows only what still needs a click)
+/// and from `AskHistory` (this session's questions, shown on Home). A transport
+/// failure is rendered as a failure, never as "no decisions".
 struct DecisionHistoryView: View {
-    let history: AskHistory
+    let decisions: DecisionInboxModel
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            surfaceTitle("Decision history", "Every question you've asked this session, and what the record answered.")
+            surfaceTitle("Decision history", "Decisions your coding agent made and you confirmed. Each one links to its GitHub review; merged ones are cited from the repo.")
             ShellCard {
-                if history.entries.isEmpty {
-                    Text("Nothing asked yet this session. Hold ⌥ or press ⌘⇧I to ask — real asks show up here.")
+                switch decisions.logState {
+                case .idle, .loading:
+                    Text("Reading decision history…")
                         .font(.system(size: 13)).foregroundStyle(Theme.muted)
-                } else {
+                case .failed(let message):
+                    Text(message).font(.system(size: 13)).foregroundStyle(Theme.unknown)
+                case .loaded(let items) where items.isEmpty:
+                    Text("No confirmed decisions yet. When your agent proposes one and you confirm it, it appears here with its GitHub review — not before.")
+                        .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                case .loaded(let items):
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(history.entries.enumerated()), id: \.element.id) { i, entry in
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
                             if i > 0 { Divider().background(Theme.border).padding(.vertical, 14) }
-                            HistoryRow(entry: entry)
+                            DecisionLogRow(decision: item)
                         }
                     }
                 }
+            }
+        }
+        .onAppear { decisions.loadLog() }
+    }
+}
+
+private struct DecisionLogRow: View {
+    let decision: AgentDecision
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            switch decision.status {
+            case .merged:
+                MonoLabel("HUMAN-CONFIRMED · MERGED · CITED", Theme.accent)
+            case .proposalNotIndexed:
+                MonoLabel("HUMAN-CONFIRMED · PROPOSAL · NOT INDEXED", Theme.unknown)
+            case .unrecognised:
+                MonoLabel("HUMAN-CONFIRMED", Theme.muted)
+            }
+            Text(decision.decision)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            if !decision.rationale.isEmpty {
+                Text(decision.rationale)
+                    .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !decision.affectedPaths.isEmpty {
+                Text("Affects: " + decision.affectedPaths.joined(separator: " · "))
+                    .font(Theme.mono(10)).foregroundStyle(Theme.muted).lineLimit(2)
+            }
+            if let url = decision.citationURL {
+                Link("Cited in the repo", destination: url)
+                    .font(.system(size: 12, weight: .semibold))
+            } else if let url = decision.pullRequestURL {
+                Link("Open review proposal", destination: url)
+                    .font(.system(size: 12, weight: .semibold))
             }
         }
     }

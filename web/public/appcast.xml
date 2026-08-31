@@ -3,13 +3,13 @@
     <channel>
         <title>Icarus</title>
         <item>
-            <title>0.1.9</title>
-            <pubDate>Mon, 31 Aug 2026 03:35:29 +0530</pubDate>
-            <sparkle:version>12</sparkle:version>
-            <sparkle:shortVersionString>0.1.9</sparkle:shortVersionString>
+            <title>0.1.10</title>
+            <pubDate>Mon, 31 Aug 2026 14:00:00 +0530</pubDate>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>0.1.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.9/Icarus.dmg" length="2604602" type="application/octet-stream" sparkle:edSignature="lCQKo5JBbrzVgon+BCT6JDDeorpeZWW4RB0Gygn8fbuZNgRLXNLV1QskVc/HNWpYDtKZjQrMswMBnbWgxB9HAw=="/>
+            <enclosure url="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.10/Icarus.dmg" length="2633065" type="application/octet-stream" sparkle:edSignature="/phsBt4z7Otm/0uLMt4s32+0VGzi59UVVFcn950epLo84GDW7GAPlIFJjLpfIu+2mgqnsJc1+tl0RgjstaR7Bw=="/>
         </item>
     </channel>
 </rss>

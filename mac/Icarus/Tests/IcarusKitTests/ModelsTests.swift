@@ -395,4 +395,43 @@ final class IndexCitationLabellingTests: XCTestCase {
         XCTAssertNil(c.linkURL)
         XCTAssertNotNil(Citation(ref: "pr:1482", url: "https://github.com/a/b/pull/1482").linkURL)
     }
+
+    // MARK: - AgentDecision (Decision history surface)
+
+    func testAgentDecisionsDecodeProposalAndMerged() throws {
+        // The real `/agent-mode/context` shape: a proposal carries a PR and no
+        // citation; a merged one carries a citation and no PR.
+        let json = Data("""
+        {"repo":"acme/app","commit":"abc123","decisions":[
+          {"id":"a","decision":"Use SQLite","rationale":"Local and simple.",
+           "affected_paths":["demo/index.py"],
+           "status":"human_confirmed_proposal_not_indexed",
+           "pull_request_url":"https://github.com/acme/app/pull/42"},
+          {"id":"b","decision":"Sliding window limiter","rationale":"Smoother.",
+           "affected_paths":[],"status":"human_confirmed_merged",
+           "citation_ref":"doc:docs/engineering-memory/b.md",
+           "citation_url":"https://github.com/acme/app/blob/abc123/docs/engineering-memory/b.md"}
+        ]}
+        """.utf8)
+        let r = try JSONDecoder().decode(AgentDecisionsResponse.self, from: json)
+        XCTAssertEqual(r.repo, "acme/app")
+        XCTAssertEqual(r.decisions.count, 2)
+        XCTAssertEqual(r.decisions[0].status, .proposalNotIndexed)
+        XCTAssertNotNil(r.decisions[0].pullRequestURL)
+        XCTAssertNil(r.decisions[0].citationURL)
+        XCTAssertEqual(r.decisions[1].status, .merged)
+        XCTAssertNotNil(r.decisions[1].citationURL)
+        XCTAssertNil(r.decisions[1].pullRequestURL)
+    }
+
+    func testAnUnknownDecisionStatusDecodesCautiouslyNotAsMerged() throws {
+        // A newer brain status must not read as merged truth in an older app.
+        let json = Data("""
+        {"repo":"acme/app","decisions":[
+          {"id":"a","decision":"x","rationale":"y","affected_paths":[],
+           "status":"some_future_status"}]}
+        """.utf8)
+        let r = try JSONDecoder().decode(AgentDecisionsResponse.self, from: json)
+        XCTAssertEqual(r.decisions[0].status, .unrecognised)
+    }
 }

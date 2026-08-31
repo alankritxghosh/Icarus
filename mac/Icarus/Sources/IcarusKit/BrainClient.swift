@@ -383,6 +383,19 @@ public struct BrainClient: Sendable {
         return try JSONDecoder().decode(DecisionCandidatesResponse.self, from: data)
     }
 
+    /// Every confirmed decision for the connected repo — proposals whose PR
+    /// exists but is not yet indexed, and merged decisions cited from the
+    /// corpus. This is the human-facing history, distinct from the pending
+    /// inbox (`decisionCandidates`). Served on the same `/agent-mode/context`
+    /// projection a fresh coding session reads; a GitHub identity is allowed.
+    public func agentDecisions() async throws -> AgentDecisionsResponse {
+        var request = URLRequest(url: base.appending(path: "agent-mode/context"))
+        authorize(&request)
+        let (data, response) = try await dataWithRetry(for: request)
+        try check(response)
+        return try JSONDecoder().decode(AgentDecisionsResponse.self, from: data)
+    }
+
     /// One lightweight human choice. Only recommended/alternative/Other can
     /// create a reviewed GitHub proposal; Not sure and reject remain outside
     /// fresh-session project intent.
