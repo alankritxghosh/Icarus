@@ -54,3 +54,9 @@ outputs/*/*.ndjson
 __pycache__/
 .vercel
 .env*.local
+
+# Launch video raw material — screen-recording takes and scratch frames.
+# The composition source, final renders, thumbnails and PH gallery images ARE
+# tracked; the multi-hundred-MB raw takes and per-frame extracts are not.
+brag-output-*/recordings/
+brag-output-*/vframes/

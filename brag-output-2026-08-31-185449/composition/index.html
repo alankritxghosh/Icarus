@@ -1,0 +1,350 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+<style>
+  :root {
+    /* the real Icarus palette, from site/index.html */
+    --bg:      #0D0D10;
+    --bg-deep: #07080B;
+    --card:    #15151A;
+    --ink:     #ECEAE3;
+    --muted:   #948F86;
+    --hair:    #26262C;
+    --signal:  #8098FF;   /* the wing mark */
+    --cited:   #6FD3A8;
+    --cited-bg: rgba(111,211,168,.12);
+    --unknown: #E0A23C;
+    --unknown-bg: rgba(224,162,60,.10);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Palatino LT STD", Georgia, serif;
+    --mono:  "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; background: #000; overflow: hidden; }
+
+  #root {
+    position: relative; width: 1920px; height: 1080px;
+    background:
+      radial-gradient(120% 90% at 50% 8%, #16131c 0%, #0d0d12 42%, #08080c 78%, #050507 100%);
+    font-family: var(--serif); color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- lens layers: never move with the camera ---- */
+  #vignette { position: absolute; inset: 0; pointer-events: none; z-index: 60;
+    background: radial-gradient(135% 135% at 50% 46%, transparent 66%, rgba(0,0,0,.28) 88%, rgba(0,0,0,.6) 100%); }
+  #grain { position: absolute; inset: -20%; pointer-events: none; z-index: 61; opacity: .04;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  #bloom { position: absolute; inset: 0; pointer-events: none; z-index: 5; opacity: 0;
+    background: radial-gradient(40% 40% at 50% 50%, rgba(128,152,255,.22), transparent 70%); }
+
+  /* ---- the camera ---- */
+  #stage { position: absolute; inset: 0; transform-origin: 50% 46%; will-change: transform, filter; }
+
+  .scene { position: absolute; inset: 0; opacity: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    will-change: opacity, transform, filter; }
+  .scene .inner { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; }
+
+  /* ================= Scene 1 — hook ================= */
+  #s1 .git { position: absolute; top: 150px; left: 190px; text-align: left;
+    font-family: var(--mono); font-size: 33px; color: var(--muted); line-height: 2.05; }
+  #s1 .git div { overflow: hidden; white-space: nowrap; }
+  #s1 .git .cur { display:inline-block; width: 13px; height: 1.05em; background: var(--muted);
+    vertical-align: -3px; margin-left: 4px; }
+  #s1 .h { font-size: 116px; letter-spacing: -0.025em; line-height: 1.08; text-align: center;
+    opacity: 0; filter: blur(16px); }
+  #s1 .h2 { position: relative; margin-top: 6px; }
+  #s1 .rule { position: absolute; left: 50%; transform: translateX(-50%); bottom: -26px;
+    height: 6px; width: 0; background: var(--signal); border-radius: 3px; }
+
+  /* ================= Scene 2 — logo ================= */
+  #s2 .mark { width: 360px; height: 360px; color: var(--signal); overflow: visible; }
+  #s2 .mark path, #s2 .mark use { fill: currentColor; }
+  #s2 .word { margin-top: 30px; font-size: 104px; letter-spacing: 0.24em; padding-left: .24em;
+    opacity: 0; filter: blur(14px); }
+  #s2 .tag { margin-top: 30px; font-family: var(--mono); font-size: 30px; color: var(--muted);
+    opacity: 0; letter-spacing: .01em; }
+
+  /* ================= shared app-card (Scenes 3 & 4) ================= */
+  .app { width: 1240px; background: var(--card); border: 1px solid var(--hair);
+    border-radius: 16px; padding: 58px 62px 62px; position: relative;
+    box-shadow: 0 40px 120px -30px rgba(0,0,0,.7); }
+  .app .kick { font-family: var(--mono); font-size: 21px; letter-spacing: 0.26em; color: var(--muted); }
+  .app .q { margin-top: 22px; font-size: 50px; line-height: 1.3; min-height: 1.3em; }
+  .app .q .cur { display:inline-block; width: 3px; height: .9em; background: var(--ink);
+    vertical-align: -2px; margin-left: 4px; }
+  .app .pill { position: absolute; top: 54px; right: 62px; font-family: var(--mono); font-size: 22px;
+    padding: 8px 18px; border-radius: 999px; opacity: 0; font-weight: 600; }
+  .pill.cited   { color: var(--cited);   background: var(--cited-bg);   border: 1px solid rgba(111,211,168,.35); }
+  .pill.unknown { color: var(--unknown); background: var(--unknown-bg); border: 1px solid rgba(224,162,60,.35); }
+
+  #s3 .ans { margin-top: 34px; font-family: var(--mono); font-size: 27px; line-height: 1.72;
+    color: #cfc9be; max-width: 1040px; opacity: 0; }
+  #s3 .ev { margin-top: 30px; display: flex; flex-direction: column; gap: 14px; }
+  #s3 .ev .line { font-family: var(--mono); font-size: 21px; color: var(--muted);
+    border-left: 3px solid rgba(111,211,168,.5); padding-left: 16px; opacity: 0; }
+  #s3 .chips { margin-top: 34px; display: flex; gap: 16px; flex-wrap: wrap; }
+  #s3 .chip { font-family: var(--mono); font-size: 22px; color: var(--cited);
+    background: var(--cited-bg); border: 1px solid rgba(111,211,168,.4);
+    padding: 9px 18px; border-radius: 10px; opacity: 0; }
+  #s3 .cap { margin-top: 46px; font-size: 36px; color: var(--ink); opacity: 0; text-align: center; }
+
+  #s4 .panel { margin-top: 34px; border: 1px solid rgba(224,162,60,.4); background: var(--unknown-bg);
+    border-radius: 12px; padding: 30px 34px; opacity: 0; }
+  #s4 .panel .tag { font-family: var(--mono); font-size: 20px; letter-spacing: .22em; color: var(--unknown); }
+  #s4 .panel .say { margin-top: 14px; font-size: 34px; color: var(--ink); line-height: 1.35; }
+  #s4 .big { margin-top: 46px; font-size: 100px; letter-spacing: -0.02em; color: var(--unknown);
+    text-align: center; opacity: 0; filter: blur(16px); }
+  #s4 .sub { margin-top: 26px; font-family: var(--mono); font-size: 25px; color: var(--muted);
+    text-align: center; max-width: 1180px; line-height: 1.65; opacity: 0; }
+
+  /* ================= Scene 5 — for agents ================= */
+  #s5 .split { display: flex; align-items: center; gap: 66px; opacity: 0; }
+  #s5 .col { width: 640px; font-size: 44px; line-height: 1.32; }
+  #s5 .col.l { text-align: right; color: var(--ink); }
+  #s5 .col.r { text-align: left;  color: var(--muted); }
+  #s5 .bar { width: 2px; height: 150px; background: var(--signal); transform-origin: 50% 50%; }
+  #s5 .resolve { position: absolute; font-size: 58px; line-height: 1.3; text-align: center;
+    max-width: 1360px; opacity: 0; filter: blur(14px); }
+  #s5 .mcp { position: absolute; bottom: 220px; font-family: var(--mono); font-size: 23px;
+    color: var(--muted); opacity: 0; }
+
+  /* ================= Scene 6 — end card ================= */
+  #s6 .mark { width: 240px; height: 240px; color: var(--signal); overflow: visible; }
+  #s6 .mark path, #s6 .mark use { fill: currentColor; }
+  #s6 .name { margin-top: 26px; font-size: 92px; letter-spacing: .02em; opacity: 0; filter: blur(12px); }
+  #s6 .line { margin-top: 8px; font-size: 60px; color: var(--ink); opacity: 0; filter: blur(12px); }
+  #s6 .foot { margin-top: 34px; font-family: var(--mono); font-size: 24px; color: var(--muted); opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="22">
+
+  <div id="stage">
+
+    <!-- Scene 1 -->
+    <div class="scene" id="s1">
+      <div class="git">
+        <div><span class="txt"></span><span class="cur"></span></div>
+        <div><span class="txt"></span><span class="cur"></span></div>
+        <div><span class="txt"></span><span class="cur"></span></div>
+      </div>
+      <div class="inner">
+        <div class="h h1">Code shows what exists.</div>
+        <div class="h h2">Not why.<span class="rule"></span></div>
+      </div>
+    </div>
+
+    <!-- Scene 2 -->
+    <div class="scene" id="s2">
+      <div class="inner">
+        <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+          <g fill="currentColor">
+            <path id="wingA" d="M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z"/>
+            <use href="#wingA" transform="translate(100,0) scale(-1,1)"/>
+            <path d="M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z"/>
+          </g>
+        </svg>
+        <div class="word">ICARUS</div>
+        <div class="tag">Git remembers what changed. Icarus remembers why.</div>
+      </div>
+    </div>
+
+    <!-- Scene 3 — the cited answer -->
+    <div class="scene" id="s3">
+      <div class="inner">
+        <div class="app">
+          <div class="kick">ASK</div>
+          <div class="q" id="s3q"></div>
+          <div class="pill cited">cited</div>
+          <div class="ans">A deterministic heuristic. Any ambiguous case, or a "why" with no recorded reason, or a fabricated identifier — all forced to an "unknown" verdict. An answer must be grounded in retrieved evidence.</div>
+          <div class="ev">
+            <div class="line">evals/gate.py — the deterministic honesty gate</div>
+            <div class="line">evals/test_gate.py — fails safe to abstention on every ambiguous reply</div>
+          </div>
+          <div class="chips">
+            <div class="chip">code:evals/gate.py#L232-L259</div>
+            <div class="chip">code:evals/test_gate.py#L86-L125</div>
+            <div class="chip">code:evals/gate.py#L1-L44</div>
+          </div>
+        </div>
+        <div class="cap">Every answer carries its receipts.</div>
+      </div>
+    </div>
+
+    <!-- Scene 4 — the refusal -->
+    <div class="scene" id="s4">
+      <div class="inner">
+        <div class="app">
+          <div class="kick">ASK</div>
+          <div class="q" id="s4q"></div>
+          <div class="pill unknown">unknown</div>
+          <div class="panel">
+            <div class="tag">HONEST UNKNOWN</div>
+            <div class="say">The available evidence was not sufficient for a grounded answer.</div>
+          </div>
+        </div>
+        <div class="big">No one wrote this down.</div>
+        <div class="sub">It found the code. It found no recorded reason. It will not invent one — the refusal is enforced in code.</div>
+      </div>
+    </div>
+
+    <!-- Scene 5 — for agents -->
+    <div class="scene" id="s5">
+      <div class="split">
+        <div class="col l">A merged PR leaves a commit.</div>
+        <div class="bar"></div>
+        <div class="col r">A refused one leaves nothing.</div>
+      </div>
+      <div class="resolve">Your coding agent reads git.<br/>Icarus reads the rest.</div>
+      <div class="mcp">"icarus": { "command": "…/Icarus", "args": ["--mcp"] }</div>
+    </div>
+
+    <!-- Scene 6 — end card -->
+    <div class="scene" id="s6">
+      <div class="inner">
+        <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+          <g fill="currentColor">
+            <path id="wingB" d="M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z"/>
+            <use href="#wingB" transform="translate(100,0) scale(-1,1)"/>
+            <path d="M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z"/>
+          </g>
+        </svg>
+        <div class="name">Icarus.</div>
+        <div class="line">It won't bluff.</div>
+        <div class="foot">macOS · Chrome · MCP — alpha, live today</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="bloom" data-layout-allow-occlusion></div>
+  <div id="vignette" data-layout-allow-occlusion></div>
+  <div id="grain" data-layout-allow-occlusion></div>
+
+  <script>
+    const tl = gsap.timeline({ paused: true, defaults: { ease: "power2.out" } });
+
+    /* ---- typewriter: seek-safe (drives an integer tween, rewrites textContent) ---- */
+    function typeInto(el, text, at, dur) {
+      const state = { n: 0 };
+      el.textContent = "";
+      tl.to(state, {
+        n: text.length, duration: dur, ease: "none",
+        onUpdate: () => { el.textContent = text.slice(0, Math.round(state.n)); }
+      }, at);
+    }
+    const s1lines = document.querySelectorAll("#s1 .git .txt");
+    typeInto(s1lines[0], "$ git log",   0.20, 0.28);
+    typeInto(s1lines[1], "$ git blame", 0.50, 0.30);
+    typeInto(s1lines[2], "$ git diff",  0.82, 0.26);
+    typeInto(document.querySelector("#s3q"), "Why does the honesty gate fail safe to abstention?", 6.9, 1.15);
+    typeInto(document.querySelector("#s4q"), "Why is the maximum conversation-name length 32 characters?", 12.4, 1.2);
+
+    /* ---- the camera: one continuous move the whole film ---- */
+    tl.fromTo("#stage",
+      { scale: 1.0, xPercent: 0, yPercent: 0, rotation: -0.25 },
+      { scale: 1.055, xPercent: -1.4, yPercent: 0.6, rotation: 0.25, duration: 22, ease: "none" }, 0);
+
+    /* rack-focus cross dissolve, never a hard cut */
+    const IN  = { opacity: 1, scale: 1,     filter: "blur(0px)",  duration: 0.55 };
+    const OUT = { opacity: 0, scale: 0.975, filter: "blur(10px)", duration: 0.45 };
+    const inFrom = { opacity: 0, scale: 1.05, filter: "blur(14px)" };
+
+    /* ===================== Scene 1  (0.0 – 3.7) ===================== */
+    tl.set("#s1", { opacity: 1 }, 0);
+    tl.to("#s1 .git", { opacity: 0.0, y: -14, duration: 0.5 }, 1.7);
+    tl.fromTo("#s1 .h1", { opacity: 0, y: 26, filter: "blur(16px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6 }, 1.35);
+    tl.fromTo("#s1 .h2", { opacity: 0, y: 26, filter: "blur(16px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6 }, 2.05);
+    tl.to("#s1 .rule", { width: 300, duration: 0.55, ease: "power3.inOut" }, 2.55);
+    tl.to("#s1 .inner", { y: -26, duration: 1.6, ease: "none" }, 1.35);
+    tl.to("#s1", OUT, 3.25);
+
+    /* ===================== Scene 2  (3.35 – 6.6) ===================== */
+    tl.fromTo("#s2", inFrom, IN, 3.35);
+    gsap.set("#s2 .mark g", { transformOrigin: "50% 50%" });
+    tl.fromTo("#s2 .mark g",
+      { scale: 0.7, opacity: 0, filter: "blur(10px)" },
+      { scale: 1, opacity: 1, filter: "blur(0px)", duration: 0.7, ease: "back.out(1.6)" }, 3.55);
+    tl.to("#bloom", { opacity: 0.5, duration: 0.4 }, 3.9);
+    tl.to("#bloom", { opacity: 0, duration: 0.8 }, 4.4);
+    tl.fromTo("#s2 .word", { opacity: 0, y: 16, filter: "blur(14px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55 }, 4.55);
+    tl.fromTo("#s2 .tag", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 5.05);
+    tl.to("#s2 .mark", { scale: 1.035, duration: 1.4, yoyo: true, repeat: 1, ease: "sine.inOut" }, 4.4);
+    tl.to("#s2 .inner", { y: -18, duration: 2.4, ease: "none" }, 3.6);
+    tl.to("#s2", OUT, 6.2);
+
+    /* ===================== Scene 3  (6.35 – 12.2) — cited ===================== */
+    tl.fromTo("#s3", inFrom, IN, 6.35);
+    tl.fromTo("#s3 .app", { opacity: 0, y: 30, rotationY: 6 },
+      { opacity: 1, y: 0, rotationY: 0, duration: 0.6 }, 6.45);
+    tl.fromTo("#s3 .ans", { opacity: 0, y: 12, filter: "blur(8px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55 }, 8.25);
+    tl.fromTo("#s3 .ev .line", { opacity: 0, x: -14 },
+      { opacity: 1, x: 0, duration: 0.4, stagger: 0.22 }, 8.9);
+    tl.fromTo("#s3 .pill.cited", { opacity: 0, scale: 0.7 },
+      { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(2)" }, 9.35);
+    tl.fromTo("#s3 .chip:nth-child(1)", { opacity: 0, scale: 0.75, y: 10 },
+      { opacity: 1, scale: 1, y: 0, duration: 0.32, ease: "back.out(2.2)" }, 9.55);
+    tl.fromTo("#s3 .chip:nth-child(2)", { opacity: 0, scale: 0.75, y: 10 },
+      { opacity: 1, scale: 1, y: 0, duration: 0.32, ease: "back.out(2.2)" }, 9.95);
+    tl.fromTo("#s3 .chip:nth-child(3)", { opacity: 0, scale: 0.75, y: 10 },
+      { opacity: 1, scale: 1, y: 0, duration: 0.32, ease: "back.out(2.2)" }, 10.35);
+    tl.fromTo("#s3 .chips", { boxShadow: "0 0 0px rgba(111,211,168,0)" },
+      { boxShadow: "0 0 40px rgba(111,211,168,.35)", duration: 0.4, yoyo: true, repeat: 1 }, 10.35);
+    tl.fromTo("#s3 .cap", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5 }, 10.9);
+    tl.to("#s3 .app", { rotationY: -3, y: -14, duration: 4.0, ease: "none" }, 7.2);
+    tl.to("#s3", OUT, 11.75);
+
+    /* ===================== Scene 4  (11.95 – 17.4) — refusal ===================== */
+    tl.fromTo("#s4", inFrom, IN, 11.95);
+    tl.fromTo("#s4 .app", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6 }, 12.05);
+    /* deliberate hold 13.7 – 14.5: nothing happens */
+    tl.fromTo("#s4 .pill.unknown", { opacity: 0, scale: 0.7 },
+      { opacity: 1, scale: 1, duration: 0.35 }, 14.5);
+    tl.fromTo("#s4 .panel", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 }, 14.6);
+    tl.fromTo("#s4 .panel", { boxShadow: "0 0 0 rgba(224,162,60,0)" },
+      { boxShadow: "0 0 44px rgba(224,162,60,.30)", duration: 1.1, yoyo: true, repeat: 3, ease: "sine.inOut" }, 14.9);
+    tl.fromTo("#s4 .big", { opacity: 0, y: 24, filter: "blur(16px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.7, ease: "power3.out" }, 15.05);
+    tl.fromTo("#s4 .sub", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 15.9);
+    tl.to("#s4 .inner", { y: -18, duration: 3.5, ease: "none" }, 12.3);
+    tl.to("#s4", OUT, 16.95);
+
+    /* ===================== Scene 5  (16.75 – 19.6) — agents ===================== */
+    tl.fromTo("#s5", inFrom, IN, 16.75);
+    tl.fromTo("#s5 .split", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5 }, 16.9);
+    tl.fromTo("#s5 .bar", { scaleY: 0 }, { scaleY: 1, duration: 0.4, ease: "power2.inOut" }, 17.0);
+    tl.to("#s5 .split", { opacity: 0, y: -12, duration: 0.4 }, 18.0);
+    tl.fromTo("#s5 .resolve", { opacity: 0, y: 16, filter: "blur(14px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55 }, 18.1);
+    tl.fromTo("#s5 .mcp", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 18.6);
+    tl.to("#s5", OUT, 19.2);
+
+    /* ===================== Scene 6  (19.35 – 22.0) — end card ===================== */
+    tl.fromTo("#s6", inFrom, IN, 19.35);
+    gsap.set("#s6 .mark g", { transformOrigin: "50% 50%" });
+    tl.fromTo("#s6 .mark g", { scale: 0.75, opacity: 0, filter: "blur(10px)" },
+      { scale: 1, opacity: 1, filter: "blur(0px)", duration: 0.6, ease: "back.out(1.5)" }, 19.5);
+    tl.to("#bloom", { opacity: 0.4, duration: 0.4 }, 19.7);
+    tl.to("#bloom", { opacity: 0, duration: 1.0 }, 20.1);
+    tl.fromTo("#s6 .name", { opacity: 0, y: 16, filter: "blur(12px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55 }, 20.05);
+    tl.fromTo("#s6 .line", { opacity: 0, y: 16, filter: "blur(12px)" },
+      { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55 }, 20.5);
+    tl.fromTo("#s6 .foot", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 21.1);
+    tl.to("#s6 .mark", { scale: 1.03, duration: 1.3, yoyo: true, repeat: 1, ease: "sine.inOut" }, 20.4);
+
+    window.__timelines = window.__timelines || {};
+    window.__timelines["root"] = tl;
+  </script>
+</div>
+</body>
+</html>
