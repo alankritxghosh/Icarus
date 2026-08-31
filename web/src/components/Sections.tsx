@@ -229,7 +229,7 @@ export function Footer() {
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-4">
         <p className="font-mono text-[11px] text-muted">Icarus · macOS · alpha</p>
         <p className="font-mono text-[11px] text-muted">
-          Your code is never used to train any model, and is discarded after each request.
+          Icarus never trains on your code, and discards it after each request.
         </p>
       </div>
     </footer>
