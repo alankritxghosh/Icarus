@@ -34,12 +34,21 @@ _CHROMIUMAPP_REDIRECT = re.compile(r"^https://[a-p]{32}\.chromiumapp\.org/$")
 # Login scope per surface. Ask each surface for what it can actually use, and
 # nothing more -- the consent screen is the first honest claim a stranger sees.
 #
-# The browser trial (`web`) only ever connects PUBLIC repositories, and a public
-# repo needs no repository scope at all: the caller's token is used to identify
-# them and to check, as them, that the repo is readable. So it asks for identity
-# alone. A web user who tries to connect a PRIVATE repo is refused by
-# demo/server.py's caller-scoped check -- correctly, and with a message that is
-# true either way ("doesn't exist or your GitHub account can't read it").
+# The browser trial (`web`) only ever connects PUBLIC repositories, and
+# reading one needs no repository scope at all -- so `web` asked for identity
+# alone until 2026-09-03, when the web Agent Mode decision graph gave it a
+# second job: writing the SAME candidate branch/commit/PR flow
+# `GitHubMemoryWriter.record_decision` already does for the native apps
+# (demo/memory_writer.py), using the caller's OWN token, exactly like they do
+# (see demo/server.py's `/agent-mode/confirm` handler -- `token=
+# self._github_token()`, no separate service credential). `read:user` cannot
+# create a branch or a pull request; GitHub rejects the write outright. So
+# `web` now asks for `public_repo` -- write access scoped to public
+# repositories only, never private ones -- the SMALLEST scope that makes the
+# write real, and still strictly narrower than the native surfaces' `repo`
+# (which also covers private repos, because connecting one is the product for
+# them). A web user who tries to connect a PRIVATE repo is still refused by
+# demo/server.py's caller-scoped check either way.
 #
 # The native surfaces DO connect private repositories, which is the product, so
 # they keep `repo` until the per-repo GitHub App replaces it (see authorize_url).
@@ -47,7 +56,8 @@ _CHROMIUMAPP_REDIRECT = re.compile(r"^https://[a-p]{32}\.chromiumapp\.org/$")
 # Note this only narrows what NEW logins request. GitHub keeps the union of
 # scopes already granted to an OAuth App, so anyone who previously authorised
 # with `repo` keeps it until they revoke access in their GitHub settings.
-_WEB_SCOPE = "read:user"
+_IDENTITY_SCOPE = "read:user"
+_WEB_SCOPE = "public_repo"
 _NATIVE_SCOPE = "repo"
 
 # Scope is requested per SURFACE and, since 2026-08-11, per INTENT.
@@ -68,7 +78,6 @@ _NATIVE_SCOPE = "repo"
 # GitHub keeps the UNION of scopes granted to an OAuth App, so upgrading is
 # additive and someone who already granted `repo` keeps it until they revoke it
 # in their GitHub settings. Existing users are unaffected.
-_IDENTITY_ONLY_MODES = ("app", "web", "extension")
 _PRIVATE_REPO_MODE = "app-private"
 
 
@@ -159,17 +168,25 @@ class OAuthFlow:
         `redirect_target` is ignored (never stored) for any mode other than
         "extension" -- only that mode's callback ever reads it back.
 
-        The requested SCOPE also depends on the mode: the browser trial asks for
-        identity only, the native surfaces ask for repository access, because
-        only they can connect a private repo. See _WEB_SCOPE/_NATIVE_SCOPE."""
+        The requested SCOPE also depends on the mode: `app`/`extension` ask for
+        identity only, `web` asks for public-repo write (it now creates real
+        pull requests -- see _WEB_SCOPE's own comment), and `app-private` asks
+        for full repository access, because only it connects a private repo.
+        See _IDENTITY_SCOPE/_WEB_SCOPE/_NATIVE_SCOPE."""
         if mode == "extension":
             if not redirect_target or not _CHROMIUMAPP_REDIRECT.match(redirect_target):
                 raise ValueError("extension mode requires a valid chromiumapp.org redirect_target")
         else:
             redirect_target = None
-        # Identity by default on every surface; `repo` only for the mode whose
-        # whole purpose is connecting a private repository.
-        scope = _NATIVE_SCOPE if mode == _PRIVATE_REPO_MODE else _WEB_SCOPE
+        # Least privilege per mode -- `web` is no longer identity-only (see
+        # _WEB_SCOPE), but `app`/`extension`/anything unrecognised still fall
+        # back to the SAFEST option, identity alone, never `repo`.
+        if mode == _PRIVATE_REPO_MODE:
+            scope = _NATIVE_SCOPE
+        elif mode == "web":
+            scope = _WEB_SCOPE
+        else:
+            scope = _IDENTITY_SCOPE
         state = new_state()
         with self._lock:
             self._sweep()

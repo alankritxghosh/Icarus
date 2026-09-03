@@ -60,6 +60,15 @@ class LoginScopeByModeTests(unittest.TestCase):
     repository. This narrows what is REQUESTED, never what is enforced: a token
     without `repo` cannot read a private repo, so github_access.repo_info
     refuses it regardless.
+
+    `web` stopped being identity-only on 2026-09-03: the web Agent Mode
+    decision graph writes real pull requests with the caller's own token
+    (the exact `GitHubMemoryWriter.record_decision` flow the native apps
+    already use), and `read:user` cannot create a branch or a PR -- GitHub
+    rejects the write. `public_repo` is the smallest scope that makes it
+    real, and stays strictly narrower than `app-private`'s `repo` (public
+    only, never private). `app`/`extension` are UNCHANGED -- still identity
+    alone, since neither of them writes to GitHub on sign-in.
     """
 
     def _flow(self):
@@ -68,8 +77,8 @@ class LoginScopeByModeTests(unittest.TestCase):
         return OAuthFlow("cid", "secret", "http://127.0.0.1:8000/auth/github/callback",
                          exchanger=fake_exchange)
 
-    def test_first_sign_in_asks_for_identity_only_on_every_surface(self):
-        for mode, target in (("app", None), ("web", None),
+    def test_first_sign_in_asks_for_identity_only_on_app_and_extension(self):
+        for mode, target in (("app", None),
                              ("extension",
                               "https://abcdefghijklmnopabcdefghijklmnop.chromiumapp.org/")):
             with self.subTest(mode=mode):
@@ -77,6 +86,21 @@ class LoginScopeByModeTests(unittest.TestCase):
                     else self._flow().begin(mode)
                 self.assertIn("scope=read%3Auser", url)
                 self.assertNotIn("scope=repo", url)
+                self.assertNotIn("scope=public_repo", url)
+
+    def test_web_mode_asks_for_public_repo_write_access(self):
+        # Not identity-only (it writes real PRs now), and not the native
+        # surfaces' full `repo` either (public repos only, matching web's own
+        # "never connects a private repo" boundary elsewhere in this file).
+        _state, url = self._flow().begin("web")
+        self.assertIn("scope=public_repo", url)
+        self.assertNotIn("scope=read%3Auser", url)
+        # A bare `assertNotIn("scope=repo", url)` would be VACUOUSLY true here
+        # for the wrong reason: "repo" IS a substring of "public_repo", so
+        # that check passes no matter what. Anchor on the delimiter instead --
+        # "scope=repo&" cannot appear inside "scope=public_repo&" (there is no
+        # "scope=repo&" substring once "public_" sits between "=" and "repo").
+        self.assertNotIn("scope=repo&", url)
 
     def test_private_mode_is_the_only_one_that_asks_for_repo(self):
         _state, url = self._flow().begin("app-private")
