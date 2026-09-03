@@ -14,26 +14,45 @@ struct MarkView: View {
 }
 
 /// One sidebar nav row: filled accent dot + ink label when active, muted otherwise.
+///
+/// **Collapsed (2026-09-03)**: the label and its box hide; the dot alone
+/// marks selection with no highlight box (the box reads as an odd floating
+/// square around nothing once there's no label to anchor it to — matching
+/// the fix already made to the standalone sidebar mockup this ports). Since
+/// a plain dot can't tell "Home" from "Investigate" apart, the surface's own
+/// first letter renders inside it — the app draws no icons anywhere to reuse
+/// instead.
 struct NavRow: View {
     let surface: ShellSurface
     @Binding var selected: ShellSurface
+    var collapsed: Bool = false
+
     var body: some View {
         let active = surface == selected
         Button {
             selected = surface
         } label: {
-            HStack(spacing: 11) {
-                Circle().fill(active ? Theme.accent : Theme.inactiveDot).frame(width: 7, height: 7)
-                Text(surface.title)
-                    .font(.system(size: 14, weight: active ? .semibold : .regular))
-                    .foregroundStyle(active ? Theme.ink : Theme.muted)
-                Spacer(minLength: 0)
+            if collapsed {
+                Text(surface.title.prefix(1))
+                    .font(Theme.mono(12, .bold))
+                    .foregroundStyle(active ? Theme.accent : Theme.inactiveDot)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+                    .help(surface.title)
+            } else {
+                HStack(spacing: 11) {
+                    Circle().fill(active ? Theme.accent : Theme.inactiveDot).frame(width: 7, height: 7)
+                    Text(surface.title)
+                        .font(.system(size: 14, weight: active ? .semibold : .regular))
+                        .foregroundStyle(active ? Theme.ink : Theme.muted)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 11).padding(.vertical, 9)
+                .background(active ? Theme.card : .clear)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? Theme.border : .clear, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 11).padding(.vertical, 9)
-            .background(active ? Theme.card : .clear)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(active ? Theme.border : .clear, lineWidth: 1))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

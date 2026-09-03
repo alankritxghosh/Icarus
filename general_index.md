@@ -2103,10 +2103,13 @@ claim. A negative result is kept exactly like a positive one.
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
 - `ShellView.swift` — sidebar + content router across four surfaces (passes
   auth/connect through to Home for its setup gate).
-- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer
-  (with the public-alpha badge), Disconnect
-  repo + Sign out controls. Real macOS traffic-lights float over its top; no
-  decorative dupes.
+- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer,
+  Disconnect repo + Sign out controls. Real macOS traffic-lights float over
+  its top; no decorative dupes. **Collapsible (2026-09-03)**, persisted via
+  `@AppStorage`: ⌘B or the header chevron shrinks the rail to a 64pt icon
+  strip (each `NavRow` falling back to its surface's first letter, since the
+  app draws no icons anywhere to reuse) and hides the footer, which has no
+  compact treatment yet.
 - `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
   the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
   cited-rate), recent asks, and the proof drawer — all real/honest data.
@@ -2148,7 +2151,10 @@ claim. A negative result is kept exactly like a positive one.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
   `VerdictPill`, `HistoryRow`, `ShellCard`). `MarkView` RENDERS `IconArt` rather
   than redrawing the logo in SwiftUI, so the sidebar can never disagree with the
-  Dock icon about what the mark is.
+  Dock icon about what the mark is. `NavRow` takes an optional `collapsed` flag
+  (2026-09-03): expanded is the usual dot + label; collapsed drops the label
+  and its highlight box, showing only the surface's first letter, coloured by
+  selection state.
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
 - `MainWindowController.swift` — hosts the shell as the primary window with a
   chromeless (transparent, full-size-content) title bar.
