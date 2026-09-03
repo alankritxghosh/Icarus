@@ -1,0 +1,28 @@
+# The website build only needs web/ (its Root Directory is set to "web" in
+# Vercel's project settings). Deploying from the monorepo root is required —
+# Vercel resolves Root Directory against the uploaded tree — but the CLI does
+# not reliably honor nested .gitignore rules for the upload step, so a
+# gitignored-but-present scratch file (outputs/leads/.../vectors.json, 131MB)
+# blew Vercel's 100MB per-file upload cap. Excluding every non-web top-level
+# directory explicitly, same intent as .dockerignore.
+/mac/
+/extension/
+/site/
+/scripts/
+/docs/
+/evals/
+/demo/
+/outputs/
+/sales/
+/data/
+/plugins/
+/Icarus creatives/
+/brag-output-*/
+/.git
+/.github
+/.githooks
+/.claude
+/.codex
+/.venv
+/.agents
+/.worktrees
