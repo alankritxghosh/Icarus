@@ -18,8 +18,8 @@
 
 set -eu
 
-DMG_URL="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.10/Icarus.dmg"
-EXPECTED_SHA="fd5ec36f66a020618ded160f6ba35dc5d477e7a1701ce18fc788660dc9d105c3"
+DMG_URL="https://github.com/alankritxghosh/Icarus-Website/releases/download/v0.1.11/Icarus.dmg"
+EXPECTED_SHA="03bdfea26213ee01548bb184afa024a7a5d981a71adac35de61b05e4555012f4"
 DEST="${ICARUS_DEST:-/Applications}"
 APP="Icarus.app"
 
