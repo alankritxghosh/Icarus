@@ -3,15 +3,32 @@ import Combine
 import Foundation
 import IcarusKit
 
+/// Obsidian's own graph view (Settings > Appearance is irrelevant here — the
+/// graph pane is always this dark, regardless of vault theme) is the explicit
+/// visual reference (2026-09-04): a near-black canvas, uniform light-gray
+/// nodes sized only by connection count, thin low-opacity gray edges, and
+/// plain gray labels — no legend, no colored status coding, no chrome sitting
+/// on top of the canvas. This is a fixed palette, not the app's Theme.* tokens
+/// (which follow the app-wide light/dark toggle): the graph is its own
+/// visual identity, same as Obsidian's graph pane has its own look distinct
+/// from its note editor.
+private enum GraphPalette {
+    static let background = Color(white: 0.09)
+    static let node = Color(white: 0.82)
+    static let nodeSelected = Color.white
+    static let edge = Color.white.opacity(0.14)
+    static let label = Color(white: 0.6)
+}
+
 /// The Decision history surface, rendered as a force-directed graph — pending
 /// Agent Mode candidates and confirmed decisions from the SAME
 /// `DecisionInboxModel` every other Agent Mode surface already uses (no new
 /// data path, no new confirm logic). An edge means two decisions share an
-/// affected path; a node's own color states what it IS, never a judgment of
-/// quality. Ported from the web app's DecisionGraph.tsx (2026-09-03) — same
-/// edge rule, same status colors, adapted to native SwiftUI: node hit-testing
-/// and dragging use real overlaid views instead of manual Canvas math, and the
-/// simulation stops itself once it settles rather than redrawing forever.
+/// affected path. Ported from the web app's DecisionGraph.tsx (2026-09-03)
+/// then restyled to match Obsidian's graph view exactly (2026-09-04) — node
+/// hit-testing and dragging use real overlaid views instead of manual Canvas
+/// math, and the simulation stops itself once it settles rather than
+/// redrawing forever.
 struct DecisionGraphView: View {
     let decisions: DecisionInboxModel
     @State private var nodes: [GraphNode] = []
@@ -24,16 +41,15 @@ struct DecisionGraphView: View {
 
     private let maxFrames = 240 // ~4s at 60fps — plenty to settle a few dozen nodes
 
-    // Full-bleed: this surface owns the whole content pane instead of sitting
-    // inside ShellView's normal card-stack ScrollView (see ShellView.swift's
-    // special case for .decisionHistory) — a graph needs the room, and
-    // scrolling to see it defeats the point of a spatial layout.
+    // Full-bleed: no title, no legend, no toolbar sitting on top of the
+    // canvas — just the graph, matching Obsidian's graph pane exactly. This
+    // surface owns the whole content pane instead of sitting inside
+    // ShellView's normal card-stack ScrollView (see ShellView.swift's special
+    // case for .decisionHistory).
     var body: some View {
         ZStack(alignment: .topLeading) {
             canvasArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            header
-                .padding(20)
             if let id = selectedID, let node = nodes.first(where: { $0.id == id }) {
                 HStack {
                     Spacer()
@@ -43,31 +59,10 @@ struct DecisionGraphView: View {
                 }
             }
         }
-        .background(Theme.surface)
+        .background(GraphPalette.background)
         .onAppear { reload() }
         .onChange(of: decisions.state) { _, _ in rebuild() }
         .onChange(of: decisions.logState) { _, _ in rebuild() }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                surfaceTitle(
-                    "Decision history",
-                    "Every decision your coding agent proposed or confirmed. An edge means two decisions touched the same files."
-                )
-                Spacer(minLength: 12)
-                Button("Refresh") { reload() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-            }
-            legend
-        }
-        .padding(14)
-        .background(Theme.surface.opacity(0.92))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func reload() {
@@ -78,18 +73,18 @@ struct DecisionGraphView: View {
     @ViewBuilder
     private var canvasArea: some View {
         if isLoading {
-            centeredMessage { Text("Reading decisions…").font(.system(size: 13)).foregroundStyle(Theme.muted) }
+            centeredMessage { Text("Reading decisions…").font(.system(size: 13)).foregroundStyle(GraphPalette.label) }
         } else if let failure {
             centeredMessage {
                 VStack(alignment: .leading, spacing: 7) {
-                    MonoLabel("COULDN'T LOAD", Theme.unknown)
-                    Text(failure).font(.system(size: 13)).foregroundStyle(Theme.ink)
+                    Text("COULDN'T LOAD").font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.unknown)
+                    Text(failure).font(.system(size: 13)).foregroundStyle(.white)
                 }
             }
         } else if nodes.isEmpty {
             centeredMessage {
                 Text("No decisions yet. When your agent proposes one, it appears here.")
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    .font(.system(size: 13)).foregroundStyle(GraphPalette.label)
             }
         } else {
             GeometryReader { geo in
@@ -102,7 +97,7 @@ struct DecisionGraphView: View {
                             var path = Path()
                             path.move(to: project(na.pos, center: center))
                             path.addLine(to: project(nb.pos, center: center))
-                            context.stroke(path, with: .color(Theme.border), lineWidth: 1)
+                            context.stroke(path, with: .color(GraphPalette.edge), lineWidth: 1)
                         }
                     }
                     ForEach(nodes) { node in
@@ -141,7 +136,7 @@ struct DecisionGraphView: View {
             Spacer()
             HStack {
                 Spacer()
-                ShellCard { content() }
+                content()
                     .frame(maxWidth: 420)
                 Spacer()
             }
@@ -158,18 +153,17 @@ struct DecisionGraphView: View {
     }
 
     private func nodeView(_ node: GraphNode, center: CGPoint) -> some View {
-        let radius = (9 + CGFloat(node.degree) * 2.2) * zoom
+        let radius = (5 + CGFloat(node.degree) * 2.4) * zoom
         return Circle()
-            .fill(node.color)
+            .fill(selectedID == node.id ? GraphPalette.nodeSelected : GraphPalette.node)
             .frame(width: radius * 2, height: radius * 2)
-            .overlay(Circle().stroke(Theme.ink, lineWidth: selectedID == node.id ? 2 : 0))
             .overlay(alignment: .top) {
-                if zoom > 0.7 {
+                if zoom > 0.55 {
                     Text(node.title)
-                        .font(Theme.mono(9))
-                        .foregroundStyle(Theme.muted)
+                        .font(.system(size: 10))
+                        .foregroundStyle(GraphPalette.label)
                         .lineLimit(1)
-                        .frame(width: 90)
+                        .frame(width: 100)
                         .offset(y: radius + 3)
                 }
             }
@@ -202,68 +196,61 @@ struct DecisionGraphView: View {
 
     @ViewBuilder
     private func detailPanel(for node: GraphNode) -> some View {
-        ShellCard {
-            VStack(alignment: .leading, spacing: 12) {
-                switch node.kind {
-                case .candidate(let c):
-                    MonoLabel("AGENT RECOMMENDATION · NOT PROJECT TRUTH", Theme.unknown)
-                    Text(c.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
-                    if !c.rationale.isEmpty {
-                        Text(c.rationale).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    }
-                    if c.status == .pending {
-                        HStack(spacing: 10) {
-                            Button("Accept") { decisions.confirm(c, selection: .recommended) }
-                                .buttonStyle(PrimaryButton())
-                                .disabled(decisions.isSubmitting(c.id))
-                            Button("Reject") { decisions.confirm(c, selection: .reject) }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 12, weight: .semibold))
-                                .disabled(decisions.isSubmitting(c.id))
-                            if decisions.isSubmitting(c.id) { ProgressView().controlSize(.small) }
-                        }
-                    } else {
-                        Text("Status: \(c.status.rawValue)").font(Theme.mono(10)).foregroundStyle(Theme.muted)
-                    }
-                case .confirmed(let d):
-                    switch d.status {
-                    case .merged: MonoLabel("HUMAN-CONFIRMED · MERGED · CITED", Theme.cited)
-                    case .proposalNotIndexed: MonoLabel("HUMAN-CONFIRMED · PROPOSAL · NOT INDEXED", Theme.accent)
-                    case .unrecognised: MonoLabel("HUMAN-CONFIRMED", Theme.muted)
-                    }
-                    Text(d.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
-                    if !d.rationale.isEmpty {
-                        Text(d.rationale).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                    }
-                    if let url = d.citationURL {
-                        Link("Cited in the repo", destination: url).font(.system(size: 12, weight: .semibold))
-                    } else if let url = d.pullRequestURL {
-                        Link("Open review proposal", destination: url).font(.system(size: 12, weight: .semibold))
-                    }
+        VStack(alignment: .leading, spacing: 12) {
+            switch node.kind {
+            case .candidate(let c):
+                Text("AGENT RECOMMENDATION · NOT PROJECT TRUTH")
+                    .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.unknown)
+                Text(c.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                if !c.rationale.isEmpty {
+                    Text(c.rationale).font(.system(size: 12)).foregroundStyle(GraphPalette.label)
                 }
-                if !node.affectedPaths.isEmpty {
-                    Text("Affects: " + node.affectedPaths.joined(separator: " · "))
-                        .font(Theme.mono(10)).foregroundStyle(Theme.muted).lineLimit(2)
+                if c.status == .pending {
+                    HStack(spacing: 10) {
+                        Button("Accept") { decisions.confirm(c, selection: .recommended) }
+                            .buttonStyle(PrimaryButton())
+                            .disabled(decisions.isSubmitting(c.id))
+                        Button("Reject") { decisions.confirm(c, selection: .reject) }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .disabled(decisions.isSubmitting(c.id))
+                        if decisions.isSubmitting(c.id) { ProgressView().controlSize(.small) }
+                    }
+                } else {
+                    Text("Status: \(c.status.rawValue)").font(Theme.mono(10)).foregroundStyle(GraphPalette.label)
+                }
+            case .confirmed(let d):
+                switch d.status {
+                case .merged:
+                    Text("HUMAN-CONFIRMED · MERGED · CITED")
+                        .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.cited)
+                case .proposalNotIndexed:
+                    Text("HUMAN-CONFIRMED · PROPOSAL · NOT INDEXED")
+                        .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.accent)
+                case .unrecognised:
+                    Text("HUMAN-CONFIRMED")
+                        .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(GraphPalette.label)
+                }
+                Text(d.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                if !d.rationale.isEmpty {
+                    Text(d.rationale).font(.system(size: 12)).foregroundStyle(GraphPalette.label)
+                }
+                if let url = d.citationURL {
+                    Link("Cited in the repo", destination: url).font(.system(size: 12, weight: .semibold))
+                } else if let url = d.pullRequestURL {
+                    Link("Open review proposal", destination: url).font(.system(size: 12, weight: .semibold))
                 }
             }
+            if !node.affectedPaths.isEmpty {
+                Text("Affects: " + node.affectedPaths.joined(separator: " · "))
+                    .font(Theme.mono(10)).foregroundStyle(GraphPalette.label).lineLimit(2)
+            }
         }
-    }
-
-    private var legend: some View {
-        HStack(spacing: 16) {
-            legendItem("Pending", Theme.unknown)
-            legendItem("Confirmed proposal", Theme.accent)
-            legendItem("Merged & cited", Theme.cited)
-            legendItem("Rejected / not sure", Theme.muted)
-        }
-        .font(Theme.mono(10)).foregroundStyle(Theme.muted)
-    }
-
-    private func legendItem(_ label: String, _ color: Color) -> some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(label)
-        }
+        .padding(16)
+        .background(Color(white: 0.14))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var isLoading: Bool {
@@ -360,7 +347,6 @@ struct DecisionGraphView: View {
     }
 }
 
-@MainActor
 private struct GraphNode: Identifiable {
     enum Kind {
         case candidate(DecisionCandidate)
@@ -385,23 +371,6 @@ private struct GraphNode: Identifiable {
         switch kind {
         case .candidate(let c): return c.affectedPaths
         case .confirmed(let d): return d.affectedPaths
-        }
-    }
-
-    var color: Color {
-        switch kind {
-        case .confirmed(let d):
-            switch d.status {
-            case .merged: return Theme.cited
-            case .proposalNotIndexed: return Theme.accent
-            case .unrecognised: return Theme.muted
-            }
-        case .candidate(let c):
-            switch c.status {
-            case .pending: return Theme.unknown
-            case .confirmedProposal: return Theme.accent
-            case .notSure, .rejected: return Theme.muted
-            }
         }
     }
 }
