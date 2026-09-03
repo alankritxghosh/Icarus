@@ -3,21 +3,28 @@ import Combine
 import Foundation
 import IcarusKit
 
-/// Obsidian's own graph view (Settings > Appearance is irrelevant here — the
-/// graph pane is always this dark, regardless of vault theme) is the explicit
-/// visual reference (2026-09-04): a near-black canvas, uniform light-gray
-/// nodes sized only by connection count, thin low-opacity gray edges, and
-/// plain gray labels — no legend, no colored status coding, no chrome sitting
-/// on top of the canvas. This is a fixed palette, not the app's Theme.* tokens
-/// (which follow the app-wide light/dark toggle): the graph is its own
-/// visual identity, same as Obsidian's graph pane has its own look distinct
-/// from its note editor.
+/// Obsidian's graph view is the explicit visual reference (2026-09-04):
+/// uniform nodes sized only by connection count, thin low-opacity edges, and
+/// plain gray labels — no legend, no colored status coding, no chrome on the
+/// canvas. Obsidian's graph follows the app's light/dark mode (white canvas in
+/// light, near-black in dark), so this does too — it reads the SAME
+/// `ThemeState.shared.appearance` as `Theme.*`, rather than being hardcoded
+/// dark. It stays a separate palette (not `Theme.*` tokens) only because the
+/// graph's grays are its own — node/edge/label values tuned for a canvas, not
+/// the reused text/surface/border tokens.
+@MainActor
 private enum GraphPalette {
-    static let background = Color(white: 0.09)
-    static let node = Color(white: 0.82)
-    static let nodeSelected = Color.white
-    static let edge = Color.white.opacity(0.14)
-    static let label = Color(white: 0.6)
+    private static var isDark: Bool { ThemeState.shared.appearance == .dark }
+    static var background: Color { isDark ? Color(white: 0.09) : Color(white: 1.0) }
+    static var node: Color { isDark ? Color(white: 0.82) : Color(white: 0.34) }
+    static var nodeSelected: Color { isDark ? .white : .black }
+    static var edge: Color { (isDark ? Color.white : Color.black).opacity(isDark ? 0.14 : 0.16) }
+    static var label: Color { isDark ? Color(white: 0.6) : Color(white: 0.42) }
+    /// The floating detail card over the canvas — a raised surface, so it
+    /// lifts off the canvas in both modes rather than blending into it.
+    static var panel: Color { isDark ? Color(white: 0.14) : Color(white: 0.98) }
+    static var panelBorder: Color { (isDark ? Color.white : Color.black).opacity(0.12) }
+    static var panelText: Color { isDark ? .white : Color(hex: 0x1B1B22) }
 }
 
 /// The Decision history surface, rendered as a force-directed graph — pending
@@ -78,7 +85,7 @@ struct DecisionGraphView: View {
             centeredMessage {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("COULDN'T LOAD").font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.unknown)
-                    Text(failure).font(.system(size: 13)).foregroundStyle(.white)
+                    Text(failure).font(.system(size: 13)).foregroundStyle(GraphPalette.panelText)
                 }
             }
         } else if nodes.isEmpty {
@@ -201,7 +208,7 @@ struct DecisionGraphView: View {
             case .candidate(let c):
                 Text("AGENT RECOMMENDATION · NOT PROJECT TRUTH")
                     .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(Theme.unknown)
-                Text(c.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text(c.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(GraphPalette.panelText)
                 if !c.rationale.isEmpty {
                     Text(c.rationale).font(.system(size: 12)).foregroundStyle(GraphPalette.label)
                 }
@@ -213,7 +220,7 @@ struct DecisionGraphView: View {
                         Button("Reject") { decisions.confirm(c, selection: .reject) }
                             .buttonStyle(.plain)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(GraphPalette.panelText)
                             .disabled(decisions.isSubmitting(c.id))
                         if decisions.isSubmitting(c.id) { ProgressView().controlSize(.small) }
                     }
@@ -232,7 +239,7 @@ struct DecisionGraphView: View {
                     Text("HUMAN-CONFIRMED")
                         .font(Theme.mono(11, .bold)).tracking(0.9).foregroundStyle(GraphPalette.label)
                 }
-                Text(d.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text(d.decision).font(.system(size: 15, weight: .semibold)).foregroundStyle(GraphPalette.panelText)
                 if !d.rationale.isEmpty {
                     Text(d.rationale).font(.system(size: 12)).foregroundStyle(GraphPalette.label)
                 }
@@ -248,8 +255,8 @@ struct DecisionGraphView: View {
             }
         }
         .padding(16)
-        .background(Color(white: 0.14))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .background(GraphPalette.panel)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(GraphPalette.panelBorder, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
