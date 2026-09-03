@@ -69,12 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌘⇧I ask overlay. (Setup is folded into the shell's Home gate; Q&A stays
         // an overlay.)
         NSApp.setActivationPolicy(.regular)
-        // Theme's palette is dark, and AppKit does NOT take its cue from it: the
-        // traffic lights, ProgressView spinners, the TextField caret, Divider,
-        // and every scroller stay light until the app's appearance says
-        // otherwise. Without this line a fully dark app looks broken rather than
-        // dark, which is worse than either.
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // Keep AppKit chrome and native controls on the same persisted appearance
+        // as Theme's SwiftUI tokens from the first window onward.
+        ThemeState.shared.applyNativeAppearance()
         NSApp.applicationIconImage = IconArt.appIcon()   // the wings, in the Dock
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

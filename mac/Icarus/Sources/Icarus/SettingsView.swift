@@ -139,8 +139,10 @@ struct SettingsView: View {
                     Text(connect.isPrivate ? "private repo" : "public repo")
                         .font(Theme.sans(11)).foregroundStyle(Theme.muted)
                 }
-            } else {
-                Text("No repository connected.").font(Theme.sans(12)).foregroundStyle(Theme.muted)
+            } else if let message = Self.repositoryStateMessage(for: connect.state) {
+                Text(message)
+                    .font(Theme.sans(12))
+                    .foregroundStyle(repositoryStateColor)
             }
         }
     }
@@ -198,7 +200,8 @@ struct SettingsView: View {
     @ViewBuilder private var repositoryTab: some View {
         MonoLabel("REPOSITORY")
         SettingsCard {
-            if connect.isReady, case .ready(let repo) = connect.state {
+            if case .ready(let repo) = connect.state {
+                let matchingStatus = Self.matchingStatus(statusModel.status, for: repo)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(repo).font(Theme.mono(13)).foregroundStyle(Theme.ink)
@@ -206,10 +209,10 @@ struct SettingsView: View {
                         Text(connect.isPrivate ? "private" : "public")
                             .font(Theme.mono(10)).foregroundStyle(Theme.muted)
                     }
-                    if let pr = statusModel.counts?.pr {
+                    if let pr = matchingStatus?.counts?.pr {
                         Text("\(pr) PRs indexed").font(Theme.sans(12)).foregroundStyle(Theme.muted)
                     }
-                    if let freshness = statusModel.status?.indexFreshness {
+                    if let freshness = matchingStatus?.indexFreshness {
                         Text(freshness.summary).font(Theme.sans(11)).foregroundStyle(Theme.muted)
                     }
                     Button("Disconnect repo") { connect.disconnect() }
@@ -219,10 +222,40 @@ struct SettingsView: View {
                         .padding(.top, 2)
                         .help("Deletes your indexed data on the server and returns to setup")
                 }
-            } else {
-                Text("No repository connected. Connect one from the Icarus window.")
-                    .font(Theme.sans(12)).foregroundStyle(Theme.muted)
+            } else if let message = Self.repositoryStateMessage(for: connect.state) {
+                Text(message)
+                    .font(Theme.sans(12))
+                    .foregroundStyle(repositoryStateColor)
             }
+        }
+    }
+
+    static func repositoryStateMessage(for state: ConnectModel.State) -> String? {
+        switch state {
+        case .idle:
+            "No repository connected. Connect one from the Icarus window."
+        case .connecting(let repo):
+            "Connecting to \(repo)…"
+        case .ready:
+            nil
+        case .failed(let message):
+            message
+        case .lost(let repo):
+            "Connection to \(repo) was lost. Reconnect it from the Icarus window."
+        }
+    }
+
+    static func matchingStatus(_ status: RepoStatus?, for repo: String) -> RepoStatus? {
+        guard let status, status.repo.caseInsensitiveCompare(repo) == .orderedSame else {
+            return nil
+        }
+        return status
+    }
+
+    private var repositoryStateColor: Color {
+        switch connect.state {
+        case .failed, .lost: Theme.unknown
+        default: Theme.muted
         }
     }
 

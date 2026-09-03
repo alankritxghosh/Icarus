@@ -16,11 +16,20 @@ final class ThemeState {
     static let shared = ThemeState()
 
     var appearance: AppAppearance {
-        didSet { AppearancePreference().appearance = appearance }
+        didSet {
+            AppearancePreference().appearance = appearance
+            applyNativeAppearance()
+        }
     }
 
     init(appearance: AppAppearance = AppearancePreference().appearance) {
         self.appearance = appearance
+        applyNativeAppearance()
+    }
+
+    func applyNativeAppearance() {
+        let name: NSAppearance.Name = appearance == .dark ? .darkAqua : .aqua
+        NSApplication.shared.appearance = NSAppearance(named: name)
     }
 }
 

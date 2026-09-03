@@ -144,4 +144,25 @@ final class ThemeContrastTests: XCTestCase {
                                         "at this alpha the overlay is unreadable over a white window (\(mode))")
         }
     }
+
+    func testThemeStateKeepsNativeControlsInTheSelectedAppearance() {
+        let application = NSApplication.shared
+        let originalAppearance = application.appearance
+        let defaults = UserDefaults.standard
+        let originalPreference = defaults.object(forKey: icarusAppearanceDefaultsKey)
+        defer {
+            application.appearance = originalAppearance
+            if let originalPreference {
+                defaults.set(originalPreference, forKey: icarusAppearanceDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: icarusAppearanceDefaultsKey)
+            }
+        }
+
+        let state = ThemeState(appearance: .light)
+        XCTAssertEqual(application.appearance?.name, .aqua)
+
+        state.appearance = .dark
+        XCTAssertEqual(application.appearance?.name, .darkAqua)
+    }
 }

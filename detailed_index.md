@@ -1001,6 +1001,14 @@ imports `evals/`, and changes no brain code.
   `Library`): an answerable question returns a cited answer with a github.com link,
   an unrecorded one returns the honest unknown (skips without a provider key/corpus).
 
+## mac/Icarus/Sources/IcarusKit/AppearancePreference.swift
+Persisted app-level appearance selection shared by the Settings UI and runtime.
+
+- `icarusAppearanceDefaultsKey` — the one UserDefaults key for the preference.
+- `enum AppAppearance` — the closed dark/light palette choice.
+- `struct AppearancePreference` — reads and writes the choice against injectable
+  UserDefaults, defaulting missing or invalid values safely to dark.
+
 ## mac/Icarus/Sources/IcarusKit/VoiceLatencyTracker.swift
 Privacy-safe Phase 3 experience measurement. It accepts monotonic timing marks,
 not product content, and retains only the newest 50 completed samples in memory.
