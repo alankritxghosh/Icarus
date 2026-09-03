@@ -2153,8 +2153,13 @@ claim. A negative result is kept exactly like a positive one.
   than redrawing the logo in SwiftUI, so the sidebar can never disagree with the
   Dock icon about what the mark is. `NavRow` takes an optional `collapsed` flag
   (2026-09-03): expanded is the usual dot + label; collapsed drops the label
-  and its highlight box, showing only the surface's first letter, coloured by
-  selection state.
+  and its highlight box, showing a `SurfaceIcon` (`SidebarIcons.swift`) coloured
+  by selection state instead.
+- `SidebarIcons.swift` — `SurfaceIcon`: one hand-drawn, hairline-stroked `Path`
+  icon per `ShellSurface` (house / play triangle / magnifying glass / clock /
+  archive box) for the collapsed sidebar, in the app's own hand rather than an
+  SF Symbol — this app has never used one, the logo being its only other
+  graphic asset.
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
 - `MainWindowController.swift` — hosts the shell as the primary window with a
   chromeless (transparent, full-size-content) title bar.

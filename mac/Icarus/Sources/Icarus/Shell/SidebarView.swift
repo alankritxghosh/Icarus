@@ -8,12 +8,10 @@ import IcarusKit
 /// width for the content area; the footer (repo name, Disconnect, Sign out,
 /// Settings) hides while collapsed rather than inventing a compact icon-only
 /// treatment for four text actions that don't have one yet — expand to reach
-/// them. Each nav row still needs SOMETHING to tell it apart from the others
-/// when only a small badge is showing: this app draws no icons anywhere (no
-/// SF Symbols, nothing in `IconArt.swift` besides the logo itself), so rather
-/// than invent a new pictogram set, the collapsed badge is the surface's own
-/// first letter in the app's existing mono face — legible, unambiguous, and
-/// on-brand with "blunt language" over decorative iconography.
+/// them. Each nav row shows a custom-drawn `SurfaceIcon` (`SidebarIcons.swift`)
+/// when collapsed — hairline `Path` shapes in this app's own hand, the same
+/// spirit as `IconArt.swift`'s logo, not a borrowed SF Symbol (this app has
+/// never used one).
 struct SidebarView: View {
     @Binding var selected: ShellSurface
     @Bindable var auth: AuthModel
