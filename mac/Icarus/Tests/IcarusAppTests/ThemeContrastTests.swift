@@ -103,6 +103,34 @@ final class ThemeContrastTests: XCTestCase {
         }
     }
 
+    /// Found live (2026-09-03): `SidebarView.swift` painted the rail with a
+    /// bare `Color(hex: 0x121216)` instead of a `Theme` token, so it stayed
+    /// dark after switching to light while the rest of the window repainted.
+    /// A same-mode contrast check wouldn't have caught this — a permanently
+    /// dark rail is STILL high-contrast against a light surface, just wrongly
+    /// so. The actual bug was that the colour never changed with the switch
+    /// at all, so that's what this asserts: `Theme.rail` (and the nav row's
+    /// `inactiveDot`, same fix) must genuinely differ between the two modes,
+    /// not just be legible in whichever one happens to be active.
+    func testRailAndInactiveDotAreActuallyAppearanceAware() {
+        ThemeState.shared.appearance = .dark
+        let darkRail = Theme.rail, darkDot = Theme.inactiveDot
+        ThemeState.shared.appearance = .light
+        let lightRail = Theme.rail, lightDot = Theme.inactiveDot
+
+        XCTAssertNotEqual(NSColor(darkRail), NSColor(lightRail),
+                          "the sidebar rail must repaint with the rest of the window")
+        XCTAssertNotEqual(NSColor(darkDot), NSColor(lightDot),
+                          "the inactive nav dot must repaint with the rest of the window")
+
+        // And each mode's pairing must still be legible where it sits, per the
+        // same tripwire testBorderIsActuallyVisible uses for the hairline.
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            XCTAssertGreaterThanOrEqual(ratio(Theme.rail, on: Theme.card), 1.02, "(\(mode))")
+        }
+    }
+
     /// The dark palette inverts `ink`/`surface` for its filled buttons
     /// (`LightButton`, `PrimaryButton`) on the assumption that `ink` is the
     /// bright end. That assumption is DARK-MODE-SPECIFIC: it is the definition

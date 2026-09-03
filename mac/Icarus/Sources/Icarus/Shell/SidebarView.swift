@@ -80,8 +80,10 @@ struct SidebarView: View {
         .padding(16)
         .frame(width: 210)
         .frame(maxHeight: .infinity, alignment: .top)
-        // A shade off `surface` rather than a token of its own: the rail should
-        // separate from the content area without becoming a second card.
-        .background(Color(hex: 0x121216))
+        // A shade off `surface`, not `card` — the rail separates from the
+        // content area without becoming a second card. `Theme.rail`, not a
+        // bare literal: this was previously stuck dark through the light/dark
+        // switch because it never read the palette at all.
+        .background(Theme.rail)
     }
 }

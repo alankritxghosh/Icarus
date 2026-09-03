@@ -23,7 +23,7 @@ struct NavRow: View {
             selected = surface
         } label: {
             HStack(spacing: 11) {
-                Circle().fill(active ? Theme.accent : Color(hex: 0x4A4844)).frame(width: 7, height: 7)
+                Circle().fill(active ? Theme.accent : Theme.inactiveDot).frame(width: 7, height: 7)
                 Text(surface.title)
                     .font(.system(size: 14, weight: active ? .semibold : .regular))
                     .foregroundStyle(active ? Theme.ink : Theme.muted)

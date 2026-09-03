@@ -77,6 +77,21 @@ enum Theme {
     static var citedBg: Color { cited.opacity(0.10) }
     static var unknownBg: Color { unknown.opacity(0.09) }
 
+    /// The sidebar rail — a shade off `surface`, not a token-less literal.
+    /// Found stuck permanently dark after the light/dark switch shipped
+    /// (2026-09-02): `SidebarView.swift` painted it with a bare
+    /// `Color(hex: 0x121216)` instead of reading `Theme.*`, so it never
+    /// repainted with the rest of the window when the appearance changed.
+    static var rail: Color {
+        appearance == .dark ? Color(hex: 0x121216) : Color(hex: 0xEFEDE6)
+    }
+    /// The nav row's inactive-state dot (`ShellComponents.swift`'s `NavRow`) —
+    /// same bug, same fix: quieter than `muted` (a decorative indicator, not
+    /// text to read), but still tied to the palette instead of a fixed hex.
+    static var inactiveDot: Color {
+        appearance == .dark ? Color(hex: 0x4A4844) : Color(hex: 0xC7C2B8)
+    }
+
     /// `Font.custom` falls back SILENTLY to the system face when a family is
     /// missing, so every bundled font is checked against what actually got
     /// registered (`FontLoader.registerBundledFonts()`, called before any
