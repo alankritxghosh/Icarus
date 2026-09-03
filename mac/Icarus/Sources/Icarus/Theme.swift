@@ -2,47 +2,111 @@ import AppKit
 import SwiftUI
 import IcarusKit
 
-/// Honest-Brutalism tokens, dark — the same names the light "Quiet Native Memory
-/// v2" palette used, with only the values moved, so every call site flipped
-/// without being touched. Values are the website's (`site/index.html`), so the
-/// app and the marketing page are one product: `--paper`, `--card`, `--hair`,
-/// `--ink`, `--muted`, `--signal`, `--cited`, `--unknown`.
-///
-/// Dark only, deliberately. Following the system appearance would mean deciding
-/// every semantic tone twice and verifying every surface twice, and there is no
-/// second palette to fall back to — the site commits to this one.
-enum Theme {
-    static let ink = Color(hex: 0xECEAE3)         // primary text
-    static let muted = Color(hex: 0x948F86)       // secondary text
-    static let surface = Color(hex: 0x0D0D10)     // page / window
-    static let card = Color(hex: 0x15151A)        // raised card
-    static let border = Color(hex: 0x26262C)      // hairline border
-    static let accent = Color(hex: 0x8098FF)      // citation accent blue
-    static let cited = Color(hex: 0x6FD3A8)       // cited / receipts green
-    static let unknown = Color(hex: 0xE0A23C)     // honest-unknown amber
-    /// The two semantic backgrounds are TINTS of their own tone, not separate
-    /// colours. On the light palette they were opaque pastels; a pastel has no
-    /// dark equivalent, and a merely darker pastel reads as mud.
-    static let citedBg = cited.opacity(0.10)
-    static let unknownBg = unknown.opacity(0.09)
+/// The live appearance choice every `Theme` token reads. A tiny piece of
+/// shared, `@Observable` state rather than an `@Environment` value: keeping it
+/// here (not threaded through every view) is what let ~80 existing
+/// `Theme.ink`/`Theme.muted`/... call sites across the shell flip to a real
+/// light/dark switch without being touched. Swift's Observation framework
+/// tracks the read on `ThemeState.shared.appearance` wherever it happens --
+/// including from inside a computed static property -- so any view whose body
+/// reads a `Theme` colour re-renders when the appearance changes.
+@MainActor
+@Observable
+final class ThemeState {
+    static let shared = ThemeState()
 
-    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+    var appearance: AppAppearance {
+        didSet { AppearancePreference().appearance = appearance }
     }
 
-    /// The serif display face, resolved once against what the Mac actually has.
+    init(appearance: AppAppearance = AppearancePreference().appearance) {
+        self.appearance = appearance
+    }
+}
+
+/// Honest-Brutalism tokens. Values are the website's (`site/index.html`), so
+/// the app and the marketing page are one product: `--paper`, `--card`,
+/// `--hair`, `--ink`, `--muted`, `--signal`, `--cited`, `--unknown`.
+///
+/// **Both light and dark, driven by one switch (2026-09-02, Alankrit)** —
+/// reverses the earlier dark-only decision. That decision's cost was real
+/// (every semantic tone decided twice, every surface verified twice, see
+/// `ThemeContrastTests`) and is now paid: the light values below are their
+/// own deliberately tuned palette, not an inversion of the dark one, and
+/// every WCAG contrast check runs against BOTH.
+@MainActor
+enum Theme {
+    private static var appearance: AppAppearance { ThemeState.shared.appearance }
+
+    static var ink: Color {         // primary text
+        appearance == .dark ? Color(hex: 0xECEAE3) : Color(hex: 0x1B1B22)
+    }
+    static var muted: Color {       // secondary text
+        appearance == .dark ? Color(hex: 0x948F86) : Color(hex: 0x6C685F)
+    }
+    static var surface: Color {     // page / window
+        appearance == .dark ? Color(hex: 0x0D0D10) : Color(hex: 0xF7F6F2)
+    }
+    static var card: Color {        // raised card
+        appearance == .dark ? Color(hex: 0x15151A) : Color(hex: 0xFFFFFF)
+    }
+    static var border: Color {      // hairline border
+        appearance == .dark ? Color(hex: 0x26262C) : Color(hex: 0xDDDAD2)
+    }
+    static var accent: Color {      // citation accent blue
+        appearance == .dark ? Color(hex: 0x8098FF) : Color(hex: 0x2F6BFF)
+    }
+    static var cited: Color {       // cited / receipts green
+        appearance == .dark ? Color(hex: 0x6FD3A8) : Color(hex: 0x188F5E)
+    }
+    static var unknown: Color {     // honest-unknown amber
+        appearance == .dark ? Color(hex: 0xE0A23C) : Color(hex: 0xB9791A)
+    }
+    /// The two semantic backgrounds are TINTS of their own tone, not separate
+    /// colours. On an opaque-pastel palette they'd need their own light/dark
+    /// values; a tint just rides whichever `cited`/`unknown` is active.
+    static var citedBg: Color { cited.opacity(0.10) }
+    static var unknownBg: Color { unknown.opacity(0.09) }
+
     /// `Font.custom` falls back SILENTLY to the system face when a family is
-    /// missing, so a missing font would look like a styling bug rather than a
-    /// missing font — hence the explicit probe and the explicit `.serif` fallback.
-    private static let displayFamily: String? =
-        ["Hoefler Text", "Iowan Old Style", "Palatino"].first { NSFont(name: $0, size: 12) != nil }
+    /// missing, so every bundled font is checked against what actually got
+    /// registered (`FontLoader.registerBundledFonts()`, called before any
+    /// view renders) rather than assumed present — a missing font must look
+    /// like the system fallback it is, never a styling bug nobody can explain.
+    private static let availableFamilies = Set(NSFontManager.shared.availableFontFamilies)
+    private static func has(_ family: String) -> Bool { availableFamilies.contains(family) }
+
+    /// Evidence / code / refs — bundled JetBrains Mono (2026-09-02, the
+    /// styling pass), replacing the system mono. Falls back to it if the font
+    /// didn't register.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        if has("JetBrains Mono") { return .custom("JetBrains Mono", size: size).weight(weight) }
+        return .system(size: size, weight: weight, design: .monospaced)
+    }
 
     /// Serif, for hero moments ONLY — the Home headline, "No one wrote this
     /// down.", surface titles. Body stays sans and evidence stays mono: serif at
     /// 13pt in a dense list costs scanning speed and buys nothing.
+    ///
+    /// Bundled Spectral (2026-09-02, the styling pass) replaces the earlier
+    /// probe against whatever serif the Mac happened to have (Hoefler Text /
+    /// Iowan Old Style / Palatino) — that chain stays as the fallback so an
+    /// unregistered bundle still degrades to a real serif, not the system sans.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        if has("Spectral") { return .custom("Spectral", size: size).weight(weight) }
         if let family = displayFamily { return .custom(family, size: size).weight(weight) }
         return .system(size: size, weight: weight, design: .serif)
+    }
+    private static let displayFamily: String? =
+        ["Hoefler Text", "Iowan Old Style", "Palatino"].first { NSFont(name: $0, size: 12) != nil }
+
+    /// UI sans — bundled Schibsted Grotesk (2026-09-02). Deliberately scoped to
+    /// the Settings/profile styling pass rather than swapped in for every
+    /// `.system(size:)` call across the shell: reskinning the whole app's body
+    /// text is a bigger, separate decision than restyling one window.
+    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        if has("Schibsted Grotesk") { return .custom("Schibsted Grotesk", size: size).weight(weight) }
+        return .system(size: size, weight: weight)
     }
 }
 

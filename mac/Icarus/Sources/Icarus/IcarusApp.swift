@@ -3,7 +3,10 @@ import SwiftUI
 struct IcarusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
-        Settings { SettingsView() }
+        // The SAME auth/connect/status instances the main shell uses (via the
+        // adaptor's live `appDelegate` proxy) -- never a second, divergent set
+        // of models that could disagree about whether the user is signed in.
+        Settings { SettingsView(auth: appDelegate.auth, connect: appDelegate.connect, statusModel: appDelegate.status) }
     }
 }
 
@@ -38,6 +41,9 @@ struct Main {
             IconExport.writeIcon(to: path, pixels: px)
             exit(0)
         }
+        // Before any SwiftUI view renders: Theme.swift names these fonts
+        // directly, so they must be registered before the first `body` runs.
+        FontLoader.registerBundledFonts()
         IcarusApp.main()
     }
 }

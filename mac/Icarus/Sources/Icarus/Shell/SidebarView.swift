@@ -7,6 +7,12 @@ struct SidebarView: View {
     @Binding var selected: ShellSurface
     @Bindable var auth: AuthModel
     let connect: ConnectModel
+    // SwiftUI's own action for opening the `Settings` scene (IcarusApp.swift) --
+    // the in-window equivalent of the app-menu item and ⌘, (AppDelegate's
+    // `openSettings()`, which sends the same `showSettingsWindow:` selector from
+    // outside SwiftUI). Before this, Settings had no entry point IN the shell
+    // itself.
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -27,27 +33,24 @@ struct SidebarView: View {
             Spacer(minLength: 24)
 
             VStack(alignment: .leading, spacing: 3) {
-                // "Company Brain" is a claim about WHOSE code this is: a shared
-                // private index is a company's memory, a public repo's is not.
-                // Read from the brain's /status, never inferred from the name.
-                MonoLabel(connect.isPrivate ? "COMPANY BRAIN" : "REPO BRAIN")
                 // Show a repo ONLY once THIS user has actually connected one —
                 // the brain's /status always serves the public default, so keying
                 // off it made simonw/llm look like hardcoded UI chrome. The connect
                 // state is the app's own truth (and drops to "Not connected" if the
                 // server ever loses the session).
+                //
+                // Deliberately just the name: the earlier "COMPANY BRAIN"/"REPO
+                // BRAIN" label and the "PRIVATE/PUBLIC REPOSITORY · CONNECTED"
+                // line were cut as footer clutter (2026-09-02, Alankrit). That
+                // drops the private-vs-public signal from the rail; if it's
+                // needed again, prefer a small glyph beside the name over
+                // reinstating the text.
                 if case .ready(let repo) = connect.state {
                     Text(repo)
                         .font(Theme.mono(13)).foregroundStyle(Theme.ink)
-                        .padding(.top, 3)
-                    Text(connect.isPrivate ? "PRIVATE REPOSITORY · CONNECTED" : "PUBLIC REPOSITORY · CONNECTED")
-                        .font(Theme.mono(10))
-                        .foregroundStyle(Theme.muted)
-                        .padding(.top, 2)
                 } else {
                     Text("Not connected")
                         .font(Theme.mono(13)).foregroundStyle(Theme.muted)
-                        .padding(.top, 3)
                 }
                 if auth.isSignedIn, connect.isReady {
                     Button("Disconnect repo") { connect.disconnect() }
@@ -65,6 +68,12 @@ struct SidebarView: View {
                         .padding(.top, auth.isSignedIn && connect.isReady ? 4 : 8)
                         .help("Sign out to use another GitHub account")
                 }
+                Button("Settings") { openSettings() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.muted)
+                    .padding(.top, auth.isSignedIn ? 4 : 8)
+                    .help("Account, appearance, privacy, repository, and Claude Code")
             }
             .padding(.leading, 4)
         }
