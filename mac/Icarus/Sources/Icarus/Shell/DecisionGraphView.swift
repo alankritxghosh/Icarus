@@ -159,8 +159,19 @@ struct DecisionGraphView: View {
         CGPoint(x: center.x + pan.width + p.x * zoom, y: center.y + pan.height + p.y * zoom)
     }
 
+    /// Node radius grows SUBLINEARLY (sqrt) with connection count and is
+    /// capped, like Obsidian: a hub reads as slightly larger, not a giant
+    /// blob. Linear growth (the first version) turned the few high-degree
+    /// decisions -- ones touching common files many others also touch -- into
+    /// oversized circles that dominated the middle.
+    private func nodeRadius(for node: GraphNode) -> CGFloat {
+        let base: CGFloat = 4
+        let grown = base + sqrt(CGFloat(node.degree)) * 2.2
+        return min(grown, 13)
+    }
+
     private func nodeView(_ node: GraphNode, center: CGPoint) -> some View {
-        let radius = (5 + CGFloat(node.degree) * 2.4) * zoom
+        let radius = nodeRadius(for: node) * zoom
         return Circle()
             .fill(selectedID == node.id ? GraphPalette.nodeSelected : GraphPalette.node)
             .frame(width: radius * 2, height: radius * 2)
