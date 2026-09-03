@@ -46,7 +46,7 @@ struct DecisionGraphView: View {
     @State private var frame = 0
     @State private var draggingID: String?
 
-    private let maxFrames = 240 // ~4s at 60fps — plenty to settle a few dozen nodes
+    private let maxFrames = 340 // ~5.5s at 60fps — the wider spread needs a bit longer to settle
 
     // Full-bleed: no title, no legend, no toolbar sitting on top of the
     // canvas — just the graph, matching Obsidian's graph pane exactly. This
@@ -126,7 +126,16 @@ struct DecisionGraphView: View {
                 )
                 .gesture(
                     MagnificationGesture()
-                        .onChanged { value in zoom = min(2.5, max(0.4, zoom * value / lastMagnification)); lastMagnification = value }
+                        .onChanged { value in
+                            // Dampen the pinch: map each incremental scale
+                            // step through a sqrt so a full pinch moves the
+                            // zoom about half as far — a 1:1 mapping felt
+                            // like it lunged.
+                            let step = value / lastMagnification
+                            let damped = step > 0 ? pow(step, 0.45) : 1
+                            zoom = min(2.2, max(0.45, zoom * damped))
+                            lastMagnification = value
+                        }
                         .onEnded { _ in lastMagnification = 1 }
                 )
             }
@@ -317,10 +326,11 @@ struct DecisionGraphView: View {
 
     private func seedPosition(_ index: Int, of total: Int) -> CGPoint {
         // Golden-angle spiral seeding: avoids the symmetric-collapse starting
-        // point a grid or pure-random scatter can settle into.
+        // point a grid or pure-random scatter can settle into. Seeded wide so
+        // the layout starts spread and settles into a spread state.
         let goldenAngle = Double.pi * (3 - 2.236) // pi * (3 - sqrt(5))
         let angle = Double(index) * goldenAngle
-        let radius = 12.0 * Double(index).squareRoot()
+        let radius = 22.0 * Double(index).squareRoot()
         return CGPoint(x: radius * cos(angle), y: radius * sin(angle))
     }
 
@@ -336,13 +346,15 @@ struct DecisionGraphView: View {
                 let dy = nodes[i].pos.y - nodes[j].pos.y
                 let d2 = max(dx * dx + dy * dy, 4)
                 let d = d2.squareRoot()
-                let f = 2600.0 / d2
+                // Stronger node-node repulsion so nodes don't clump together.
+                let f = 6500.0 / d2
                 fx += (dx / d) * f
                 fy += (dy / d) * f
             }
-            // Gentle center gravity so disconnected nodes don't drift off.
-            fx += -nodes[i].pos.x * 0.01
-            fy += -nodes[i].pos.y * 0.01
+            // Weaker center gravity — just enough to keep disconnected nodes
+            // from drifting off, without pulling everything into a tight ball.
+            fx += -nodes[i].pos.x * 0.006
+            fy += -nodes[i].pos.y * 0.006
             nodes[i].vel = CGVector(dx: (nodes[i].vel.dx + fx * 0.01) * 0.82,
                                      dy: (nodes[i].vel.dy + fy * 0.01) * 0.82)
         }
@@ -352,7 +364,7 @@ struct DecisionGraphView: View {
             let dx = nodes[bi].pos.x - nodes[ai].pos.x
             let dy = nodes[bi].pos.y - nodes[ai].pos.y
             let d = max((dx * dx + dy * dy).squareRoot(), 1)
-            let idealLength = 90.0
+            let idealLength = 150.0
             let f = (d - idealLength) * 0.02
             let fx = (dx / d) * f, fy = (dy / d) * f
             if nodes[ai].id != draggingID { nodes[ai].vel.dx += fx * 0.01; nodes[ai].vel.dy += fy * 0.01 }
