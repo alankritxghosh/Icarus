@@ -912,7 +912,7 @@ Constants: `_SAFE_ID`, `_SAFE_REPO`, `_FILENAME`.
 ## demo/github_oauth.py
 Server-side GitHub authorization-code flow. The client SECRET lives only here,
 never in the app or the extension. Constants: `AUTHORIZE_URL`, `TOKEN_URL`,
-`_CHROMIUMAPP_REDIRECT`, `_WEB_SCOPE`, `_NATIVE_SCOPE`, `_IDENTITY_ONLY_MODES`,
+`_CHROMIUMAPP_REDIRECT`, `_IDENTITY_SCOPE`, `_WEB_SCOPE`, `_NATIVE_SCOPE`,
 `_PRIVATE_REPO_MODE`.
 
 - `class OAuthFlow` — `.begin(mode, redirect_target=None)` tags each login `web`,
@@ -921,8 +921,11 @@ never in the app or the extension. Constants: `AUTHORIZE_URL`, `TOKEN_URL`,
   the token exactly ONCE. `._sweep()` expires stale entries.
 - `authorize_url(client_id, redirect_uri, state, scope)` / `exchange_code(code)` /
   `new_state()`.
-- Scope is per-surface: `web` asks `read:user` (identity only), so the consent
-  screen a stranger meets first does not demand read/write on every private repo.
+- Scope is per-surface and explicit per-mode (`begin()`'s `if`/`elif`/`else`,
+  not a shared fallback): `web` asks `public_repo` (2026-09-03, widened from
+  `read:user` so the web decision graph's Accept/Reject/Other can write a real
+  PR), `app`/`extension` ask `_NATIVE_SCOPE` (`repo`), and `_PRIVATE_REPO_MODE`
+  also asks `repo`; anything else falls back to `_IDENTITY_SCOPE` (`read:user`).
   An `extension` redirect target is validated against `_CHROMIUMAPP_REDIRECT` so
   this can never become an open redirect.
 

@@ -5,10 +5,16 @@
 # gitignored-but-present scratch file (outputs/leads/.../vectors.json, 131MB)
 # blew Vercel's 100MB per-file upload cap. Excluding every non-web top-level
 # directory explicitly, same intent as .dockerignore.
+#
+# MUST STAY: .git and scripts/ — web/vercel.json's ignoreCommand runs
+# `git rev-parse --show-toplevel` and `bash scripts/vercel_ignore_build.sh`
+# from the repo root on EVERY GitHub-linked deploy (PR previews included),
+# before .vercelignore's own exclusions would otherwise matter. Excluding
+# either broke every GitHub-triggered deploy with "not a git repository" /
+# "No such file or directory" — found live on PR #24 (dpl_FP73Hchne6xUrVLLmZaSr7LyhsbK).
 /mac/
 /extension/
 /site/
-/scripts/
 /docs/
 /evals/
 /demo/
@@ -18,7 +24,6 @@
 /plugins/
 /Icarus creatives/
 /brag-output-*/
-/.git
 /.github
 /.githooks
 /.claude
