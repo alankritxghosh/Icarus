@@ -48,9 +48,33 @@ def _text_of(content) -> str:
     return ""
 
 
+def _tool_was_available(raw: str) -> bool:
+    """Did this session ever HOLD the Icarus tools, or was it never offered them?
+
+    Added 2026-08-25, after three runs (7b, 7c, 7d — nine sessions) reported
+    "0 calls" that were not measurements at all: headless `claude -p` did not
+    load the project's MCP server, so every one of those agents was scored on a
+    tool it never had. `claude mcp list` said "icarus: ✔ Connected" from an
+    interactive shell the whole time, which is what made it invisible.
+
+    The signal is the prefix appearing ANYWHERE in the transcript, not only in a
+    `tool_use` block: Claude Code writes its tool catalogue into the transcript
+    (a `deferred_tools_delta` attachment), so a session that merely HAD the tool
+    still names it. Validated against a positive control on the day it was
+    written — a session with the tool available and never called shows 14
+    mentions and 0 calls, while each of the nine broken sessions shows 0 and 0.
+
+    Deliberately coarse and biased toward calling a session UNAVAILABLE only
+    when there is no trace whatsoever, because the expensive mistake is the one
+    that already happened: reading "never offered" as "chose not to use it".
+    """
+    return ICARUS_PREFIX in raw
+
+
 def audit_session(path: Path) -> dict:
-    """One transcript -> {calls, tools, directed}. Never raises on a bad line."""
+    """One transcript -> {calls, tools, directed, available}. Never raises."""
     calls, tools, directed = 0, [], False
+    available = _tool_was_available(path.read_text(errors="replace"))
     with path.open(errors="replace") as fh:
         for line in fh:
             line = line.strip()
@@ -76,7 +100,7 @@ def audit_session(path: Path) -> dict:
                     calls += 1
                     tools.append(name[len(ICARUS_PREFIX):])
     return {"session": path.stem, "calls": calls, "tools": tools,
-            "directed": directed}
+            "directed": directed, "available": available}
 
 
 def main(argv=None) -> int:
@@ -104,16 +128,27 @@ def main(argv=None) -> int:
         print("no sessions matched", file=sys.stderr)
         return 1
 
-    spontaneous = [r for r in rows if not r["directed"]]
+    # A session that never held the tool is NOT a session that declined to use
+    # it, and it must never sit in the denominator of "N of M reached for it".
+    offered = [r for r in rows if r["available"]]
+    blind = [r for r in rows if not r["available"]]
+    spontaneous = [r for r in offered if not r["directed"]]
     used = [r for r in spontaneous if r["calls"]]
     for r in rows:
+        if not r["available"]:
+            print(f"{r['session'][:8]}    TOOL NOT AVAILABLE — not a measurement")
+            continue
         if r["calls"] or not r["directed"]:
             flag = "directed" if r["directed"] else "unprompted"
             print(f"{r['session'][:8]}  {r['calls']:>3} calls  {flag:<10} "
                   f"{','.join(sorted(set(r['tools']))) or '-'}")
-    print(f"\n{len(rows)} sessions, {len(spontaneous)} undirected; "
+    print(f"\n{len(rows)} sessions, {len(offered)} held the tool, "
+          f"{len(spontaneous)} of those undirected; "
           f"{len(used)} of those called Icarus "
           f"({sum(r['calls'] for r in used)} calls total)")
+    if blind:
+        print(f"WARNING: {len(blind)} session(s) never had the Icarus tools at "
+              f"all and are excluded. They are not zeros — they are nothing.")
     return 0
 
 
@@ -138,6 +173,28 @@ def _selftest() -> int:
     assert got["calls"] == 1, got            # Bash must not be counted
     assert got["tools"] == ["get_change_context"], got
     assert got["directed"] is False, got     # user never said "icarus"
+    assert got["available"] is True, got     # it called the tool, so it had it
+
+    # The 2026-08-25 failure: a session that never held the tool must not read
+    # as a zero. Catalogue-only (available, never called) and no-trace-at-all
+    # (never offered) are different facts and are reported differently.
+    catalogue_only = [{"attachment": {"type": "deferred_tools_delta", "addedNames": [
+        "mcp__icarus__get_change_context", "mcp__ares__ares_ask"]}},
+        {"message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}}]}}]
+    never_offered = [
+        {"attachment": {"type": "deferred_tools_delta",
+                        "addedNames": ["mcp__ares__ares_ask"]}},
+        {"message": {"role": "assistant", "content": [
+            {"type": "tool_use", "name": "Bash", "input": {}}]}}]
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "ghi.jsonl"
+        p.write_text("\n".join(json.dumps(l) for l in catalogue_only))
+        held = audit_session(p)
+        p.write_text("\n".join(json.dumps(l) for l in never_offered))
+        blind = audit_session(p)
+    assert held["available"] is True and held["calls"] == 0, held
+    assert blind["available"] is False and blind["calls"] == 0, blind
 
     directed = [{"message": {"role": "user", "content": [
         {"type": "text", "text": "ask Icarus about this first"}]}}]

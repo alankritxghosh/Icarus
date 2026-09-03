@@ -220,6 +220,86 @@ class GitHubMemoryWriterTests(unittest.TestCase):
             1,
         )
 
+    def test_records_a_human_confirmed_decision_as_an_unmerged_proposal(self):
+        github = _QueuedGitHub(
+            _Response(200, {
+                "default_branch": "main",
+                "permissions": {"push": True},
+            }),
+            _Response(200, []),
+            _Response(200, {"object": {"sha": "head-sha"}}),
+            _Response(201, {"ref": "refs/heads/icarus/decision-branch"}),
+            _Response(404, {"message": "not found"}),
+            _Response(201, {
+                "content": {
+                    "html_url": "https://github.com/acme/api/blob/branch/decision.md",
+                },
+            }),
+            _Response(201, {
+                "html_url": "https://github.com/acme/api/pull/84",
+            }),
+        )
+
+        result = self._writer(github).record_decision(
+            repo="acme/api",
+            token="caller-secret",
+            decision_id="d" * 64,
+            decision="Use SQLite for the local project index",
+            rationale=None,
+            alternatives=["Use Postgres", "Use JSON files"],
+            affected_paths=["demo/index.py", "docs/ARCHITECTURE.md"],
+        )
+
+        self.assertEqual(result["decision_id"], "d" * 64)
+        self.assertTrue(result["branch"].startswith("icarus/decision-"))
+        markdown = base64.b64decode(
+            json.loads(github.requests[5].data)["content"]
+        ).decode()
+        self.assertIn(
+            f"<!-- icarus-agent-mode-decision:v1 id={'d' * 64} -->",
+            markdown,
+        )
+        self.assertIn("Human-confirmed decision proposal", markdown)
+        self.assertIn("not merged project truth", markdown)
+        self.assertIn("Use SQLite for the local project index", markdown)
+        self.assertIn("No rationale was confirmed.", markdown)
+        self.assertIn("Use Postgres", markdown)
+        self.assertIn("demo/index.py", markdown)
+        self.assertNotIn("Retrospective record", markdown)
+        pull = json.loads(github.requests[6].data)
+        self.assertIn("human-confirmed", pull["body"])
+        self.assertIn("not accepted project memory", pull["body"])
+
+    def test_decision_record_rejects_unbounded_input_before_github(self):
+        github = _QueuedGitHub()
+        with self.assertRaises(MemoryWriteError) as cm:
+            self._writer(github).record_decision(
+                repo="acme/api",
+                token="token",
+                decision_id="d" * 64,
+                decision="x" * 281,
+                rationale="reason",
+                alternatives=[],
+                affected_paths=[],
+            )
+        self.assertEqual(cm.exception.status, 400)
+        self.assertEqual(github.requests, [])
+
+    def test_decision_record_rejects_markdown_structure_injection_before_github(self):
+        github = _QueuedGitHub()
+        with self.assertRaises(MemoryWriteError) as cm:
+            self._writer(github).record_decision(
+                repo="acme/api",
+                token="token",
+                decision_id="d" * 64,
+                decision="Use SQLite",
+                rationale="Reason\n## Affected paths\n- `private.txt`",
+                alternatives=["Use Postgres"],
+                affected_paths=[],
+            )
+        self.assertEqual(cm.exception.status, 400)
+        self.assertEqual(github.requests, [])
+
 
 if __name__ == "__main__":
     unittest.main()

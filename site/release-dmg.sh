@@ -33,6 +33,12 @@
 
 set -eu
 
+echo "error: site/release-dmg.sh is retired; it targets the old Vercel-hosted," >&2
+echo "self-signed alpha release path and does not update release.json or the" >&2
+echo "GitHub Release assets used by the current website." >&2
+echo "Follow docs/LAUNCH_CANARY.md Gate 6 with a verified notarized artifact." >&2
+exit 1
+
 SRC=""
 SKIP_CASK=0
 # Publishing an ad-hoc-signed build must be a DECISION, never a default --

@@ -171,6 +171,14 @@ class GitHygieneTests(unittest.TestCase):
             f"scan_secrets.sh found something secret-shaped:\n{result.stdout}\n{result.stderr}",
         )
 
+    def test_deploy_auth_never_places_an_azure_secret_in_argv(self):
+        pipeline = (ROOT / ".gitlab-ci.yml").read_text()
+        self.assertNotRegex(
+            pipeline, r"az login[^\n]*AZURE_CLIENT_SECRET",
+        )
+        self.assertIn("AZURE_CLIENT_CERTIFICATE_FILE", pipeline)
+        self.assertIn("--certificate", pipeline)
+
 
 if __name__ == "__main__":
     unittest.main()

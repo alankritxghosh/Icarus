@@ -1,10 +1,12 @@
 # evals/trust.py
 """The deterministic trust interlock: private code -> private-safe model ONLY.
 
-Like the honesty gate, this is provable in code, never a judgement call: a
-provider is private-safe iff it declares private_safe=True (set only at
-construction from a dedicated paid-key env -- see evals/provider.py). Anything
-else, including a provider that never declared itself, is refused."""
+Like the honesty gate, the routing decision is provable in code: a provider is
+private-safe iff it declares private_safe=True, and anything else is refused.
+For the network writer, that flag exists only on the class using the dedicated
+paid-key env (see evals/provider.py). The code proves fail-closed routing; the
+operator must separately verify that the configured Cloud Project is actively
+billed, because no key string can prove its contractual tier."""
 
 
 class PrivateDataError(RuntimeError):

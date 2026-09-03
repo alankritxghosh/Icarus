@@ -3,6 +3,8 @@
 is instant, a miss ingests into a git-ignored cache, errors keep the old repo."""
 
 import json
+import contextlib
+import io
 import os
 import tempfile
 import unittest
@@ -157,6 +159,18 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn("github.com", err)
         self.assertNotIn("git clone", err)
         self.assertIn("index", err.lower())
+
+    def test_ingest_failure_log_contains_no_repository_or_exception_content(self):
+        def boom(repo, out_dir, commit=None, code_dir="llm", token=None, refresh=False):
+            raise RuntimeError("private diagnostic for secret-owner/secret-repo")
+        self.lib._ingest_fn = boom
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            self.lib.connect_sync("secret-owner/secret-repo")
+        log = captured.getvalue()
+        self.assertIn("RuntimeError", log)
+        self.assertNotIn("secret-owner", log)
+        self.assertNotIn("private diagnostic", log)
 
     def test_connect_publishes_the_fast_pipeline_before_the_full_one(self):
         # STAGE 1 (fast, lexical-only) must land first; STAGE 2 (full/hybrid)

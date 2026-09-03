@@ -146,7 +146,10 @@ class InvestigateTests(unittest.TestCase):
             # Generous here so the shared server can serve a whole test class.
             # The PRODUCTION default is 3/min -- see make_handler, and the
             # billed-call test below, which injects its own tight limiter.
-            investigate_limiter=RateLimiter(100, 60))
+            investigate_limiter=RateLimiter(100, 60),
+            # Same isolation for the new process-wide launch ceiling. A
+            # dedicated test below proves that boundary with a tight value.
+            global_investigate_limiter=RateLimiter(100, 60))
         cls.server = HTTPServer(("127.0.0.1", 0), handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -318,6 +321,39 @@ class InvestigateTests(unittest.TestCase):
             # ...and a plain ask is unaffected: it has its own, separate budget.
             status, _ = _post(base + "/ask", {"question": "anything"}, token="tok-a")
             self.assertEqual(status, 200)
+        finally:
+            server.shutdown()
+            server.server_close()
+            tmp.cleanup()
+
+    def test_global_investigation_budget_cannot_be_bypassed_by_another_identity(self):
+        tmp = tempfile.TemporaryDirectory()
+        html = Path(tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        handler = make_handler(
+            _StubRegistry(self.lib), str(html), require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "user-a", "tok-b": "user-b"}),
+            conversations=ConversationStore(),
+            entity_index=lambda lib, snapshot=None: build_entity_index(CHUNKS),
+            investigate_limiter=RateLimiter(100, 60),
+            global_investigate_limiter=RateLimiter(
+                1, 60, _now=lambda: 1000.0),
+        )
+        server = HTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            self.assertEqual(
+                _post(base + "/investigate", {"question": "about PR #400"},
+                      token="tok-a")[0],
+                200,
+            )
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(base + "/investigate", {"question": "about PR #400"},
+                      token="tok-b")
+            self.assertEqual(cm.exception.code, 429)
+            self.assertEqual(cm.exception.headers["Retry-After"], "60")
+            cm.exception.close()
         finally:
             server.shutdown()
             server.server_close()

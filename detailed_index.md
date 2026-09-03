@@ -92,16 +92,20 @@ BM25 lexical retriever over corpus chunks. Stdlib only. Module constant: `_TOKEN
 The `Provider` abstraction for the rented answer-writer (we rent the model, own
 the pipeline). Stdlib `urllib` only; keys from env. Module constants: `_USER_AGENT`
 (Groq's Cloudflare 403s the default urllib UA), `_RETRY_DELAY`,
-`_MAX_BACKOFF_SECONDS` (the named per-sleep cap).
+`_MAX_BACKOFF_SECONDS` (the named per-sleep cap) and
+`_MAX_TOTAL_BACKOFF_SECONDS` (the per-request retry-sleep budget, kept below
+the platform ingress timeout).
 
 - `_with_retry(call, retries=6, base=2.0)` — run `call()`, retrying on HTTP 429
   with backoff; waits a Retry-After header, else Gemini's body `retryDelay`, else
-  `base*2**attempt` (capped at `_MAX_BACKOFF_SECONDS`). Non-429 raises immediately.
+  `base*2**attempt`. Each wait and the cumulative wait are capped; malformed
+  Retry-After falls back safely. Non-429 raises immediately.
 - `_openai_chat(url, key, model, prompt, timeout) -> str` — one OpenAI-compatible
   chat-completions call (shared by OpenRouter + Groq), with UA + 429 retry.
 - `_parse_gemini(data) -> str` — extract text from a Gemini generateContent reply.
-- `make_provider(name) -> Provider` — factory: `groq`/`gemini`/`gemini-paid`/
-  `openrouter`; raises `ValueError` on an unknown name.
+- `make_provider(name) -> Provider` — factory: `groq`/`gemini`/
+  `gemini-launch`/`gemini-paid`/`openrouter`; raises `ValueError` on an
+  unknown name.
 - `has_provider_key(name) -> bool` — whether that provider's env key is set.
 - `class Provider` — interface: `complete(self, prompt) -> str`. Class attribute
   `private_safe: bool = False` — True only for providers whose data-use terms
@@ -125,6 +129,9 @@ the pipeline). Stdlib `urllib` only; keys from env. Module constants: `_USER_AGE
   `private_safe = True`. The separate env var (not model detection) is the
   safety mechanism: putting a key there is the operator's attestation that it's
   billing-enabled/no-training. The private-repo writer.
+- `class LaunchGeminiProvider(GeminiProvider)` — explicit launch serving route
+  using existing `GEMINI_API_KEY`, with `private_safe = True` as the accepted
+  launch routing flag rather than a paid-provider/ZDR attestation.
 
 ## evals/trust.py
 The deterministic trust interlock: private code may only reach a private-safe
@@ -466,6 +473,21 @@ Constants: `CANDIDATE_STEPS`, `ONBOARDING_STEPS`, `DEFAULT_REPOS`.
   any prompt is sent (zero prompts); `demo/library.py`/`demo/server.py` never
   import the judge; and the per-user private tree is git-ignored while the
   tracked tree stays clean of secrets.
+- `evals/test_release_safety.py` — `InstallerSafetyTests` pins the final-user
+  installer boundary: checksum plus Apple stapling/Gatekeeper/Developer ID
+  verification, no quarantine bypass, and recoverable replacement rather than
+  deleting the previous app before the new copy succeeds.
+- `evals/test_prepare_release.py` — `PrepareReleaseTests` pins the local release
+  transaction: one verified candidate updates all four consumers, while a
+  rejected distribution, mismatched appcast or wrong version changes nothing.
+- `evals/test_canary_acceptance.py` — `CanaryAcceptanceTests` pins the leak-safe
+  two-identity/four-repository acceptance matrix and its configuration guards.
+- `evals/test_canary_app_preflight.py` — `CanaryAppPreflightTests` pins the
+  local no-mutation canary app input gate: digest-only ACR image identity,
+  matching registry host, required Key Vault secret URL shape, and fixed-label
+  CLI output that never echoes inputs.
+- `evals/test_canary_control_plane.py` — `CanaryControlPlaneTests` pins the
+  read-only Azure snapshot evaluator and its strict failure boundaries.
 
 ## evals/entities.py
 Deterministic, evidence-bearing relationship graph over indexed repository
@@ -545,8 +567,10 @@ Turn a pipeline `Result` into the JSON the demo page renders. No classes.
   it into a citation or answer.
 
 ## demo/agent_sessions.py
-Bounded, thread-safe in-memory grants for public-read coding-agent access. No
-GitHub credential is accepted, retained, logged, or persisted.
+Bounded, thread-safe in-memory grants for repo-scoped coding-agent access. No
+GitHub credential is accepted, retained, logged, or persisted. A grant can read
+context and append a candidate/no-decision event, but cannot confirm or mutate
+GitHub.
 
 - `class AgentGrant` — immutable verified identity + active-repository scope.
 - `class AgentSessionStore` — issues opaque ten-minute tokens, purges expired
@@ -554,9 +578,10 @@ GitHub credential is accepted, retained, logged, or persisted.
   `None`.
 
 ## demo/mcp_server.py
-Dependency-free read-only MCP adapter over the existing Icarus HTTP boundary.
-Module constants define the supported protocol, server identity/instructions,
-and the two tool schemas.
+Dependency-free MCP adapter over the existing Icarus HTTP boundary. Three tools
+are evidence reads and two submit bounded Agent Mode candidate/no-decision
+events; none can confirm intent or mutate GitHub. Module constants define the
+supported protocol, server identity/instructions, and five tool schemas.
 
 - `class _ToolError` — safe, user-actionable failures returned as MCP tool
   errors rather than leaked stack traces.
@@ -586,6 +611,11 @@ and the two tool schemas.
 - `_explain_code_context(arguments)` — validate an explicit file selection,
   preflight the public repo, call `/explain` with evidence enabled, verify
   response provenance, and recheck public status before returning evidence.
+- `_record_decision_candidate(arguments)` — strict-field validate one atomic
+  candidate, preflight/postflight its expected repo, and append it through the
+  route-scoped agent endpoint without returning session correlation.
+- `_record_no_decision(arguments)` — acknowledge one turn with no consequential
+  choice; the HTTP boundary deliberately retains no absence record.
 - `_tool_result(payload)` / `_tool_error(message)` — MCP tool result shaping;
   successful output includes both `structuredContent` and a JSON TextContent
   fallback.
@@ -659,6 +689,27 @@ and verdict history without answer bodies or asker identity.
   - `gaps(repo, *, include_resolved=False)` — collapse chronological asks into
     exact-text `open`/`proposed`/`resolved` gaps; only a cited answer resolves.
 
+## demo/decision_ledger.py
+Append-only Agent Mode lifecycle with raw session content excluded.
+
+- `class DecisionLedgerError` — bounded caller-safe validation/lifecycle error.
+- `class DecisionLedger` — repo-scoped JSONL candidate and confirmation store.
+  - `submit(repo, *, session_id, decision, rationale, alternatives,
+    affected_paths=())` — hash the session ID, strictly bound one atomic
+    candidate, and append idempotently under a lock.
+  - `preview_confirmation(repo, *, candidate_id, selection,
+    alternative_index=None, other_text=None)` — validate the exact human choice
+    before any GitHub write.
+  - `confirm(repo, *, candidate_id, selection, alternative_index=None,
+    other_text=None, proposal=None)` — append an idempotent human resolution;
+    accepted choices require an observed reviewable GitHub proposal.
+  - `candidates(repo, *, statuses={"pending"})` — fold append-only events into
+    newest-first current state.
+  - `project_context(repo, *, limit=20, indexed_chunks=(), commit=None)` — emit
+    only confirmed PR-backed intent, promote it to merged only when its marked
+    document is in the active corpus, and reconstruct cited merged intent after
+    local ledger loss.
+
 ## demo/memory_writer.py
 Bounded, caller-scoped GitHub writer for reviewed engineering-memory records.
 
@@ -670,6 +721,9 @@ Bounded, caller-scoped GitHub writer for reviewed engineering-memory records.
     recover one gap-owned branch, one new retrospective Markdown file, and one
     pull request. Never overwrite, merge, close, delete, or edit unrelated
     content.
+  - `record_decision(*, repo, token, decision_id, decision, rationale=None,
+    alternatives=(), affected_paths=())` — create or recover the marked
+    human-confirmed decision document and review PR; never merge it.
 
 ## demo/library.py
 One active repo's state: which corpus is loaded, its pipeline, and switch
@@ -698,9 +752,18 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
   the platform's TLS proxy + rely on the bearer gate.
 - `_resolve_storage_root(raw, default) -> Path` — `ICARUS_STORAGE_ROOT`,
   falling back to `default` when unset OR set-but-blank.
+- `runtime_readiness(storage_root, require_auth, environ=None) -> dict` —
+  content-free production configuration probe: real write/fsync/delete on the
+  selected storage root plus presence of the paid writer key, dedicated public
+  ingest credential, OAuth pair and required-auth flag. It explicitly cannot
+  infer paid-plan/ZDR status or prove that a directory is an Azure mount.
+- `_positive_env_int(name, default) -> int` — parse a process capacity setting
+  and fail startup on zero, negative, or non-integer values instead of silently
+  creating a service with no usable capacity.
 - `make_handler(registry, html_path, require_auth=False, verifier=None,
   oauth=None, allowed_hosts=None, ask_limiter=None, connect_limiter=None,
-  memory_writer=None, memory_limiter=None, ...)` —
+  memory_writer=None, memory_limiter=None, decisions=None,
+  agent_mode_limiter=None, ...)` —
   return a `BaseHTTPRequestHandler` subclass bound to the registry:
   - `_authorized()` — loopback Host + same-origin guard; skipped entirely when
     `allowed_hosts` contains `'*'` (cloud mode — the bearer gate is the real
@@ -710,21 +773,33 @@ constants: `ROOT`, `REPO_ROOT`, `CORPUS_DIR`, `CORPUS_META`, `QUESTIONS`,
     token can never be forwarded to GitHub.
   - `do_GET` — `/` serves the page; `/health`/`/status` resolve
     `registry.library_for(self._identity())` and return its provenance/snapshot;
+    `/ready` adds registry warmup plus the content-free runtime/storage checks,
+    returning 503 until all are ready;
     `/auth/github/callback` completes the web-login redirect; else 404.
   - `do_POST` — `/auth/github/begin`/`/auth/github/redeem` work without a
     token (they mint one). `/auth/agent/session` requires a verified GitHub
-    bearer, re-verifies that the active repo is public, rate-limits issuance,
+    bearer, re-verifies access to the active repo, rate-limits issuance,
     and returns an opaque repo-bound session with `Cache-Control: no-store`.
-    Agent sessions can call only `/ask` and `/explain` here; other routes are
-    forbidden. Everything else requires an identity (401 if None).
+    Agent sessions can read only the context/status routes and append only a
+    bounded candidate/no-decision event; confirmation remains GitHub-only.
+    Everything else requires an identity (401 if None).
     `/disconnect` calls `registry.disconnect(identity)`. `/ask` and `/connect`
-    check their `RateLimiter` BEFORE parsing the body (429 if exceeded, so a
-    rate-limited caller never reaches the billed writer or a clone/ingest).
+    check their `RateLimiter` BEFORE parsing the body (429 plus `Retry-After` if
+    exceeded, so a rate-limited caller never reaches the billed writer or a
+    clone/ingest). Process-wide ask/investigation/connect ceilings prevent many
+    identities from multiplying provider, GitHub or CPU spend. Shared bounded
+    writer and ingest semaphores reject excess work with retryable 503s; a
+    background connect holds its ingest slot until the actual job finishes.
     `/ledger?gaps=1&resolved=1` returns the server-owned memory lifecycle.
     `/memory-gaps/record` accepts an opaque actionable gap ID, returns an
     already-proposed pull request without consuming the write limit, otherwise
     invokes the bounded GitHub writer and durably appends `proposed` before
     returning success.
+    `/agent-mode/candidates` lists pending cards for the app or appends one from
+    a repo-bound agent. `/agent-mode/confirm` validates a human selection and,
+    for accepted choices, creates the GitHub proposal before persisting success.
+    `/agent-mode/context` projects only confirmed intent, distinguishing open PR
+    receipts from marked documents actually present in the active corpus.
     `/ask` returns `build_payload(lib.current_pipeline().answer(q), ...)`; a
     strict boolean `include_evidence` opt-in adds retrieved evidence for agent
     clients and deliberately skips the human documentation-demand ledger.
@@ -837,7 +912,7 @@ Constants: `_SAFE_ID`, `_SAFE_REPO`, `_FILENAME`.
 ## demo/github_oauth.py
 Server-side GitHub authorization-code flow. The client SECRET lives only here,
 never in the app or the extension. Constants: `AUTHORIZE_URL`, `TOKEN_URL`,
-`_CHROMIUMAPP_REDIRECT`, `_WEB_SCOPE`, `_NATIVE_SCOPE`, `_IDENTITY_ONLY_MODES`,
+`_CHROMIUMAPP_REDIRECT`, `_IDENTITY_SCOPE`, `_WEB_SCOPE`, `_NATIVE_SCOPE`,
 `_PRIVATE_REPO_MODE`.
 
 - `class OAuthFlow` — `.begin(mode, redirect_target=None)` tags each login `web`,
@@ -846,8 +921,11 @@ never in the app or the extension. Constants: `AUTHORIZE_URL`, `TOKEN_URL`,
   the token exactly ONCE. `._sweep()` expires stale entries.
 - `authorize_url(client_id, redirect_uri, state, scope)` / `exchange_code(code)` /
   `new_state()`.
-- Scope is per-surface: `web` asks `read:user` (identity only), so the consent
-  screen a stranger meets first does not demand read/write on every private repo.
+- Scope is per-surface and explicit per-mode (`begin()`'s `if`/`elif`/`else`,
+  not a shared fallback): `web` asks `public_repo` (2026-09-03, widened from
+  `read:user` so the web decision graph's Accept/Reject/Other can write a real
+  PR), `app`/`extension` ask `_NATIVE_SCOPE` (`repo`), and `_PRIVATE_REPO_MODE`
+  also asks `repo`; anything else falls back to `_IDENTITY_SCOPE` (`read:user`).
   An `extension` redirect target is validated against `_CHROMIUMAPP_REDIRECT` so
   this can never become an open redirect.
 
@@ -878,10 +956,17 @@ imports `evals/`, and changes no brain code.
 - `demo/test_payload.py` — pins the answer and honest-unknown payload shapes
   (citation URLs, order preserved, `searched`, url=None for unknown sources),
   opt-in retrieved evidence, and exact repo/commit provenance.
-- `demo/test_mcp_server.py` — pins the stdio MCP handshake and read-only tool
+- `demo/test_mcp_server.py` — pins the stdio MCP handshake and five tool
   schemas, evidence-rich honest unknowns, explicit line selections, repo
   mismatch refusal, private-repository fail-closed behavior, automatic
-  app-issued session acquisition/reuse, and explicit development overrides.
+  app-issued session acquisition/reuse, candidate/raw-field/no-decision
+  behavior, and explicit development overrides.
+- `demo/test_decision_ledger.py` — pins candidate bounds/privacy/atomicity,
+  confirmation choices and idempotency, and the deterministic corpus-backed
+  proposal/not-indexed-to-merged/reconstruct transition.
+- `demo/test_agent_mode.py` — real HTTP boundary proof of the full agent submit
+  → human choice → GitHub proposal → fresh-session projection loop, including
+  merged citations and counts-only analytics.
 - `demo/test_agent_sessions.py` — pins opaque grants, identity/repo scope,
   expiry, and unknown-token refusal.
 - `demo/test_auth.py` — pins `bearer_token` parsing, `StaticTokenVerifier`'s
@@ -899,7 +984,7 @@ imports `evals/`, and changes no brain code.
   gap IDs, and open→proposed→resolved lifecycle.
 - `demo/test_memory_writer.py` — pins validation, push permission, bounded
   GitHub request shapes, deterministic proposal reuse, lost-response recovery,
-  and truthful partial-failure URLs.
+  marked decision records, and truthful partial-failure URLs.
 - `demo/test_library.py` — pins the `Library`: starts on the default repo, cache-hit
   switches without re-ingesting, a miss ingests, default uses the committed corpus,
   an ingest failure keeps the previous repo answerable, and (Task 11) private
@@ -919,6 +1004,14 @@ imports `evals/`, and changes no brain code.
   `Library`): an answerable question returns a cited answer with a github.com link,
   an unrecorded one returns the honest unknown (skips without a provider key/corpus).
 
+## mac/Icarus/Sources/IcarusKit/AppearancePreference.swift
+Persisted app-level appearance selection shared by the Settings UI and runtime.
+
+- `icarusAppearanceDefaultsKey` — the one UserDefaults key for the preference.
+- `enum AppAppearance` — the closed dark/light palette choice.
+- `struct AppearancePreference` — reads and writes the choice against injectable
+  UserDefaults, defaulting missing or invalid values safely to dark.
+
 ## mac/Icarus/Sources/IcarusKit/VoiceLatencyTracker.swift
 Privacy-safe Phase 3 experience measurement. It accepts monotonic timing marks,
 not product content, and retains only the newest 50 completed samples in memory.
@@ -930,3 +1023,11 @@ not product content, and retains only the newest 50 completed samples in memory.
   queue, release-to-first-word, and total durations.
 - `releaseToFirstWordP50` / `releaseToFirstWordP95` — nearest-rank session
   percentiles over completed samples.
+
+## mac/Icarus/Sources/IcarusKit/ClaudeHook.swift
+Pure, bounded Claude Code hook behavior with I/O held in the app command layer.
+
+- `enum ClaudeHook` — SessionStart injects only human-confirmed unmerged PR
+  proposals or merged+cited corpus truth. Stop inspects only the current user
+  turn for exactly one capture tool and returns nil when Claude's loop guard is
+  active; block text never echoes transcript content.

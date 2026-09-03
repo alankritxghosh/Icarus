@@ -257,7 +257,18 @@ if (typeof navigation !== "undefined") {
   // would be a timing assumption; the destination URL is exact and available
   // immediately.
   navigation.addEventListener("navigate", (event) => {
-    const url = new URL(event.destination.url);
+    // Some navigation types (certain traversals, cross-origin) carry an empty
+    // or invalid destination URL, so new URL() can throw. A throw here would
+    // skip the cleanup below (removeWidget on leaving a blob page), leaving a
+    // stale trigger/panel on screen -- so parse defensively and treat a bad
+    // destination as "navigated away": tear the widget down.
+    let url;
+    try {
+      url = new URL(event.destination.url);
+    } catch {
+      removeWidget();
+      return;
+    }
     handleLocationChange(url.pathname, url.hash);
   });
 }

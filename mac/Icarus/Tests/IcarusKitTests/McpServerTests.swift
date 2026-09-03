@@ -47,7 +47,10 @@ final class McpServerTests: XCTestCase {
         let statusData = (try? JSONSerialization.data(withJSONObject: status)) ?? Data()
         let answerData = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data()
         await spy.set("/status", statusData)
-        for path in ["/ask", "/explain", "/context"] { await spy.set(path, answerData) }
+        for path in [
+            "/ask", "/explain", "/context", "/agent-mode/candidates",
+            "/agent-mode/no-decision",
+        ] { await spy.set(path, answerData) }
         let server = McpServer { path, body in
             let encoded = body.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
             let data = await spy.record(path, encoded)
@@ -81,14 +84,15 @@ final class McpServerTests: XCTestCase {
         XCTAssertFalse(instructions.contains("meaningful code change"))
     }
 
-    func testToolsListServesTheThreeGeneratedTools() async {
+    func testToolsListServesReadAndBoundedCaptureTools() async {
         let (server, _) = await makeServer()
         let response = await server.handle([
             "jsonrpc": "2.0", "id": 2, "method": "tools/list",
         ])
         let tools = (response?["result"] as? [String: Any])?["tools"] as? [[String: Any]]
         XCTAssertEqual(Set((tools ?? []).compactMap { $0["name"] as? String }),
-                       ["get_change_context", "explain_code_context", "get_task_context"])
+                       ["get_change_context", "explain_code_context", "get_task_context",
+                        "record_decision_candidate", "record_no_decision"])
     }
 
     func testNotificationGetsNoReply() async {
@@ -140,6 +144,60 @@ final class McpServerTests: XCTestCase {
     }
 
     // MARK: - what gets sent and returned
+
+    func testDecisionCandidateSendsOnlyTheBoundedSchema() async {
+        let response: [String: Any] = [
+            "repo": "simonw/llm", "id": String(repeating: "a", count: 64),
+            "status": "pending",
+        ]
+        let (server, spy) = await makeServer(answer: response)
+        _ = await call(server, "record_decision_candidate", [
+            "repo": "simonw/llm",
+            "session_id": "session-1",
+            "decision": "Use SQLite",
+            "rationale": "It keeps the first version local.",
+            "alternatives": [[
+                "decision": "Use Postgres", "rationale": "Better concurrency.",
+            ]],
+            "affected_paths": ["demo/index.py"],
+        ])
+
+        let body = object(await spy.bodyData(for: "/agent-mode/candidates"))
+        XCTAssertEqual(body["session_id"] as? String, "session-1")
+        XCTAssertEqual(body["decision"] as? String, "Use SQLite")
+        XCTAssertNil(body["transcript"])
+    }
+
+    func testDecisionCandidateRejectsRawTranscriptBeforeNetwork() async {
+        let (server, spy) = await makeServer()
+        let result = await call(server, "record_decision_candidate", [
+            "repo": "simonw/llm",
+            "session_id": "session-1",
+            "decision": "Use SQLite",
+            "rationale": "Local and simple.",
+            "alternatives": [[
+                "decision": "Use Postgres", "rationale": "Concurrent.",
+            ]],
+            "transcript": "must stay local",
+        ])
+
+        XCTAssertEqual(result["isError"] as? Bool, true)
+        let paths = await spy.paths
+        XCTAssertFalse(paths.contains("/agent-mode/candidates"))
+        XCTAssertFalse(paths.contains("/status"))
+    }
+
+    func testNoDecisionUsesTheNonPersistingEndpoint() async {
+        let response: [String: Any] = ["repo": "simonw/llm", "recorded": false]
+        let (server, spy) = await makeServer(answer: response)
+        let result = await call(server, "record_no_decision", [
+            "repo": "simonw/llm", "session_id": "session-1",
+        ])
+
+        XCTAssertEqual(result["isError"] as? Bool, false)
+        let body = object(await spy.bodyData(for: "/agent-mode/no-decision"))
+        XCTAssertEqual(body["session_id"] as? String, "session-1")
+    }
 
     func testAskAlwaysRequestsPerClaimAndEvidence() async {
         let (server, spy) = await makeServer()

@@ -256,3 +256,40 @@ only the two reviewed commits (the unreviewed `c434b4a` ingest change is
 excluded), and both suites pass on it: 967 evals / 664 demo. Not pushed, not
 triggered. The world-model-mcp corpus survives, which is what made this
 measurement possible.
+
+---
+
+# DEPLOYED 2026-08-25
+
+Pushed and shipped on Alankrit's go, after the layered-evidence hypothesis was
+answered (which is why the deploy waited — the corpus it wipes is what made that
+measurement possible).
+
+**What shipped.** `main` at `fba65912`: the four reviewed commits only. The
+unreviewed `c434b4a` ingest change that sat on the source branch was deliberately
+EXCLUDED by cutting the deploy branch from `main` and cherry-picking, so nothing
+unreviewed rode along.
+
+**Pipeline** `2786799746` on GitLab (not GitHub — deploys run on the `gitlab`
+remote): `secrets-scan` ✓ → `tests` ✓ → `build` ✓ (~9 min) → `deploy` triggered
+manually, succeeded in 60s. Pre-flight on the exact deployable tree: 991 evals /
+664 demo green, secrets scan clean.
+
+**Verified live**, not assumed: `/health` and `/status` both answer, and the
+deploy job's own trace shows it polling `/health` until the new revision served.
+
+**NOT verified: that the new checks behave as intended in production.** A
+`get_task_context` call against the default corpus on a task chosen to reach
+`pr:847` (which the temporal check does fire on locally) returned
+`decisions: []`, so the flag had nothing to attach to. Its `unknowns` list of 6
+carries no visible restatements, which is consistent with the dedup fix being
+live but is not proof — a short list may simply not have produced duplicates.
+
+**The clean verification is still available and is why the baseline was kept.**
+Pre-deploy, three trials on `world-model-mcp` measured 12 / 12 / 12 unknowns with
+the false `explicit` decision in 3 of 4 draws. Re-connecting that repo and
+re-running the same three trials is a direct before/after on the same question,
+same corpus commit, differing only in the shipped code. It needs a re-ingest
+(the deploy wiped per-user corpora, as designed) and Alankrit reconnecting.
+
+Until that runs, the honest claim is: **deployed and healthy; effect unmeasured.**

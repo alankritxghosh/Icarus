@@ -264,8 +264,6 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public var isTruncated: Bool { truncated == true }
     /// Is the semantic index still building? Absent reads as no.
     public var isIndexing: Bool { indexing == true }
-    /// The brain's own name for this connection, shown in the sidebar.
-    public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
     /// The repository visibility label shown beside the active repo.
     public var repositoryVisibilityName: String {
         isPrivate == true ? "private repo" : "public repo"
@@ -365,4 +363,135 @@ public struct MemoryRecordFailure: Error, Sendable, Equatable {
         self.message = message
         self.recoveryURL = recoveryURL
     }
+}
+
+/// One agent recommendation is deliberately atomic: a primary choice and a
+/// small bounded set of alternatives. It is not project truth while pending.
+public struct DecisionAlternative: Decodable, Sendable, Equatable {
+    public let decision: String
+    public let rationale: String
+}
+
+public enum DecisionCandidateStatus: String, Decodable, Sendable {
+    case pending
+    case notSure = "not_sure"
+    case rejected
+    case confirmedProposal = "confirmed_proposal"
+}
+
+public struct DecisionCandidate: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let ts: Double
+    public let source: String
+    public let decision: String
+    public let rationale: String
+    public let alternatives: [DecisionAlternative]
+    public let affectedPaths: [String]
+    public let status: DecisionCandidateStatus
+
+    enum CodingKeys: String, CodingKey {
+        case id, ts, source, decision, rationale, alternatives, status
+        case affectedPaths = "affected_paths"
+    }
+}
+
+public struct DecisionCandidatesResponse: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let candidates: [DecisionCandidate]
+}
+
+/// A confirmed decision as the brain projects it on `/agent-mode/context`:
+/// either a human-confirmed proposal whose PR exists but is not yet in indexed
+/// truth, or a merged decision recovered from the indexed corpus with a
+/// citation. An unrecognised status decodes to `.unrecognised` and renders in
+/// the most cautious voice, never as merged truth — the same closed-set
+/// discipline the freshness/briefing enums use.
+public enum AgentDecisionStatus: Sendable, Equatable {
+    case proposalNotIndexed
+    case merged
+    case unrecognised
+
+    public init(raw: String) {
+        switch raw {
+        case "human_confirmed_proposal_not_indexed": self = .proposalNotIndexed
+        case "human_confirmed_merged": self = .merged
+        default: self = .unrecognised
+        }
+    }
+}
+
+public struct AgentDecision: Decodable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let decision: String
+    public let rationale: String
+    public let affectedPaths: [String]
+    public let status: AgentDecisionStatus
+    public let pullRequestURL: URL?
+    public let citationRef: String?
+    public let citationURL: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case id, decision, rationale, status
+        case affectedPaths = "affected_paths"
+        case pullRequestURL = "pull_request_url"
+        case citationRef = "citation_ref"
+        case citationURL = "citation_url"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        decision = try c.decode(String.self, forKey: .decision)
+        rationale = (try? c.decode(String.self, forKey: .rationale)) ?? ""
+        affectedPaths = (try? c.decode([String].self, forKey: .affectedPaths)) ?? []
+        status = AgentDecisionStatus(raw: (try? c.decode(String.self, forKey: .status)) ?? "")
+        pullRequestURL = try? c.decode(URL.self, forKey: .pullRequestURL)
+        citationRef = try? c.decode(String.self, forKey: .citationRef)
+        citationURL = try? c.decode(URL.self, forKey: .citationURL)
+    }
+}
+
+public struct AgentDecisionsResponse: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let commit: String?
+    public let decisions: [AgentDecision]
+}
+
+public struct DecisionProposal: Decodable, Sendable, Equatable {
+    public let repo: String
+    public let decisionID: String
+    public let branch: String
+    public let path: String
+    public let fileURL: URL?
+    public let pullRequestURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case repo, branch, path
+        case decisionID = "decision_id"
+        case fileURL = "file_url"
+        case pullRequestURL = "pull_request_url"
+    }
+}
+
+public struct DecisionConfirmationResult: Decodable, Sendable, Equatable {
+    public let id: String
+    public let status: DecisionCandidateStatus
+    public let selection: String
+    public let selectedDecision: String?
+    public let selectedRationale: String?
+    public let proposal: DecisionProposal?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status, selection, proposal
+        case selectedDecision = "selected_decision"
+        case selectedRationale = "selected_rationale"
+    }
+}
+
+public enum DecisionSelection: Sendable, Equatable {
+    case recommended
+    case alternative(Int)
+    case other(String)
+    case notSure
+    case reject
 }

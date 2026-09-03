@@ -1,5 +1,7 @@
 # demo/test_server.py
 import json
+import contextlib
+import io
 import os
 import tempfile
 import threading
@@ -7,12 +9,12 @@ import unittest
 import unittest.mock
 import urllib.request
 import urllib.error
-from http.server import HTTPServer
+from http.server import HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 
 from evals.pipeline import Result, Pipeline
 from . import posthog_capture as demo_posthog
-from .server import make_handler
+from .server import make_handler, runtime_readiness
 
 REPO = "simonw/llm"
 COMMIT = "94769b8b076cde9392059d76bd766453cf900180"
@@ -166,6 +168,66 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["repo"], REPO)
         self.assertEqual(body["commit"], COMMIT)
+
+    def test_ready_reports_injected_runtime_checks(self):
+        fx = _ServerFixture(
+            _StubLibrary(),
+            readiness=lambda: {
+                "ok": True,
+                "checks": {"storage_writable": True, "writer_key": True},
+            },
+        )
+        try:
+            with urllib.request.urlopen(fx.base + "/ready") as resp:
+                self.assertEqual(resp.status, 200)
+                body = json.loads(resp.read())
+            self.assertTrue(body["ok"])
+            self.assertTrue(body["checks"]["storage_writable"])
+        finally:
+            fx.close()
+
+    def test_ready_is_503_when_a_required_runtime_check_fails(self):
+        fx = _ServerFixture(
+            _StubLibrary(),
+            readiness=lambda: {
+                "ok": False,
+                "checks": {"storage_writable": True, "writer_key": False},
+            },
+        )
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                urllib.request.urlopen(fx.base + "/ready")
+            self.assertEqual(cm.exception.code, 503)
+            self.assertFalse(json.loads(cm.exception.read())["ok"])
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_runtime_readiness_checks_required_credentials_and_storage(self):
+        with tempfile.TemporaryDirectory() as root:
+            env = {
+                "GEMINI_API_KEY": "configured",
+                "GH_TOKEN": "configured",
+                "GITHUB_CLIENT_ID": "configured",
+                "GITHUB_CLIENT_SECRET": "configured",
+            }
+            ready = runtime_readiness(Path(root), require_auth=True, environ=env)
+            self.assertTrue(ready["ok"], ready)
+            self.assertEqual(
+                ready["checks"],
+                {
+                    "storage_writable": True,
+                    "writer_key": True,
+                    "public_ingest_credential": True,
+                    "github_oauth": True,
+                    "github_auth_required": True,
+                },
+            )
+
+            del env["GEMINI_API_KEY"]
+            not_ready = runtime_readiness(Path(root), require_auth=True, environ=env)
+            self.assertFalse(not_ready["ok"])
+            self.assertFalse(not_ready["checks"]["writer_key"])
 
     def test_status_reports_active_repo(self):
         with urllib.request.urlopen(self.base + "/status") as resp:
@@ -769,7 +831,7 @@ class AskWriterFailureTests(unittest.TestCase):
 
         class _BoomPipeline:
             def answer(self, q, token=None):
-                raise RuntimeError("GEMINI_PAID_API_KEY not set")
+                raise RuntimeError("GEMINI_API_KEY not set")
 
         class _BoomLibrary(_StubLibrary):
             def current_pipeline(self):
@@ -1191,6 +1253,23 @@ class PrivateConnectRouteTests(unittest.TestCase):
             time.sleep(0.02)
         self.assertEqual(lib.connect_calls, ["octo/pub"])
 
+    def test_connect_log_does_not_disclose_repository_name(self):
+        lib = _StubLibrary()
+        fx = _ServerFixture(lib)
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(captured):
+                self.assertEqual(
+                    _post(
+                        fx.base + "/connect",
+                        {"repo": "secret-owner/secret-repo"},
+                    )[0],
+                    202,
+                )
+        finally:
+            fx.close()
+        self.assertNotIn("secret-owner", captured.getvalue())
+
 
 class RateLimitTests(unittest.TestCase):
     """/ask is rate-limited per identity; the limit is checked before any real
@@ -1198,7 +1277,10 @@ class RateLimitTests(unittest.TestCase):
 
     def test_second_ask_in_window_is_429(self):
         from .ratelimit import RateLimiter
-        fx = _ServerFixture(_StubLibrary(), ask_limiter=RateLimiter(1, 60))
+        fx = _ServerFixture(
+            _StubLibrary(),
+            ask_limiter=RateLimiter(1, 60, _now=lambda: 1000.0),
+        )
         try:
             status, payload = _post(fx.base + "/ask", {"question": "Why the Responses API as a new class?"})
             self.assertEqual(status, 200)
@@ -1206,7 +1288,122 @@ class RateLimitTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as cm:
                 _post(fx.base + "/ask", {"question": "Why the Responses API as a new class?"})
             self.assertEqual(cm.exception.code, 429)
+            self.assertEqual(cm.exception.headers["Retry-After"], "60")
             cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_non_positive_capacity_configuration_fails_at_startup(self):
+        with unittest.mock.patch.dict(
+                os.environ, {"ICARUS_MAX_CONCURRENT_INGESTS": "0"}):
+            with self.assertRaisesRegex(
+                    ValueError, "ICARUS_MAX_CONCURRENT_INGESTS must be positive"):
+                make_handler(_StubRegistry(_StubLibrary()), "unused.html")
+
+    def test_writer_concurrency_is_bounded_across_request_threads(self):
+        from .ratelimit import RateLimiter
+
+        entered = threading.Event()
+        release = threading.Event()
+
+        class _BlockingPipeline(_StubPipeline):
+            def answer(self, question, token=None):
+                entered.set()
+                if not release.wait(timeout=2):
+                    raise RuntimeError("test did not release writer")
+                return super().answer(question, token=token)
+
+        lib = _StubLibrary()
+        lib._pipe = _BlockingPipeline()
+        tmp = tempfile.TemporaryDirectory()
+        html = Path(tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        handler = make_handler(
+            _StubRegistry(lib), str(html),
+            ask_limiter=RateLimiter(100, 60),
+            global_ask_limiter=RateLimiter(100, 60),
+            writer_slots=threading.BoundedSemaphore(1),
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        first = {}
+
+        def send_first():
+            try:
+                first["response"] = _post(
+                    base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                )
+            except Exception as error:
+                first["error"] = error
+
+        request_thread = threading.Thread(target=send_first)
+        request_thread.start()
+        try:
+            self.assertTrue(entered.wait(timeout=1), "first writer never started")
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(
+                    base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                )
+            self.assertEqual(cm.exception.code, 503)
+            self.assertEqual(cm.exception.headers["Retry-After"], "1")
+            cm.exception.close()
+        finally:
+            release.set()
+            request_thread.join(timeout=2)
+        try:
+            self.assertNotIn("error", first)
+            self.assertEqual(first["response"][0], 200)
+            # The admitted request released its slot; capacity is not leaked.
+            self.assertEqual(
+                _post(
+                    base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                )[0],
+                200,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            tmp.cleanup()
+
+    def test_writer_failure_releases_capacity(self):
+        from .ratelimit import RateLimiter
+
+        class _FailsOncePipeline(_StubPipeline):
+            calls = 0
+
+            def answer(self, question, token=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("provider unavailable")
+                return super().answer(question, token=token)
+
+        lib = _StubLibrary()
+        lib._pipe = _FailsOncePipeline()
+        fx = _ServerFixture(
+            lib,
+            ask_limiter=RateLimiter(100, 60),
+            global_ask_limiter=RateLimiter(100, 60),
+            writer_slots=threading.BoundedSemaphore(1),
+        )
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(
+                    fx.base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                )
+            self.assertEqual(cm.exception.code, 503)
+            cm.exception.close()
+            self.assertEqual(
+                _post(
+                    fx.base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                )[0],
+                200,
+            )
         finally:
             fx.close()
 
@@ -1233,6 +1430,177 @@ class RateLimitTests(unittest.TestCase):
             status, _ = _post_with_auth(fx.base + "/ask",
                                         {"question": "Why the Responses API as a new class?"}, "tok-b")
             self.assertEqual(status, 200)
+        finally:
+            fx.close()
+
+    def test_global_writer_budget_cannot_be_bypassed_with_another_identity(self):
+        from .auth import StaticTokenVerifier
+        from .ratelimit import RateLimiter
+        fx = _ServerFixture(
+            _StubLibrary(),
+            require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            ask_limiter=RateLimiter(100, 60),
+            global_ask_limiter=RateLimiter(1, 60, _now=lambda: 1000.0),
+        )
+        try:
+            self.assertEqual(
+                _post_with_auth(
+                    fx.base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                    "tok-a",
+                )[0],
+                200,
+            )
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post_with_auth(
+                    fx.base + "/ask",
+                    {"question": "Why the Responses API as a new class?"},
+                    "tok-b",
+                )
+            self.assertEqual(cm.exception.code, 429)
+            self.assertEqual(cm.exception.headers["Retry-After"], "60")
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_global_connect_budget_cannot_be_bypassed_with_another_identity(self):
+        from .auth import StaticTokenVerifier
+        from .ratelimit import RateLimiter
+        lib = _StubLibrary()
+        fx = _ServerFixture(
+            lib,
+            require_auth=True,
+            verifier=StaticTokenVerifier({"tok-a": "1001", "tok-b": "1002"}),
+            connect_limiter=RateLimiter(100, 600),
+            global_connect_limiter=RateLimiter(
+                1, 600, _now=lambda: 1000.0),
+        )
+        try:
+            with unittest.mock.patch(
+                    "demo.server.github_access.repo_info",
+                    return_value={"private": False}):
+                self.assertEqual(
+                    _post_with_auth(
+                        fx.base + "/connect", {"repo": "octo/one"}, "tok-a",
+                    )[0],
+                    202,
+                )
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    _post_with_auth(
+                        fx.base + "/connect", {"repo": "octo/two"}, "tok-b",
+                    )
+            self.assertEqual(cm.exception.code, 429)
+            self.assertEqual(cm.exception.headers["Retry-After"], "600")
+            cm.exception.close()
+        finally:
+            fx.close()
+
+    def test_ingest_concurrency_is_bounded_until_background_work_finishes(self):
+        from .ratelimit import RateLimiter
+
+        entered = threading.Event()
+        release = threading.Event()
+
+        class _BlockingLibrary(_StubLibrary):
+            def connect_sync(self, *args, **kwargs):
+                entered.set()
+                if not release.wait(timeout=2):
+                    raise RuntimeError("test did not release ingest")
+                return super().connect_sync(*args, **kwargs)
+
+        lib = _BlockingLibrary()
+        tmp = tempfile.TemporaryDirectory()
+        html = Path(tmp.name) / "index.html"
+        html.write_text("<html></html>")
+        handler = make_handler(
+            _StubRegistry(lib), str(html),
+            connect_limiter=RateLimiter(100, 600),
+            global_connect_limiter=RateLimiter(100, 600),
+            ingest_slots=threading.BoundedSemaphore(1),
+        )
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{server.server_port}"
+        try:
+            self.assertEqual(
+                _post(base + "/connect", {"repo": "octo/one"})[0], 202)
+            self.assertTrue(entered.wait(timeout=1), "first ingest never started")
+            with self.assertRaises(urllib.error.HTTPError) as cm:
+                _post(base + "/connect", {"repo": "octo/two"})
+            self.assertEqual(cm.exception.code, 503)
+            self.assertEqual(cm.exception.headers["Retry-After"], "1")
+            cm.exception.close()
+        finally:
+            release.set()
+        for _ in range(100):
+            if lib.connect_calls:
+                break
+            threading.Event().wait(0.01)
+        try:
+            self.assertEqual(
+                _post(base + "/connect", {"repo": "octo/three"})[0], 202)
+        finally:
+            server.shutdown()
+            server.server_close()
+            tmp.cleanup()
+
+    def test_background_ingest_failure_releases_capacity(self):
+        from .ratelimit import RateLimiter
+
+        failed = threading.Event()
+
+        class _FailsOnceLibrary(_StubLibrary):
+            calls = 0
+
+            def connect_sync(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    failed.set()
+                    raise RuntimeError("ingest failed")
+                return super().connect_sync(*args, **kwargs)
+
+        lib = _FailsOnceLibrary()
+        fx = _ServerFixture(
+            lib,
+            connect_limiter=RateLimiter(100, 600),
+            global_connect_limiter=RateLimiter(100, 600),
+            ingest_slots=threading.BoundedSemaphore(1),
+        )
+        captured = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(captured):
+                self.assertEqual(
+                    _post(fx.base + "/connect", {"repo": "octo/one"})[0], 202)
+                self.assertTrue(failed.wait(timeout=1), "failing ingest never ran")
+            self.assertEqual(
+                _post(fx.base + "/connect", {"repo": "octo/two"})[0], 202)
+            self.assertNotIn("ingest failed", captured.getvalue())
+        finally:
+            fx.close()
+
+    def test_background_thread_start_failure_is_explicit_and_releases_capacity(self):
+        from .ratelimit import RateLimiter
+
+        lib = _StubLibrary()
+        fx = _ServerFixture(
+            lib,
+            connect_limiter=RateLimiter(100, 600),
+            global_connect_limiter=RateLimiter(100, 600),
+            ingest_slots=threading.BoundedSemaphore(1),
+        )
+        try:
+            with unittest.mock.patch(
+                    "demo.server.threading.Thread.start",
+                    side_effect=RuntimeError("cannot start worker")):
+                with self.assertRaises(urllib.error.HTTPError) as cm:
+                    _post(fx.base + "/connect", {"repo": "octo/one"})
+            self.assertEqual(cm.exception.code, 503)
+            self.assertEqual(cm.exception.headers["Retry-After"], "1")
+            self.assertNotIn("cannot start", cm.exception.read().decode())
+            cm.exception.close()
+            self.assertEqual(
+                _post(fx.base + "/connect", {"repo": "octo/two"})[0], 202)
         finally:
             fx.close()
 

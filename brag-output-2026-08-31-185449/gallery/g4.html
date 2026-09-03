@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"/>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+<link rel="stylesheet" href="_base.css"/>
+<style>
+  #g4 .cards{margin-top:36px;display:flex;gap:24px}
+  #g4 .c{flex:1;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:30px 28px 32px;display:flex;flex-direction:column;gap:14px}
+  #g4 .c .ico{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:22px;color:var(--signal);background:rgba(128,152,255,.12);border:1px solid rgba(128,152,255,.35)}
+  #g4 .c h3{font-size:24px;font-weight:600}
+  #g4 .c p{font-family:var(--mono);font-size:15px;line-height:1.6;color:var(--muted)}
+</style></head><body>
+<div id="root" data-composition-id="root" data-width="1270" data-height="760" data-duration="1">
+  <div id="g4" style="display:contents">
+    <div class="brand"><svg viewBox="0 0 100 100"><g fill="currentColor"><path id="w" d="M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z"/><use href="#w" transform="translate(100,0) scale(-1,1)"/><path d="M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z"/></g></svg>Icarus</div>
+    <div class="eyebrow">Three ways in</div>
+    <div class="head">Where you already work.</div>
+    <div class="sub">Public and private GitHub repos. Your code is discarded after each answer, never pooled with another team's, never used to train Icarus.</div>
+    <div class="cards">
+      <div class="c">
+        <div class="ico">&#8984;</div>
+        <h3>Mac app</h3>
+        <p>Hold a hotkey mid-work, ask out loud, read the receipts in a translucent overlay.</p>
+      </div>
+      <div class="c">
+        <div class="ico">&#9673;</div>
+        <h3>Chrome extension</h3>
+        <p>Select any lines on a GitHub file and ask why they are there, right on the page.</p>
+      </div>
+      <div class="c">
+        <div class="ico">&#9741;</div>
+        <h3>MCP connector</h3>
+        <p>One line of config for Claude Code, Cursor, or Codex. Your agent asks before it patches.</p>
+      </div>
+    </div>
+  </div>
+  <div id="vig"></div>
+  <script>const tl=gsap.timeline({paused:true});tl.set("#root",{opacity:1},0);window.__timelines={root:tl};</script>
+</div></body></html>
