@@ -186,23 +186,21 @@ final class EvidenceTrailTests: XCTestCase {
     }
 }
 
-/// A private index shared by a team is a "Company Brain"; a public repo's is a
-/// "Repo Brain". The label is read from the brain's /status, never guessed.
-final class BrainNameTests: XCTestCase {
+/// Whether a repo is private or public is read from the brain's /status,
+/// never guessed.
+final class RepositoryVisibilityNameTests: XCTestCase {
     private func status(_ json: String) throws -> RepoStatus {
         try JSONDecoder().decode(RepoStatus.self, from: Data(json.utf8))
     }
 
-    func testPrivateRepoIsTheCompanyBrain() throws {
+    func testPrivateRepo() throws {
         let s = try status(#"{"state":"ready","repo":"acme/api","commit":"abc","counts":null,"error":null,"private":true}"#)
         XCTAssertEqual(s.isPrivate, true)
-        XCTAssertEqual(s.brainName, "COMPANY BRAIN")
         XCTAssertEqual(s.repositoryVisibilityName, "private repo")
     }
 
-    func testPublicRepoIsTheRepoBrain() throws {
+    func testPublicRepo() throws {
         let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null,"private":false}"#)
-        XCTAssertEqual(s.brainName, "REPO BRAIN")
         XCTAssertEqual(s.repositoryVisibilityName, "public repo")
     }
 
@@ -211,7 +209,6 @@ final class BrainNameTests: XCTestCase {
         // make a public repo look like a company's private code.
         let s = try status(#"{"state":"ready","repo":"psf/requests","commit":"abc","counts":null,"error":null}"#)
         XCTAssertNil(s.isPrivate)
-        XCTAssertEqual(s.brainName, "REPO BRAIN")
         XCTAssertEqual(s.repositoryVisibilityName, "public repo")
     }
 }
