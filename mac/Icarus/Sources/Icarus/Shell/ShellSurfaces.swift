@@ -320,6 +320,7 @@ private struct MemoryRecordSheet: View {
 }
 
 /// Shared surface heading (title + one-line subhead).
+@MainActor
 @ViewBuilder
 func surfaceTitle(_ title: String, _ subhead: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {

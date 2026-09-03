@@ -142,6 +142,12 @@ private struct DecisionCandidateCard: View {
     let candidate: DecisionCandidate
     @State private var showOther = false
     @State private var otherText = ""
+    // Rationale defaults COLLAPSED: with several pending candidates stacked in
+    // the inbox, a full paragraph per card buried the decision + choices in
+    // prose. The decision and every choice stay visible; only the "why" is
+    // opt-in, one tap away. (2026-09-02, Alankrit -- see the mockup this
+    // matches.)
+    @State private var showRationale = false
 
     var body: some View {
         ShellCard {
@@ -152,9 +158,23 @@ private struct DecisionCandidateCard: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Theme.ink)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(candidate.rationale)
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        withAnimation(.easeOut(duration: 0.16)) { showRationale.toggle() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("▸").rotationEffect(.degrees(showRationale ? 90 : 0))
+                            Text(showRationale ? "Hide why" : "Why")
+                        }
+                        .font(Theme.mono(10, .bold))
+                        .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    if showRationale {
+                        Text(candidate.rationale)
+                            .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
                 }
                 Button("Accept recommendation") {
                     model.confirm(candidate, selection: .recommended)

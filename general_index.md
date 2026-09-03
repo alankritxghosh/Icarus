@@ -1878,6 +1878,9 @@ claim. A negative result is kept exactly like a positive one.
   `ICARUS_UPDATE_PUBLIC_KEY`.
 
 ### mac/Icarus/Sources/IcarusKit (UI-free, unit-tested)
+- `AppearancePreference.swift` — persisted app-level light/dark choice. A fresh
+  install defaults to dark, and the shared defaults key keeps the Settings
+  picker and the runtime reader on the same value.
 - `Models.swift` — the brain's JSON contract: `Verdict`, `Citation`,
   `AskResponse`, `RepoStatus`, `MemoryGap`, `MemoryGapsResponse`,
   `MemoryRecordResult`, Agent Mode candidate/confirmation models, and
@@ -1983,14 +1986,17 @@ claim. A negative result is kept exactly like a positive one.
   still sends them, Codable just ignores what nothing reads.
 
 ### mac/Icarus/Sources/Icarus (the executable app)
-- `IcarusApp.swift` — `@main`; no window, delegates to `AppDelegate`.
+- `IcarusApp.swift` — `@main`; handles bounded headless commands before app
+  startup, registers bundled fonts, and owns the native Settings scene using
+  the same auth/connect/status models as the primary shell.
 - `AppConfig.swift` — app-wide config; `brainBaseURL` resolves the brain via
   `BrainEndpoint` over `Bundle.main` (hosted in a shipped build, local otherwise).
 - `AppDelegate.swift` — app wiring: activation policy, menu-bar item, hotkey,
   push-to-talk, shared models (auth/connect/voice/history/status), and the
   primary shell window (setup is folded into its Home gate). Also confirms and
   installs an exact-origin Chrome native bridge from the explicit
-  `icarus://install-extension-bridge` callback.
+  `icarus://install-extension-bridge` callback, and keeps native AppKit controls
+  synchronized with the persisted light/dark appearance.
 - `OverlayController.swift` — owns the ⌘⇧I ask overlay + ask/voice/speak wiring;
   records each ask into the shared `AskHistory` and marks the live Phase 3
   release/transcript/answer/speech-start timeline.
@@ -2031,9 +2037,20 @@ claim. A negative result is kept exactly like a positive one.
   PATH, diagnoses the effective `icarus` MCP registration, installs the app at
   user scope, migrates only the known checkout-only Python adapter, and refuses
   to overwrite an unrelated same-name server.
-- `SettingsView.swift` — native Settings UI for explicit Claude Code
-  install/repair and the user-controlled product-improvement content-sharing
-  preference; both take effect without hand-editing configuration files.
+- `FontLoader.swift` — registers the SwiftPM-bundled JetBrains Mono, Spectral,
+  and Schibsted Grotesk faces process-wide before the first SwiftUI view renders;
+  missing fonts fall back without blocking launch.
+- `Resources/Fonts/JetBrainsMono.ttf` and `OFL-JetBrainsMono.txt` — bundled
+  variable JetBrains Mono face and its SIL Open Font License.
+- `Resources/Fonts/SchibstedGrotesk.ttf` and `OFL-SchibstedGrotesk.txt` — bundled
+  variable Schibsted Grotesk face and its SIL Open Font License.
+- `Resources/Fonts/Spectral-Medium.ttf`, `Spectral-SemiBold.ttf`, and
+  `OFL-Spectral.txt` — bundled Spectral display faces and their SIL Open Font
+  License.
+- `SettingsView.swift` — tabbed Account/General/Privacy/Repository/Agent Mode/
+  About Settings UI over the shell's shared models. It owns the light/dark
+  picker, content-sharing preference, truthful repository state and matched
+  status counts, plus explicit Claude Code install/repair.
 - `ExtensionBridgeCommand.swift` — one-process/one-request Chrome native host;
   reads the Keychain-backed credential, proxies only `ping`, `status`, and
   `explain`, reports signed-out status honestly, and returns framed JSON without
@@ -2064,13 +2081,10 @@ claim. A negative result is kept exactly like a positive one.
   and `--render-png <path> <px>` writes one square PNG — how `extension/icons/`
   is regenerated, so the browser icons come from the app's own drawing code rather
   than a hand-made asset. `Main` (in `IcarusApp.swift`) intercepts both.
-- `Theme.swift` — the Honest-Brutalism tokens, DARK since 2026-08-10: the same
-  token names the light palette used, carrying the website's values, so ~60
-  call sites flipped without being edited. `citedBg`/`unknownBg` are now
-  TINTS of their own tone (an opaque pastel has no dark equivalent).
-  `display()` is the serif face, resolved once against what the Mac actually
-  has (`Font.custom` falls back SILENTLY, so the family is probed explicitly);
-  spent on hero moments only. Also `GlassPanel` — the overlay's CLEAR glass,
+- `Theme.swift` — the Honest-Brutalism light and dark token palettes plus the
+  persisted observable `ThemeState`, which repaints SwiftUI tokens and AppKit
+  controls together. Bundled JetBrains Mono, Spectral, and Schibsted Grotesk
+  are used with explicit system fallbacks. Also `GlassPanel` — the overlay's CLEAR glass,
   which replaced `VisualEffectBackground` (deleted): transparent glass is the
   absence of vibrancy, so there is no `NSVisualEffectView` any more. Its alpha
   is 0.65 because 0.55 — chosen by eye and approved in a wireframe — measured
@@ -2089,10 +2103,13 @@ claim. A negative result is kept exactly like a positive one.
 ### mac/Icarus/Sources/Icarus/Shell (the full app shell — the primary window)
 - `ShellView.swift` — sidebar + content router across four surfaces (passes
   auth/connect through to Home for its setup gate).
-- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer
-  (with the public-alpha badge), Disconnect
-  repo + Sign out controls. Real macOS traffic-lights float over its top; no
-  decorative dupes.
+- `SidebarView.swift` — brand mark, nav rows, the real connected-repo footer,
+  Disconnect repo + Sign out controls. Real macOS traffic-lights float over
+  its top; no decorative dupes. **Collapsible (2026-09-03)**, persisted via
+  `@AppStorage`: ⌘B or the header chevron shrinks the rail to a 64pt icon
+  strip (each `NavRow` falling back to its surface's first letter, since the
+  app draws no icons anywhere to reuse) and hides the footer, which has no
+  compact treatment yet.
 - `HomeView.swift` — until a repo is connected, the `SetupView` gate; once ready,
   the dashboard: hero (real ⌥ trigger), metrics (real `/status` counts + session
   cited-rate), recent asks, and the proof drawer — all real/honest data.
@@ -2134,12 +2151,22 @@ claim. A negative result is kept exactly like a positive one.
 - `ShellComponents.swift` — shared shell views (`MarkView`, `NavRow`,
   `VerdictPill`, `HistoryRow`, `ShellCard`). `MarkView` RENDERS `IconArt` rather
   than redrawing the logo in SwiftUI, so the sidebar can never disagree with the
-  Dock icon about what the mark is.
+  Dock icon about what the mark is. `NavRow` takes an optional `collapsed` flag
+  (2026-09-03): expanded is the usual dot + label; collapsed drops the label
+  and its highlight box, showing a `SurfaceIcon` (`SidebarIcons.swift`) coloured
+  by selection state instead.
+- `SidebarIcons.swift` — `SurfaceIcon`: one hand-drawn, hairline-stroked `Path`
+  icon per `ShellSurface` (house / play triangle / magnifying glass / clock /
+  archive box) for the collapsed sidebar, in the app's own hand rather than an
+  SF Symbol — this app has never used one, the logo being its only other
+  graphic asset.
 - `StatusModel.swift` — polls `/status` for the real repo + index counts.
 - `MainWindowController.swift` — hosts the shell as the primary window with a
   chromeless (transparent, full-size-content) title bar.
 
 ### mac/Icarus/Tests/IcarusKitTests
+- `AppearancePreferenceTests.swift` — fresh-install dark default, invalid-value
+  fallback, and both persisted appearance transitions against isolated defaults.
 - `WebAuthTests.swift` — `parseCallbackSession` pulls the session id from the
   `icarus://` callback; nil on a malformed/session-less URL.
 - `ModelsTests.swift` — decoding the brain's JSON, including real `IndexCounts`
@@ -2195,14 +2222,11 @@ claim. A negative result is kept exactly like a positive one.
 
 ### mac/Icarus/Tests/IcarusAppTests
 - `ThemeContrastTests.swift` — the palette's conscience. Every other test in
-  the app is a logic test: all 219 passed, unchanged, while the entire
-  interface was repainted light → dark, and would pass just as happily with
-  muted text at 1.4:1 on the page. Measures WCAG contrast for every pairing
-  the app renders (body, secondary, the three semantic tones, the hairline
-  tripwire) and composites the overlay tint onto WHITE to prove the answer
-  survives clear glass over someone else's document — the assertion that
-  caught the eyeballed 0.55 alpha. Asserts RATIOS, not hex values, so a
-  retune keeps passing and an unreadable retune fails.
+  Measures WCAG contrast for both palettes, composites the overlay tint onto
+  white, and verifies that ThemeState keeps native AppKit appearance synchronized
+  with the selected palette. Assertions use ratios rather than fixed hex values.
+- `SettingsViewTests.swift` — proves failed disconnect messages reach Settings
+  and independently-polled counts are shown only for the connected repository.
 - `InvestigationModelTests.swift` — failure truthfulness on the Investigate
   surface: 401/403/429/503 are server REFUSALS and are reported as what the
   server said (`BrainError.userMessage`), while only a real transport error

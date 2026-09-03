@@ -107,6 +107,18 @@ Lean "paper & ink" so citations and code feel native; works light or dark.
   Plex Mono. Used for `pr:1482`, code paths, the searched list.
 - Pairing a grotesque + a mono *is* the Figma↔brutalist bridge in one move.
 
+**Shipped, not just aspirational (2026-09-02):** the Mac app bundles real fonts
+(`mac/Icarus/Sources/Icarus/Resources/Fonts/`, `FontLoader.swift`, all SIL Open
+Font License) rather than probing whatever the Mac happens to have. **JetBrains
+Mono** is now `Theme.mono`'s actual face app-wide — the mono option this doc
+already named, no longer just a candidate. **Spectral** is `Theme.display`'s
+serif for hero moments (the honest-unknown headline, surface titles),
+replacing the earlier probe against Hoefler Text/Iowan Old Style/Palatino as
+the primary choice (that chain is now the fallback if the bundle ever fails to
+register). **Schibsted Grotesk** is `Theme.sans` — scoped to the Settings
+window only for now (see below), not yet the app-wide UI grotesque this
+section describes; the rest of the shell still renders system sans.
+
 ## The hero moments (where the look earns its keep)
 - **Cited answer:** calm prose in the grotesque, then a bordered **"Evidence"
   block** — mono citation chips, each a signal-accent link to the real source
@@ -127,9 +139,18 @@ gradient "AI" buttons · a chat-bubble thread look · centered hero marketing
 fluff. None of it matches a tool whose pitch is *it won't lie to you.*
 
 **Glassmorphism was on this list until 2026-07-22** and is now permitted on the
-floating overlay ONLY, for the spatial reason given in "The overlay exception".
-It remains an anti-pattern everywhere else — the windowed app, the web demo, any
-marketing surface.
+floating overlay, for the spatial reason given in "The overlay exception" — and,
+since 2026-09-02, on the **Settings window's cards** (`SettingsView.swift`'s
+`SettingsCard`), for a narrower and less principled reason than the overlay's:
+Alankrit asked for the mockup's look to ship as designed, and unlike the
+mockup's fabricated data (refused — see `SettingsView.swift`'s own doc
+comment), a *visual* treatment carries no honesty risk to hold the line on.
+It stays an explicit, separate type (`SettingsCard`, not a new mode on the
+shared `ShellCard`), and remains an anti-pattern everywhere else — Home,
+Investigate, the Agent Mode inbox, the web demo, any marketing surface. If
+glass ever spreads further than these two deliberate carve-outs, that is a
+real reversal of this doc's stance and belongs here as one, not as scope
+creep discovered later.
 
 ## Carrying forward
 The macOS app (Phase 3) adds a translucent overlay — Honest Brutalism still holds:

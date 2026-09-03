@@ -172,7 +172,7 @@ export function Install() {
       art="/art/icarus-flight.jpg"
       eyebrow="Install"
       title="Four steps, about two minutes."
-      lede="Not notarized — that needs a paid Developer ID this alpha does not have — so the checksum is below and you can verify the download yourself."
+      lede="Heads up: macOS may say this app is malware. It is not. We just have not paid for Apple notarization yet (it is an alpha). The verified checksum is below, and the one-time fix takes about ten seconds."
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {INSTALL.map(([n, h, p], i) => (
@@ -186,8 +186,39 @@ export function Install() {
         ))}
       </div>
 
+      <Reveal delay={0.06}>
+        <div className="mt-8 rounded-xl border border-sun/40 bg-sun/5 p-5">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-sun">
+            Before you download — read this
+          </p>
+          <p className="mt-2 text-sm leading-relaxed">
+            When you open it, macOS may warn that “Apple could not verify Icarus is
+            free of malware.” <strong>It is a false alarm.</strong> It appears on
+            every app that has not paid Apple’s notarization fee, which this alpha
+            has not. The download is the exact build whose SHA-256 is shown below —
+            verify it yourself. The one-time fix:
+          </p>
+          <ul className="mt-3 space-y-1 text-sm leading-relaxed text-muted">
+            <li>
+              1. Move Icarus to Applications and open it once (it will be blocked).
+            </li>
+            <li>
+              2. System Settings → Privacy &amp; Security → scroll down → click
+              “Open Anyway” next to the Icarus message, then confirm.
+            </li>
+            <li>
+              3. If there is no “Open Anyway” button, open Terminal and run{" "}
+              <code className="font-mono text-[12px] text-signal">
+                xattr -dr com.apple.quarantine /Applications/Icarus.app
+              </code>
+              , then open Icarus normally.
+            </li>
+          </ul>
+        </div>
+      </Reveal>
+
       <Reveal delay={0.08}>
-        <div className="glass mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 p-5">
+        <div className="glass mt-4 flex flex-wrap items-center gap-x-5 gap-y-3 p-5">
           <a
             href={release.url}
             className="flex items-center gap-2 rounded-full bg-sun px-5 py-3 text-[14px] font-semibold text-deep transition hover:brightness-110"
@@ -197,8 +228,8 @@ export function Install() {
           <div className="font-mono text-[11px] leading-relaxed text-muted">
             Apple silicon · v{VERSION} · ~{DMG_KB.toLocaleString()} KB · free alpha
             <span className="mt-1 block">
-              Not notarized yet, so the first launch takes one extra click:
-              right-click the app → Open.
+              macOS will flag it as unverified on first open — that is expected,
+              see the fix above.
             </span>
           </div>
         </div>
@@ -210,7 +241,7 @@ export function Install() {
             Terminal — recommended
           </p>
           <pre className="mt-3 overflow-x-auto font-mono text-[12px] leading-relaxed">
-{`curl -fsSLO https://icarus-website-kappa.vercel.app/install.sh
+{`curl -fsSLO https://try-icarus.vercel.app/install.sh
 less install.sh   # ~100 lines, half of them comments — read it
 sh install.sh`}
           </pre>

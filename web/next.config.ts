@@ -1,8 +1,6 @@
 import type { NextConfig } from "next";
 import release from "./src/generated/release.json";
-
-const BRAIN =
-  "https://icarus-brain.whitecliff-26814629.centralindia.azurecontainerapps.io";
+import { BRAIN_URL as BRAIN } from "./src/lib/brain";
 
 // Next emits small inline bootstrap scripts and Tailwind emits inline styles;
 // those two allowances are explicit. Everything else stays same-origin, and
@@ -29,7 +27,18 @@ const nextConfig: NextConfig = {
     // Same contract the static site had in vercel.json: the browser calls a
     // same-origin path and Vercel proxies it, so there is no CORS dance and no
     // brain URL in client code.
-    return [{ source: "/api/ask", destination: `${BRAIN}/ask` }];
+    return [
+      { source: "/api/ask", destination: `${BRAIN}/ask` },
+      // GitHub's OAuth redirect for "web" mode lands here. This must be a
+      // transparent proxy (not a route handler): the brain's callback
+      // handler replies with a bare relative `Location: /?session=...`
+      // (demo/github_oauth.py's `_github_callback`), which only resolves to
+      // THIS site's root because the browser never sees the brain's own
+      // origin -- Vercel forwards the response as if it came from here. A
+      // route handler re-issuing its own redirect would work too, but this
+      // is one line and matches the /api/ask precedent exactly.
+      { source: "/auth/github/callback", destination: `${BRAIN}/auth/github/callback` },
+    ];
   },
   async redirects() {
     // Every /Icarus.dmg link already in the wild -- cold emails, the old site,

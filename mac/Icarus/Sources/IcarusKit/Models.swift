@@ -264,8 +264,6 @@ public struct RepoStatus: Decodable, Equatable, Sendable {
     public var isTruncated: Bool { truncated == true }
     /// Is the semantic index still building? Absent reads as no.
     public var isIndexing: Bool { indexing == true }
-    /// The brain's own name for this connection, shown in the sidebar.
-    public var brainName: String { isPrivate == true ? "COMPANY BRAIN" : "REPO BRAIN" }
     /// The repository visibility label shown beside the active repo.
     public var repositoryVisibilityName: String {
         isPrivate == true ? "private repo" : "public repo"
