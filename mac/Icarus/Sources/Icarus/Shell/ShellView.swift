@@ -49,7 +49,7 @@ struct ShellView: View {
                              briefing: briefing, onTryQuestion: onTryQuestion)
         case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
         case .investigate: InvestigationView(model: investigation)
-        case .decisionHistory: DecisionHistoryView(decisions: decisions)
+        case .decisionHistory: DecisionGraphView(decisions: decisions)
         case .engineeringMemory: UnknownsView(ledger: ledger, decisions: decisions)
         }
     }
