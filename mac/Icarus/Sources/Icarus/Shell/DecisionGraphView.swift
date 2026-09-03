@@ -24,8 +24,33 @@ struct DecisionGraphView: View {
 
     private let maxFrames = 240 // ~4s at 60fps — plenty to settle a few dozen nodes
 
+    // Full-bleed: this surface owns the whole content pane instead of sitting
+    // inside ShellView's normal card-stack ScrollView (see ShellView.swift's
+    // special case for .decisionHistory) — a graph needs the room, and
+    // scrolling to see it defeats the point of a spatial layout.
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        ZStack(alignment: .topLeading) {
+            canvasArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            header
+                .padding(20)
+            if let id = selectedID, let node = nodes.first(where: { $0.id == id }) {
+                HStack {
+                    Spacer()
+                    detailPanel(for: node)
+                        .frame(width: 360)
+                        .padding(20)
+                }
+            }
+        }
+        .background(Theme.surface)
+        .onAppear { reload() }
+        .onChange(of: decisions.state) { _, _ in rebuild() }
+        .onChange(of: decisions.logState) { _, _ in rebuild() }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 surfaceTitle(
                     "Decision history",
@@ -38,11 +63,11 @@ struct DecisionGraphView: View {
                     .foregroundStyle(Theme.accent)
             }
             legend
-            content
         }
-        .onAppear { reload() }
-        .onChange(of: decisions.state) { _, _ in rebuild() }
-        .onChange(of: decisions.logState) { _, _ in rebuild() }
+        .padding(14)
+        .background(Theme.surface.opacity(0.92))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func reload() {
@@ -51,18 +76,18 @@ struct DecisionGraphView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var canvasArea: some View {
         if isLoading {
-            ShellCard { Text("Reading decisions…").font(.system(size: 13)).foregroundStyle(Theme.muted) }
+            centeredMessage { Text("Reading decisions…").font(.system(size: 13)).foregroundStyle(Theme.muted) }
         } else if let failure {
-            ShellCard {
+            centeredMessage {
                 VStack(alignment: .leading, spacing: 7) {
                     MonoLabel("COULDN'T LOAD", Theme.unknown)
                     Text(failure).font(.system(size: 13)).foregroundStyle(Theme.ink)
                 }
             }
         } else if nodes.isEmpty {
-            ShellCard {
+            centeredMessage {
                 Text("No decisions yet. When your agent proposes one, it appears here.")
                     .font(.system(size: 13)).foregroundStyle(Theme.muted)
             }
@@ -103,16 +128,24 @@ struct DecisionGraphView: View {
                         .onEnded { _ in lastMagnification = 1 }
                 )
             }
-            .frame(minHeight: 420)
-            .background(Theme.card)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
             .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in
                 tick()
             }
+        }
+    }
 
-            if let id = selectedID, let node = nodes.first(where: { $0.id == id }) {
-                detailPanel(for: node)
+    /// The three non-graph states (loading/error/empty) still need to read as
+    /// a page, not a stray card in a corner — centered in the full pane.
+    private func centeredMessage<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                ShellCard { content() }
+                    .frame(maxWidth: 420)
+                Spacer()
             }
+            Spacer()
         }
     }
 

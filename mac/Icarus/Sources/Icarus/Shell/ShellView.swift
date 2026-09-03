@@ -23,8 +23,16 @@ struct ShellView: View {
         HStack(spacing: 0) {
             SidebarView(selected: $selected, auth: auth, connect: connect)
             Divider()
-            ScrollView {
-                content.padding(26).frame(maxWidth: .infinity, alignment: .leading)
+            // Decision history is a spatial graph, not a stack of cards — it
+            // owns the whole pane instead of sitting inside the padded
+            // ScrollView every other surface uses, so it never needs
+            // scrolling to be seen in full.
+            if selected == .decisionHistory {
+                content.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    content.padding(26).frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .frame(minWidth: 1040, minHeight: 680)
