@@ -9,6 +9,7 @@ ingest the previous repo stays answerable (status just reads "indexing").
 """
 
 import logging
+import os
 import sys
 import threading
 from dataclasses import dataclass
@@ -157,7 +158,7 @@ def _build_gated_pipeline(corpus_dir, fast=False, on_progress=None):
     """Build the one trust-checked writer pipeline; `fast` changes retrieval only."""
     from evals.trust import assert_safe_for_private
     from evals.ingest import fetch_ref_detail, fetch_commit_detail
-    provider = make_provider("gemini-paid")
+    provider = make_provider(os.environ.get("ICARUS_SERVING_PROVIDER", "gemini-launch"))
     assert_safe_for_private(provider)
     chunks = load_chunks(Path(corpus_dir) / "chunks.jsonl")
     meta = load_meta(Path(corpus_dir) / "meta.json") or {}
@@ -445,21 +446,10 @@ class Library:
             else:
                 self._upgrade_to_semantic(corpus_dir, connected_repo, my_gen)
         except Exception as e:  # keep the previous repo answerable; never leak internals
-            # The USER message stays generic (command lines and URLs must never
-            # reach it), but the SERVER log has to be diagnosable. Logging only
-            # the exception TYPE meant a real connect failure read as
-            # "CalledProcessError" and nothing else -- which cost a live
-            # debugging session on 2026-07-28, since the actual cause was a
-            # specific gh command's stderr that was captured and discarded.
-            detail = ""
-            cmd = getattr(e, "cmd", None)
-            if cmd:
-                detail += f" cmd={' '.join(str(c) for c in cmd)[:200]!r}"
-            err = getattr(e, "stderr", None)
-            if err:
-                detail += f" stderr={str(err)[:300]!r}"
-            print(f"connect failed for {repo!r} ({type(e).__name__}){detail}",
-                  file=sys.stderr)
+            # Repository names, command arguments and provider/GitHub stderr can
+            # all contain customer data. Keep the operational failure category
+            # while making production logs content-free.
+            print(f"connect failed ({type(e).__name__})", file=sys.stderr)
             with self._lock:
                 self._status = "error"
                 self._phase = None
@@ -510,8 +500,8 @@ class Library:
                     self._progress = None
         except Exception as e:
             print(
-                f"semantic upgrade failed for {connected_repo!r} "
-                f"({type(e).__name__}); staying on lexical-only search",
+                f"semantic upgrade failed ({type(e).__name__}); "
+                "staying on lexical-only search",
                 file=sys.stderr,
             )
             with self._lock:

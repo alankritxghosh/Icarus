@@ -1,6 +1,6 @@
 # demo/posthog_capture.py
-"""Fire-and-forget PRODUCT usage capture for PostHog -- counts, caller
-identity and a SALTED HASH of the repository (never its name) by default, and question/answer/evidence content ONLY when the caller
+"""Fire-and-forget PRODUCT usage capture for PostHog -- counts plus salted
+pseudonyms for the caller and repository by default, and question/answer/evidence content ONLY when the caller
 explicitly opted in with `X-Icarus-Share-Content: 1` (see
 `demo/server.py::_share_content`). This sits on the same request path
 private-repo evidence flows through, so what it sends is a deliberate,
@@ -49,6 +49,27 @@ def _config():
     )
 
 
+def _analytics_key(kind, value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    salt = os.environ.get("ICARUS_ANALYTICS_SALT", "").strip()
+    if not salt:
+        return None
+    material = f"{salt}:{kind}:{value.strip().casefold()}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()[:16]
+
+
+def subject_key(identity):
+    """A stable caller pseudonym, or None when safe pseudonymisation is off.
+
+    GitHub's numeric user id is durable personal data. Product analytics needs
+    only a stable count key, not the account identifier itself, so the raw id
+    must never cross this boundary. Without a configured salt callers collapse
+    to PostHog's anonymous bucket rather than leaking an unhashed identity.
+    """
+    return _analytics_key("subject", identity)
+
+
 def repo_key(repo):
     """A stable pseudonym for a repository, or None when one cannot be made.
 
@@ -70,15 +91,9 @@ def repo_key(repo):
     Case-folded first, so `Octo/Repo` and `octo/repo` do not become two
     different rows for one repository.
     """
-    if not isinstance(repo, str) or not repo.strip():
-        return None
-    salt = os.environ.get("ICARUS_ANALYTICS_SALT", "").strip()
-    if not salt:
-        return None
-    digest = hashlib.sha256(f"{salt}:{repo.strip().casefold()}".encode("utf-8"))
     # 16 hex chars is 64 bits -- ample to keep real repositories distinct in a
     # product analytics dataset, and short enough to read in a dashboard.
-    return digest.hexdigest()[:16]
+    return _analytics_key("repo", repo)
 
 
 def capture(event, distinct_id, properties=None, opener=None, token=None):
@@ -97,7 +112,7 @@ def capture(event, distinct_id, properties=None, opener=None, token=None):
     body = {
         "api_key": token,
         "event": event,
-        "distinct_id": distinct_id or "anonymous",
+        "distinct_id": subject_key(distinct_id) or "anonymous",
         "properties": properties or {},
     }
 
@@ -116,7 +131,7 @@ def capture(event, distinct_id, properties=None, opener=None, token=None):
                 headers={"Content-Type": "application/json"}, method="POST")
             opener(request, timeout=5).close()
         except Exception as e:  # analytics failing must never surface to a caller
-            print(f"posthog capture failed: {type(e).__name__}: {e}", file=sys.stderr)
+            print(f"posthog capture failed: {type(e).__name__}", file=sys.stderr)
         finally:
             with _in_flight_lock:
                 _in_flight -= 1
@@ -131,7 +146,7 @@ def capture(event, distinct_id, properties=None, opener=None, token=None):
     except Exception as e:
         with _in_flight_lock:
             _in_flight -= 1
-        print(f"posthog capture could not start: {type(e).__name__}: {e}",
+        print(f"posthog capture could not start: {type(e).__name__}",
               file=sys.stderr)
         return None
     return thread

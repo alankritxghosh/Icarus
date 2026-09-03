@@ -77,14 +77,12 @@ def build_context_package(investigation, result, structure: Dict, texts: Dict[st
             # `deferred_claims` sets both deliberately -- a bounded probe can
             # only return a small number, which reads as STRONG for an ancient
             # deferral -- and dropping them here undid that silently, measured
-            # absent in all three production trials on 2026-08-26. See
-            # docs/experiments/2026-08-26-temporal-flag-successor-probe-production.md.
+            # absent in all three production trials on 2026-08-26.
             #
-            # A decision may rest on several deferrals. The count is reported as
-            # the LARGEST among them, because the count means "how much time
-            # passed" and the weakest contributor is what the reader must judge
-            # by; `probed` is ORed, because a caveat that applies to any part of
-            # the set applies to the set.
+            # A decision may rest on several deferrals. Report the largest
+            # count because the weakest contributor is what the reader must
+            # judge; OR `probed` because its caveat applies if any contributor
+            # came from the bounded successor probe.
             entry["later_merged_count"] = max(
                 d.get("later_merged_count", 0) for d in contributing)
             if any(d.get("later_merged_probed") for d in contributing):

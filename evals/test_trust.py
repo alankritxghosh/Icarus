@@ -4,8 +4,8 @@ Deterministic and auditable, in the same spirit as the honesty gate."""
 
 import unittest
 
-from .provider import (GeminiProvider, GroqProvider, OpenRouterProvider,
-                       PaidGeminiProvider, StaticProvider)
+from .provider import (GeminiProvider, GroqProvider, LaunchGeminiProvider,
+                       OpenRouterProvider, PaidGeminiProvider, StaticProvider)
 from .trust import PrivateDataError, assert_safe_for_private
 
 
@@ -16,6 +16,7 @@ class InterlockTests(unittest.TestCase):
                 assert_safe_for_private(p)
 
     def test_passes_private_safe_providers(self):
+        assert_safe_for_private(LaunchGeminiProvider())  # explicit launch routing
         assert_safe_for_private(PaidGeminiProvider())   # must not raise
         assert_safe_for_private(StaticProvider("x"))
 

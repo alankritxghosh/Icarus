@@ -6,9 +6,9 @@ the Sparkle appcast, and nothing verified they matched. That is not theoretical
 here: release-dmg.sh's unanchored stamping regex overwrote the browser
 extension's checksum with the DMG's for two releases before anyone noticed.
 
-Checks, all of them against the REAL files on disk:
+Checks, all of them against the REAL published assets and committed metadata:
 
-  1. the DMG exists, and its sha256 and byte count match release.json
+  1. the published DMG exists, and its sha256 and byte count match release.json
   2. the extension zip likewise
   3. appcast.xml's `length=` equals the DMG's real size -- Sparkle refuses an
      update whose length disagrees, so a wrong number here breaks in-app
@@ -21,7 +21,6 @@ Checks, all of them against the REAL files on disk:
 Exits non-zero on any mismatch, so it can gate a deploy.
 
   python3 scripts/check_release.py            # verify
-  python3 scripts/check_release.py --write    # re-stamp release.json from disk
   python3 scripts/check_release.py --selftest # prove the checker can FAIL
 """
 import hashlib
@@ -34,10 +33,6 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / "web" / "public"
 MANIFEST = ROOT / "release.json"
-
-
-def sha256(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def check(quiet: bool = False) -> list[str]:
@@ -126,15 +121,6 @@ def check(quiet: bool = False) -> list[str]:
     return problems
 
 
-def write() -> None:
-    m = json.loads(MANIFEST.read_text())
-    for key in ("dmg", "extension"):
-        f = PUBLIC / m[key]["name"]
-        m[key]["bytes"], m[key]["sha256"] = f.stat().st_size, sha256(f)
-    MANIFEST.write_text(json.dumps(m, indent=2) + "\n")
-    print(f"release.json re-stamped from disk: {m['dmg']['sha256'][:12]}…, {m['dmg']['bytes']} bytes")
-
-
 def selftest() -> int:
     """A passing checker means nothing until it has been shown to fail.
 
@@ -163,9 +149,6 @@ def selftest() -> int:
 
 
 if __name__ == "__main__":
-    if "--write" in sys.argv:
-        write()
-        sys.exit(0)
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     print("release check:")

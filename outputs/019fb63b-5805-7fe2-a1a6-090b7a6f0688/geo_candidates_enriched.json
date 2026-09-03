@@ -1,0 +1,3886 @@
+[
+  {
+    "name": "Conductor Quantum",
+    "slug": "conductor-quantum",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/conductor-quantum",
+    "website": "https://www.conductorquantum.com",
+    "oneLiner": "AI that operates quantum computers for scientific discovery",
+    "longDescription": "Conductor Quantum is building quantum superintelligence: AI that operates quantum computers to make scientific discoveries beyond human reach.\r\n\r\nQuantum computers let us understand the world at its most fundamental level, the path to new drugs, new materials, and discoveries no human can reach alone. \r\n\r\nA quantum computer is the perfect simulator of nature: it encodes the logic of reality into a programmable machine, atom by atom, electron by electron. Give AI that simulator and you open the door to discovery.\r\n\r\nThe bottleneck is operating the hardware. Today, engineers spend days or weeks by hand to bring a chip to operating conditions for just two qubits. A qubit is the information-carrying unit of a quantum computer, the equivalent of a bit in a classical one, and a useful machine needs billions. \r\n\r\nRemoving the human from that loop is only half the problem. Every command an AI sends to a quantum computer must be optimised for the specific hardware it runs on.\r\n\r\nWe build the AI that operates quantum computers and tunes every machine it runs on. That is the path to quantum superintelligence.",
+    "foundedYear": 2024,
+    "teamSize": 4,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/conductorquantum/",
+    "founders": [
+      {
+        "name": "Brandon Severin",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/brandon-severin/",
+        "twitter": "https://twitter.com/BrandonSeverin"
+      },
+      {
+        "name": "Joel Pendleton",
+        "title": "Co-Founder and CTO",
+        "linkedin": "https://www.linkedin.com/in/joelpendleton/",
+        "twitter": "https://twitter.com/joelpendleton"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Quantum Engineer (Spin) - Member of Technical Staff",
+        "url": "https://www.workatastartup.com/jobs/76007"
+      },
+      {
+        "title": "Quantum Engineer (Superconducting) - Member of Technical Staff",
+        "url": "https://www.workatastartup.com/jobs/90538"
+      },
+      {
+        "title": "Quantum Engineer (Ion Trap) - Member of Technical Staff",
+        "url": "https://www.workatastartup.com/jobs/102432"
+      },
+      {
+        "title": "Quantum Engineer (Neutral Atom) - Member of Technical Staff",
+        "url": "https://www.workatastartup.com/jobs/102431"
+      }
+    ],
+    "preferredEmail": "founders@conductorquantum.com",
+    "emailSource": "https://www.conductorquantum.com/",
+    "publishedEmails": [
+      {
+        "email": "founders@conductorquantum.com",
+        "source": "https://www.conductorquantum.com/",
+        "score": 95
+      },
+      {
+        "email": "founders@conductorquantum.com\\",
+        "source": "https://www.conductorquantum.com/",
+        "score": 95
+      },
+      {
+        "email": "support@conductorquantum.com",
+        "source": "https://www.conductorquantum.com/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://www.conductorquantum.com/",
+      "https://www.conductorquantum.com/team"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "David AI",
+    "slug": "david-ai",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/david-ai",
+    "website": "https://www.withdavid.ai/",
+    "oneLiner": "Data for audio AI",
+    "longDescription": "",
+    "foundedYear": 2024,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/david-ai/",
+    "founders": [
+      {
+        "name": "Tomer Cohen",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/cohen-tomer/",
+        "twitter": ""
+      },
+      {
+        "name": "Ben Wiley",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/benwileymn",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Applied Audio ML Engineer",
+        "url": "https://www.workatastartup.com/jobs/74703"
+      },
+      {
+        "title": "Head of Engineering",
+        "url": "https://www.workatastartup.com/jobs/79944"
+      },
+      {
+        "title": "Senior Backend Engineer",
+        "url": "https://www.workatastartup.com/jobs/79945"
+      },
+      {
+        "title": "Staff Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/79947"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.withdavid.ai/",
+      "https://www.withdavid.ai/",
+      "https://www.withdavid.ai/contact",
+      "https://www.withdavid.ai/jobs"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Lambda Robotics",
+    "slug": "lambda-robotics",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/lambda-robotics",
+    "website": "https://lambdarobotics.ai",
+    "oneLiner": "Robotics for AI Infrastructure",
+    "longDescription": "Lambda Robotics builds and deploys robots for the infrastructure powering frontier AI.",
+    "foundedYear": null,
+    "teamSize": 6,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Chen Peng",
+        "title": "Co-founder",
+        "linkedin": "https://www.linkedin.com/in/chen-peng-6737681bb",
+        "twitter": ""
+      },
+      {
+        "name": "Yim Ying",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/qingyun-ying-46558235b?utm_source=share_via&utm_content=profile&utm_medium=member_ios",
+        "twitter": ""
+      },
+      {
+        "name": "Liam Zhong",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/ningze-zhong-a62917388/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Mechatronics Engineer",
+        "url": "https://www.workatastartup.com/jobs/102287"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://lambdarobotics.ai/",
+      "https://lambdarobotics.ai/careers"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Koyal",
+    "slug": "koyal",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/koyal",
+    "website": "https://koyal.ai",
+    "oneLiner": "Agentic AI Filmmaking Platform",
+    "longDescription": "Koyal is an Agentic AI Filmmaking Platform that allows you to seamlessly convert script or audio into personalized, visually compelling stories. We’re a team from Carnegie Mellon, MIT and Meta, with experience in AI video generation.\r\n\r\nhttps://koyal.ai builds directly upon our published research at the AI conference NeurIPS in December. We’ve been covered in the international press for our patented secure personalization protocol CHARCHA: the genAI captcha.\r\n\r\nAnnouncement: https://x.com/meh_agarwal/status/1965866965425348687\r\nDemo: https://x.com/meh_agarwal/status/1965137062119752099\r\n\r\n\r\nWe currently have paid pilots with the biggest global music labels, podcasts and production houses, and just launched our public beta at beta.koyal.ai\r\n\r\nWe recently concluded a pilot with Universal Music and T-Series (world’s largest music label) alongside Bollywood production houses like Maddock Entertainment, and Collective Artists Network! As part of that, we launched 5 music videos for Grammy and Oscar winning artists like A R Rahman, Ricky Kej and Shankar Mahadevan all crossing 1.5 million views!\r\n\r\nWe've recently built SOTA capabilities in (i) multilingual script to audio to video, (ii) Agentic lip-sync with dynamic movement & (iii) Multi-character consistency.",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/koyal-ai/",
+    "founders": [
+      {
+        "name": "Gauri Agarwal",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gauri-agarwal",
+        "twitter": "https://x.com/gauriagarwal99"
+      },
+      {
+        "name": "Mehul Agarwal",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mehul-agarwal-a274a0287/",
+        "twitter": "https://x.com/meh_agarwal"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer @Koyal",
+        "url": "https://www.workatastartup.com/jobs/102118"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://koyal.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Solum Health",
+    "slug": "solum-health",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/solum-health",
+    "website": "https://www.getsolum.com/",
+    "oneLiner": "AI Automation for Therapy Practices",
+    "longDescription": "Turning therapy admin chaos into automated calm—VoiceAI for intakes, seamless prior auths, referral and scheduling management.\r\n\r\nBuilt by practice owners, for practice owners (www.getsolum.com).\r\n",
+    "foundedYear": 2024,
+    "teamSize": 3,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/solum-health",
+    "founders": [
+      {
+        "name": "JP Montoya",
+        "title": "Founder",
+        "linkedin": "http://linkedin.com/in/jpmontoyamontoya",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "FDE - Forward Deployment Engineer (Founding Team)",
+        "url": "https://www.workatastartup.com/jobs/102002"
+      }
+    ],
+    "preferredEmail": "hello@getsolum.com",
+    "emailSource": "https://getsolum.com/",
+    "publishedEmails": [
+      {
+        "email": "hello@getsolum.com",
+        "source": "https://getsolum.com/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://getsolum.com/",
+      "https://getsolum.com/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Circleback",
+    "slug": "circleback",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/circleback",
+    "website": "https://circleback.ai",
+    "oneLiner": "AI-powered meeting notes and automations",
+    "longDescription": "Circleback helps teams get the most out of every conversation with best-in-class AI-powered meeting notes, action items, automations, and search.\r\n\r\nFor example, Circleback can automatically identify feature requests that come up in product demo calls and create Linear tasks for each of them, or update your CRM with customer details after a sales call.\r\n\r\nBefore Circleback, Ali led the first integration of LLMs into the Stripe support product and Kevin worked on predictive analytics at Tableau as a senior software engineer.",
+    "foundedYear": 2023,
+    "teamSize": 8,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://linkedin.com/company/circlebackai",
+    "founders": [
+      {
+        "name": "Ali Haghani",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/alihaghani",
+        "twitter": "https://twitter.com/iAligator"
+      },
+      {
+        "name": "Kevin Jacyna",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/kevinjacyna",
+        "twitter": "https://twitter.com/kevinjacyna"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/101689"
+      },
+      {
+        "title": "Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/91924"
+      },
+      {
+        "title": "Software Engineering Intern (Summer 2027)",
+        "url": "https://www.workatastartup.com/jobs/96234"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://circleback.ai/",
+      "https://circleback.ai/jobs"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "OS3",
+    "slug": "os3",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/os3",
+    "website": "https://os3robotics.com/",
+    "oneLiner": "Intelligence and Machines for Physical Labor",
+    "longDescription": "Semi-humanoid robots that do real physical labor. Building hardware and training models, each driving the other. Already deploying in hospitality.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/os3",
+    "founders": [
+      {
+        "name": "Rishabh Chanana",
+        "title": "Co-founder",
+        "linkedin": "https://www.linkedin.com/in/risos8200/",
+        "twitter": "https://x.com/risos8200"
+      },
+      {
+        "name": "Chris Hailey",
+        "title": "Co-Founder",
+        "linkedin": "https://linkedin.com/in/chrishailey8",
+        "twitter": "https://x.com/realChrisHailey"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Mechanical Design Engineer - Robot Parts & Enclosures (Contract)",
+        "url": "https://www.workatastartup.com/jobs/100908"
+      }
+    ],
+    "preferredEmail": "hi@os3robotics.com",
+    "emailSource": "https://os3robotics.com/",
+    "publishedEmails": [
+      {
+        "email": "hi@os3robotics.com",
+        "source": "https://os3robotics.com/",
+        "score": 60
+      }
+    ],
+    "pagesChecked": [
+      "https://os3robotics.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "DeepAware AI (Robotics Center of Silicon Valley)",
+    "slug": "deepaware-ai-robotics-center-of-silicon-valley",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/deepaware-ai-robotics-center-of-silicon-valley",
+    "website": "https://roboticscenter.ai/",
+    "oneLiner": "Robots, parts & RL envs & evals - delivered in 48 hrs / pickup in SF.",
+    "longDescription": "DeepAware (Robotics Center of Silicon Valley, https://roboticscenter.ai/) is the fastest way for enterprises and researchers to get robots and robotics parts in the US — 72-hour delivery or Bay Area pickup.\r\n\r\nBeyond hardware, we help teams collect teleoperation data, build reinforcement learning environments, and deploy robots into production. Customers include AI labs, industrial operations, research teams, and event producers.",
+    "foundedYear": 2025,
+    "teamSize": 4,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/roboticscenter/",
+    "founders": [
+      {
+        "name": "Jerry Huang",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/jerryh01/",
+        "twitter": "https://x.com/jerryhuang01"
+      },
+      {
+        "name": "Stela Tong",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/stela-tong-a2583110b/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Robotics Engineer Intern",
+        "url": "https://www.workatastartup.com/jobs/100905"
+      },
+      {
+        "title": "Robotics Engineer",
+        "url": "https://www.workatastartup.com/jobs/79915"
+      }
+    ],
+    "preferredEmail": "jerry@roboticscenter.ai",
+    "emailSource": "https://roboticscenter.ai/about",
+    "publishedEmails": [
+      {
+        "email": "jerry@roboticscenter.ai",
+        "source": "https://roboticscenter.ai/about",
+        "score": 100
+      },
+      {
+        "email": "contact@roboticscenter.ai",
+        "source": "https://roboticscenter.ai/",
+        "score": 85
+      },
+      {
+        "email": "jobs@roboticscenter.ai",
+        "source": "https://roboticscenter.ai/careers",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://roboticscenter.ai/",
+      "https://roboticscenter.ai/about",
+      "https://roboticscenter.ai/careers",
+      "https://roboticscenter.ai/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Kalpa Labs",
+    "slug": "kalpa-labs",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/kalpa-labs",
+    "website": "https://kalpalabs.ai/",
+    "oneLiner": "Scaling Generalist Speech models",
+    "longDescription": "We're building the next frontier of speech models. Generalist speech models that unlock in-context learning & strong instruction following for speech models alongside unifying existing speech capabilities like speech to text, text to speech, voice cloning, etc.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/kalpalabs/",
+    "founders": [
+      {
+        "name": "Prashant Shishodia",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/pshishodia",
+        "twitter": "https://x.com/pshishodiaa"
+      },
+      {
+        "name": "Gautam Jha",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gautam-jha37/",
+        "twitter": "https://x.com/JhaGauti"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Research Engineer",
+        "url": "https://www.workatastartup.com/jobs/100411"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://kalpalabs.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Pax",
+    "slug": "pax",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/pax",
+    "website": "https://paxai.com/",
+    "oneLiner": "AI Broker for Tariff Refunds",
+    "longDescription": "Pax is the AI-native broker that automates and maximizes tariff refunds through duty drawback. We've helped enterprises recover millions in duties and manage their entire trade compliance operation from one platform.\r\n\r\nEach year, 80% of eligible refunds—equivalent to $15B—go unclaimed. Pax is the first AI-first broker that makes this process transparent and streamline while maximizing all duty saving opportunities.\r\n\r\nWe are two technical founders: Penny got her PhD from MIT and, and was a former research scientist at Amazon & Flexport, where I encountered the problem firsthand. Chris is a second-time founder and former software engineer at Amazon, Brex, and TikTok.",
+    "foundedYear": 2024,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/getpaxai",
+    "founders": [
+      {
+        "name": "Penny Chen",
+        "title": "Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/pennypinyichen/",
+        "twitter": ""
+      },
+      {
+        "name": "Chris Le",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/ctle",
+        "twitter": "https://x.com/chriiisle"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Software Engineer (Early Career)",
+        "url": "https://www.workatastartup.com/jobs/100006"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "ArchiLabs",
+    "slug": "archilabs",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/archilabs",
+    "website": "https://archilabs.ai",
+    "oneLiner": "AI CAD for AEC",
+    "longDescription": "ArchiLabs is building the AI CAD tool for architects and engineers. We focus on use cases like: production homebuilding, modular housing, MEP, fire suppression systems, and more.",
+    "foundedYear": 2024,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/archilabs-ai/",
+    "founders": [
+      {
+        "name": "Brian Bakerman",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/brianbakerman",
+        "twitter": ""
+      },
+      {
+        "name": "William Meng",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/william-meng/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding MEP Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/99872"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://archilabs.ai/",
+      "https://archilabs.ai/",
+      "https://archilabs.ai/",
+      "https://archilabs.ai/dxf-to-3d"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Kontigo",
+    "slug": "kontigo",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/kontigo",
+    "website": "https://kontigo.lat/",
+    "oneLiner": "USDC-Smart Neobank for Latinos. ",
+    "longDescription": "We’re building Kontigo, a USDC Smart Neobank for Latinos in the U.S. and Latin America.\r\n\r\nWe launched our Peer-to-Peer onramp 20 days ago and we’ve already had $540k in deposits, 10k active users and a +300k waitlist. \r\n\r\nThe founding team has built and scaled fintechs in Latam, and it’s ex-Venmo, Nubank, Rappi, MercadoLibre, Ualá, Platzi, and Yuno. \r\n\r\nWe’re already backed by DST Global, Soma Capital, Pioneer Fund, Transpose + 10 YC alums.\r\n\r\nSending money to Latin America is just as painful as holding it due to the region's fragmentation into 33 countries with 39 different currencies. \r\n\r\nOn one hand, cross-border payments to Latam are absurdly expensive (up to 20% per transaction). Conversely, over the past decade, currency depreciation across the region has become unsustainable. (some countries surpassing the trillion percent ). \r\n\r\nKontigo solves this with a USDC global wallet & a BTC savings account. \r\n\r\n- Like Venmo, but on-USDC.\r\n- Like Zelle, but for cross-border payments. No limits.\r\n- Like Nubank & Revolut, but without inflationary currencies. Bitcoin-backed.\r\n\r\nUser wallets are connected to an AI-private banker on WhatsApp to execute international USDC transactions. ",
+    "foundedYear": 2023,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/kontigolatam/?viewAsMember=true",
+    "founders": [
+      {
+        "name": "jesus alberto Castillo ferrer",
+        "title": "CEO & Co-founder",
+        "linkedin": "https://www.linkedin.com/in/jesus-castillo-81a58b186/",
+        "twitter": "https://twitter.com/jecastillof"
+      },
+      {
+        "name": "Gino Guatavita",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/gino-guatavita-7269139b",
+        "twitter": "https://twitter.com/GinoGuatavita"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Head of Security",
+        "url": "https://www.workatastartup.com/jobs/99410"
+      },
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/70394"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.kontigo.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "AgentMail",
+    "slug": "agentmail",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/agentmail",
+    "website": "https://agentmail.to",
+    "oneLiner": "Email Inboxes for AI Agents",
+    "longDescription": "AgentMail is the email inbox API for AI agents. It gives agents their own email inboxes, like Gmail does for humans.",
+    "foundedYear": 2025,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/agentmailto",
+    "founders": [
+      {
+        "name": "Haakam Aujla",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/haaaujla/",
+        "twitter": "https://x.com/haakamaujla"
+      },
+      {
+        "name": "Michael Kim",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/hyun-michael-kim-281242220/",
+        "twitter": "https://x.com/michaelhyunkim"
+      },
+      {
+        "name": "Adi Singh",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/adivirsingh13",
+        "twitter": "https://x.com/adisingh"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Engineer, Backend/Infra",
+        "url": "https://www.workatastartup.com/jobs/90991"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [
+      {
+        "email": "support@agentmail.cc",
+        "source": "https://www.agentmail.to/",
+        "score": 45
+      },
+      {
+        "email": "support@agentmail.cc\\",
+        "source": "https://www.agentmail.to/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://www.agentmail.to/",
+      "https://www.agentmail.to/careers"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Juno",
+    "slug": "juno-chat",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/juno-chat",
+    "website": "https://junocompanion.com/",
+    "oneLiner": "AI Health Assistant for Chronic Illness",
+    "longDescription": "Juno is an AI personal health assistant for the 1B+ people living with chronic illness.\r\n\r\nLaunched in October, Juno now supports 150,000+ patients globally.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/junocompanion",
+    "founders": [
+      {
+        "name": "Marshall Gould",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/marshall-gould/",
+        "twitter": "https://x.com/MarshallJGould"
+      },
+      {
+        "name": "Isaac Tolley",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/isaactolley/",
+        "twitter": "https://x.com/isaactolley_"
+      }
+    ],
+    "roles": [
+      {
+        "title": "AI Founding Engineer at Juno",
+        "url": "https://www.workatastartup.com/jobs/99251"
+      },
+      {
+        "title": "Founding Mobile Engineer at Juno",
+        "url": "https://www.workatastartup.com/jobs/98425"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://junocompanion.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Miso Labs",
+    "slug": "miso-labs",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/miso-labs",
+    "website": "https://misolabs.ai",
+    "oneLiner": "Emotive foundation voice models",
+    "longDescription": "Miso Labs is building the world’s most emotive foundation models for voice. Our goal is to pass the voice Turing test.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/108252929/admin/dashboard/",
+    "founders": [
+      {
+        "name": "Aoden Teo",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/aodenteo/",
+        "twitter": ""
+      },
+      {
+        "name": "Cassidy Dalva",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/cassidydalva/",
+        "twitter": "https://x.com/cassidydalva"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Research Scientist",
+        "url": "https://www.workatastartup.com/jobs/98948"
+      }
+    ],
+    "preferredEmail": "aoden@misolabs.ai",
+    "emailSource": "https://www.misolabs.ai/careers",
+    "publishedEmails": [
+      {
+        "email": "aoden@misolabs.ai",
+        "source": "https://www.misolabs.ai/careers",
+        "score": 100
+      },
+      {
+        "email": "cassidy@misolabs.ai",
+        "source": "https://www.misolabs.ai/",
+        "score": 100
+      },
+      {
+        "email": "cassidy@misolabs.ai\\",
+        "source": "https://www.misolabs.ai/",
+        "score": 100
+      },
+      {
+        "email": "careers@misolabs.ai",
+        "source": "https://www.misolabs.ai/careers",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://www.misolabs.ai/",
+      "https://www.misolabs.ai/careers"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Moss",
+    "slug": "moss",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/moss",
+    "website": "https://moss.dev",
+    "oneLiner": "Real-time semantic search for Conversational AI",
+    "longDescription": "Moss is building the real-time semantic search runtime for conversational and multimodal AI. Our system enables voice agents, copilots, and chat interfaces to retrieve, reason, and respond in sub-10 ms, delivering the responsiveness that makes AI interactions feel truly natural.\r\n\r\nIf you’ve ever built a conversational or voice AI product, you’ve felt the lag. That moment when an agent pauses and the illusion of intelligence breaks. The bottleneck is almost always retrieval. Each query hops across networks and databases, adding delay and cost. Moss eliminates that gap by keeping retrieval close to where the agent runs.\r\n\r\nMoss runs natively across browsers, mobile devices, and servers with an optimized vector index built in Rust and WebAssembly. It enables teams to build AI products that feel instant, contextual, and adaptive. The experiences that sustain engagement and unlock new kinds of interaction. For our customers, this translates into tangible business value: stronger user retention, higher conversion, and entirely new product categories made possible by real-time understanding. Moss is already powering production pilots across voice AI and developer platforms, achieving sub-10 ms retrieval and 70–90% token savings compared to traditional pipelines.",
+    "foundedYear": 2024,
+    "teamSize": 5,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/mossdev",
+    "founders": [
+      {
+        "name": "Sri Raghu Malireddi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/r4ghu",
+        "twitter": "https://x.com/srimalireddi"
+      },
+      {
+        "name": "Harsha Nalluru",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/imharshanalluru/",
+        "twitter": "https://x.com/ImHarshaNalluru"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Software Engineer - SDK",
+        "url": "https://www.workatastartup.com/jobs/98882"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.moss.dev/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "AgentPhone",
+    "slug": "agentphone",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/agentphone",
+    "website": "https://agentphone.ai/",
+    "oneLiner": "Phone Numbers for AI Agents",
+    "longDescription": "The $2T global telecom industry was built for humans. Agents can't act in the real world today because without a phone number, they lack identity. AgentPhone gives every AI agent its own phone number to reach people and businesses through messages and calls.",
+    "foundedYear": 2026,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/agentphone/",
+    "founders": [
+      {
+        "name": "Manav Modi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/manav2modi/",
+        "twitter": "https://x.com/manav2modi"
+      },
+      {
+        "name": "Meet Modi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/meetmodi-/",
+        "twitter": "https://x.com/themeetmodi"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/98603"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://agentphone.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Fenrock AI",
+    "slug": "fenrock-ai",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/fenrock-ai",
+    "website": "https://fenrock.ai/",
+    "oneLiner": "AI agents for banks",
+    "longDescription": "We're building the Legora for traditional financial services, working closely with US bank CEOs to transform their businesses.",
+    "foundedYear": 2026,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/fenrock-ai",
+    "founders": [
+      {
+        "name": "Charu Sharma",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/charusharma1/",
+        "twitter": "https://x.com/charu1603"
+      },
+      {
+        "name": "Michael M",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/fiveseventyeleven/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer (Full stack)",
+        "url": "https://www.workatastartup.com/jobs/98554"
+      },
+      {
+        "title": "Founding Engineer (Backend)",
+        "url": "https://www.workatastartup.com/jobs/98553"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.fenrock.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Locke",
+    "slug": "locke",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/locke",
+    "website": "https://locke.inc",
+    "oneLiner": "Builders of the first AI-native government affairs firm.",
+    "longDescription": "Locke is an applied AI company changing the way companies and governments work together. \r\n\r\nOur first focus is building Locke Government Affairs, an AI-native government affairs firm helping early-stage companies monitor regulations, lobby policymakers, and win government contracts.",
+    "foundedYear": 2026,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/lockeinc/?viewAsMember=true",
+    "founders": [
+      {
+        "name": "Parth Badhwar",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/parth-badhwar-8a8037189/",
+        "twitter": "https://x.com/parth_badhwar"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Member of Technical Staff",
+        "url": "https://www.workatastartup.com/jobs/98294"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://locke.inc/",
+      "https://locke.inc/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Simantic",
+    "slug": "simantic",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/simantic",
+    "website": "https://simantic.dev",
+    "oneLiner": "Firmware simulation for AI agents",
+    "longDescription": "Simantic is modernizing the embedded firmware industry with hardware simulation developed for the adoption of AI in hardware engineering. Simantic gives both humans and AI the visibility into hardware previously limited by the physical world.",
+    "foundedYear": 2025,
+    "teamSize": 4,
+    "location": "Waterloo, Canada",
+    "city": "Waterloo",
+    "country": "CA",
+    "companyLinkedIn": "https://www.linkedin.com/company/simantic",
+    "founders": [
+      {
+        "name": "Seungmin Hong",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/shong0504/",
+        "twitter": "https://x.com/shong0504"
+      },
+      {
+        "name": "Ahnaf Shahriar",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ahnaf-s/",
+        "twitter": "https://x.com/enough_ahnaf"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Lead Simulation Researcher (Electronics / Firmware)",
+        "url": "https://www.workatastartup.com/jobs/98191"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://simantic.dev/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Rudus",
+    "slug": "rudus",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/rudus",
+    "website": "http://rudus.ai/",
+    "oneLiner": "AI Takeoffs for Concrete",
+    "longDescription": "Rudus is an AI-powered takeoff and estimation platform enabling concrete contractors to win 3x more projects yearly. It automatically identifies every concrete structure like footings, walls, columns, and slabs on plans, eliminating the manual work and reducing estimation time by 70%. Concrete is the most-used material on earth after water, and demand is surging with the AI infrastructure boom.",
+    "foundedYear": 2026,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/rudusai/",
+    "founders": [
+      {
+        "name": "Rishi Pankhaniya",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/rishi-pankhaniya-b69649183/",
+        "twitter": ""
+      },
+      {
+        "name": "Sahil Goel",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/sahilgoel05",
+        "twitter": "https://x.com/goesahil"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Research Scientist, Computer Vision (PhD)",
+        "url": "https://www.workatastartup.com/jobs/98127"
+      },
+      {
+        "title": "Forward Deployed Engineer",
+        "url": "https://www.workatastartup.com/jobs/98126"
+      },
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/98125"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.rudus.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Dedalus Labs",
+    "slug": "dedalus-labs",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/dedalus-labs",
+    "website": "https://www.dedaluslabs.ai/",
+    "oneLiner": "Compute substrate for AI agents",
+    "longDescription": "The fastest persistent computer for agents. Host long-running, stateful agents that never sleep in <50ms. ",
+    "foundedYear": 2025,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/dedalus-labs",
+    "founders": [
+      {
+        "name": "Cathy Di",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/cathydi",
+        "twitter": "https://x.com/itsCathyDi"
+      },
+      {
+        "name": "Windsor Nguyen",
+        "title": "Co-Founder",
+        "linkedin": "https://linkedin.com/in/windsornguyen",
+        "twitter": "https://x.com/WindsorNguyen"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Systems Engineer Summer 2027 Intern",
+        "url": "https://www.workatastartup.com/jobs/97998"
+      },
+      {
+        "title": "Distributed Systems Engineer",
+        "url": "https://www.workatastartup.com/jobs/97700"
+      },
+      {
+        "title": "Systems Engineer",
+        "url": "https://www.workatastartup.com/jobs/97698"
+      },
+      {
+        "title": "Design Engineer",
+        "url": "https://www.workatastartup.com/jobs/97697"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [
+      {
+        "email": "support@dedaluslabs.ai",
+        "source": "https://www.dedaluslabs.ai/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://www.dedaluslabs.ai/",
+      "https://www.dedaluslabs.ai/about",
+      "https://www.dedaluslabs.ai/careers"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Manufact",
+    "slug": "manufact",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/manufact",
+    "website": "https://manufact.com",
+    "oneLiner": "Cloud infrastructure for MCP servers and Claude / ChatGPT apps.",
+    "longDescription": "Manufact is the MCP cloud platform to get your product ready for Claude Connectors marketplace, ChatGPT / Codex plugins store and any AI agent that supports MCP.\r\nWe're the team behind mcp-use SDK, the open-source framework for building MCP Apps with 10k github stars and 8M+ downloads across python and typescript.\r\n\r\nIt's the fastest and most complete solution for production-ready MCP servers.",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/mcp-use/",
+    "founders": [
+      {
+        "name": "Pietro Zullo",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/pietrozullo",
+        "twitter": "https://x.com/pietrozullo"
+      },
+      {
+        "name": "Luigi Pederzani",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/luigipederzani",
+        "twitter": "https://x.com/pederzh"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Developer Advocate & Partnerships (DevRel)",
+        "url": "https://www.workatastartup.com/jobs/97959"
+      },
+      {
+        "title": "Senior Infrastructure Engineer",
+        "url": "https://www.workatastartup.com/jobs/97962"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://manufact.com/"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Aemon",
+    "slug": "aemon",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/aemon",
+    "website": "https://aemon.ai/",
+    "oneLiner": "The Forward-Deployed AI Research Engineer ",
+    "longDescription": "Aemon is the first autonomous research engineer that delivers state-of-the-art solutions to your engineering problems. It generates, tests, and evolves thousands of approaches at machine speed to discover optimal solutions beyond what human experts can find.\r\n\r\nAemon already set a new world record on an NP-hard math optimization problem with <$10 of compute, beating the previous record set by Google DeepMind in 2025.\r\n\r\nRay and Richard (twin brothers) dropped out of UWaterloo and UIUC to build Aemon. They published at top AI conferences like ICLR and EMNLP before turning 20.",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/aemon-ai/",
+    "founders": [
+      {
+        "name": "Richard Zhou",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/-richard-zhou-/",
+        "twitter": ""
+      },
+      {
+        "name": "Ray Xu",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/yifei-ray-xu/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Member of Technical Staff Intern 2027",
+        "url": "https://www.workatastartup.com/jobs/97531"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://aemon.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "CTGT",
+    "slug": "ctgt",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/ctgt",
+    "website": "https://www.ctgt.ai/",
+    "oneLiner": "The deterministic layer for frontier intelligence",
+    "longDescription": "CTGT is an applied AI research laboratory fundamentally solving the alignment and reliability bottleneck for enterprise AI.\r\n\r\nFor enterprises, especially highly regulated industries, deploying Generative AI is historically a compromise between capability and catastrophic risk. Standard enterprise approaches, such as RAG, fine-tuning, and prompt engineering, operate at the wrong abstraction layer. They are inherently probabilistic, carry massive engineering overhead, and fail to deliver the mathematical certainty required by the Fortune 500.\r\n\r\nWe focus on the science of representation engineering and have productized mechanistic interpretability. By opening the \"black box\" of neural networks, CTGT has developed a proprietary architecture that intervenes directly at the model's representation layer. We convert complex corporate SOPs, SEC/FINRA regulations, and strict editorial rulebooks into machine-readable \"Policy as Code,\" enforcing deterministic constraints and defensible audit trails without requiring expensive model retraining.\r\n\r\nThe result is a step-function breakthrough in enterprise AI economics and capability. Our fundamental architecture allows organizations to run secure, self-hosted open-source models that mathematically match the reasoning and performance of frontier models. Benchmarks from our enterprise deployments demonstrate a 96.5% prevention of hallucinations, up to a 3.3× accuracy multiplier in complex domain-specific tasks, and an 80-90% reduction in human-in-the-loop manual review.\r\n\r\nBacked by an $8M seed round from Gradient Ventures (Google), General Catalyst, and Y Combinator, CTGT is currently deployed with Fortune 500 companies, including Tier-1 financial institutions and global media conglomerates, giving them the deterministic control necessary to deploy enterprise AI with zero margin for error.",
+    "foundedYear": 2024,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/ctgt/",
+    "founders": [
+      {
+        "name": "Cyril Gorlla",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/cyrilgorlla",
+        "twitter": "https://twitter.com/cyrilgorlla"
+      },
+      {
+        "name": "Trevor Tuttle",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/trevor-j-tuttle",
+        "twitter": "https://x.com/trevorjtuttle"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Machine Learning Engineer: LLM Interpretability & Systems",
+        "url": "https://www.workatastartup.com/jobs/92244"
+      },
+      {
+        "title": "Senior Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/93803"
+      },
+      {
+        "title": "Software Engineering Intern (Summer 2027)",
+        "url": "https://www.workatastartup.com/jobs/97519"
+      },
+      {
+        "title": "Senior Software Engineer, Platform",
+        "url": "https://www.workatastartup.com/jobs/93804"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.ctgt.ai/",
+      "https://www.ctgt.ai/about-us",
+      "https://www.ctgt.ai/access"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Nessie",
+    "slug": "nessie",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/nessie",
+    "website": "https://nessielabs.com/",
+    "oneLiner": "A shared context layer for you, your team, and your agents.",
+    "longDescription": "Knowledge work is being restructured by AI. Strategy happens in Claude. Research happens in ChatGPT. Building happens in Claude Code. The people defining the next decade of work are already thinking with AI every day. But none of that thinking compounds. Every session starts from zero. The reasoning behind decisions, the context behind strategies, the evolution of ideas across hundreds of conversations - all of it evaporates.\r\n\r\nNessie is the infrastructure that makes it permanent. We auto-sync AI conversations and agent traces across every major provider - ChatGPT, Claude, Gemini, Perplexity, Claude Code, OpenClaw, Codex, and more - and turn them into a context layer that is queryable, reusable, and shareable by you, your team, and your agents. No browser extension. No manual capture. Your thinking flows in automatically and compounds over time.\r\n\r\nWhere we are going: the AI-native organization runs thousands of agents that are powerful but amnesiac, and Nessie is the layer that integrates what the organization knows, what it has decided, and how its thinking has evolved. Science has journals, law has case law, software has git; AI-native knowledge work has had nothing. We are building it.\r\n\r\nWe are two Yale CS grads and former Amazon engineers. Backed by BoxGroup, Pioneer Fund, Y Combinator, Precursor, and more.\r\n\r\nhttps://nessielabs.com",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/nessie-labs",
+    "founders": [
+      {
+        "name": "Anna Zhang",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/anna-zhang-y/",
+        "twitter": "https://x.com/anna_y_zhang"
+      },
+      {
+        "name": "Tiger Wang",
+        "title": "Co-Founder & CTO",
+        "linkedin": "https://www.linkedin.com/in/tiger-wang-6a9b06189/",
+        "twitter": "https://x.com/tigerjwang"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Forward Deployed Engineer",
+        "url": "https://www.workatastartup.com/jobs/97490"
+      },
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/94429"
+      }
+    ],
+    "preferredEmail": "founders@nessielabs.com",
+    "emailSource": "https://nessielabs.com/",
+    "publishedEmails": [
+      {
+        "email": "founders@nessielabs.com",
+        "source": "https://nessielabs.com/",
+        "score": 95
+      },
+      {
+        "email": "alex@company.com",
+        "source": "https://nessielabs.com/",
+        "score": 60
+      },
+      {
+        "email": "maya@company.com",
+        "source": "https://nessielabs.com/",
+        "score": 60
+      }
+    ],
+    "pagesChecked": [
+      "https://nessielabs.com/",
+      "https://nessielabs.com/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Y/n",
+    "slug": "yn",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/yn",
+    "website": "https://yn.app",
+    "oneLiner": "Play your story",
+    "longDescription": "Y/n is the most entertaining app in the world.\r\n\r\nOn Y/n, you play a character in your story. Be a boarding school student and get the boys to fall in love with you, or plan a jailbreak with Sherlock Holmes.\r\n\r\nStories are made for you. Your texts change the plot and how characters feel about you, so no two playthroughs are the same (but you can rewind).\r\n\r\nThere's a Y/n story for every mood: romance, fanfiction, fluff, mystery, and more. Discover 10M+ stories created by the community.\r\n\r\nCan't find the one you want? Write and publish your own.",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Gabriel Birnbaum",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gabriel-b-57ba3314a/",
+        "twitter": "https://twitter.com/gabirnbaum"
+      },
+      {
+        "name": "Eric Meier",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/eric-meier-34257b148/",
+        "twitter": "https://twitter.com/bitphinix"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/97403"
+      },
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/94749"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://yn.app/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Asendia AI",
+    "slug": "asendia-ai",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/asendia-ai",
+    "website": "https://asendia.ai/",
+    "oneLiner": "AI recruiters for staffing agencies",
+    "longDescription": "Asendia AI replaces the top-of-funnel recruiter. Our AI agents clone each agency's best human recruiter: their knowledge base, screening logic, outreach style, and judgment, then run the full workflow across phone, SMS, WhatsApp, and email, 24/7. A req comes in; by the time a recruiter sits down, Asendia has already sourced, screened, and drafted submittals. Staffing is a $200B+ industry where speed is the entire margin.",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/asendia-ai/",
+    "founders": [
+      {
+        "name": "Rihab Lajmi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/rihab-l-085182164/",
+        "twitter": "https://x.com/LajmiRihab"
+      },
+      {
+        "name": "Badis Zormati",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/badis-zormati/",
+        "twitter": "https://x.com/zormati_ba"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/97298"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://asendia.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "OpenWork",
+    "slug": "openwork",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/openwork",
+    "website": "https://openworklabs.com",
+    "oneLiner": "The open source alternative to Claude Cowork",
+    "longDescription": "OpenWork is a desktop app that lets people connect to their existing skills, MCPs, and agents. Users can download the app for free, try it with over 50+ model providers, and easily share their setup with their team.",
+    "foundedYear": 2026,
+    "teamSize": 4,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/openwork-software",
+    "founders": [
+      {
+        "name": "Ben Shafii",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ben-shafii-450039107/",
+        "twitter": "https://x.com/benjaminshafii "
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/97166"
+      }
+    ],
+    "preferredEmail": "team@openworklabs.com",
+    "emailSource": "https://openworklabs.com/contact",
+    "publishedEmails": [
+      {
+        "email": "team@openworklabs.com",
+        "source": "https://openworklabs.com/contact",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://openworklabs.com/",
+      "https://openworklabs.com/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Ruma Care",
+    "slug": "ruma-care",
+    "discoveryGeography": "San Francisco",
+    "ycUrl": "https://www.ycombinator.com/companies/ruma-care",
+    "website": "https://rumacare.com",
+    "oneLiner": "The operations stack for biologic infusion clinics",
+    "longDescription": "Ruma Care automates all admin work for infusion clinics - starting with prior authorizations & copay assistance enrollment.\r\n\r\nBiologics are expensive medications that cost $80-$150K+ per year per patient, and often need to be administered in specific settings called infusion clinics. Medical providers buy these drugs up front to secure pricing deals and safer inventory - they are reimbursed for the cost of the medications through the patients’ insurance. \r\n\r\nCurrent medical workflows aren't built for infusion clinics. Inventory, storage, transport, and billing is still managed through paper and excel spreadsheets. And because they’re so expensive, these specialty medications are denied by insurers at a rate of 37% each year. When they are denied, when workflows fail, or patients are infused before paperwork is cleared, providers don’t get reimbursed for the medication and are left covering the costs. Ruma Care solves this so clinics get paid, patients get treated faster, and care teams spend less time fighting forms. \r\n\r\nWe do this in three ways: \r\n1. For each medication, diagnosis, and insurance combination, Ruma extracts the submission criteria required to get the drug approved by insurers. \r\n2. We pull out the correct forms, then automate the form-filling for prior authorizations. \r\n3. Lastly, we enroll patients in copay assistance programs, all in one workflow and platform. \r\n\r\nWe turn a process that traditionally spans 70+ online portals, disparate paper forms, and manual phone calling into a single, streamlined platform. As we process prior authorizations, our models learn from denial patterns to understand exactly what insurers need to see to get a prior authorization approved. ",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/ruma-care/",
+    "founders": [
+      {
+        "name": "Meng Fei Shen",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mengfei-shen/",
+        "twitter": ""
+      },
+      {
+        "name": "Christina Huang",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/christina-huang-507901a6/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/97127"
+      }
+    ],
+    "preferredEmail": "team@rumacare.com",
+    "emailSource": "https://rumacare.com/contact",
+    "publishedEmails": [
+      {
+        "email": "team@rumacare.com",
+        "source": "https://rumacare.com/contact",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://rumacare.com/",
+      "https://rumacare.com/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Totalis",
+    "slug": "totalis",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/totalis",
+    "website": "https://www.totalis.trade",
+    "oneLiner": "derivative layer for prediction markets",
+    "longDescription": "",
+    "foundedYear": 2026,
+    "teamSize": null,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/totalistrading",
+    "founders": [
+      {
+        "name": "Pravesh Mansharamani",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/pravesh-mansharamani/",
+        "twitter": "https://x.com/ImTheBigP"
+      },
+      {
+        "name": "Eric Liu",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ericliujt/",
+        "twitter": "https://x.com/ericliujt"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Systems Engineer",
+        "url": "https://www.workatastartup.com/jobs/102001"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.totalis.trade/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Intelligence Factory",
+    "slug": "intelligence-factory",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/intelligence-factory",
+    "website": "https://intelligence-factory.com",
+    "oneLiner": "Human Intelligence for Robots",
+    "longDescription": "Robotics is the new paradigm. With hardware converging, Intelligence is the biggest bottleneck. Our world was built for humans and we're giving robots the ability to reason and act like us. \r\n\r\nThe way we learn any task - by seeing, doing, and feeling - is how we train robots. We're building general intelligence that works on any robot and fits seamlessly within our world.",
+    "foundedYear": 2026,
+    "teamSize": 5,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/intelligence-factory/?viewAsMember=true",
+    "founders": [
+      {
+        "name": "Yash Sinha",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/yash-sinha-556b411b3/",
+        "twitter": ""
+      },
+      {
+        "name": "Jalaj Shukla",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/jalaj-shukla-635005167/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer: Manipulation",
+        "url": "https://www.workatastartup.com/jobs/93968"
+      },
+      {
+        "title": "Founding Engineer: Deployment",
+        "url": "https://www.workatastartup.com/jobs/100367"
+      }
+    ],
+    "preferredEmail": "yash@intelligence-factory.com",
+    "emailSource": "https://www.intelligence-factory.com/",
+    "publishedEmails": [
+      {
+        "email": "yash@intelligence-factory.com",
+        "source": "https://www.intelligence-factory.com/",
+        "score": 100
+      },
+      {
+        "email": "yash@intelligence-factory.com\\",
+        "source": "https://www.intelligence-factory.com/",
+        "score": 100
+      }
+    ],
+    "pagesChecked": [
+      "https://www.intelligence-factory.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Mbodi AI",
+    "slug": "mbodi-ai",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/mbodi-ai",
+    "website": "https://www.mbodi.ai/",
+    "oneLiner": "Industrial Robots that Learn and Operate Like Humans",
+    "longDescription": "Teach robots new skills through natural language and run reliably in production in minutes.\r\n\r\nMbodi combines generative AI and agent orchestration, turning everyday language and quick demos into precise, reliable robot actions for industrial automation.",
+    "foundedYear": 2024,
+    "teamSize": 6,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/mbodiai",
+    "founders": [
+      {
+        "name": "Xavier (Tianhao) Chi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/xavierchi/",
+        "twitter": "https://x.com/chitianhao"
+      },
+      {
+        "name": "Sebastian Peralta",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/sebjperalta",
+        "twitter": "https://x.com/sebjperalta"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Robotics Engineer",
+        "url": "https://www.workatastartup.com/jobs/92785"
+      },
+      {
+        "title": "Founding Research Engineer",
+        "url": "https://www.workatastartup.com/jobs/95789"
+      }
+    ],
+    "preferredEmail": "careers@mbodi.ai",
+    "emailSource": "https://www.mbodi.ai/careers",
+    "publishedEmails": [
+      {
+        "email": "careers@mbodi.ai",
+        "source": "https://www.mbodi.ai/careers",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://www.mbodi.ai/",
+      "https://www.mbodi.ai/careers",
+      "https://www.mbodi.ai/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Closure",
+    "slug": "closure",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/closure",
+    "website": "https://closure-intel.com/",
+    "oneLiner": "We help law enforcement solve crime",
+    "longDescription": "Law enforcement is drowning in data. Closure helps search it to solve crime.\r\n\r\n- Hiring: UX, Engineering, AI, Ops, Business Development\r\n- Supporting: law enforcement throughout the country\r\n- Expanding: Local, state, and federal law enforcement.",
+    "foundedYear": 2024,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/closure-intel",
+    "founders": [
+      {
+        "name": "Aaron Zelinger",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/aaron-zelinger/",
+        "twitter": ""
+      },
+      {
+        "name": "Gilad Levy",
+        "title": "Co-Founder and CTO",
+        "linkedin": "https://www.linkedin.com/in/gilad-levy/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding AI Engineer",
+        "url": "https://www.workatastartup.com/jobs/78903"
+      },
+      {
+        "title": "Founding FDE",
+        "url": "https://www.workatastartup.com/jobs/78900"
+      }
+    ],
+    "preferredEmail": "recruiting@closure-intel.com",
+    "emailSource": "https://www.closure-intel.com/",
+    "publishedEmails": [
+      {
+        "email": "recruiting@closure-intel.com",
+        "source": "https://www.closure-intel.com/",
+        "score": 60
+      }
+    ],
+    "pagesChecked": [
+      "https://www.closure-intel.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Guac",
+    "slug": "guac",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/guac",
+    "website": "https://www.guac.com/",
+    "oneLiner": "AI-powered forecasting & replenishment for grocery",
+    "longDescription": "Guac accurately forecasts grocery demand to help supermarkets order and produce the right amount of inventory — reducing food waste and increasing availability.",
+    "foundedYear": 2023,
+    "teamSize": 7,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/guac-ai",
+    "founders": [
+      {
+        "name": "Euro Wang",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/eurowang",
+        "twitter": ""
+      },
+      {
+        "name": "Jack Solomon",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/jackasolomon",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Backend Engineer",
+        "url": "https://www.workatastartup.com/jobs/95387"
+      },
+      {
+        "title": "Fullstack Engineer",
+        "url": "https://www.workatastartup.com/jobs/95386"
+      },
+      {
+        "title": "Forward Deployed Engineer",
+        "url": "https://www.workatastartup.com/jobs/95055"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.guac.com/",
+      "https://www.guac.com/about-us",
+      "https://www.guac.com/contact-us",
+      "https://www.guac.com/forecasting"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Voiceops",
+    "slug": "voiceops",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/voiceops",
+    "website": "https://voiceops.com",
+    "oneLiner": "We help B2C companies learn from every customer interaction",
+    "longDescription": "The richest data source about customers — their conversations — is the least accessible. Their mission is to provide easy access to customer conversations, and make voice data queryable. Their product analyzes the content of sales and support conversations and generates insights on phrases that maximize successful outcomes.",
+    "foundedYear": null,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/voiceops/",
+    "founders": [
+      {
+        "name": "Ethan Barhydt",
+        "title": "Founder/CEO",
+        "linkedin": "https://www.linkedin.com/pub/ethan-barhydt/a1/739/b35?domainCountryName=&csrfToken=ajax%3A0438287707557206339",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding AI Engineer",
+        "url": "https://www.workatastartup.com/jobs/95123"
+      }
+    ],
+    "preferredEmail": "ali@voiceops.com",
+    "emailSource": "https://www.voiceops.com/careers",
+    "publishedEmails": [
+      {
+        "email": "ali@voiceops.com",
+        "source": "https://www.voiceops.com/careers",
+        "score": 60
+      },
+      {
+        "email": "sales@voiceops.com",
+        "source": "https://www.voiceops.com/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://www.voiceops.com/",
+      "https://www.voiceops.com/careers",
+      "https://www.voiceops.com/news/casestudy-issa",
+      "https://www.voiceops.com/contact",
+      "https://www.voiceops.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Trata",
+    "slug": "trata",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/trata",
+    "website": "https://www.trytrata.com/",
+    "oneLiner": "AI-powered research desk for hedge funds",
+    "longDescription": "Trata is an AI-powered research desk for hedge funds. We use agents to interview hedge fund analysts, write investment research, and distribute this through a subscription.",
+    "foundedYear": 2025,
+    "teamSize": 6,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/trata-inc/",
+    "founders": [
+      {
+        "name": "Eric Cho",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/emc329",
+        "twitter": "https://x.com/_ericcho"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/90432"
+      }
+    ],
+    "preferredEmail": "hello@trytrata.com",
+    "emailSource": "https://www.trata.com/",
+    "publishedEmails": [
+      {
+        "email": "hello@trytrata.com",
+        "source": "https://www.trata.com/",
+        "score": 85
+      },
+      {
+        "email": "hello@trytrata.com\\",
+        "source": "https://www.trata.com/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.trata.com/",
+      "https://jobs.gem.com/trata"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Dime",
+    "slug": "dime-2",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/dime-2",
+    "website": "https://www.dimehealth.ai/",
+    "oneLiner": "Dime automates administrative busywork at healthcare clinics",
+    "longDescription": "At Dime, we automate repetitive administrative work in healthcare clinics, including insurance coordination, referrals, referring-provider communication, scheduling, and patient communication. \r\n\r\nWe integrate directly with RIS and EHR systems, creating true end-to-end automation rather than adding another software layer. Our HIPAA-compliant AI agents eliminate paperwork bottlenecks, reduce errors, and restore hours of clinical time - enabling care teams to focus on patients.",
+    "foundedYear": 2023,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/dime-health",
+    "founders": [
+      {
+        "name": "Ashish Bajaj",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/ashish-bajaj1",
+        "twitter": ""
+      },
+      {
+        "name": "Akash Kumar",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/akashkumar2296",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Forward Deployed Engineering Intern",
+        "url": "https://www.workatastartup.com/jobs/94211"
+      },
+      {
+        "title": "Forward Deployed Engineer",
+        "url": "https://www.workatastartup.com/jobs/94562"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.dimehealth.ai/",
+      "https://www.dimehealth.ai/about",
+      "https://www.dimehealth.ai/book-a-demo"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Revise Robotics",
+    "slug": "revise-robotics",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/revise-robotics",
+    "website": "https://www.reviserobotics.com/",
+    "oneLiner": "Automating refurbishment of $1T in consumer electronics",
+    "longDescription": "E-waste recycling facilities spend most of their time and effort sifting through discarded electronics, searching for valuable devices, refurbishing them, and reselling them in second-hand markets.\r\n\r\nOur first product is an AI-enabled robotic system that integrates with these facilities to assess and refurbish hundreds of laptops a day without any human intervention. The system tests laptops, wipes their hard drives, photographs them, and posts them on online marketplaces for resale, regardless of model, manufacturer, or operating system.",
+    "foundedYear": 2024,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/revise-robotics/",
+    "founders": [
+      {
+        "name": "Rupesh Jeyaram",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/rupesh-jeyaram/",
+        "twitter": ""
+      },
+      {
+        "name": "Antonio Monreal",
+        "title": "Founder/CTO",
+        "linkedin": "https://www.linkedin.com/in/antonio-monreal-71b0751b5/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Engineering Intern — Summer/Fall 2026",
+        "url": "https://www.workatastartup.com/jobs/93938"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.reviserobotics.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "CellType",
+    "slug": "celltype",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/celltype",
+    "website": "https://www.celltype.com",
+    "oneLiner": "The agentic drug company. We simulate human biology.",
+    "longDescription": "CellType is building an agentic drug company. AI agents that run the full drug discovery pipeline on top of biological foundation models that simulate human biology. Our core technology, developed with Google DeepMind, has already discovered and validated a new cancer treatment signal. We’re working with Top 10 pharma.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/celltype/",
+    "founders": [
+      {
+        "name": "David van Dijk",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/david-van-dijk-b440286/",
+        "twitter": "https://x.com/david_van_dijk"
+      },
+      {
+        "name": "Ivan Vrkic",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/ivanvrkic",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Research Engineer, Model Training",
+        "url": "https://www.workatastartup.com/jobs/92978"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.celltype.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Scott AI",
+    "slug": "scott-ai",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/scott-ai",
+    "website": "https://tryscott.ai",
+    "oneLiner": "The planning layer for teams that build with coding agents",
+    "longDescription": "Coding agents made writing code fast. But 6 engineers in a room will probably still disagree on what needs to be built.\r\n\r\nScott AI is a planning workspace where engineering teams align on what to build before their coding agents start building it.",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/scott-ai",
+    "founders": [
+      {
+        "name": "David Maulick",
+        "title": "CEO & Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/davidemaulick/",
+        "twitter": "https://x.com/davidmaulick"
+      },
+      {
+        "name": "Devin Cintron",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/devin-cintron",
+        "twitter": "https://x.com/devin_bc"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/92903"
+      }
+    ],
+    "preferredEmail": "founders@tryscott.ai",
+    "emailSource": "https://www.tryscott.ai/",
+    "publishedEmails": [
+      {
+        "email": "founders@tryscott.ai",
+        "source": "https://www.tryscott.ai/",
+        "score": 95
+      },
+      {
+        "email": "support@tryscott.ai",
+        "source": "https://www.tryscott.ai/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://www.tryscott.ai/",
+      "https://www.tryscott.ai/products/compass"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Interface",
+    "slug": "theinterface",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/theinterface",
+    "website": "https://www.theinterface.com",
+    "oneLiner": "Building onestop.sh",
+    "longDescription": "We research how the world gets encoded for agents, and build the interfaces they transact through. Our latest work is OneStop — a unified market for AI.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/interface-official",
+    "founders": [
+      {
+        "name": "Max Raven",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ravenmax/",
+        "twitter": "https://x.com/maxtheraven"
+      },
+      {
+        "name": "Peyton Shields",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/peyton-shields",
+        "twitter": "https://x.com/peytonshields_"
+      }
+    ],
+    "roles": [
+      {
+        "title": "World Model Research Team (Generalist + Specialist Openings)",
+        "url": "https://www.workatastartup.com/jobs/92536"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Revion",
+    "slug": "revion",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/revion",
+    "website": "https://revion.inc",
+    "oneLiner": "Intelligence for Automotive Operations",
+    "longDescription": "Revion is building the operating system for Automotive Retail. Our first product helps Technicians automate administrative work, which drains 30-40% of their day. With Revion, Auto Retailers can service more vehicles and drive more high-margin Revenue. ",
+    "foundedYear": 2025,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/getrevion",
+    "founders": [
+      {
+        "name": "Zaki GW",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/zaki-gw-63838014b/",
+        "twitter": "https://x.com/ZakiGWLondon"
+      },
+      {
+        "name": "Hanbo Xie",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/hanbo-xie",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/97533"
+      },
+      {
+        "title": "Founding Forward Deployed Enginner",
+        "url": "https://www.workatastartup.com/jobs/92494"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://revion.inc/",
+      "https://revion.inc/careers",
+      "https://revion.inc/contact",
+      "https://revion.inc/company"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Santé",
+    "slug": "sante",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/sante",
+    "website": "https://santehq.com/",
+    "oneLiner": "All-in-one POS for liquor stores",
+    "longDescription": "",
+    "foundedYear": 2023,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Darren Fike",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/darrenfike",
+        "twitter": "https://twitter.com/darrenfike"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Full-Stack Engineer",
+        "url": "https://www.workatastartup.com/jobs/77279"
+      }
+    ],
+    "preferredEmail": "founders@santehq.com",
+    "emailSource": "https://www.santehq.com/careers",
+    "publishedEmails": [
+      {
+        "email": "founders@santehq.com",
+        "source": "https://www.santehq.com/careers",
+        "score": 95
+      },
+      {
+        "email": "hello@santehq.com",
+        "source": "https://www.santehq.com/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.santehq.com/",
+      "https://www.santehq.com/about",
+      "https://www.santehq.com/careers"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Karumi",
+    "slug": "karumi",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/karumi",
+    "website": "https://www.karumi.ai/",
+    "oneLiner": "The Waymo of Personalized demos",
+    "longDescription": "Karumi is an AI agent that joins a live video call with your prospects to deliver personalized product demos, 24/7, in any language.\r\n\r\nIt bridges the gap between your landing page and your sales team by engaging visitors at the peak of their interest, turning curiosity into conversion. For those not ready to talk to sales but eager to explore, Karumi offers the next generation of interactive, self-guided demos.",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "",
+    "city": "",
+    "country": "",
+    "companyLinkedIn": "https://www.linkedin.com/company/karumi-ai/",
+    "founders": [
+      {
+        "name": "Pablo Omenaca",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/pablo-omenaca-muro/",
+        "twitter": "https://x.com/houmland"
+      },
+      {
+        "name": "Toni Lopez",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/tonilopezmr",
+        "twitter": "https://x.com/tonilopezmr"
+      }
+    ],
+    "roles": [
+      {
+        "title": "AI/ML Applied Engineer",
+        "url": "https://www.workatastartup.com/jobs/86442"
+      },
+      {
+        "title": "Product Engineer (Full-Stack)",
+        "url": "https://www.workatastartup.com/jobs/86441"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.karumi.ai/",
+      "https://www.karumi.ai/contact-demo"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "DiligenceSquared",
+    "slug": "diligencesquared-inc",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/diligencesquared-inc",
+    "website": "https://diligencesquared.com/",
+    "oneLiner": "AI-powered market due diligence for investment decisions",
+    "longDescription": "DiligenceSquared delivers AI-powered market due diligence for investment decisions - like the $500k McKinsey reports, but automated, auditable, and at a fraction of the cost.\r\n\r\nWhen Private Equity funds evaluate deals, they pay firms like McKinsey, BCG, and Bain $500K-$1M for market due diligence. The process takes weeks, and the output is a static PowerPoint that's impossible to audit. A single large-cap PE fund can spend >$30M annually on this and the total market is $10B per year.\r\n\r\nOur AI agents conduct expert interviews and synthesize insights with every claim linked to source transcripts. No black box, no \"trust me\" slides, and no 10x mark-up for human labor.\r\n\r\nFrederik bought these reports as a Principal at Blackstone. Soren sold them as a Principal at BCG. Harshil is a repeat founder and former Software Engineer at Google. We've seen both sides and know what matters in due diligence - and now we automate it.\r\n\r\nOur clients already include 8 leading private equity funds with over $2.4 trillion in combined AUM.",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/diligencesquared",
+    "founders": [
+      {
+        "name": "Frederik Hansen",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/frederik-kofoed-hansen/",
+        "twitter": ""
+      },
+      {
+        "name": "Soren Biltoft-Knudsen",
+        "title": "Co-Founder & President",
+        "linkedin": "https://www.linkedin.com/in/søren-biltoft-knudsen-58010932/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Engineer - Fullstack",
+        "url": "https://www.workatastartup.com/jobs/86040"
+      },
+      {
+        "title": "Engineer - Backend",
+        "url": "https://www.workatastartup.com/jobs/86039"
+      },
+      {
+        "title": "Engineer - Frontend",
+        "url": "https://www.workatastartup.com/jobs/86038"
+      }
+    ],
+    "preferredEmail": "contact@diligencesquared.com",
+    "emailSource": "https://www.diligencesquared.com/",
+    "publishedEmails": [
+      {
+        "email": "contact@diligencesquared.com",
+        "source": "https://www.diligencesquared.com/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.diligencesquared.com/",
+      "https://www.diligencesquared.com/team",
+      "https://www.diligencesquared.com/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Structured AI",
+    "slug": "structured-ai",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/structured-ai",
+    "website": "https://www.getstructured.ai/",
+    "oneLiner": "The AI drawing review platform for architects and engineers.",
+    "longDescription": "Structured AI is the most advanced AI-powered QA/QC platform for drawing packages, working across both PDF drawings and native Revit models. Architects and engineers use our platform to make every drawing set leave the office with certainty. \r\n\r\nOur AI agents learn your firm's standards, apply the relevant codes, and read every page of a set, then return a clear list of what's wrong, where it sits, and how to fix it. Run compliance reviews across thousands of pages in minutes, chat with your drawings for sourced answers, build custom checks in plain English, compare versions, overlay disciplines, and close out comments - all within a single platform, with a full audit trail on every finding.\r\n\r\nFor decades, the last line of defense on a drawing set has been a red pen at the end of a deadline week. But buildings have outgrown the red pen. A modern set runs thousands of drawings, and the errors hiding between them threaten quality and safety, not just cost. What manual review misses resurfaces as RFIs, change orders, and field rework, paid for in time, margin, and reputation.\r\n\r\nStructured AI catches those errors before they leave the office, capturing the judgment of your best reviewer once and applying it everywhere.\r\n\r\nBetter drawings build a better world. #GetStructured",
+    "foundedYear": 2025,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/getstructured-ai/",
+    "founders": [
+      {
+        "name": "Raymond Zhao",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/raymondz1/",
+        "twitter": "https://x.com/stingrayzz22"
+      },
+      {
+        "name": "Issy Greenslade",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/isabelgreenslade/",
+        "twitter": "https://x.com/Green181024"
+      },
+      {
+        "name": "Brandon Abreu Smith",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/brandon-abreu-smith/",
+        "twitter": "https://x.com/brandonstarxel"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/85823"
+      }
+    ],
+    "preferredEmail": "info@getstructured.ai",
+    "emailSource": "https://getstructured.ai/",
+    "publishedEmails": [
+      {
+        "email": "info@getstructured.ai",
+        "source": "https://getstructured.ai/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://getstructured.ai/",
+      "https://getstructured.ai/about/",
+      "https://getstructured.ai/careers/",
+      "https://getstructured.ai/contact/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Diode Computers, Inc.",
+    "slug": "diode-computers-inc",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/diode-computers-inc",
+    "website": "https://diode.computer",
+    "oneLiner": "Automate circuit board design using AI",
+    "longDescription": "Diode automates circuit board design. We work with hardware companies to get them the PCBs they need, fast.",
+    "foundedYear": 2024,
+    "teamSize": 10,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/diode-inc/",
+    "founders": [
+      {
+        "name": "Davide Asnaghi",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/d-asnaghi",
+        "twitter": "https://x.com/davideasnaghi"
+      },
+      {
+        "name": "Lenny Khazan",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/lennykhazan",
+        "twitter": "https://twitter.com/LennyKhazan"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Staff Electrical Engineer",
+        "url": "https://www.workatastartup.com/jobs/84722"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.diode.computer/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Hera",
+    "slug": "hera-video",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/hera-video",
+    "website": "https://hera.video/",
+    "oneLiner": "AI Motion Designer",
+    "longDescription": "Hera is an AI motion designer that turns 5-hour projects into 5-minute tasks. \r\n\r\nWhen you're a YouTuber making an infographic animation, instead of spending hours manually clicking buttons in Adobe After Effects, you can create the same animation in minutes in Hera. \r\n\r\nThrough talking to our users, we realized that 95% of time spent on motion graphics is manual button clicking, not creative work. This insight led us to focus on automating the tedious parts while giving the user all creative control.\r\n\r\nWe launched in May 2025, got 100k waitlist signups in 8 weeks, and we're doubling revenue monthly.",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "Berlin, Germany",
+    "city": "Berlin",
+    "country": "DE",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Peter Tribelhorn",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/peter-tribelhorn-36a967142/",
+        "twitter": "https://x.com/tribelhorn23"
+      },
+      {
+        "name": "Chia-Lun Wu",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/chialunwu/",
+        "twitter": "https://x.com/leowuhera"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/80349"
+      },
+      {
+        "title": "Founding AI Engineer",
+        "url": "https://www.workatastartup.com/jobs/83656"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [
+      {
+        "email": "support@hera.video",
+        "source": "https://hera.video/",
+        "score": 45
+      },
+      {
+        "email": "support@hera.video\\",
+        "source": "https://hera.video/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://hera.video/",
+      "https://hera.video/learn-more"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Capix",
+    "slug": "capix",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/capix",
+    "website": "http://capix.ai/",
+    "oneLiner": "AI-powered private equity intelligence.",
+    "longDescription": "Capix makes finding private equity firms fast and accurate by aggregating and enriching data from multiple sources into one customizable platform.",
+    "foundedYear": 2022,
+    "teamSize": 5,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/capixai",
+    "founders": [
+      {
+        "name": "Bruno Jacob",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/bruno-jacob-40b6a9192/",
+        "twitter": "https://twitter.com/bruno_supercool"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Senior Full Stack Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/82289"
+      }
+    ],
+    "preferredEmail": "contact@capix.ai",
+    "emailSource": "https://www.capix.ai/",
+    "publishedEmails": [
+      {
+        "email": "contact@capix.ai",
+        "source": "https://www.capix.ai/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.capix.ai/",
+      "https://www.capix.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Asha Health",
+    "slug": "asha-health",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/asha-health",
+    "website": "https://asha.health",
+    "oneLiner": "We help medical practices become AI-native",
+    "longDescription": "Asha Health is building the future of self-learning generative AI for healthcare.",
+    "foundedYear": 2024,
+    "teamSize": 9,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/asha-health-ai/",
+    "founders": [
+      {
+        "name": "Akkshay Khoslaa",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/akkshay/",
+        "twitter": "https://twitter.com/akkshaykhoslaa"
+      },
+      {
+        "name": "Gokul Kumarresen",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gokul-kumarresen/",
+        "twitter": "https://x.com/GokulKumarresen"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Software Engineer, AI Agents",
+        "url": "https://www.workatastartup.com/jobs/79774"
+      }
+    ],
+    "preferredEmail": "founders@asha.health",
+    "emailSource": "https://www.asha.health/",
+    "publishedEmails": [
+      {
+        "email": "founders@asha.health",
+        "source": "https://www.asha.health/",
+        "score": 95
+      },
+      {
+        "email": "info@asha.health",
+        "source": "https://www.asha.health/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.asha.health/",
+      "https://www.asha.health/contact"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Constant",
+    "slug": "constant",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/constant",
+    "website": "https://useconstant.com",
+    "oneLiner": "AI Analysts for the Buy-Side",
+    "longDescription": "Institutional-grade AI, replicating a team of top analysts.",
+    "foundedYear": 2023,
+    "teamSize": 2,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/useconstant",
+    "founders": [
+      {
+        "name": "Ben Sender",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ben-sender-272813a4",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/79395"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.useconstant.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Photonium",
+    "slug": "photonium",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/photonium",
+    "website": "https://www.photoniumoptics.com/",
+    "oneLiner": "AI-Powered Optical Consulting & Software",
+    "longDescription": "Photonium is building software to automate optical system design. We supercharge optics experts with intelligent tooling to reduce costs and deliver faster. We handle the full design stack — from optimization, verification, sourcing, to prototyping — for AR/VR, quantum, biotech, metrology/chip fab, LiDAR, and more. ",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://linkedin.com/company/photonium-optics/",
+    "founders": [
+      {
+        "name": "Jennifer Song",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/jennifer-y-song",
+        "twitter": ""
+      },
+      {
+        "name": "Adam Mhatre",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/adam-mhatre-5b8aaa230",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding ML Engineer",
+        "url": "https://www.workatastartup.com/jobs/79020"
+      }
+    ],
+    "preferredEmail": "founders@photonium.ai",
+    "emailSource": "https://www.photoniumoptics.com/",
+    "publishedEmails": [
+      {
+        "email": "founders@photonium.ai",
+        "source": "https://www.photoniumoptics.com/",
+        "score": 95
+      }
+    ],
+    "pagesChecked": [
+      "https://www.photoniumoptics.com/",
+      "https://www.photoniumoptics.com/",
+      "https://www.photoniumoptics.com/",
+      "https://www.photoniumoptics.com/software",
+      "https://www.photoniumoptics.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Quadrant Health",
+    "slug": "quadrant-health",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/quadrant-health",
+    "website": "https://quadrant.health",
+    "oneLiner": "Analyzing EHR and messaging data to predict disease before it occurs.",
+    "longDescription": "",
+    "foundedYear": 2021,
+    "teamSize": 8,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/quadrant-health/",
+    "founders": [
+      {
+        "name": "Anin Sayana",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/anin-sayana-981189bb/",
+        "twitter": ""
+      },
+      {
+        "name": "Krishna Gorrepati",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/krishna-gorrepati/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Full Stack Engineer",
+        "url": "https://www.workatastartup.com/jobs/75116"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://quadrant.health/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Clearest Health",
+    "slug": "clearest-health",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/clearest-health",
+    "website": "https://clearesthealth.com/",
+    "oneLiner": "AI revenue recovery for underpaid healthcare claims.",
+    "longDescription": "Clearest Health is an AI-enabled revenue recovery platform for independent healthcare practices with underpaid out-of-network claims. Through verified IDR benchmarks, claim analysis, and audit-ready dispute support, Clearest helps providers strengthen No Surprises Act appeals and recover revenue that might otherwise be written off.",
+    "foundedYear": 2023,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Nicolas Raga",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/nraga/",
+        "twitter": "https://twitter.com/nicolas_raga"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/69964"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://clearesthealth.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Empirical Health",
+    "slug": "empirical-health",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/empirical-health",
+    "website": "https://empirical.health",
+    "oneLiner": "Don't die of heart disease. Empirical is the first AI-native heart…",
+    "longDescription": "Don't die of heart disease. While heart disease is the #1 killer worldwide, 80% of heart disease is preventable.\r\n\r\nEmpirical's program starts with an advanced lab test with 100+ biomarkers, including ApoB, Lp(a), inflammation, and more. Then, we help you model your lifetime risk of heart disease and generate a plan to reduce your risk to an optimal level. Then we help you achieve that plan.\r\n\r\nEmpirical is licensed, registered, and insured to deliver real medical care in 30+ US states covering 200m+ people. We're growing >25% monthly.",
+    "foundedYear": 2023,
+    "teamSize": 4,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/empiricalhealth/",
+    "founders": [
+      {
+        "name": "Brandon Ballinger",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/brandonballinger",
+        "twitter": "https://twitter.com/bballinger"
+      },
+      {
+        "name": "Raquel Rodriguez Martinez",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/raquel-rodriguez-martinez",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Design Engineer",
+        "url": "https://www.workatastartup.com/jobs/73038"
+      }
+    ],
+    "preferredEmail": "hello@empirical.health",
+    "emailSource": "https://www.empirical.health/contact",
+    "publishedEmails": [
+      {
+        "email": "hello@empirical.health",
+        "source": "https://www.empirical.health/contact",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.empirical.health/",
+      "https://www.empirical.health/contact",
+      "https://www.empirical.health/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Haven",
+    "slug": "haven-2",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/haven-2",
+    "website": "https://www.usehaven.ai/",
+    "oneLiner": "AI workforce for property management",
+    "longDescription": "Haven is building AI Agents to automate property management operations. Our first Agent is automating the maintenance coordination process. This means answering the phone when tenants have a maintenance issue, diagnosing the issue, dispatching a technician, and then following up with tenants to make sure the issue is resolved.\r\n",
+    "foundedYear": 2022,
+    "teamSize": 3,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/70684"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.usehaven.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Fractional",
+    "slug": "fractional",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/fractional",
+    "website": "https://fractional.app",
+    "oneLiner": "The place where motivated investors and entrepreneurs co-own together.",
+    "longDescription": "",
+    "foundedYear": 2021,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://linkedin.com/company/fractionalapp",
+    "founders": [
+      {
+        "name": "Stella Han",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/hanstella/",
+        "twitter": "https://twitter.com/hellastellah"
+      },
+      {
+        "name": "Carlos Treviño",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/carlos-trevino",
+        "twitter": "https://twitter.com/rlostrevino"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Staff Backend Engineer",
+        "url": "https://www.workatastartup.com/jobs/57184"
+      },
+      {
+        "title": "Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/44133"
+      },
+      {
+        "title": "Staff Frontend Engineer",
+        "url": "https://www.workatastartup.com/jobs/57183"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.fractional.app/",
+      "https://www.fractional.app/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Dots 💸",
+    "slug": "dots-2",
+    "discoveryGeography": "New York",
+    "ycUrl": "https://www.ycombinator.com/companies/dots-2",
+    "website": "https://usedots.com",
+    "oneLiner": "Developer friendly drop in payouts infrastructure",
+    "longDescription": "Dots is a developer-friendly API that lets businesses pay their contractors through just a few lines of code. Whether its gig workers like Uber drivers, sellers on marketplaces like Etsy, or simply your local handyman - Dots’ abstracts away the complexity of payouts completely. We manage the entire process: information collection (KYC), payments through any rail (ACH, Venmo, CashApp, Zelle, international, and many more to come), and even filing tax forms! Dots lets developers get payouts up and running over just a few hours, rather than the many months this would normally take.",
+    "foundedYear": 2021,
+    "teamSize": 10,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/senddots",
+    "founders": [
+      {
+        "name": "Sahil Hasan",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/sahilhasan/",
+        "twitter": "https://twitter.com/itsahil85"
+      },
+      {
+        "name": "Kartikye Mittal",
+        "title": "Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/kartikye/",
+        "twitter": "https://twitter.com/kartikyee"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Staff Software Engineer, Generalist",
+        "url": "https://www.workatastartup.com/jobs/46696"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://usedots.com/",
+      "https://usedots.com/careers/",
+      "https://usedots.com/contact-us/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Zeit AI",
+    "slug": "zeit-ai",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/zeit-ai",
+    "website": "https://zeit-ai.com/",
+    "oneLiner": "From data to enterprise insights in just a few words.",
+    "longDescription": "Zeit AI transforms your data bases and systems so that they can be queried using natural language. For example, the financial consultancy RISE, which depends heavily on Excel, uses Zeit AI to access and analyze expenses across their organization.",
+    "foundedYear": 2024,
+    "teamSize": 9,
+    "location": "",
+    "city": "",
+    "country": "",
+    "companyLinkedIn": "https://www.linkedin.com/company/103332732/",
+    "founders": [
+      {
+        "name": "Leopold von Waldthausen",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/v-waldthausen/",
+        "twitter": ""
+      },
+      {
+        "name": "Marvin Christopher Bornstein",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mcbornstein/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Backend Engineer (Infrastructure & Platform) (f/m/d)",
+        "url": "https://www.workatastartup.com/jobs/98791"
+      }
+    ],
+    "preferredEmail": "contact@zeit-ai.com",
+    "emailSource": "https://www.zeit-ai.com/",
+    "publishedEmails": [
+      {
+        "email": "contact@zeit-ai.com",
+        "source": "https://www.zeit-ai.com/",
+        "score": 85
+      },
+      {
+        "email": "careers@zeit-ai.com",
+        "source": "https://www.zeit-ai.com/careers",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://www.zeit-ai.com/",
+      "https://www.zeit-ai.com/about-us",
+      "https://www.zeit-ai.com/careers"
+    ],
+    "duplicateCompany": true,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Seeing Systems",
+    "slug": "seeing-systems",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/seeing-systems",
+    "website": "https://www.seeing-systems.com",
+    "oneLiner": "Modular AI-Commanded Drones for Defence",
+    "longDescription": "We engineer inexpensive, autonomous strike drones designed to operate in the most contested combat environments on Earth!\r\n\r\nBy combining true hardware modularity with an agentic control system that lowers cognitive load on operators, we enable faster upgrades, broader adoption, and more than 2x reduction in lifecycle cost.\r\n\r\nOur customers and partners include the UK Royal Marine Commandos, several other units in the UK, and 4 other NATO forces, and we are currently shipping prototypes for iterative feedback.\r\n\r\nThink of us as Anduril, but with worse weather, and better banter.",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/seeing-systems",
+    "founders": [
+      {
+        "name": "Matthew Le Maitre",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mattlemaitre/",
+        "twitter": ""
+      },
+      {
+        "name": "Alexander Le Maitre",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/alexander-le-maitre-a9138a159/",
+        "twitter": "https://www.x.com/Alex_10200"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Hardware Engineer",
+        "url": "https://www.workatastartup.com/jobs/94035"
+      },
+      {
+        "title": "Electrical Engineering Intern",
+        "url": "https://www.workatastartup.com/jobs/94262"
+      },
+      {
+        "title": "Software Engineering Intern",
+        "url": "https://www.workatastartup.com/jobs/94623"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.seeing-systems.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Tekton Dynamics",
+    "slug": "tekton-dynamics",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/tekton-dynamics",
+    "website": "https://www.tekton-dynamics.com",
+    "oneLiner": "AI control layer for welding robots",
+    "longDescription": "Our mission is to empower every manufacturer, no matter their scale, to invent and build anything using intelligent robots.\r\n\r\nToday’s industrial robots are fast but \"blind\". They struggle with any task that isn't perfectly repetitive. We are building the eyes and brain (a proprietary vision system and AI model) that allow industrial robots to see, reason, and perform complex work with sub-millimeter accuracy and the adaptability of a human expert.\r\n\r\nWe are witnessing the start of a new industrial revolution: an era of advanced manufacturing powered by AI and robotics. We aim to lead this shift by putting these tools into the hands of every manufacturer, ensuring the power to invent and build at scale isn’t a privilege of the few.",
+    "foundedYear": 2023,
+    "teamSize": 3,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/maihem/",
+    "founders": [
+      {
+        "name": "Max Ahrens",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/maximilianahrens",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/96216"
+      }
+    ],
+    "preferredEmail": "careers@tekton-dynamics.com",
+    "emailSource": "https://tekton-dynamics.com/",
+    "publishedEmails": [
+      {
+        "email": "careers@tekton-dynamics.com",
+        "source": "https://tekton-dynamics.com/",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://tekton-dynamics.com/",
+      "https://tekton-dynamics.com/about/",
+      "https://tekton-dynamics.com/careers/",
+      "https://tekton-dynamics.com/contact/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Parsewise",
+    "slug": "parsewise",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/parsewise",
+    "website": "https://parsewise.ai",
+    "oneLiner": "Multi-document processing for your risk teams, AI agents, pipelines",
+    "longDescription": "Parsewise provides multi-document processing and analysis that you can embed in your own product.\r\n\r\nOperations teams use our platform for oversight and control over their fleet of AI agents, and our MCP to make Claude work at scale with traceability.\r\nTech teams use our API to replace complex processing pipelines resolving values across documents.\r\n\r\nWe help customers assess complex risk at scale: manage casualty, specialty, KYC, and financial risks, so teams can act faster and defend their decisions with confidence.",
+    "foundedYear": 2024,
+    "teamSize": 6,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/parsewise",
+    "founders": [
+      {
+        "name": "Max Hofer",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mwhofer/",
+        "twitter": ""
+      },
+      {
+        "name": "Greg Csegzi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gergely-csegzi-553b1aa5",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Forward Deployed Engineer",
+        "url": "https://www.workatastartup.com/jobs/95780"
+      },
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/79985"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [
+      {
+        "email": "sales@parsewise.ai",
+        "source": "https://parsewise.ai/",
+        "score": 45
+      },
+      {
+        "email": "sales@parsewise.ai\\",
+        "source": "https://parsewise.ai/",
+        "score": 45
+      }
+    ],
+    "pagesChecked": [
+      "https://parsewise.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Combinely",
+    "slug": "combinely",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/combinely",
+    "website": "https://combinely.ai",
+    "oneLiner": "AI coworker for Accountants",
+    "longDescription": "Built by an ex-Deloitte/Google team, Combinely’s AI-coworker works like a junior on your team. It handles workflows end-to-end across your systems - for tax, audit, and accounting.",
+    "foundedYear": 2024,
+    "teamSize": 5,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/combinely",
+    "founders": [
+      {
+        "name": "Tom Invernizzi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/tominvernizzi/",
+        "twitter": "https://x.com/Tom_inv"
+      },
+      {
+        "name": "Arthur Granacher",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/arthur-granacher",
+        "twitter": "https://x.com/ArthurGranacher"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding AI Engineer (UK)",
+        "url": "https://www.workatastartup.com/jobs/95408"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [
+      {
+        "email": "security@combinely.ai",
+        "source": "https://www.combinely.ai/security",
+        "score": 10
+      }
+    ],
+    "pagesChecked": [
+      "https://www.combinely.ai/",
+      "https://www.combinely.ai/blog/burgess-hodgson",
+      "https://www.combinely.ai/security",
+      "https://www.combinely.ai/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Balance",
+    "slug": "getbalance",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/getbalance",
+    "website": "https://getbalance.ai",
+    "oneLiner": "Full-Stack AI Accounting",
+    "longDescription": "Balance is an AI accounting firm that helps SMBs close their monthly books. Our agents do the work of an in-house finance hire, reconciling books in real time and flagging issues before they become problems.",
+    "foundedYear": 2026,
+    "teamSize": 4,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/getbalanceai/v",
+    "founders": [
+      {
+        "name": "Mathias Løvring",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://www.linkedin.com/in/mathias-lovring/",
+        "twitter": "https://x.com/mathiaslovring"
+      },
+      {
+        "name": "Gus Levinson",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/gus-levinson/",
+        "twitter": ""
+      },
+      {
+        "name": "Emil Munk",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/emil-munk/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/95388"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://getbalance.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Zalos",
+    "slug": "zalos",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/zalos",
+    "website": "https://www.zalos.ai/",
+    "oneLiner": "Computer Agents for Finance tasks like reconciliation, in your system!",
+    "longDescription": "*Eliminate your Finance Operations grunt work!*\r\n⚡Computer Agent logs into existing systems (e.g., ERP, Accounting, other CFO systems)\r\n⚡Automates Finance processes (e.g., pricing, billing, month-end)\r\n⚡Uploads & submits in your system (e.g., create journal entry)\r\n\r\n*The Blockers ➜ Your Finance Systems:*\r\nFinance Operations is buried in repetitive tasks, driving:\r\n❌ Lack finance visibility for decision-making\r\n❌ Wasted time by in-house or outsourced teams\r\n❌ Mistakes and delays from human-driven processes\r\n\r\nBarriers to FinOps automation have included:\r\n🚨 Legacy ERPs with limited AI\r\n🚨 Authentication-protected websites & portals\r\n🚨 Too many Finance Systems that lack full integrations\r\n\r\nIt doesn’t have to be this way.\r\n\r\n⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻\r\n*The Breakthrough ➜ Zalos:*\r\n\r\nZalos Agents run your rule-based processes, using your existing Finance applications:\r\n⭐ Our agents automate processes based on simple instructions (e.g., Screen Recording, PDFs)\r\n⭐ Native handling of ERPs or other applications (e.g., 2FA, Captcha)\r\n⭐ Superior performance from our FinOps libraries (e.g., Data Extraction & Harmonization, Reconciliation, etc.)\r\n\r\nCustomer story:\r\nFROM: In the Bay area, a Finance Manager was wasting 8 days (!) per month:\r\n✖️ Downloads transactions from Corporate Credit Cards & legacy Banks\r\n✖️ Uploads into NetSuite and manually categorizes 100s of transactions\r\n\r\nUSING ZALOS: Finance Manager schedules ‘run process’ weekly:\r\n✔️ Zalos handles 2FA to download & submit required transactions\r\n✔️ Zalos operates NetSuite to categorize >60% outstanding transactions\r\n\r\n*\r\n\r\nNo browser required: Zalos works silently in the background, whilst continuously improving itself. \r\n\r\nGaining 2 days per week was transformational. The Finance Manager could\r\n🟪 Reduce financial risks with closer inspection (e.g., debt covenants) \r\n🟪 Catch cash leakages by spotting suppliers being paid at generous terms\r\n🟪 Be a strategic partner to the CEO & business with better analysis\r\n\r\n⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻⸻\r\nZalos transforms your Finance Operations:\r\n☑️ Scale without headcount - don’t let Operations teams be a bottleneck\r\n☑️ Smarter every day, with evals & RL-finetuning driving a self-performing system\r\n☑️ Built for Enterprise-grade security and screen records every automation for audit\r\n\r\n➡Interested? Request demo here: https://www.zalos.ai/contact-us\r\n",
+    "foundedYear": 2025,
+    "teamSize": 2,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/zalos/",
+    "founders": [
+      {
+        "name": "William Fairbairn",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/willfairbairn/",
+        "twitter": ""
+      },
+      {
+        "name": "Hung Hoang",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/hxuanhung/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/89202"
+      }
+    ],
+    "preferredEmail": "will@zalos.ai",
+    "emailSource": "https://www.zalos.ai/contact-us",
+    "publishedEmails": [
+      {
+        "email": "will@zalos.ai",
+        "source": "https://www.zalos.ai/contact-us",
+        "score": 60
+      },
+      {
+        "email": "will@zalos.ai\\",
+        "source": "https://www.zalos.ai/contact-us",
+        "score": 60
+      }
+    ],
+    "pagesChecked": [
+      "https://www.zalos.ai/",
+      "https://www.zalos.ai/careers",
+      "https://www.zalos.ai/contact-us",
+      "https://www.zalos.ai/about"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Aglide",
+    "slug": "aglide",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/aglide",
+    "website": "https://aglide.com",
+    "oneLiner": "Connect every disconnected app to your SSO.",
+    "longDescription": "Our mission is to secure access to every enterprise application.\r\n\r\nAglide SSO lets security and IT teams connect non-standard and legacy apps - from banking portals to social media logins - directly to their existing identity provider (Okta, Entra, OneLogin, Ping, etc.), with no need for app-side integration.\r\n\r\nOnce connected, these apps behave like any other IdP-managed service: policies like MFA, Conditional Access, RBAC, and audit logging just work, and end users access them through SSO only.\r\n\r\nCustomers use Aglide to secure both individual apps (e.g., legacy banking portals, Discord, Squarespace) and sensitive shared accounts (e.g., AWS root, social media). Our agentic identity technology means Aglide works with any app out of the box - no integration catalog, no custom scripting.\r\n\r\nToday, companies from public fintechs like Gemini to media companies like The Motley Fool rely on Aglide’s zero-trust, end-to-end encrypted platform to complete their identity stack.",
+    "foundedYear": 2023,
+    "teamSize": 6,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/aglide",
+    "founders": [
+      {
+        "name": "Patrick D. McGuckian",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/patrick-d-mcguckian-6b5743191",
+        "twitter": "https://twitter.com/pdmcguckian"
+      },
+      {
+        "name": "Oliver Colebourne",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/olivercolebourne",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/89175"
+      },
+      {
+        "title": "Product Security Engineer (Founding team)",
+        "url": "https://www.workatastartup.com/jobs/92535"
+      },
+      {
+        "title": "Product Engineer (Founding team)",
+        "url": "https://www.workatastartup.com/jobs/92534"
+      },
+      {
+        "title": "Forward Deployed Software Engineer (Founding team)",
+        "url": "https://www.workatastartup.com/jobs/92537"
+      }
+    ],
+    "preferredEmail": "contact@aglide.com",
+    "emailSource": "https://www.aglide.com/",
+    "publishedEmails": [
+      {
+        "email": "contact@aglide.com",
+        "source": "https://www.aglide.com/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.aglide.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "QFEX",
+    "slug": "qfex",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/qfex",
+    "website": "https://qfex.com",
+    "oneLiner": "24/7 Global Stock Exchange",
+    "longDescription": "QFEX is the 24/7 exchange for traditional financial markets.\r\n\r\nWe let you trade US equities, commodities and FX pairs with (or without) leverages of up to 100x. On QFEX, UX comes first: brokerless market access, seamless integration with traditional payment rails, and ultra-efficient Perpetual Futures offered over all asset classes. Trading has never been simpler, cheaper or fairer than with QFEX.\r\n\r\nFounded by Quants and Engineers from Citadel & Tower Research who saw an opportunity to make markets how they always should have been, QFEX will eventually replace the entire $100 billion exchange and clearing industry.",
+    "foundedYear": 2025,
+    "teamSize": 10,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/qfex",
+    "founders": [
+      {
+        "name": "Annanay Kapila",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/annanay-kapila/",
+        "twitter": "https://x.com/annanay"
+      },
+      {
+        "name": "Joshua Wharton",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/joshua-wharton/",
+        "twitter": "https://x.com/joshuawharton"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Backend Engineer",
+        "url": "https://www.workatastartup.com/jobs/88980"
+      },
+      {
+        "title": "Research Engineer",
+        "url": "https://www.workatastartup.com/jobs/76806"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.qfex.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Smooth",
+    "slug": "smooth",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/smooth",
+    "website": "https://smooth.sh",
+    "oneLiner": "Fast, simple, reliable AI browser agent",
+    "longDescription": "Smooth is an AI browser agent that can perform actions autonomously on the web using mouse and keyboard. It’s the most reliable browser agent yet, while also being 5 times faster, and 7 times cheaper than any other browser agent on the market.\r\n\r\n",
+    "foundedYear": 2024,
+    "teamSize": 2,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/circlemindai",
+    "founders": [
+      {
+        "name": "Antonio Vespoli",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/antonio-vespoli-895727121",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Software Engineer",
+        "url": "https://www.workatastartup.com/jobs/84118"
+      }
+    ],
+    "preferredEmail": "contact@circlemind.co",
+    "emailSource": "https://www.smooth.sh/",
+    "publishedEmails": [
+      {
+        "email": "contact@circlemind.co",
+        "source": "https://www.smooth.sh/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.smooth.sh/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Upsolve AI",
+    "slug": "upsolve-ai",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/upsolve-ai",
+    "website": "https://upsolve.ai/",
+    "oneLiner": "Deploy trustworthy data agent that know your business",
+    "longDescription": "Upsolve AI is the analytics platform for deploying governed, grounded, and trustworthy data agents that know your business. Data teams use Upsolve's Agent Studio to get to AI-ready data foundations fast, unify and curate their context layer, and test, tune and monitor their Upsolve Data Agent to their benchmark. The company is founded by Ka Ling Wu and Serguei Balanovich, who built a similar product at Palantir before (featured in Palantir's S-1), growing it to 50+ enterprise customers and 8-figures of annual revenue in 2 years.",
+    "foundedYear": 2023,
+    "teamSize": 5,
+    "location": "",
+    "city": "",
+    "country": "",
+    "companyLinkedIn": "https://www.linkedin.com/company/upsolveai/",
+    "founders": [
+      {
+        "name": "Ka Ling Wu",
+        "title": "Co-Founder & CEO",
+        "linkedin": "https://linkedin.com/in/wukaling",
+        "twitter": "https://twitter.com/wukaling"
+      },
+      {
+        "name": "Serguei Balanovich",
+        "title": "Founder & CTO",
+        "linkedin": "https://linkedin.com/in/sbalanovich",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding AI Engineer",
+        "url": "https://www.workatastartup.com/jobs/82224"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://upsolve.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Leeroo",
+    "slug": "leeroo",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/leeroo",
+    "website": "https://www.leeroo.com/",
+    "oneLiner": "Organizational Superintelligence",
+    "longDescription": "An AI that continuously learns your organization’s knowledge and expert playbooks, uses experimentation, and with human approval ships data & AI programs and their operational UIs on your existing stack.",
+    "foundedYear": null,
+    "teamSize": 3,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/leeroo",
+    "founders": [
+      {
+        "name": "Alireza Mohammadshahi",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/alireza-mohammadshahi/",
+        "twitter": "https://twitter.com/alireza_mshi"
+      },
+      {
+        "name": "Majid Yazdani",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/majid-yazdani-a9032011",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/81393"
+      },
+      {
+        "title": "Research Scientist Intern – PhD (AI Agentic Systems)",
+        "url": "https://www.workatastartup.com/jobs/79062"
+      }
+    ],
+    "preferredEmail": "founders@leeroo.com",
+    "emailSource": "https://leeroo.com/contact-us/",
+    "publishedEmails": [
+      {
+        "email": "founders@leeroo.com",
+        "source": "https://leeroo.com/contact-us/",
+        "score": 95
+      },
+      {
+        "email": "hiring@leeroo.com",
+        "source": "https://leeroo.com/",
+        "score": 75
+      }
+    ],
+    "pagesChecked": [
+      "https://leeroo.com/",
+      "https://leeroo.com/contact-us/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Autumn",
+    "slug": "autumn",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/autumn",
+    "website": "https://useautumn.com",
+    "oneLiner": "Billing infrastructure for AI",
+    "longDescription": "Autumn is open-source infrastructure over Stripe that allows AI startups to build their pricing plans quickly, and flexibly. We act as your app's DB and manage who's paying for what, track usage and manage customer feature access.\r\n\r\nYC companies use us because we make it easy to handle common pricing models like usage-based, credits, subscriptions, rollovers and more in 3 functions and no webhooks. \r\n\r\nAs you scale, you get reliable billing, that you can change however you want without wrangling code (we handle versioning, migrations etc), and manage custom pricing too. Everything you could down the line (credits, multiple subscription groups, rollovers, referral program, usage analytics, centralized team billing etc), you can drop in at any point. ",
+    "foundedYear": 2025,
+    "teamSize": 5,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/useautumn",
+    "founders": [
+      {
+        "name": "Ayush Rodrigues",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/ayushro/",
+        "twitter": "https://x.com/ay_ushr"
+      },
+      {
+        "name": "John Yeo",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/johnyeocx",
+        "twitter": "https://x.com/johnyeo_"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/81271"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://useautumn.com/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Menza",
+    "slug": "menza",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/menza",
+    "website": "https://menza.ai/",
+    "oneLiner": "The AI data analyst for consumer brands",
+    "longDescription": "Menza is the AI data analyst for consumer brands. A brand like Hershey’s would connect all of their data sources and then we give them an AI analyst that works 24/7 looking for revenue opportunities, cost leaks, trends and anomalies.",
+    "foundedYear": 2023,
+    "teamSize": 3,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/menzaai",
+    "founders": [
+      {
+        "name": "Qasim Munye",
+        "title": "Founder",
+        "linkedin": "https://linkedin.com/in/qasim-munye-3b363a160",
+        "twitter": "https://twitter.com/qasimmunye"
+      },
+      {
+        "name": "Mariam Ahmed",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/mariamaahmed/",
+        "twitter": "https://twitter.com/RealMariamAhmed"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Software Development Engineer",
+        "url": "https://www.workatastartup.com/jobs/80220"
+      }
+    ],
+    "preferredEmail": "info@menza.ai",
+    "emailSource": "https://menza.ai/",
+    "publishedEmails": [
+      {
+        "email": "info@menza.ai",
+        "source": "https://menza.ai/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://menza.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "cubic",
+    "slug": "cubic",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/cubic",
+    "website": "https://cubic.dev/",
+    "oneLiner": "AI-powered code review platform",
+    "longDescription": "Code review is a major bottleneck for software teams, and the rise of AI-generated code is making the problem worse. Reviewing large volumes of code slows devs down, and increases the chances of bugs slipping through.\r\n\r\nThat's why we're building cubic: an intelligent code review platform that helps devs merge PRs 28% faster.\r\n\r\nHow? \r\n- When you open a PR, cubic automatically reviews it. It learns from your codebase's patterns, points out bugs, suggesting fixes, and frees you from low-level review tasks.\r\n- You then jump into the cubic platform, which is designed to optimize how humans review code. For example, file changes are organized in a logical order instead of alphabetical, and cubic generates diagrams of architecture changes.",
+    "foundedYear": 2025,
+    "teamSize": 3,
+    "location": "London, United Kingdom",
+    "city": "London",
+    "country": "GB",
+    "companyLinkedIn": "https://www.linkedin.com/company/cubic-dev/",
+    "founders": [
+      {
+        "name": "Paul Sanglé-Ferrière",
+        "title": "Founder & CEO",
+        "linkedin": "https://linkedin.com/in/paulsf",
+        "twitter": "https://x.com/NeuralPaul"
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Product Engineer @ cubic (YC X25)",
+        "url": "https://www.workatastartup.com/jobs/77373"
+      }
+    ],
+    "preferredEmail": "contact@cubic.dev",
+    "emailSource": "https://www.cubic.dev/",
+    "publishedEmails": [
+      {
+        "email": "contact@cubic.dev",
+        "source": "https://www.cubic.dev/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.cubic.dev/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "MorphoAI",
+    "slug": "morphoai",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/morphoai",
+    "website": "https://morpho.ai/",
+    "oneLiner": "Software tool for designing robots and machines ",
+    "longDescription": "We're building an AI powered platform for engineers that are building new robots and machines. \r\n\r\nWe allow users to invent and modify machine designs in a matter of minutes, not years. Ayna and Andy, the co-founders, met during their time at Harvard and started this in 2024 as their programs were wrapping up. We're commercializing 10+ years research done by our team at Harvard and MIT on this space. Our team wrote the very first papers on applying GenAI and optimization algorithms to compose robots from parts and applying computational design to fine tune machine designs. We're bringing in our deep knowledge of modifying equipment and integrating it into factories keenly understanding what makes hardware hard. \r\n\r\nWe take in parts under consideration, constraints and tasks at hand and our algorithm formulates and fine tunes from 100s of possible design options. All in a few clicks, so engineers can push hardware to market faster and companies can benefit from the inventions being done by their R&D teams. We already have two paying customers in the OEM and system integrator spaces. \r\n\r\nWe are venture backed and supported by a GBP 2.5MM grant by ARIA, the UK Government's invention agency. ",
+    "foundedYear": 2024,
+    "teamSize": 7,
+    "location": "New York City, NY",
+    "city": "New York City",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/morphoai/?viewAsMember=true",
+    "founders": [
+      {
+        "name": "Ayna Arora",
+        "title": "Founder + CEO",
+        "linkedin": "https://www.linkedin.com/in/aynaarora/",
+        "twitter": ""
+      },
+      {
+        "name": "Andrew Spielberg",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/andrew-spielberg-82073926a/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Founding Engineer",
+        "url": "https://www.workatastartup.com/jobs/76272"
+      }
+    ],
+    "preferredEmail": "hello@morpho.ai",
+    "emailSource": "https://www.morpho.ai/",
+    "publishedEmails": [
+      {
+        "email": "hello@morpho.ai",
+        "source": "https://www.morpho.ai/",
+        "score": 85
+      }
+    ],
+    "pagesChecked": [
+      "https://www.morpho.ai/"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Legionfarm",
+    "slug": "legionfarm",
+    "discoveryGeography": "London",
+    "ycUrl": "https://www.ycombinator.com/companies/legionfarm",
+    "website": "https://legionfarm.com/",
+    "oneLiner": "AI workspace for professional gamers",
+    "longDescription": "LegionFarm is the world's top AI-powered marketplace for gamers to hire elite pros (top 1%) for coaching, carry and companionship services in AAA games like WoW, Destiny 2, CoD, and Apex Legends. Founded in 2016, YC-backed (W20) with $17.8M from Twitch founders and investors, we've served 250k+ customers via two web platforms and five bots, creating 10k+ jobs for Pros worldwide.\r\n\r\nWe turn gaming hobbies into careers, delivering global entertainment and esports impact. Since 2023, our LLM-driven automation replaced 100+ ops roles, with an AI workspace featuring smart agents, real-time feedback, evals, and community fine-tuning for peak pro efficiency.",
+    "foundedYear": 2016,
+    "teamSize": 7,
+    "location": "San Francisco",
+    "city": "San Francisco",
+    "country": "US",
+    "companyLinkedIn": "",
+    "founders": [
+      {
+        "name": "Aleksei Beliankin-Bauer",
+        "title": "Founder",
+        "linkedin": "https://www.linkedin.com/in/aleksei-beliankin-bauer/",
+        "twitter": "https://x.com/ABeliankin"
+      }
+    ],
+    "roles": [
+      {
+        "title": "AI Product Engineer",
+        "url": "https://www.workatastartup.com/jobs/71028"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://lfcarry.com/",
+      "https://lfcarry.com/destiny-2-lfg",
+      "https://lfcarry.com/d2/join-as-pro",
+      "https://lfcarry.com/?openChat=1"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  },
+  {
+    "name": "Perspectives Health",
+    "slug": "perspectives-health",
+    "discoveryGeography": "Chicago",
+    "ycUrl": "https://www.ycombinator.com/companies/perspectives-health",
+    "website": "https://perspectiveshealth.ai/",
+    "oneLiner": "Automating away admin for behavioral health clinics",
+    "longDescription": "America is facing an addiction and mental health crisis. We're building a suite of AI agents to automate away the tasks that occupy half of the time and resources of behavioral health clinics—documentation, compliance, audits, utilization review, and more.",
+    "foundedYear": 2024,
+    "teamSize": 5,
+    "location": "Chicago, IL",
+    "city": "Chicago",
+    "country": "US",
+    "companyLinkedIn": "https://www.linkedin.com/company/perspectives-health/",
+    "founders": [
+      {
+        "name": "Eshan Dosani",
+        "title": "CEO/Co-founder",
+        "linkedin": "https://www.linkedin.com/in/eshan-dosani/",
+        "twitter": "https://x.com/EshanDosani"
+      },
+      {
+        "name": "Kyle Jung",
+        "title": "CTO, Co-Founder",
+        "linkedin": "https://www.linkedin.com/in/kyle-hyun-woo-jung-a06814180/",
+        "twitter": ""
+      }
+    ],
+    "roles": [
+      {
+        "title": "Senior Engineer",
+        "url": "https://www.workatastartup.com/jobs/95909"
+      }
+    ],
+    "preferredEmail": "",
+    "emailSource": "",
+    "publishedEmails": [],
+    "pagesChecked": [
+      "https://www.perspectiveshealth.ai/",
+      "https://www.perspectiveshealth.ai/careers",
+      "https://www.perspectiveshealth.ai/careers/ur-consultant"
+    ],
+    "duplicateCompany": false,
+    "duplicateRecipient": false,
+    "ycPageVerified": true
+  }
+]

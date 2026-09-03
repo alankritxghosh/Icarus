@@ -1,0 +1,22 @@
+{
+  "models": [
+    {
+      "title": "Llama 3.1 70B (Groq)",
+      "provider": "groq",
+      "model": "llama3-70b-8192",
+      "apiKey": "${GROQ_API_KEY}"
+    },
+    {
+      "title": "Gemma 2 9B (Groq)",
+      "provider": "groq",
+      "model": "gemma2-9b-it",
+      "apiKey": "${GROQ_API_KEY}"
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Gemma 2 9B (Groq)",
+    "provider": "groq",
+    "model": "gemma2-9b-it",
+    "apiKey": "${GROQ_API_KEY}"
+  }
+}

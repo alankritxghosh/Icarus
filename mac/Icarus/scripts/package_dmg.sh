@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Build a distributable Icarus.dmg: the release .app (ad-hoc signed) stamped with
-# the hosted brain URL, plus a drag-to-Applications layout and first-open notes.
+# Build an Icarus.dmg stamped with the hosted brain URL. Local builds may remain
+# self/ad-hoc signed; a final-user build sets ICARUS_CODESIGN_IDENTITY to an
+# exact Developer ID Application identity and ICARUS_NOTARY_PROFILE to a
+# notarytool Keychain profile. ICARUS_REQUIRE_DEVELOPER_ID=1 and
+# ICARUS_REQUIRE_NOTARIZATION=1 turn either missing prerequisite into a hard
+# failure rather than an alpha artifact.
 #
 # Usage:
 #   ICARUS_BRAIN_URL=https://your-brain.example scripts/package_dmg.sh
@@ -8,8 +12,8 @@
 # Without ICARUS_BRAIN_URL the app falls back to the LOCAL brain (127.0.0.1:8000)
 # — only useful for a local test build, not for sharing.
 #
-# NOT notarized (no paid Apple Developer ID): recipients take a one-time Gatekeeper
-# step — see the bundled "READ ME FIRST.txt" and docs/DISTRIBUTION.md.
+# Notarization credentials are read only from the named Keychain profile; this
+# script never accepts an Apple password or API private key on argv.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."          # mac/Icarus
@@ -17,10 +21,11 @@ ROOT="$(pwd)"
 APP="Icarus.app"
 PLIST="${APP}/Contents/Info.plist"
 DMG="Icarus.dmg"
+ENTITLEMENTS="${ROOT}/Icarus.entitlements"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Icarus-Info.plist 2>/dev/null || echo 0.1.0)"
 VOLNAME="Icarus ${VERSION}"
 
-# 1) Build + assemble + ad-hoc sign the release .app.
+# 1) Build + assemble + sign the release .app.
 "${ROOT}/scripts/bundle.sh"
 
 # 2) Stamp the hosted brain URL and the update feed into the bundle's
@@ -78,10 +83,19 @@ if [ -n "${NEEDS_RESIGN}" ]; then
     # Re-sign with the SAME identity bundle.sh used. Re-signing ad-hoc here
     # would silently undo a stable certificate and hand every user another
     # Keychain prompt -- the exact problem make_signing_cert.sh exists to fix.
-    IDENTITY="Icarus Self-Signed"
-    if security find-certificate -c "${IDENTITY}" >/dev/null 2>&1; then
+    IDENTITY="${ICARUS_CODESIGN_IDENTITY:-Icarus Self-Signed}"
+    if [ -n "${ICARUS_CODESIGN_IDENTITY:-}" ]; then
+        security find-identity -v -p codesigning \
+            | grep -Fq "\"${IDENTITY}\"" || {
+                echo "error: requested code-signing identity is unavailable: ${IDENTITY}" >&2
+                exit 1
+            }
         echo "==> re-signing after Info.plist edit (${IDENTITY})"
-        codesign --force --sign "${IDENTITY}" "${APP}"
+        codesign --force --options runtime --timestamp --entitlements "${ENTITLEMENTS}" --sign "${IDENTITY}" "${APP}"
+    elif security find-certificate -c "${IDENTITY}" >/dev/null 2>&1; then
+        echo "==> re-signing after Info.plist edit (${IDENTITY})"
+        codesign --force --options runtime --entitlements "${ENTITLEMENTS}" --sign "${IDENTITY}" "${APP}" 2>/dev/null \
+            || codesign --force --sign "${IDENTITY}" "${APP}"
     else
         echo "==> re-signing after Info.plist edit (ad-hoc)"
         codesign --force --deep --sign - "${APP}"
@@ -104,6 +118,10 @@ fi
 # overridden, which is where the decision belongs.
 AUTHORITY="$(codesign -dv --verbose=2 "${APP}" 2>&1 \
     | sed -n 's/^Authority=//p' | head -1)"
+DEVELOPER_ID_SIGNED=""
+if [[ "${AUTHORITY}" == "Developer ID Application:"* ]]; then
+    DEVELOPER_ID_SIGNED=1
+fi
 if [ -n "${AUTHORITY}" ]; then
     echo "==> signing identity: ${AUTHORITY}"
 else
@@ -115,12 +133,31 @@ else
     echo "    Run mac/Icarus/scripts/make_signing_cert.sh once to fix this." >&2
     echo "" >&2
 fi
+if [ "${ICARUS_REQUIRE_DEVELOPER_ID:-0}" = "1" ] \
+   && [ -z "${DEVELOPER_ID_SIGNED}" ]; then
+    echo "error: final-user packaging requires a Developer ID Application signature" >&2
+    exit 1
+fi
 
 # 3) Stage a drag-to-Applications layout + a first-open README, then build the DMG.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "${STAGE}"' EXIT
 cp -R "${APP}" "${STAGE}/"
 ln -s /Applications "${STAGE}/Applications"
+if [ -n "${DEVELOPER_ID_SIGNED}" ]; then
+cat > "${STAGE}/READ ME FIRST.txt" <<'TXT'
+Icarus — installation
+=====================
+
+1. Drag Icarus onto the Applications folder shown next to it.
+2. Open Icarus from Applications.
+3. Sign in with GitHub, connect a repository, then press Command-Shift-I to
+   type a question or hold the Right Option key to speak.
+
+Answers include clickable GitHub receipts, or an honest "no one wrote this
+down" when the reason was never recorded.
+TXT
+else
 cat > "${STAGE}/READ ME FIRST.txt" <<'TXT'
 Icarus — first-open instructions
 ================================
@@ -146,19 +183,33 @@ simonw/llm), then press Command-Shift-I anywhere and type a question — or hold
 the Right Option key and speak it. Answers come with clickable GitHub receipts,
 or an honest "no one wrote this down" when the reason was never recorded.
 TXT
+fi
 
 rm -f "${DMG}"
 hdiutil create -volname "${VOLNAME}" -srcfolder "${STAGE}" -ov -format UDZO "${DMG}"
 
+# 4) Optional final-user notarization. Apple requires a Developer ID signature,
+# hardened runtime and timestamp before submission. `--wait` makes a rejected
+# submission fail this build; stapling makes the ticket travel with the DMG.
+if [ -n "${ICARUS_NOTARY_PROFILE:-}" ]; then
+    [ -n "${DEVELOPER_ID_SIGNED}" ] || {
+        echo "error: notarization requires a Developer ID Application signature" >&2
+        exit 1
+    }
+    echo "==> submitting ${DMG} for Apple notarization"
+    xcrun notarytool submit "${DMG}" \
+        --keychain-profile "${ICARUS_NOTARY_PROFILE}" --wait
+    xcrun stapler staple "${DMG}"
+    xcrun stapler validate "${DMG}"
+    spctl -a -vv -t open --context context:primary-signature "${DMG}"
+elif [ "${ICARUS_REQUIRE_NOTARIZATION:-0}" = "1" ]; then
+    echo "error: final-user packaging requires ICARUS_NOTARY_PROFILE" >&2
+    exit 1
+fi
+
 echo "==> done: ${ROOT}/${DMG}"
-echo "    share this file. Recipients follow the bundled READ ME FIRST.txt."
-echo
-echo "    To publish it, do NOT copy it across by hand — this image's SHA-256 is"
-echo "    pinned in four places across two repos (install.sh, index.html, and the"
-echo "    Homebrew cask's sha256 + version), and each one refuses or misreports a"
-echo "    build that doesn't match. Run site/'s release script instead:"
-echo "        \"${ROOT}/../../site/release-dmg.sh\" ${ROOT}/${DMG}"
-echo "    which restamps all four (site/ is jarvis_engineering's deploy source of"
-echo "    truth, see site/release-dmg.sh's header). It needs the tap checked out"
-echo "    two directories up (or \$ICARUS_TAP_DIR set), and refuses to publish"
-echo "    without it rather than leaving 'brew install' on the previous build."
+echo "    Verify independently before promotion:"
+echo "        \"${ROOT}/scripts/verify_distribution.sh\" \"${ROOT}/${DMG}\""
+echo "    Then follow docs/LAUNCH_CANARY.md Gate 6. The retired"
+echo "    site/release-dmg.sh targets the old alpha/Vercel asset path and must not"
+echo "    be used for the current GitHub Releases distribution."

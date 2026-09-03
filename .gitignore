@@ -21,6 +21,7 @@ venv/
 
 # Node / macOS app builds (added as those phases begin)
 node_modules/
+**/node_modules
 dist/
 build/
 
@@ -51,3 +52,11 @@ outputs/*/*.ndjson
 # macOS + Python noise
 .DS_Store
 __pycache__/
+.vercel
+.env*.local
+
+# Launch video raw material — screen-recording takes and scratch frames.
+# The composition source, final renders, thumbnails and PH gallery images ARE
+# tracked; the multi-hundred-MB raw takes and per-frame extracts are not.
+brag-output-*/recordings/
+brag-output-*/vframes/

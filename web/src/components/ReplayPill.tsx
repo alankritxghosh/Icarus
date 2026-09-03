@@ -52,8 +52,6 @@ export default function ReplayPill() {
     const timers: ReturnType<typeof setTimeout>[] = [];
     const at = (ms: number, fn: () => void) => timers.push(setTimeout(fn, ms));
 
-    setTyped("");
-    setPhase("typing");
     const q = scene.q;
     for (let c = 0; c <= q.length; c++) {
       at(28 * c, () => !cancelled && setTyped(q.slice(0, c)));
@@ -61,9 +59,12 @@ export default function ReplayPill() {
     const typeMs = 28 * q.length;
     at(typeMs + 220, () => setPhase("listening"));
     at(typeMs + 1250, () => setPhase("answer"));
-    at(typeMs + 1250 + (scene.refuse ? 4200 : 6400), () =>
-      setI((n) => (n + 1) % SCENES.length),
-    );
+    at(typeMs + 1250 + (scene.refuse ? 4200 : 6400), () => {
+      if (cancelled) return;
+      setTyped("");
+      setPhase("typing");
+      setI((n) => (n + 1) % SCENES.length);
+    });
 
     return () => { cancelled = true; timers.forEach(clearTimeout); };
   }, [i, scene.q, scene.refuse]);

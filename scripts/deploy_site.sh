@@ -19,13 +19,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASE=${ICARUS_SITE_URL:-https://icarus-website-kappa.vercel.app}
+RUN_TMP=$(mktemp -d)
+BUILD_LOG="$RUN_TMP/build.log"
+VERCEL_LOG="$RUN_TMP/vercel.log"
+DOWNLOAD_TMP="$RUN_TMP/Icarus.dmg"
+trap 'rm -rf "${RUN_TMP:?}"' EXIT
 
 echo "==> release check"
 python3 scripts/check_release.py
 
 echo "==> build"
-if ! ( cd web && npm run build >/tmp/icarus_site_build.log 2>&1 ); then
-  echo "  ✗  next build failed:"; tail -30 /tmp/icarus_site_build.log; exit 1
+if ! ( cd web && npm run build >"$BUILD_LOG" 2>&1 ); then
+  echo "  ✗  next build failed:"; tail -30 "$BUILD_LOG"; exit 1
 fi
 echo "  ok  next build"
 
@@ -34,10 +39,10 @@ echo "  ok  next build"
 # the output stopped -- while the site kept serving the previous build and
 # looked fine. Capture it, and show it when it fails.
 echo "==> deploy"
-if ! ( cd web && vercel --prod --yes >/tmp/icarus_vercel.log 2>&1 ); then
-  echo "  ✗  vercel --prod failed:"; tail -30 /tmp/icarus_vercel.log; exit 1
+if ! ( cd web && vercel --prod --yes >"$VERCEL_LOG" 2>&1 ); then
+  echo "  ✗  vercel --prod failed:"; tail -30 "$VERCEL_LOG"; exit 1
 fi
-echo "  ok  vercel --prod  ($(grep -o 'https://[^ ]*vercel.app' /tmp/icarus_vercel.log | tail -1))"
+echo "  ok  vercel --prod  ($(grep -o 'https://[^ ]*vercel.app' "$VERCEL_LOG" | tail -1))"
 
 echo "==> verify live: $BASE"
 fail=0
@@ -53,11 +58,10 @@ fi
 # release. Follow it and check the bytes that actually arrive, because a
 # redirect that resolves to the wrong file looks identical to one that works.
 expected_sha=$(python3 -c 'import json;print(json.load(open("release.json"))["dmg"]["sha256"])')
-tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
-code=$(curl -sL -m 300 -o "$tmp" -w '%{http_code}' "$BASE/Icarus.dmg")
-got=$(shasum -a 256 "$tmp" | cut -d' ' -f1)
+code=$(curl -sL -m 300 -o "$DOWNLOAD_TMP" -w '%{http_code}' "$BASE/Icarus.dmg")
+got=$(shasum -a 256 "$DOWNLOAD_TMP" | cut -d' ' -f1)
 if [ "$code" = "200" ] && [ "$got" = "$expected_sha" ]; then
-  echo "  ok  /Icarus.dmg redirect -> release  ($(wc -c < "$tmp") bytes, sha matches)"
+  echo "  ok  /Icarus.dmg redirect -> release  ($(wc -c < "$DOWNLOAD_TMP") bytes, sha matches)"
 else
   echo "  ✗  /Icarus.dmg  http=$code sha=${got:0:12}… expected=${expected_sha:0:12}…"
   fail=1

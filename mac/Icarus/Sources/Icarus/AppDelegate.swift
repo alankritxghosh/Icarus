@@ -14,9 +14,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// source of truth. Persists across launches — sign in once per device — and the
     /// BrainClient reads it to authorize /ask and /connect. Sign out deletes it.
     private let tokenStore: TokenStore = KeychainTokenStore()
-    /// Auth (web GitHub login) + repo connection, shared by the shell and overlay.
-    private lazy var auth = AuthModel(store: tokenStore, client: BrainClient(base: AppConfig.brainBaseURL), webAuth: AppleWebAuth())
-    private lazy var connect = ConnectModel(client: AppConfig.client())
+    /// Auth (web GitHub login) + repo connection, shared by the shell and overlay
+    /// -- and, since 2026-09-02, the Settings scene. Not `private`: `IcarusApp`'s
+    /// `Settings { }` scene is a separate SwiftUI Scene body that needs the SAME
+    /// instances (via `@NSApplicationDelegateAdaptor`'s `appDelegate` proxy), not
+    /// a second, divergent `AuthModel`/`ConnectModel` that could disagree with
+    /// the main window about whether the user is signed in.
+    lazy var auth = AuthModel(store: tokenStore, client: BrainClient(base: AppConfig.brainBaseURL), webAuth: AppleWebAuth())
+    lazy var connect = ConnectModel(client: AppConfig.client())
     /// Voice-in: real-time on-device streaming via Apple's Speech framework.
     private lazy var voice = VoiceModel(recognizer: AppleSpeechRecognizer())
     /// Durations only, in memory: proves the shipped voice loop against Phase 3's
@@ -25,10 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The real in-session ask record, shared by the overlay (which records into it)
     /// and the shell window (which displays it).
     private let history = AskHistory()
-    private lazy var status = StatusModel(client: AppConfig.client())
+    /// Not `private` for the same reason as `auth`/`connect` above -- shared
+    /// with the Settings scene.
+    lazy var status = StatusModel(client: AppConfig.client())
     /// The repo's SHARED ask ledger — what the whole TEAM asked, which is a
     /// different (and far more useful) thing than `history`'s per-session list.
     private lazy var ledger = LedgerModel(client: AppConfig.client())
+    /// Atomic coding-agent recommendations awaiting explicit human confirmation.
+    private lazy var decisions = DecisionInboxModel(client: AppConfig.client())
     /// "What changed since you were last here" -- fetched once per connected
     /// repo, never polled (see BriefingModel).
     private lazy var briefing = BriefingModel(client: AppConfig.client())
@@ -48,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var shell = MainWindowController {
         ShellView(auth: self.auth, connect: self.connect,
                   history: self.history, status: self.status, ledger: self.ledger,
+                  decisions: self.decisions,
                   briefing: self.briefing, investigation: self.investigation,
                   onTryQuestion: { [weak self] in self?.overlay.toggle() })
     }
@@ -59,12 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ⌘⇧I ask overlay. (Setup is folded into the shell's Home gate; Q&A stays
         // an overlay.)
         NSApp.setActivationPolicy(.regular)
-        // Theme's palette is dark, and AppKit does NOT take its cue from it: the
-        // traffic lights, ProgressView spinners, the TextField caret, Divider,
-        // and every scroller stay light until the app's appearance says
-        // otherwise. Without this line a fully dark app looks broken rather than
-        // dark, which is worse than either.
-        NSApp.appearance = NSAppearance(named: .darkAqua)
+        // Keep AppKit chrome and native controls on the same persisted appearance
+        // as Theme's SwiftUI tokens from the first window onward.
+        ThemeState.shared.applyNativeAppearance()
         NSApp.applicationIconImage = IconArt.appIcon()   // the wings, in the Dock
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

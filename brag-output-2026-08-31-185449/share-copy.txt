@@ -1,0 +1,34 @@
+SHARE COPY — Icarus brag video
+================================
+
+--- X / Twitter ---
+Most dev tools brag about how much code they write.
+Icarus brags about what it refuses to say.
+
+Ask your codebase *why* — get the receipt, or an honest "no one wrote this down."
+
+Live today.
+
+
+--- LinkedIn ---
+Every engineering tool right now is measured by how much it generates.
+
+Icarus is the opposite bet. Point it at a GitHub repo, ask why the code is the
+way it is, and it answers from the repo's own pull requests and reviews — with
+the evidence on screen. When no one ever wrote the reason down, it says so
+instead of inventing a plausible story. That refusal is enforced in code.
+
+Launching today.
+
+
+--- Discord / Slack ---
+made a 20s thing for the Icarus launch. it's a video about a tool that,
+when it doesn't know, says "no one wrote this down" instead of guessing 👇
+
+
+--- alt text (accessibility) ---
+A 21-second dark-themed launch video for Icarus. Serif and monospace text on
+near-black. Beats: "Code shows what exists. Not why." → the Icarus wing mark
+and wordmark → a real code question answered with a green "pr:1442" citation
+chip → the same UI returning an amber "No one wrote this down." → "Your coding
+agent reads git. Icarus reads the rest." → the mark, "alpha, live today."

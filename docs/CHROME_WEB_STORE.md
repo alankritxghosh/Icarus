@@ -192,8 +192,9 @@ What leaves the backend
 
 To compose an answer, the backend sends the retrieved evidence to a third-party
 language model provider (Google, on a billing-enabled tier that does not train
-on submitted content). Your code is not used to train any model, and is
-discarded after the request.
+on submitted content). Your code is not used to train any model. Google may
+retain prompts and responses for limited abuse monitoring unless zero-data-
+retention has been approved for the production project.
 
 What is never done
 
@@ -202,8 +203,10 @@ never pooled with another's.
 
 Deleting your data
 
-Disconnecting a repository in Icarus deletes that repository's index from the
-backend. Questions: ayushghosh2015@gmail.com.
+Disconnecting removes your personal connection and visit state. A repository's
+shared index, confirmed decisions, and question ledger remain as the team's
+durable project memory for other authorized collaborators. Project-level
+deletion currently requires contacting ayushghosh2015@gmail.com.
 ```
 
 ---

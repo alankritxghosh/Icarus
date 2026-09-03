@@ -10,9 +10,11 @@ import IcarusKit
 /// machine).
 ///
 /// The GitHub credential never leaves this process. Every brain call carries a
-/// short-lived, read-only, route-scoped agent session minted the same way
+/// short-lived, route-scoped agent session minted the same way
 /// `--agent-session` mints one for the Python adapter -- deliberately NOT the
-/// Keychain token, so a bug here cannot widen what an agent can reach.
+/// Keychain token. It can read context and append one bounded decision
+/// candidate/no-decision acknowledgement; it cannot confirm intent or mutate
+/// GitHub, so a bug here cannot widen what an agent can reach.
 enum McpCommand {
     static var requested: Bool {
         CommandLine.arguments.dropFirst().contains("--mcp")
@@ -163,7 +165,7 @@ enum McpCommand {
                     await cache.invalidate()
                     continue
                 }
-                guard code == 200 else {
+                guard (200...299).contains(code) else {
                     throw McpServer.ToolError(Self.message(forStatus: code))
                 }
                 guard let parsed = try JSONSerialization.jsonObject(with: data)

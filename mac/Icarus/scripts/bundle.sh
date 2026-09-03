@@ -9,7 +9,10 @@
 # Usage:  scripts/bundle.sh            # release build -> mac/Icarus/Icarus.app
 #         open Icarus.app              # launch it (or double-click in Finder)
 #
-# Not for distribution: ad-hoc signature, no hardened runtime, no notarization.
+# By default this remains a local/self-signed build. Set
+# ICARUS_CODESIGN_IDENTITY to an exact "Developer ID Application: ..." identity
+# for a distribution candidate; an explicitly requested identity never falls
+# back silently.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."          # mac/Icarus
@@ -18,6 +21,7 @@ CONFIG="release"
 BUILD_DIR=".build/${CONFIG}"
 APP="Icarus.app"
 CONTENTS="${APP}/Contents"
+ENTITLEMENTS="${ROOT}/Icarus.entitlements"
 
 echo "==> swift build -c ${CONFIG}"
 swift build -c "${CONFIG}"
@@ -83,7 +87,8 @@ if [ -n "${EXTERNAL}" ]; then
     echo "${EXTERNAL}" >&2
 fi
 
-# Sign with the STABLE self-signed identity when it exists, else ad-hoc.
+# Sign with an explicitly requested Developer ID, else the stable self-signed
+# identity when it exists, else ad-hoc.
 #
 # Ad-hoc signatures have no certificate, so macOS derives the designated
 # requirement from the binary's own hash -- which changes on every build, so
@@ -95,13 +100,20 @@ fi
 # not "valid" to `security find-identity -p codesigning` (it has no trusted
 # anchor) even though `codesign` will happily sign with it. So we try, and
 # fall back -- a fresh clone or CI with no certificate still builds.
-IDENTITY="Icarus Self-Signed"
+IDENTITY="${ICARUS_CODESIGN_IDENTITY:-Icarus Self-Signed}"
+EXPLICIT_IDENTITY="${ICARUS_CODESIGN_IDENTITY:+1}"
 
 # Sign nested code before the app that contains it -- an outer signature seals
 # the inner ones, so signing the app first would immediately invalidate it.
 sign_one() {
-    codesign --force --options runtime --sign "$1" "$2" 2>/dev/null \
-        || codesign --force --sign "$1" "$2" 2>/dev/null
+    if [[ "$1" == "Developer ID Application:"* ]]; then
+        # Apple's notarization prerequisites: Developer ID, hardened runtime,
+        # and a trusted timestamp on every executable bundle.
+        codesign --force --options runtime --timestamp --entitlements "${ENTITLEMENTS}" --sign "$1" "$2"
+    else
+        codesign --force --options runtime --entitlements "${ENTITLEMENTS}" --sign "$1" "$2" 2>/dev/null \
+            || codesign --force --sign "$1" "$2" 2>/dev/null
+    fi
 }
 sign_nested() {
     [ -d "${CONTENTS}/Frameworks/Sparkle.framework" ] || return 0
@@ -111,8 +123,17 @@ sign_nested() {
     sign_one "$1" "${CONTENTS}/Frameworks/Sparkle.framework"
 }
 
-if security find-certificate -c "${IDENTITY}" >/dev/null 2>&1 \
-   && sign_nested "${IDENTITY}" && codesign --force --sign "${IDENTITY}" "${APP}" 2>/dev/null; then
+if [ -n "${EXPLICIT_IDENTITY}" ]; then
+    security find-identity -v -p codesigning \
+        | grep -Fq "\"${IDENTITY}\"" || {
+            echo "error: requested code-signing identity is unavailable: ${IDENTITY}" >&2
+            exit 1
+        }
+    sign_nested "${IDENTITY}"
+    sign_one "${IDENTITY}" "${APP}"
+    echo "==> signed with '${IDENTITY}' (Developer ID candidate)"
+elif security find-certificate -c "${IDENTITY}" >/dev/null 2>&1 \
+   && sign_nested "${IDENTITY}" && sign_one "${IDENTITY}" "${APP}"; then
     echo "==> signed with '${IDENTITY}' (stable designated requirement)"
 else
     echo "==> ad-hoc code signing (no '${IDENTITY}' certificate found)"
@@ -122,6 +143,9 @@ else
     codesign --force --deep --sign - "${APP}"
 fi
 codesign --verify --verbose "${APP}"
+if [ -n "${EXPLICIT_IDENTITY}" ]; then
+    codesign --verify --deep --strict --verbose=2 "${APP}"
+fi
 codesign -d -r- "${APP}" 2>&1 | tail -1
 
 echo "==> done: ${ROOT}/${APP}"

@@ -330,3 +330,49 @@ influence was advisory (a warning, correct but about PRs that turned out not to
 be refusals), task 2 is invalid, and only task 3 shows the tool supplying a
 fact — merged precedent #1588 — that measurably shaped the work and that the
 agent would not otherwise have had.
+
+---
+
+## Correction 2026-08-25: the four tasks ran in ONE session, not four
+
+Appended, not edited. Found while auditing every project for tool availability
+after 7b/7c/7d were invalidated (see
+`2026-08-25-agent-mode-7d-repo-vs-harness.md`).
+
+**First, what survives, because it is the load-bearing part:** this run's session
+genuinely HELD the Icarus tools and genuinely called them four times, unprompted
+and transcript-verified. Under the new availability check it reports
+`1 sessions, 1 held the tool, 1 of those undirected; 1 of those called Icarus
+(4 calls total)`. Experiment C's baseline sessions held the tool too, so the
+0/11 baseline is sound. **The calls are real and the comparison against the
+baseline stands.**
+
+**What does not survive is the independence of the four.** This plan's own
+*What would make this run invalid* section says:
+
+> Reusing a session across tasks (each task gets a fresh session, or the first
+> task's tool use contaminates the rest).
+
+There is exactly **one** transcript file for this experiment, and all four task
+prompts are inside it, one Icarus call under each:
+
+    distinct user prompts: 4
+    icarus calls per task-position: {1: 1, 2: 1, 3: 1, 4: 1}
+
+Every other run in this dataset writes one file per invocation, so one file is
+one session. The condition the plan named as invalidating is what happened.
+
+**Honest restatement, to be used everywhere "4 of 4" currently appears:**
+
+> In one continuous session, an agent called Icarus on each of four consecutive
+> tasks. The first was unprimed; the other three followed a call that had just
+> paid off.
+
+Still a real result, still the strongest evidence Agent Mode has, and a weaker
+claim than the one in circulation. The number was not wrong — its independence
+was assumed rather than checked, by the run that wrote the rule against
+assuming it.
+
+**Re-running C2 with four genuinely fresh sessions is now the highest-value
+Agent Mode experiment**, ahead of any new repository, because everything else is
+calibrated against this number.
