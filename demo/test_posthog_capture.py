@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest import mock
 
-from .posthog_capture import capture, repo_key
+from .posthog_capture import capture, repo_key, subject_key
 
 
 class _Resp(io.BytesIO):
@@ -37,8 +37,11 @@ class CaptureTests(unittest.TestCase):
             captured["content_type"] = request.get_header("Content-type")
             return _Resp(b"")
 
-        thread = capture("question_asked", "user-1", {"surface": "mcp"},
-                          opener=opener, token="phc_test")
+        with mock.patch.dict(
+                os.environ, {"ICARUS_ANALYTICS_SALT": "test-salt"}, clear=False):
+            expected_subject = subject_key("user-1")
+            thread = capture("question_asked", "user-1", {"surface": "mcp"},
+                             opener=opener, token="phc_test")
         thread.join(timeout=2)
 
         self.assertTrue(captured["url"].endswith("/i/v0/e/"))
@@ -46,7 +49,7 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(captured["body"], {
             "api_key": "phc_test",
             "event": "question_asked",
-            "distinct_id": "user-1",
+            "distinct_id": expected_subject,
             "properties": {"surface": "mcp"},
         })
 
@@ -58,6 +61,31 @@ class CaptureTests(unittest.TestCase):
             return _Resp(b"")
 
         capture("ev", None, token="phc_test", opener=opener).join(timeout=2)
+        self.assertEqual(captured["body"]["distinct_id"], "anonymous")
+
+    def test_plaintext_github_identity_never_leaves_in_analytics(self):
+        captured = {}
+
+        def opener(request, timeout):
+            captured["body"] = json.loads(request.data)
+            return _Resp(b"")
+
+        with mock.patch.dict(
+                os.environ, {"ICARUS_ANALYTICS_SALT": "test-salt"}, clear=False):
+            capture("ev", "12345678", token="phc_test", opener=opener).join(2)
+        self.assertNotEqual(captured["body"]["distinct_id"], "12345678")
+        self.assertNotIn("12345678", json.dumps(captured["body"]))
+
+    def test_no_salt_makes_identity_anonymous_instead_of_leaking_it(self):
+        captured = {}
+
+        def opener(request, timeout):
+            captured["body"] = json.loads(request.data)
+            return _Resp(b"")
+
+        with mock.patch.dict(
+                os.environ, {"ICARUS_ANALYTICS_SALT": ""}, clear=False):
+            capture("ev", "12345678", token="phc_test", opener=opener).join(2)
         self.assertEqual(captured["body"]["distinct_id"], "anonymous")
 
     def test_opener_failure_never_raises(self):

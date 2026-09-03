@@ -46,6 +46,16 @@ final class ConnectModel {
     /// which is not evidence of failure (see `refreshConnected`).
     private(set) var refreshError: String?
 
+    /// The exact text that last failed the owner/name check, or nil.
+    ///
+    /// Held so `repoInputEdited()` can clear a VALIDATION failure without
+    /// touching any other one. `.failed` also carries server refusals ("the
+    /// brain could not read that repository") and `.lost` describes a
+    /// connection the server really did drop -- both stay true no matter what
+    /// the user types next, and wiping them on a keystroke would hide a real
+    /// problem behind an empty field.
+    private var invalidInput: String?
+
     private let client: BrainClient
     private let saved: SavedConnection
     private var task: Task<Void, Never>?
@@ -75,14 +85,36 @@ final class ConnectModel {
     func connect() {
         let repo = repoInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard repo.range(of: Self.repoPattern, options: .regularExpression) != nil else {
+            invalidInput = repo
             state = .failed("Enter a repository as owner/name, e.g. simonw/llm.")
             return
         }
+        invalidInput = nil
         task?.cancel()
         indexingPhase = nil
         indexingProgressLine = nil
         state = .connecting(repo)
         task = Task { await run(repo: repo) }
+    }
+
+    /// The user edited the repo field.
+    ///
+    /// Clears the "enter a repository as owner/name" message once the text is
+    /// no longer the text that produced it. Without this the complaint sits
+    /// under a corrected field until the next Connect -- seen live 2026-08-21
+    /// with a valid `firecrawl/firecrawl` typed in and the error still showing
+    /// from an earlier press, which reads as "this repo is rejected" when the
+    /// truth is "your previous attempt was".
+    ///
+    /// Deliberately narrow: it clears ONLY a validation failure this model
+    /// raised itself, identified by `invalidInput`. A server refusal or a
+    /// `.lost` connection is not made untrue by typing.
+    func repoInputEdited() {
+        guard let rejected = invalidInput else { return }
+        if repoInput.trimmingCharacters(in: .whitespacesAndNewlines) != rejected {
+            invalidInput = nil
+            state = .idle
+        }
     }
 
     /// Re-read the CONNECTED repo, for an index the brain reported stale.

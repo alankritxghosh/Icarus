@@ -98,6 +98,9 @@ public struct McpServer: Sendable {
             case "get_change_context": payload = try await getChangeContext(arguments)
             case "explain_code_context": payload = try await explainCodeContext(arguments)
             case "get_task_context": payload = try await getTaskContext(arguments)
+            case "record_decision_candidate":
+                payload = try await recordDecisionCandidate(arguments)
+            case "record_no_decision": payload = try await recordNoDecision(arguments)
             default:
                 return Self.response(id: id,
                                      result: Self.toolError("unknown tool: \(name ?? "")"))
@@ -199,6 +202,70 @@ public struct McpServer: Sendable {
             if !trimmed.isEmpty { body["question"] = trimmed }
         }
         let payload = try await transport("/explain", body)
+        try await confirm(payload, matches: active)
+        return payload
+    }
+
+    private func recordDecisionCandidate(
+        _ arguments: [String: Any]
+    ) async throws -> [String: Any] {
+        let allowed: Set<String> = [
+            "repo", "session_id", "decision", "rationale",
+            "alternatives", "affected_paths",
+        ]
+        let unknown = Set(arguments.keys).subtracting(allowed)
+        guard unknown.isEmpty else {
+            throw ToolError(
+                "unsupported decision candidate fields: "
+                + unknown.sorted().joined(separator: ", "))
+        }
+        let expected = try required(arguments, "repo")
+        let sessionID = try required(arguments, "session_id")
+        let decision = try required(arguments, "decision")
+        let rationale = try required(arguments, "rationale")
+        guard let alternatives = arguments["alternatives"] as? [[String: Any]],
+              (1...3).contains(alternatives.count),
+              alternatives.allSatisfy({ alternative in
+                  Set(alternative.keys) == ["decision", "rationale"]
+                    && (alternative["decision"] as? String)?.trimmingCharacters(
+                        in: .whitespacesAndNewlines).isEmpty == false
+                    && (alternative["rationale"] as? String)?.trimmingCharacters(
+                        in: .whitespacesAndNewlines).isEmpty == false
+              }) else {
+            throw ToolError("alternatives must contain one to three decision/rationale choices")
+        }
+        let paths = arguments["affected_paths"] as? [String] ?? []
+        guard paths.count <= 20 else {
+            throw ToolError("affected_paths must contain at most 20 paths")
+        }
+        let active = try await checkedRepo(expected)
+        let payload = try await transport("/agent-mode/candidates", [
+            "repo": active,
+            "session_id": sessionID,
+            "decision": decision,
+            "rationale": rationale,
+            "alternatives": alternatives,
+            "affected_paths": paths,
+        ])
+        try await confirm(payload, matches: active)
+        return payload
+    }
+
+    private func recordNoDecision(
+        _ arguments: [String: Any]
+    ) async throws -> [String: Any] {
+        let unknown = Set(arguments.keys).subtracting(["repo", "session_id"])
+        guard unknown.isEmpty else {
+            throw ToolError(
+                "unsupported no-decision fields: "
+                + unknown.sorted().joined(separator: ", "))
+        }
+        let expected = try required(arguments, "repo")
+        let sessionID = try required(arguments, "session_id")
+        let active = try await checkedRepo(expected)
+        let payload = try await transport("/agent-mode/no-decision", [
+            "repo": active, "session_id": sessionID,
+        ])
         try await confirm(payload, matches: active)
         return payload
     }

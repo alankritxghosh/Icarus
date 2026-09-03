@@ -117,7 +117,10 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
              # citing an open pull request alongside the very file that
              # contradicts it is not flagged. Absent otherwise also keeps
              # existing clients byte-identical. See evals/pipeline.py.
-             **({"rests_on_unlanded": True} if c.get("rests_on_unlanded") else {})}
+             **({"rests_on_unlanded": True} if c.get("rests_on_unlanded") else {}),
+             # Nothing cited shows this is still true at HEAD -- see
+             # evals/attempts.past_state_only.
+             **({"rests_on_past_state": True} if c.get("rests_on_past_state") else {})}
             for c in result.claims
         ]
     # Pull requests among the evidence that were CLOSED WITHOUT MERGING. Emitted
@@ -154,7 +157,10 @@ def build_payload(result: Result, repo: str, commit: str, indexing: bool = False
             {
                 "ref": ref,
                 "url": ref_to_url(ref, repo, commit),
-                "excerpt": excerpt(result.evidence.get(ref, "")),
+                # `shown` carries every ref the writer saw; `evidence` is
+                # cited-only and leaves an UNKNOWN's list textless.
+                "excerpt": excerpt(getattr(result, "shown", {}).get(ref)
+                                   or result.evidence.get(ref, "")),
             }
             for ref in result.retrieved
         ]

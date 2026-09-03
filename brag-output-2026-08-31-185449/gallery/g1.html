@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"/>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+<link rel="stylesheet" href="_base.css"/>
+<style>
+  #g1 .win{width:1000px;align-self:center;margin-top:26px}
+  #g1 .qrow{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
+  #g1 .ans{font-family:var(--mono);font-size:17px;line-height:1.7;color:#cbc6bb;margin-top:22px;max-width:760px}
+  #g1 .chips{margin-top:26px;display:flex;gap:12px;flex-wrap:wrap}
+</style></head><body>
+<div id="root" data-composition-id="root" data-width="1270" data-height="760" data-duration="1">
+  <div id="g1" style="display:contents">
+    <div class="brand"><svg viewBox="0 0 100 100"><g fill="currentColor"><path id="w" d="M49 54 Q65.73 51.58 80.98 55.12 Q65.6 55.48 49 54 Z M49 54 Q67.95 48.76 86.05 50.63 Q68.36 53.29 49 54 Z M49 54 Q69.67 45.36 90.41 44.9 Q70.79 50.44 49 54 Z M49 54 Q70.81 41.46 93.84 38.03 Q72.77 46.97 49 54 Z M49 54 Q71.25 37.16 96.13 30.19 Q74.18 42.96 49 54 Z M49 54 Q70.93 32.58 97.08 21.57 Q74.93 38.5 49 54 Z M49 54 L97.08 21.57 Q81.83 39.32 80.77 45.96 Z"/><use href="#w" transform="translate(100,0) scale(-1,1)"/><path d="M42 46 L49.3 46 L49.3 72 Z M58 46 L50.7 46 L50.7 72 Z"/></g></svg>Icarus</div>
+    <div class="eyebrow">Ask why</div>
+    <div class="head">Ask your codebase why it is the way it is.<br/>Get the reason, cited to the exact PR or line.</div>
+    <div class="win">
+      <div class="bar"><i></i><i></i><i></i><span>Icarus</span></div>
+      <div class="body">
+        <div class="qrow">
+          <div>
+            <div class="kick">ASK</div>
+            <div class="q">Why does the honesty gate fail safe to abstention?</div>
+          </div>
+          <div class="pill cited">cited</div>
+        </div>
+        <div class="ans">A deterministic heuristic. Any ambiguous case, any "why" with no recorded reason, any fabricated identifier is forced to an "unknown" verdict. An answer must be grounded in retrieved evidence.</div>
+        <div class="chips">
+          <span class="chip">code:evals/gate.py#L232-L259</span>
+          <span class="chip">code:evals/test_gate.py#L86-L125</span>
+          <span class="chip">code:evals/gate.py#L1-L44</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="vig"></div>
+  <script>const tl=gsap.timeline({paused:true});tl.set("#root",{opacity:1},0);window.__timelines={root:tl};</script>
+</div></body></html>

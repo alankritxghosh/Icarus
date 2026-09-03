@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import AppKit
+import IcarusKit
 @testable import Icarus
 
 /// The palette's conscience.
@@ -15,7 +16,24 @@ import AppKit
 /// the app actually renders, against WCAG 2.1. It is deliberately about ratios
 /// and not about hex values — it must keep passing when the palette is retuned,
 /// and fail when a retune makes something unreadable.
+///
+/// **Both appearances, not whichever happens to be active (2026-09-02).** Theme
+/// added a live Light/Dark switch (`ThemeState`), so every mode-agnostic check
+/// below runs against BOTH `AppAppearance` cases explicitly — never against
+/// whatever `ThemeState.shared.appearance` happens to hold when the test runs,
+/// which would make the suite pass or fail depending on unrelated global state.
+@MainActor
 final class ThemeContrastTests: XCTestCase {
+
+    override func tearDown() {
+        // Tests set the appearance directly; never let a non-default value leak
+        // into another test file that might render real UI. `XCTestCase`'s own
+        // `tearDown()` isn't actor-isolated (it predates Swift concurrency), but
+        // XCTest still runs it on the main thread for a `@MainActor` test class
+        // -- `assumeIsolated` asserts exactly that rather than silencing it.
+        MainActor.assumeIsolated { ThemeState.shared.appearance = .dark }
+        super.tearDown()
+    }
 
     /// WCAG relative luminance (sRGB), then the standard (L1+0.05)/(L2+0.05).
     private func luminance(_ color: Color) -> Double {
@@ -36,28 +54,37 @@ final class ThemeContrastTests: XCTestCase {
 
     /// Body text must clear AA (4.5:1) on both the page and a raised card.
     func testBodyTextClearsAAOnEverySurface() {
-        for surface in [Theme.surface, Theme.card] {
-            XCTAssertGreaterThanOrEqual(ratio(Theme.ink, on: surface), 4.5,
-                                        "primary text must clear WCAG AA")
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            for surface in [Theme.surface, Theme.card] {
+                XCTAssertGreaterThanOrEqual(ratio(Theme.ink, on: surface), 4.5,
+                                            "primary text must clear WCAG AA (\(mode))")
+            }
         }
     }
 
     /// Secondary text is still text people have to read. AA-large (3:1) is the
     /// floor — below it, "muted" has become "invisible".
     func testMutedTextClearsLargeTextFloor() {
-        for surface in [Theme.surface, Theme.card] {
-            XCTAssertGreaterThanOrEqual(ratio(Theme.muted, on: surface), 3.0,
-                                        "secondary text must stay legible, not just quiet")
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            for surface in [Theme.surface, Theme.card] {
+                XCTAssertGreaterThanOrEqual(ratio(Theme.muted, on: surface), 3.0,
+                                            "secondary text must stay legible, not just quiet (\(mode))")
+            }
         }
     }
 
     /// The two semantic tones carry the product's two verdicts. A washed-out
     /// amber on a dark card is a refusal the user cannot read.
     func testSemanticTonesAreLegible() {
-        for tone in [Theme.cited, Theme.unknown, Theme.accent] {
-            for surface in [Theme.surface, Theme.card] {
-                XCTAssertGreaterThanOrEqual(ratio(tone, on: surface), 3.0,
-                                           "a verdict tone must be readable on every surface")
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            for tone in [Theme.cited, Theme.unknown, Theme.accent] {
+                for surface in [Theme.surface, Theme.card] {
+                    XCTAssertGreaterThanOrEqual(ratio(tone, on: surface), 3.0,
+                                               "a verdict tone must be readable on every surface (\(mode))")
+                }
             }
         }
     }
@@ -69,34 +96,101 @@ final class ThemeContrastTests: XCTestCase {
     /// measures (1.29:1 on the page), which is a value already shipping and
     /// visibly present — so this asserts "still a border", not "readable text".
     func testBorderIsActuallyVisible() {
-        XCTAssertGreaterThanOrEqual(ratio(Theme.border, on: Theme.surface), 1.25)
-        XCTAssertGreaterThanOrEqual(ratio(Theme.border, on: Theme.card), 1.10)
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            XCTAssertGreaterThanOrEqual(ratio(Theme.border, on: Theme.surface), 1.25, "(\(mode))")
+            XCTAssertGreaterThanOrEqual(ratio(Theme.border, on: Theme.card), 1.10, "(\(mode))")
+        }
     }
 
-    /// The palette is dark, and several call sites still invert against it
+    /// Found live (2026-09-03): `SidebarView.swift` painted the rail with a
+    /// bare `Color(hex: 0x121216)` instead of a `Theme` token, so it stayed
+    /// dark after switching to light while the rest of the window repainted.
+    /// A same-mode contrast check wouldn't have caught this — a permanently
+    /// dark rail is STILL high-contrast against a light surface, just wrongly
+    /// so. The actual bug was that the colour never changed with the switch
+    /// at all, so that's what this asserts: `Theme.rail` (and the nav row's
+    /// `inactiveDot`, same fix) must genuinely differ between the two modes,
+    /// not just be legible in whichever one happens to be active.
+    func testRailAndInactiveDotAreActuallyAppearanceAware() {
+        ThemeState.shared.appearance = .dark
+        let darkRail = Theme.rail, darkDot = Theme.inactiveDot
+        ThemeState.shared.appearance = .light
+        let lightRail = Theme.rail, lightDot = Theme.inactiveDot
+
+        XCTAssertNotEqual(NSColor(darkRail), NSColor(lightRail),
+                          "the sidebar rail must repaint with the rest of the window")
+        XCTAssertNotEqual(NSColor(darkDot), NSColor(lightDot),
+                          "the inactive nav dot must repaint with the rest of the window")
+
+        // And each mode's pairing must still be legible where it sits, per the
+        // same tripwire testBorderIsActuallyVisible uses for the hairline.
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            XCTAssertGreaterThanOrEqual(ratio(Theme.rail, on: Theme.card), 1.02, "(\(mode))")
+        }
+    }
+
+    /// The dark palette inverts `ink`/`surface` for its filled buttons
     /// (`LightButton`, `PrimaryButton`) on the assumption that `ink` is the
-    /// bright end and `surface` the dark one. If that assumption is ever
-    /// reversed, those buttons silently become dark-on-dark.
-    func testInkIsBrighterThanSurface() {
+    /// bright end. That assumption is DARK-MODE-SPECIFIC: it is the definition
+    /// of a dark theme (bright text, dark page), and a real light theme must
+    /// invert it right back (dark text, bright page) — asserting one direction
+    /// across both modes would be self-contradictory, so each mode gets its own
+    /// test rather than a loop.
+    func testInkIsBrighterThanSurfaceInDarkMode() {
+        ThemeState.shared.appearance = .dark
         XCTAssertGreaterThan(luminance(Theme.ink), luminance(Theme.surface),
-                             "inverted controls assume ink is the bright end of the palette")
+                             "inverted controls assume ink is the bright end of the dark palette")
+    }
+
+    func testInkIsDarkerThanSurfaceInLightMode() {
+        ThemeState.shared.appearance = .light
+        XCTAssertLessThan(luminance(Theme.ink), luminance(Theme.surface),
+                          "a light palette that isn't ink-on-paper isn't actually light")
     }
 
     /// The overlay is clear glass, so its worst case is a WHITE window behind
     /// it: the panel tint is all that separates the answer text from someone
     /// else's document. This test is why `GlassPanel.alpha` is 0.65 and not the
     /// 0.55 that was chosen by eye — that value measured 3.56:1 here and failed.
+    /// Runs against both appearances: the glass tint is `Theme.surface`, which
+    /// now differs by mode.
     func testAnswerTextSurvivesGlassOverAWhiteBackdrop() {
-        let alpha = GlassPanel.alpha
-        let backdrop = NSColor.white.usingColorSpace(.sRGB)!
-        let tint = NSColor(Theme.surface).usingColorSpace(.sRGB)!
-        // Source-over composite of the panel tint onto the brightest possible backdrop.
-        let composited = Color(NSColor(
-            srgbRed: tint.redComponent   * alpha + backdrop.redComponent   * (1 - alpha),
-            green:   tint.greenComponent * alpha + backdrop.greenComponent * (1 - alpha),
-            blue:    tint.blueComponent  * alpha + backdrop.blueComponent  * (1 - alpha),
-            alpha: 1))
-        XCTAssertGreaterThanOrEqual(ratio(Theme.ink, on: composited), 4.5,
-                                    "at this alpha the overlay is unreadable over a white window")
+        for mode in [AppAppearance.dark, .light] {
+            ThemeState.shared.appearance = mode
+            let alpha = GlassPanel.alpha
+            let backdrop = NSColor.white.usingColorSpace(.sRGB)!
+            let tint = NSColor(Theme.surface).usingColorSpace(.sRGB)!
+            // Source-over composite of the panel tint onto the brightest possible backdrop.
+            let composited = Color(NSColor(
+                srgbRed: tint.redComponent   * alpha + backdrop.redComponent   * (1 - alpha),
+                green:   tint.greenComponent * alpha + backdrop.greenComponent * (1 - alpha),
+                blue:    tint.blueComponent  * alpha + backdrop.blueComponent  * (1 - alpha),
+                alpha: 1))
+            XCTAssertGreaterThanOrEqual(ratio(Theme.ink, on: composited), 4.5,
+                                        "at this alpha the overlay is unreadable over a white window (\(mode))")
+        }
+    }
+
+    func testThemeStateKeepsNativeControlsInTheSelectedAppearance() {
+        let application = NSApplication.shared
+        let originalAppearance = application.appearance
+        let defaults = UserDefaults.standard
+        let originalPreference = defaults.object(forKey: icarusAppearanceDefaultsKey)
+        defer {
+            application.appearance = originalAppearance
+            if let originalPreference {
+                defaults.set(originalPreference, forKey: icarusAppearanceDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: icarusAppearanceDefaultsKey)
+            }
+        }
+
+        let state = ThemeState(appearance: .light)
+        XCTAssertEqual(application.appearance?.name, .aqua)
+
+        state.appearance = .dark
+        XCTAssertEqual(application.appearance?.name, .darkAqua)
     }
 }

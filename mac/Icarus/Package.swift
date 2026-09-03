@@ -25,7 +25,14 @@ let package = Package(
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Sources/Icarus"
+            path: "Sources/Icarus",
+            // The three fonts the Settings/profile styling pass bundles
+            // (2026-09-02): Schibsted Grotesk (sans), Spectral (serif), JetBrains
+            // Mono (mono) — all SIL Open Font License, OFL.txt alongside each.
+            // Registered at launch via FontLoader.swift, not Info.plist's
+            // ATSApplicationFontsPath, since SwiftPM ships resources in a
+            // separately-named `.bundle`, not directly under Contents/Resources.
+            resources: [.copy("Resources/Fonts")]
         ),
         .testTarget(name: "IcarusKitTests", dependencies: ["IcarusKit"], path: "Tests/IcarusKitTests"),
         .testTarget(name: "IcarusAppTests", dependencies: ["Icarus"], path: "Tests/IcarusAppTests"),

@@ -19,9 +19,8 @@ from .registry import LibraryRegistry
 ROOT = Path(__file__).resolve().parent
 CORPUS = ROOT.parent / "evals" / "corpus" / "chunks.jsonl"
 QUESTIONS = json.loads((ROOT.parent / "evals" / "phase1_questions.json").read_text())
-# The serving path uses ONE writer now (gemini-paid) for every repo, so the live
-# guard requires that key -- a free key alone can't answer, it would 503.
-_HAS_KEY = bool(os.environ.get("GEMINI_PAID_API_KEY"))
+# The launch serving path uses ONE configured Gemini writer for every repo.
+_HAS_KEY = bool(os.environ.get("GEMINI_API_KEY"))
 
 
 def _post(base, question):
@@ -32,7 +31,7 @@ def _post(base, question):
 
 
 @unittest.skipUnless(_HAS_KEY and CORPUS.exists(),
-                     "needs a provider key (GROQ/GEMINI/OPENROUTER) and the corpus")
+                     "needs GEMINI_API_KEY and the corpus")
 class DemoLiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

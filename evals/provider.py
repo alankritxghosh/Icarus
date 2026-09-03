@@ -25,6 +25,11 @@ _RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
 # Cap a single backoff sleep. One per-minute free-tier window; named so the
 # interactive server's patience is visible and adjustable in one place.
 _MAX_BACKOFF_SECONDS = 65
+# Keep retry sleep below Azure's 240-second ingress ceiling with room for the
+# provider calls and response serialization. A request that cannot recover
+# inside this budget fails honestly instead of timing out at the proxy while a
+# writer slot remains occupied in the background.
+_MAX_TOTAL_BACKOFF_SECONDS = 90
 
 
 def _with_retry(call, retries: int = 6, base: float = 2.0):
@@ -33,6 +38,7 @@ def _with_retry(call, retries: int = 6, base: float = 2.0):
     Wait order of preference: a Retry-After header, else the `retryDelay` Gemini
     returns in its 429 body, else base*2**attempt. Capped at 65s (covers a
     per-minute window). Non-429 errors raise immediately. Unit-tested offline."""
+    total_backoff = 0.0
     for attempt in range(retries):
         try:
             return call()
@@ -42,7 +48,10 @@ def _with_retry(call, retries: int = 6, base: float = 2.0):
             wait = None
             header = e.headers.get("Retry-After") if e.headers else None
             if header:
-                wait = float(header)
+                try:
+                    wait = float(header)
+                except (TypeError, ValueError):
+                    wait = None
             else:
                 try:  # Gemini puts the delay in the body, not a header
                     m = _RETRY_DELAY.search(e.read().decode())
@@ -52,7 +61,14 @@ def _with_retry(call, retries: int = 6, base: float = 2.0):
                     pass
             if wait is None:
                 wait = base * (2 ** attempt)
-            time.sleep(min(wait, _MAX_BACKOFF_SECONDS))
+            remaining = _MAX_TOTAL_BACKOFF_SECONDS - total_backoff
+            wait = max(0.0, wait)
+            if wait > 0 and remaining <= 0:
+                raise
+            sleep_for = min(wait, _MAX_BACKOFF_SECONDS, max(0.0, remaining))
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+                total_backoff += sleep_for
 
 
 def _openai_chat(url: str, key: str, model: str, prompt: str, timeout: float) -> str:
@@ -201,30 +217,53 @@ class GeminiProvider(Provider):
 
 
 class PaidGeminiProvider(GeminiProvider):
-    """Gemini on a BILLING-ENABLED key. Billing is confirmed enabled (2026-07-04,
-    project owner); the written no-training policy link is NOT YET recorded --
-    see the open checklist item in
-    docs/plans/2026-07-04-private-repos-per-user-isolation.md before treating
-    this as a settled, audited fact. The dedicated KEY_ENV is deliberate: code
-    cannot tell a free key string from a paid one, so placing a key in
-    GEMINI_PAID_API_KEY is the operator's attestation that it is billed. Model
-    default follows the free provider; the eval board picks upgrades (Gemini 3.x
-    welcome -- verify the exact model id against the live API before changing
-    the default)."""
+    """Gemini on a BILLING-ENABLED key.
+
+    Google Gemini API Additional Terms effective 2026-03-23 say paid-service
+    prompts/responses are not used to improve Google's products:
+    https://ai.google.dev/gemini-api/terms . That is a no-training/product-
+    improvement restriction, NOT zero data retention: Google's ZDR guide says
+    limited abuse-monitoring logs remain unless ZDR is approved for the project:
+    https://ai.google.dev/gemini-api/docs/zdr . Verified 2026-08-29.
+
+    The dedicated KEY_ENV is deliberate: code cannot tell a free key string
+    from a paid one, so placing a key in GEMINI_PAID_API_KEY is the operator's
+    attestation that its Cloud Project has active billing. That project status
+    must be checked in the provider console before launch; this class flag
+    cannot prove it. Model default follows the free provider; the eval board
+    picks upgrades (verify an exact model id against the live API before
+    changing the default)."""
 
     KEY_ENV = "GEMINI_PAID_API_KEY"
+    private_safe = True
+
+
+class LaunchGeminiProvider(GeminiProvider):
+    """Gemini using the existing launch key selected by the operator.
+
+    This is not a stronger privacy claim about the key. It is an explicit
+    product-scope decision: launch serving uses the already-configured
+    `GEMINI_API_KEY`, and public copy must avoid promising paid-provider/ZDR
+    guarantees that this class cannot prove. The `private_safe` flag remains
+    the construction-time gate used by the existing private-repo pipeline; here
+    it records the accepted launch routing, not a contractual attestation.
+    """
+
+    KEY_ENV = "GEMINI_API_KEY"
     private_safe = True
 
 
 _PROVIDERS = {
     "gemini": GeminiProvider,
     "gemini-paid": PaidGeminiProvider,
+    "gemini-launch": LaunchGeminiProvider,
     "groq": GroqProvider,
     "openrouter": OpenRouterProvider,
 }
 _KEY_ENV = {
     "gemini": "GEMINI_API_KEY",
     "gemini-paid": "GEMINI_PAID_API_KEY",
+    "gemini-launch": "GEMINI_API_KEY",
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }

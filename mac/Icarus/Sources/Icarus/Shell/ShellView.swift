@@ -12,6 +12,7 @@ struct ShellView: View {
     /// The repo's SHARED ask ledger (server-side), distinct from `history`,
     /// which is this session's in-memory record only.
     let ledger: LedgerModel
+    let decisions: DecisionInboxModel
     let briefing: BriefingModel
     let investigation: InvestigationModel
     let onTryQuestion: () -> Void
@@ -48,8 +49,8 @@ struct ShellView: View {
                              briefing: briefing, onTryQuestion: onTryQuestion)
         case .startHere: OnboardingView(status: status, onTryQuestion: onTryQuestion)
         case .investigate: InvestigationView(model: investigation)
-        case .decisionHistory: DecisionHistoryView(history: history)
-        case .engineeringMemory: UnknownsView(ledger: ledger)
+        case .decisionHistory: DecisionHistoryView(decisions: decisions)
+        case .engineeringMemory: UnknownsView(ledger: ledger, decisions: decisions)
         }
     }
 }

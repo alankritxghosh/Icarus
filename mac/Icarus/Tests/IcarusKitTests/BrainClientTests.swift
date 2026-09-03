@@ -269,6 +269,77 @@ final class BrainClientTests: XCTestCase {
         }
     }
 
+    func testDecisionCandidatesDecodeAtomicChoicesWithoutSessionCorrelation() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"repo":"o/repo","candidates":[{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ts":10,"source":"claude_code","decision":"Use SQLite","rationale":"Local and simple.","alternatives":[{"decision":"Use Postgres","rationale":"Better concurrency."}],"affected_paths":["demo/index.py"],"status":"pending"}]}"#.utf8)
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        let response = try await client.decisionCandidates()
+
+        XCTAssertEqual(_CapturingProtocol.lastRequest?.url?.path, "/agent-mode/candidates")
+        XCTAssertEqual(response.repo, "o/repo")
+        XCTAssertEqual(response.candidates.first?.decision, "Use SQLite")
+        XCTAssertEqual(response.candidates.first?.alternatives.first?.decision, "Use Postgres")
+        XCTAssertEqual(response.candidates.first?.affectedPaths, ["demo/index.py"])
+    }
+
+    func testConfirmDecisionSendsAlternativeIndexAndRequiresObservedProposal() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.statusCode = 201
+        defer { _CapturingProtocol.statusCode = 200 }
+        _CapturingProtocol.body = Data(#"{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"confirmed_proposal","selection":"alternative","selected_decision":"Use Postgres","selected_rationale":"Better concurrency.","proposal":{"repo":"o/repo","decision_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","branch":"icarus/decision-aaaaaaaaaaaaaaaaaaaa","path":"docs/engineering-memory/decision.md","file_url":"https://github.com/o/repo/blob/branch/decision.md","pull_request_url":"https://github.com/o/repo/pull/42"}}"#.utf8)
+        let client = BrainClient(token: { "tok-123" }, session: stubbedSession())
+
+        let result = try await client.confirmDecision(
+            candidateID: String(repeating: "a", count: 64),
+            selection: .alternative(0)
+        )
+
+        XCTAssertEqual(_CapturingProtocol.lastRequest?.url?.path, "/agent-mode/confirm")
+        XCTAssertEqual(_CapturingProtocol.lastRequest?.httpMethod, "POST")
+        let body = try connectBody()
+        XCTAssertEqual(body["selection"] as? String, "alternative")
+        XCTAssertEqual(body["alternative_index"] as? Int, 0)
+        XCTAssertNil(body["other_text"])
+        XCTAssertEqual(result.proposal?.pullRequestURL.absoluteString,
+                       "https://github.com/o/repo/pull/42")
+    }
+
+    func testOtherConfirmationSendsOnlyTheHumansShortIntent() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.statusCode = 201
+        defer { _CapturingProtocol.statusCode = 200 }
+        _CapturingProtocol.body = Data(#"{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"confirmed_proposal","selection":"other","selected_decision":"Keep it in memory","selected_rationale":null,"proposal":{"repo":"o/repo","decision_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","branch":"icarus/decision-aaaaaaaaaaaaaaaaaaaa","path":"docs/engineering-memory/decision.md","file_url":"https://github.com/o/repo/blob/branch/decision.md","pull_request_url":"https://github.com/o/repo/pull/42"}}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+
+        _ = try await client.confirmDecision(
+            candidateID: String(repeating: "a", count: 64),
+            selection: .other("Keep it in memory")
+        )
+
+        let body = try connectBody()
+        XCTAssertEqual(body["selection"] as? String, "other")
+        XCTAssertEqual(body["other_text"] as? String, "Keep it in memory")
+        XCTAssertNil(body["rationale"])
+    }
+
+    func testNotSureIsASeparateConfirmationChoice() async throws {
+        _CapturingProtocol.lastRequest = nil
+        _CapturingProtocol.body = Data(#"{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","status":"not_sure","selection":"not_sure","selected_decision":null,"selected_rationale":null,"proposal":null}"#.utf8)
+        let client = BrainClient(session: stubbedSession())
+
+        let result = try await client.confirmDecision(
+            candidateID: String(repeating: "a", count: 64),
+            selection: .notSure
+        )
+
+        let body = try connectBody()
+        XCTAssertEqual(body["selection"] as? String, "not_sure")
+        XCTAssertNil(body["other_text"])
+        XCTAssertEqual(result.status, .notSure)
+        XCTAssertNil(result.proposal)
+    }
+
     func testExplainSendsTheSelectionForTheNativeExtensionBridge() async throws {
         _CapturingProtocol.lastRequest = nil
         _CapturingProtocol.body = Data(

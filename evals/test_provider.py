@@ -21,8 +21,11 @@ except ImportError:
     _HAS_FASTEMBED = False
 
 
-def _http(code):
-    return urllib.error.HTTPError("u", code, "x", email.message.Message(), None)
+def _http(code, retry_after=None):
+    headers = email.message.Message()
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    return urllib.error.HTTPError("u", code, "x", headers, None)
 
 
 class RetryTests(unittest.TestCase):
@@ -63,6 +66,19 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             _with_retry(call, retries=5, base=0)
         self.assertEqual(calls["n"], 1)  # no retry on non-429
+
+    def test_total_backoff_is_bounded_below_the_ingress_timeout(self):
+        calls = {"n": 0}
+
+        def call():
+            calls["n"] += 1
+            raise _http(429, retry_after=60)
+
+        with mock.patch("evals.provider.time.sleep") as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                _with_retry(call, retries=10)
+        self.assertLessEqual(sum(args[0] for args, _ in sleep.call_args_list), 90)
+        self.assertEqual(calls["n"], 3)
 
 
 class StaticProviderTests(unittest.TestCase):
@@ -180,6 +196,15 @@ class PrivateSafeFlagTests(unittest.TestCase):
             self.assertTrue(has_provider_key("gemini-paid"))
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertFalse(has_provider_key("gemini-paid"))
+
+    def test_launch_gemini_is_explicit_and_uses_existing_key(self):
+        from .provider import make_provider, has_provider_key, LaunchGeminiProvider
+        self.assertIsInstance(make_provider("gemini-launch"), LaunchGeminiProvider)
+        self.assertTrue(make_provider("gemini-launch").private_safe)
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "k"}, clear=True):
+            self.assertTrue(has_provider_key("gemini-launch"))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(has_provider_key("gemini-launch"))
 
 
 class StaticEmbeddingProviderTests(unittest.TestCase):

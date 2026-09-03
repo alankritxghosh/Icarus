@@ -7,7 +7,10 @@
 FROM python:3.12-slim
 
 # git (clone the code subtree) + gh (fetch PRs/issues via the GitHub API).
-# gh authenticates non-interactively from the GH_TOKEN env var set on the host.
+# gh authenticates public-repository bulk GraphQL calls from the GH_TOKEN env
+# var set on the host. Production must use a dedicated, least-privilege machine
+# credential here, never a founder's broad personal token. Private ingestion
+# overrides it per subprocess with the caller's request-scoped token.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates curl \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -33,9 +36,14 @@ COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --chown=user . .
 
-# Bake the embedding model and default corpus cache so runtime boots warm.
+# Do not embed the default corpus during CI image builds. The runtime already
+# publishes a lexical-ready pipeline first, then upgrades to semantic search in
+# the background; baking vectors here makes deployment depend on ONNX/fastembed
+# completing inside Docker, which can hang a runner before the image is pushed.
+#
+# Keep FASTEMBED_CACHE_PATH stable so runtime model/cache files land in the
+# image-owned app path instead of an arbitrary home cache.
 ENV FASTEMBED_CACHE_PATH=/app/.fastembed_cache
-RUN python -m demo.warm_cache
 
 # Azure injects $PORT. Production also requires the GitHub bearer gate.
 ENV HOST=0.0.0.0 \
