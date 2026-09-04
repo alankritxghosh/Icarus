@@ -38,8 +38,20 @@ echo "  ok  next build"
 # deploy failed, the script exited on `set -e`, and the only evidence was that
 # the output stopped -- while the site kept serving the previous build and
 # looked fine. Capture it, and show it when it fails.
+# Run vercel from the REPO ROOT, not from web/. The project's Root Directory
+# setting is already `web`, so the CLI appends it to the working directory: on
+# 2026-09-05 this ran inside web/, resolved web/web, and failed with "provided
+# path does not exist" AFTER a clean build and release check. The root
+# .vercelignore is root-anchored for the same reason. The project link lives in
+# web/.vercel, which is untracked and need not exist at the root of every
+# worktree, so pass the ids explicitly instead of relying on a root link.
 echo "==> deploy"
-if ! ( cd web && vercel --prod --yes >"$VERCEL_LOG" 2>&1 ); then
+LINK="web/.vercel/project.json"
+[ -f "$LINK" ] || { echo "  ✗  $LINK missing — run 'vercel link' in web/ first"; exit 1; }
+VERCEL_ORG_ID=$(python3 -c "import json;print(json.load(open('$LINK'))['orgId'])")
+VERCEL_PROJECT_ID=$(python3 -c "import json;print(json.load(open('$LINK'))['projectId'])")
+export VERCEL_ORG_ID VERCEL_PROJECT_ID
+if ! vercel --prod --yes >"$VERCEL_LOG" 2>&1; then
   echo "  ✗  vercel --prod failed:"; tail -30 "$VERCEL_LOG"; exit 1
 fi
 echo "  ok  vercel --prod  ($(grep -o 'https://[^ ]*vercel.app' "$VERCEL_LOG" | tail -1))"
