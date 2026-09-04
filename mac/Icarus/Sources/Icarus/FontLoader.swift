@@ -13,7 +13,14 @@ import AppKit
 /// — a font that didn't ship must degrade quietly, never crash launch.
 enum FontLoader {
     static func registerBundledFonts() {
-        guard let dir = Bundle.module.url(forResource: "Fonts", withExtension: nil) else { return }
+        // Bundle.module traps if its resource bundle is absent. Fonts are
+        // optional, so resolve the packaged or SwiftPM-adjacent bundle safely.
+        let roots = [Bundle.main.bundleURL, Bundle.main.resourceURL,
+                     Bundle.main.executableURL?.deletingLastPathComponent()]
+        guard let bundle = roots.compactMap({ $0 }).compactMap({
+            Bundle(url: $0.appendingPathComponent("Icarus_Icarus.bundle"))
+        }).first,
+              let dir = bundle.url(forResource: "Fonts", withExtension: nil) else { return }
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         for url in files where url.pathExtension.lowercased() == "ttf" {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)

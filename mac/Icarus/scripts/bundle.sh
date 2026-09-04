@@ -26,6 +26,21 @@ ENTITLEMENTS="${ROOT}/Icarus.entitlements"
 echo "==> swift build -c ${CONFIG}"
 swift build -c "${CONFIG}"
 
+# SwiftPM assumes resource bundles sit at Bundle.main.bundleURL. macOS signed
+# apps must keep them in Contents/Resources instead (root bundles fail signing).
+# Adapt the generated accessors, including KeyboardShortcuts, before packaging.
+ACCESSOR_COUNT=0
+while IFS= read -r accessor; do
+    sed -i '' 's/Bundle.main.bundleURL.appendingPathComponent/(Bundle.main.resourceURL ?? Bundle.main.bundleURL).appendingPathComponent/g' "$accessor"
+    grep -Fq '(Bundle.main.resourceURL ?? Bundle.main.bundleURL).appendingPathComponent' "$accessor" || {
+        echo "error: SwiftPM resource accessor format changed; review packaging" >&2
+        exit 1
+    }
+    ACCESSOR_COUNT=$((ACCESSOR_COUNT + 1))
+done < <(find .build -path "*/${CONFIG}/*/DerivedSources/resource_bundle_accessor.swift" -type f)
+[ "$ACCESSOR_COUNT" -gt 0 ] || { echo "error: no SwiftPM resource accessors found" >&2; exit 1; }
+swift build -c "${CONFIG}"
+
 BIN="${BUILD_DIR}/Icarus"
 [ -x "${BIN}" ] || { echo "error: ${BIN} not found — did the build succeed?" >&2; exit 1; }
 
@@ -71,7 +86,7 @@ iconutil -c icns -o "${CONTENTS}/Resources/AppIcon.icns" "${ICONSET_DIR}"
 rm -rf "$(dirname "${ICONSET_DIR}")"
 
 # SwiftPM emits per-target resource bundles (e.g. KeyboardShortcuts localizations,
-# later WhisperKit assets). Bundle.module resolves them from the app's Resources.
+# later WhisperKit assets). The adapted accessors resolve Contents/Resources.
 shopt -s nullglob
 for b in "${BUILD_DIR}"/*.bundle; do
     echo "    + resource bundle $(basename "$b")"

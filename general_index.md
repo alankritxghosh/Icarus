@@ -1838,7 +1838,9 @@ claim. A negative result is kept exactly like a positive one.
 - `mac/Icarus/Icarus-Info.plist` — bundle Info.plist (mic + speech usage strings)
   assembled into `Icarus.app` for TCC.
 - `mac/Icarus/scripts/bundle.sh` — wraps the SwiftPM binary into a signed
-  `Icarus.app` (required for microphone access). Local builds use the existing
+  `Icarus.app` (required for microphone access). Adapts SwiftPM resource
+  accessors to Contents/Resources before rebuilding, so installed apps do not
+  depend on build-directory bundles. Local builds use the existing
   self-signed/ad-hoc fallback; final-user candidates provide an exact
   `ICARUS_CODESIGN_IDENTITY`, which is required to exist and is applied with
   hardened runtime plus a trusted timestamp when it is a Developer ID identity.
