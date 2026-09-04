@@ -7,6 +7,7 @@ final class _CapturingProtocol: URLProtocol {
     nonisolated(unsafe) static var lastRequest: URLRequest?
     nonisolated(unsafe) static var body = Data("{}".utf8)
     nonisolated(unsafe) static var statusCode = 200
+    nonisolated(unsafe) static var responseHeaders: [String: String]? = nil
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -14,7 +15,7 @@ final class _CapturingProtocol: URLProtocol {
     override func startLoading() {
         Self.lastRequest = request
         let resp = HTTPURLResponse(url: request.url!, statusCode: Self.statusCode,
-                                   httpVersion: nil, headerFields: nil)!
+                                   httpVersion: nil, headerFields: Self.responseHeaders)!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Self.body)
         client?.urlProtocolDidFinishLoading(self)
@@ -30,6 +31,29 @@ final class _ShareFlag: @unchecked Sendable {
 }
 
 final class BrainClientTests: XCTestCase {
+    func testDecisionRateLimitUsesServerRetryWindow() async throws {
+        _CapturingProtocol.statusCode = 429
+        _CapturingProtocol.responseHeaders = ["Retry-After": "1801"]
+        defer {
+            _CapturingProtocol.statusCode = 200
+            _CapturingProtocol.responseHeaders = nil
+        }
+        let client = BrainClient(session: stubbedSession())
+        do {
+            _ = try await client.confirmDecision(candidateID: "candidate", selection: .other("Keep it private"))
+            XCTFail("A rejected write must remain an error")
+        } catch let error as BrainError {
+            XCTAssertEqual(error.userMessage, "Too many decision proposals. Try again in 31 minutes.")
+        }
+        _CapturingProtocol.responseHeaders = nil
+        do {
+            _ = try await client.recordEngineeringMemory(gapID: "gap", rationale: "A reason")
+            XCTFail("A rejected write must remain an error")
+        } catch let error as BrainError {
+            XCTAssertEqual(error.userMessage, "Too many decision proposals. Try again later.")
+        }
+    }
+
     private func stubbedSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [_CapturingProtocol.self]

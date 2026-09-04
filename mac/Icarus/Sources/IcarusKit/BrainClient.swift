@@ -13,6 +13,7 @@ public enum BrainError: Error, Equatable, Sendable {
     case unauthorized       // 401 — signed out, or the token was rejected
     case forbidden          // 403 — this GitHub account can't read that repo (or it's private)
     case rateLimited        // 429 — too many requests from this identity
+    case memoryRateLimited(retryAfter: Int?)
     /// 429 on a request that asked to RE-READ the repository. Same status code,
     /// different budget: the ordinary connect allowance clears in about a
     /// minute, the refresh allowance is 2 per hour (demo/server.py), because a
@@ -35,6 +36,12 @@ public enum BrainError: Error, Equatable, Sendable {
             return "That repo doesn't exist, or your GitHub account can't read it."
         case .rateLimited:
             return "Too many attempts in a row. Wait a minute, then try again."
+        case .memoryRateLimited(let seconds):
+            guard let seconds, seconds > 0 else {
+                return "Too many decision proposals. Try again later."
+            }
+            let minutes = seconds / 60 + (seconds % 60 == 0 ? 0 : 1)
+            return "Too many decision proposals. Try again in \(minutes) \(minutes == 1 ? "minute" : "minutes")."
         case .refreshRateLimited:
             return "Icarus re-reads a whole repository on a refresh, so it allows a couple an hour. Try again later."
         case .server(let code):
@@ -351,7 +358,8 @@ public struct BrainClient: Sendable {
             switch http.statusCode {
             case 401: throw BrainError.unauthorized
             case 403: throw BrainError.forbidden
-            case 429: throw BrainError.rateLimited
+            case 429: throw BrainError.memoryRateLimited(
+                retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init))
             default:
                 struct FailureBody: Decodable {
                     let error: String?
@@ -431,7 +439,8 @@ public struct BrainClient: Sendable {
             switch http.statusCode {
             case 401: throw BrainError.unauthorized
             case 403: throw BrainError.forbidden
-            case 429: throw BrainError.rateLimited
+            case 429: throw BrainError.memoryRateLimited(
+                retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(Int.init))
             default:
                 struct FailureBody: Decodable {
                     let error: String?

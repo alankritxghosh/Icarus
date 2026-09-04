@@ -104,7 +104,7 @@ enum ExtensionBridgeCommand {
                 return failure(status: 401, error.userMessage)
             case .forbidden:
                 return failure(status: 403, error.userMessage)
-            case .rateLimited, .refreshRateLimited:
+            case .rateLimited, .refreshRateLimited, .memoryRateLimited:
                 return failure(status: 429, error.userMessage)
             case .server(let status):
                 return failure(status: status, error.userMessage)
