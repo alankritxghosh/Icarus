@@ -2125,12 +2125,30 @@ claim. A negative result is kept exactly like a positive one.
   abstention, and opens with the writer-free `/map` overview (files, languages,
   folders, documentation, and where to start reading with each rule's reason).
   Back/Next plus "Ask your own question", which needs no session to return from.
-- `ShellSurfaces.swift` — Decision history plus the Engineering Memory surface:
-  observable open/proposed/recurring/resolved gaps, honest load failure, and the
-  structured “Record engineering memory” reviewed-proposal sheet. Proposed
-  gaps link to the existing pull request and cannot create another. The prior
-  Ask-by-voice and Privacy-boundary navigation sections were removed; underlying
-  voice and privacy enforcement remain elsewhere.
+- `ShellSurfaces.swift` — the Engineering Memory surface (Decision history moved
+  to `DecisionGraphView.swift`, 2026-09-04): observable open/proposed/recurring/
+  resolved gaps, honest load failure, and the structured “Record engineering
+  memory” reviewed-proposal sheet. Proposed gaps link to the existing pull
+  request and cannot create another. The prior Ask-by-voice and Privacy-boundary
+  navigation sections were removed; underlying voice and privacy enforcement
+  remain elsewhere.
+- `DecisionGraphView.swift` — Decision history as a force-directed graph, ported
+  from the web app's `DecisionGraph.tsx` (2026-09-03) to native SwiftUI: same
+  edge rule (two decisions sharing an `affected_paths` entry) and status
+  colors, no new data path or confirm logic — reuses the SAME
+  `DecisionInboxModel` every other Agent Mode surface uses for both pending
+  candidates and confirmed decisions. Node hit-testing and dragging use real
+  overlaid SwiftUI views (tap-to-select, drag-to-reposition) rather than manual
+  Canvas math; edges are drawn on a `Canvas` underneath. The simulation
+  (repulsion + spring edges + center gravity) runs via `Timer.publish` and
+  self-stops after ~4s once settled rather than redrawing forever. Tapping a
+  node opens a detail panel reusing the exact Accept/Reject/confirm path
+  `AgentModeInboxView`'s cards use for pending candidates, or the citation/PR
+  link for confirmed ones — no duplicated confirm logic. Verified live against
+  the real deployed brain (not just compiled): real data renders, node
+  selection and the detail panel both work, Accept/Reject buttons reach the
+  real confirm endpoint (not clicked, to avoid triggering a real GitHub PR
+  during verification).
 - `InvestigationModel.swift` — runs an investigation for the Investigate
   surface. Holds NO conversational state: the server owns what "it" refers to
   (`demo/investigations.py`), so every client resolves references the same way
