@@ -44,14 +44,13 @@ const nextConfig: NextConfig = {
     // Every /Icarus.dmg link already in the wild -- cold emails, the old site,
     // an appcast an installed copy cached weeks ago -- has to keep resolving.
     // The binary now lives in GitHub Releases, so these forward rather than
-    // 404. Permanent redirects, because the destination is versioned and
-    // stable; the site simply stops being a file host.
+    // 404. These aliases change on each release, so redirects are temporary.
     return [
-      { source: "/Icarus.dmg", destination: release.url, permanent: true },
+      { source: "/Icarus.dmg", destination: release.url, permanent: false },
       {
         source: "/icarus-extension.zip",
         destination: `${release.assets_base}/${release.extension.name}`,
-        permanent: true,
+        permanent: false,
       },
     ];
   },

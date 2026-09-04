@@ -174,6 +174,11 @@ export function Install() {
       title="Four steps, about two minutes."
       lede="Heads up: macOS may say this app is malware. It is not. We just have not paid for Apple notarization yet (it is an alpha). The verified checksum is below, and the one-time fix takes about ten seconds."
     >
+      <p className="mb-6 rounded-xl border border-sun/40 bg-sun/5 p-5 text-sm text-ink">
+        <strong>App quitting on launch?</strong> Download Icarus {VERSION} below
+        and drag it into Applications, choosing Replace. You can do this without
+        opening the old app. This release fixes the startup crash in the recent update.
+      </p>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {INSTALL.map(([n, h, p], i) => (
           <Reveal key={n} delay={i * 0.06}>
